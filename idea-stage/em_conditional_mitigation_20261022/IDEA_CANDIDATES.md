@@ -8,11 +8,11 @@
 
 ## 当前选择
 
-- Reviewer 调用：`14 / 14`（预算用尽）
-- 当前选中 Idea：`IDEA-018`
-- 当前自评分：`7.7/10`
-- 选择理由：见 IDEA-018 条目。
-- 状态：`blocked_max_reviewer_calls`——IDEA-018 首审 8.1、复核 7.0，Gate 未通过；见 PIVOT_OR_STOP.md
+- Reviewer 调用：`14 / 34`（2026-10-28 用户追加 20 次）
+- 当前选中 Idea：`IDEA-019`
+- 当前自评分：`8.0/10`
+- 选择理由：池中自评最高的 available 候选；它修掉 Call 14 的 fatal（Claim 3 泄漏混淆）以及 Call 13/14 的全部非阻断意见，保留两位 reviewer 都判为新颖的问题。其余 available 候选（IDEA-007 6.6、IDEA-014 5.8 等）都已被判为增量方向。
+- 状态：`selected`
 
 ## 候选列表
 
@@ -358,3 +358,25 @@
 - 一段话概括：Claim 与实验对象不变。判定只用两个量：cue 句基座修补对 broad cue 效应的削减 r_cue，以及它与同提示等长中性句修补削减之差 d（配对 bootstrap CI），按 r_cue 区间 × d 是否显著穷尽地划分 H-pos / 部分 H-pos / 非特异 / H-read；postfix 只按 Piggyback 的空 query 提取方式作参照、不进判定；Claim 3 在 logit 尺度比较相对降幅以避开 EM-only 63–73% 的天花板；订正引用细节。
 - 打分理由：修掉 Call 12 的两条 fatal；新颖性判断三次审查一致（分析型贡献，方法沿用 Piggyback），这是分数上限的主要来源。
 - Reviewer 记录：`Call 13（常规，Opus high）：8.1/10，experiment_ready，无 fatal blocker，最高近邻 Piggyback 2606.06667、ContextLift 2610.21633、2604.25891、Oozeer et al. 2503.04429、Su et al. 2601.23081`。首轮通过，但预算用尽、未复核。非阻断意见：(1) “只有行为与数据层解释”改为“没有位置级因果证据”（Su et al. 2601.23081 有 persona 表示层解释；Piggyback 的 query 修补是“增益更小且不稳定”而非“不能恢复”）；(2) 后置中性句处于下游位置，H-read 下会让 d 偏小，主分析只用前置中性句或前后分开报告；(3) bootstrap 按 cue 句与基础题聚类重采样，security 的 cue 效应仅约 15pp，r_cue 方差大。；`Call 14（复核，Opus xhigh）：7.0/10，promising_needs_revision，最高近邻同 Call 13，另补 2608.29118、Lasnier 2602.10382`。fatal：Claim 3 的 broad cue 失配只按提示分类、未在回答层区分“对 cue 话题给窄域坏建议”与广泛失配，TReFT 按设计把行为绑定到 query 领域语义，故 Claim 3 的支持结果可由预期内的窄域行为产生。另：H-read 只能间接推出（无正向检验）；Claim 2 一半是复现；背景措辞不准（Su et al.、2608.29118 已有表示层解释；交织后无 cue 失配为 1.9/2.9/5.6% 而非 1–2%）。复核未通过，Gate 未过。
+
+---
+
+> 2026-10-28 用户追加 20 次 reviewer 预算（总预算 34）。改进者核对 ContextLift 原文：附录 A 的 74–90%"回答情境句而非原问题"只统计 ContextLift 臂、未按 B 类细分；通用交织臂的 17.0/35.9/52.4% 中泄漏与广泛各占多少未报告。`residual_cued.py` 用逐 cue 关键词判断"是否涉及 cue 自身话题"，可用于任意臂的自有 generations。Piggyback 原文：query KV 修补"增益更小且不稳定"；Qwen3-8B 上 prefix 修补无效；把"用户 query 中的特征可能也是载体"列为未来工作。
+
+### IDEA-019：条件失配的位置级因果判别（回答层分解泄漏/广泛，H-pos 与 H-read 都有正面判据）与 TReFT 的广泛→条件转化
+
+- 来源：`领域共性不足`
+- 父 Idea：`IDEA-018`
+- 状态：`selected`
+- 定位关键词：emergent misalignment；conditional misalignment；chat template tokens；activation patching；data interleaving
+- 一句话背景：训练中交织安全数据后，Qwen2.5-7B 在 broad cue 题上仍有 17.0/35.9/52.4% 的失配；这一条件失配已有行为、数据和表示层解释，但没有位置级因果证据，也没有在回答层区分窄域泄漏与广泛失配。
+- 自评分：`8.0/10`
+- 一段话概括：Claim 收为两条。(1) 门控判别：cue 句基座 KV 修补对 cue 效应的削减 r_cue 与同提示等长前置中性句修补之差 d，按事先固定、穷尽的表判 H-pos / 部分 H-pos / H-read / 非特异 / 不确定；H-read 改为正面的等价检验（r_cue 的 CI 上界 < 20%，即基座编码已足以产生 cue 效应）；主结果按总量，另按回答层的泄漏与广泛分量分别判定（分量 < 5pp 时不判定）。(2) TReFT 转化只在回答层广泛分量上判定：TReFT 相对 EM-only 在无 cue 题上的降幅显著大于在 broad cue 题广泛分量上的降幅，且 cue 句修补消掉剩余广泛 cue 效应的一半以上。原 Claim 2（位置分离）降为"本设置下复现 Piggyback 模板承载"的前提检查。只用前置中性句；bootstrap 按 cue 句 × 原题聚类；背景措辞改准（Su et al.、2608.29118；交织后无 cue 1.9/2.9/5.6%）。
+- Story line：交织后 broad cue 题仍失配（ContextLift 表 4、Dubiński）→ 解释停在行为、数据与表示层，Piggyback 的位置级工具只用于无 cue 题，ContextLift 的泄漏阅读只覆盖自身一臂 → 被忽视的是"情境句位置的微调改动是否必要"以及"残余到底是泄漏还是广泛" → 本 Idea 用逐提示 cue 句 KV 修补加等长中性句对照判别 H-pos/H-read，在回答层分开两种分量，并检验只约束模板位置的 TReFT 是否把广泛 EM 留成条件 EM → 判定表的任一格都是可报告结论，H-pos 与 H-read 各有正面判据。
+- 打分理由：Call 13（8.1）与 Call 14（7.0）一致认为问题新颖、方法沿用 Piggyback；本版修掉 Call 14 唯一的 fatal（Claim 3 被窄域泄漏混淆），并把 H-read 由间接推断改为等价检验，删去一半是复现的 Claim 2。上限仍受"分析型贡献"约束。新风险：通用交织臂的广泛分量可能很小，此时只能报告"以泄漏为主"。
+- Idea 生成依据：ContextLift 2610.21633（表 1、表 4、附录 A、`residual_cued.py`）；Piggyback 2606.06667（§4、表 3、讨论节）；Su et al. 2601.23081；2608.29118；2503.04429；Call 13、14 审查。
+- 自评分轻量新意依据：同 IDEA-015/016；Call 10–14 五位 reviewer 独立检索均未发现条件失配的位置级因果判别或 TReFT 的 cue 评测。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：首次对条件失配做位置级因果判别（等长中性句对照、正反两种正面判据、回答层分解），并检验一个已发表防御是否把广泛 EM 转成条件 EM。
+- Baseline 可复现性：同 IDEA-015 表；2026-10-28 用 git ls-tree 复核 contextlift `arxiv` 分支（configs 三臂、scripts 含 `classify_cued_prompts.py`、`residual_cued.py`）与 TReFT 仓库（`release/src/sft.py`、`intervention.py`、`release/scripts/extract_{prefix,postfix}_kv.sh`）。
+- Reviewer 记录：`尚未送审`

@@ -8,11 +8,11 @@
 
 ## 当前选择
 
-- Reviewer 调用：`0 / 20`
-- 当前选中 Idea：`IDEA-005`
-- 当前自评分：`7.6/10`
-- 选择理由：唯一直接针对问题卡"尚未解决"中长度/认知行为方向冲突、且有因果操纵手段（同内容不同呈现模板）的候选。IDEA-002 已被 Purified OPSD、OP²SD、2609.20612 覆盖；IDEA-004 被并入 IDEA-005，作为竞争解释之一。
-- 状态：`等待第 1 次 reviewer 调用`
+- Reviewer 调用：`1 / 20`
+- 当前选中 Idea：`IDEA-006`
+- 当前自评分：`7.7/10`
+- 选择理由：IDEA-005 首审 5.5（方向律接近同义反复；2609.20612 已有训练前 correction pressure，且 marker 抑制不区分 DR/TH 两种结局）。IDEA-006 改为在真正退化的 TH 设置中拆开 2609.20612 自述未分开的混杂（模式/监督段/教师信息），是池中自评最高的 available 候选。
+- 状态：`等待第 2 次 reviewer 调用`
 
 > 2026-10-28 改进者检索要点（只记来源，不送审）：
 > - 卡片之外，近期窗口内还有大量 OPSD 机制与修法工作（HJSang/awesome-OPSD 收录 60 篇）：
@@ -103,7 +103,7 @@
 
 - 来源：`领域共性不足`（结合 `最高近邻不足`：2607.05184 的 fork 抑制机制未做因果检验）
 - 父 Idea：`无`
-- 状态：`selected`
+- 状态：`needs_revision`
 - 定位关键词：on-policy self-distillation；privileged information；thinking models；epistemic tokens；response length
 - 一句话背景：OPSD 会改变思考模型的认知类 token（wait、hmm 等）与回复长度，但改变方向在不同论文、同一模型之间相互矛盾，现有"特权教师更自信更简洁"的解释只能说明其中一个方向。
 - 自评分：`7.6/10`
@@ -141,5 +141,45 @@
 | OPSD + 逐 token 散度截断 | 同任务的"压低风格 token 信号"修法 | https://arxiv.org/abs/2601.18734 | https://github.com/siyan-zhao/OPSD （核验：`opsd_trainer.py` 中 `generalized_jsd_loss(..., token_clip)`，`scripts/run_opsd_1b.sh` 用 Qwen3-1.7B、`--jsd_token_clip 0.05`） | 把 token_clip 逻辑移植进同一套训练代码 | 是 |
 | 基座模型 | 参照 | — | 无需仓库 | 直接评测 | 是 |
 | AD-OPSD、Purified OPSD | 同任务修法 | 2607.10805、2607.02234 | 未找到公开代码（awesome-OPSD 中 code_url 为空） | 无法核验 | 否（作相关工作） |
+
+- Reviewer 记录：`Call 1（常规，effort high）：5.5/10，promising_needs_revision，无 fatal，最高近邻 2609.20612、2609.39118、2607.05184、Purified OPSD 2607.02234、AD-OPSD 2607.10805`。要点：方向冲突作为问题有据；但训练前的教师−学生 marker 偏差已有 2609.20612 的 correction pressure（采样 token 版，Qwen 上普遍为负、不区分结局），2609.39118 的初始 KL 也不能预测方向；方向律接近同义反复（学生向教师边际移动即蒸馏定义）；最直接的竞争干预（marker 位置损失排除/降权，2609.20612 报告几乎无效）未进 baseline；算力严重低估（官方 README：每次 5–12 h × 8×H100，评测每任务 8 分片 × 约 4 h）。改进者核对 2609.20612 原文与仓库：marker 干预与换参考只在 DR 下做；TH 下 Full Trace 第 100 步 72.79 vs 基座 80.21、DR 82.62；作者自述模式/时间跨度/监督比例未分开；marker 抑制不区分结局。子候选：IDEA-006（不继承本候选的方向律）。
+
+### IDEA-006：特权监督伤害的是思考段而不是答案段——用预算强制的完整思考 rollout 和分段掩码拆开 TH 训练的混杂，检验模仿缺口
+
+- 来源：`领域共性不足`（2609.20612 自述未分开的混杂；2607.05184 训练开思考才有害）+ `相似领域成熟方法迁移`（非对称模仿学习中的模仿缺口）
+- 父 Idea：`无`（由 IDEA-005 的 Call 1 审查与 2609.20612 原文触发，Claim 与机制都不同）
+- 状态：`selected`
+- 定位关键词：on-policy self-distillation；privileged information；thinking models；budget forcing；imitation gap
+- 一句话背景：同一套 OPSD 在直接回答 rollout 上有增益、在开思考 rollout 上变成损失（2609.20612），而模式、监督段与教师信息这几个因素至今没有分开。
+- 自评分：`7.7/10`
+- 一段话概括：
+  - 主张一：用预算强制把开思考 rollout 截成完整的"短思考 + 答案"，在同一批 rollout 上只改损失掩码。只监督思考段会复现 TH 的下降，只监督答案段得到 DR 级的增益。
+  - 主张二：思考段的伤害需要本题的特权信息。换成长度匹配的另一题参考后，下降显著减小。
+  - 实验：在 2609.20612 的代码与配置上，用 Qwen3-1.7B、Full Trace 视图，7 个臂 × 3 个种子，rollout 都不超过约 1,050 token。利用"损失只覆盖前 1,024 token"这一点，低成本复现 TH 的下降。
+- Story line：
+  - 明确失败：2609.20612 中 TH 训练下降到 72.79（基座 80.21，DR 82.62），作者自述模式、跨度、监督比例未分开，并指出 marker 抑制不区分两种结局；2607.05184 也发现训练开思考才有害。
+  - 对照证据：TOPD（2605.31490）用不带特权信息的外部教师只监督前段，反而有增益，说明"监督开头段"本身不有害。
+  - 被忽视的关键：特权监督的可模仿性取决于段，这是模仿缺口在推理上的对应。思考段的探索行为在已知答案的教师下学不来；事后写出解答的段可以模仿。
+  - 本 Idea 的动作：预算强制完整 rollout，加思考段/答案段掩码，加另一题参考的 2×2。
+  - 预期：思考段掩码下降、答案段掩码上升，则支持；答案段也下降，则推翻（任何 TH 监督都有害）；另一题参考同样伤害思考段，则推翻主张二（上下文偏移即足够）。
+- 打分理由：
+  - 直接拆开最高近邻明确留下的混杂。用的是已核验的单 GPU 代码，成本低，可证伪，结果不论落在哪一格都有信息量。
+  - 风险：预算强制截短思考本身可能改变结论，所以判定表设了这一格；评测成本主要在测试切分；"模仿缺口"的机制解释只是被判别设计间接检验。
+- Idea 生成依据：
+  - 2609.20612（表 11、表 2、讨论节；仓库 configs/experiments.md 与 controls）；
+  - 2607.05184（表 3，来自问题卡 Q001）；
+  - TOPD 2605.31490（截断 OPD 的分段分析）；
+  - Weihs et al. 2021《Bridging the Imitation Gap by Adaptive Insubordination》与 Warrington et al. 2021《Robust Asymmetric Learning in POMDPs》（模仿缺口）。
+- 自评分轻量新意依据：检索"self-distillation thinking segment vs answer segment loss mask""on-policy distillation budget forcing thinking rollouts"，只命中 2607.05184、Purified、Bridged、TOPD（无特权、按位置分 10% 段）；2609.20612 的 TH 变体只有思考段内的窗口位置，未见分段掩码或强制完整 TH。需要 reviewer 检索。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：第一次在开思考的 OPSD 中把"推理模式、监督的段、教师掌握的信息"拆开做因果检验，把 TH 损失定位到"带本题特权信息的思考段监督"。
+- Baseline 可复现性：
+
+| Baseline | 与定位关键词及目标任务的关系 | 论文或规范 | 开源代码与核验结果 | 具体复现方式 | 是否纳入最小实验 |
+|---|---|---|---|---|---|
+| DR 训练的 OPSD | 同任务、同模型、同评测的增益锚点 | https://arxiv.org/abs/2609.20612 | https://github.com/xiuyuz/opsd-reference-study （2026-10-28 git ls-tree 核验：`training/launch_run.sh`、`training/train_opsd.py`、`training/rollout_worker.py`、`opsd/opsd_loss.py`、`configs/experiments.md`、`data/controls/length_matched_other_problem.py`、`evaluation/build_eval_queue.py`；README 称每次运行在单张 80GB GPU 上完成） | `CONDITION=full_trace ROLLOUTS=direct bash training/launch_run.sh` | 是 |
+| TH 训练的 OPSD | 同任务的退化设置 | 同上 | 同上 | `ROLLOUTS=thinking TRAIN_MAX_NEW_TOKENS=1024 LOSS_HORIZON=1024`（原文 20764） | 是 |
+| 基座 | 参照 | — | — | `evaluation/build_eval_queue.py --mode thinking` | 是 |
+| TOPD | 不带特权信息的截断 OPD，方法启发 | https://arxiv.org/abs/2605.31490 | 未核验 | — | 否（跨设置启发） |
 
 - Reviewer 记录：`尚未送审`

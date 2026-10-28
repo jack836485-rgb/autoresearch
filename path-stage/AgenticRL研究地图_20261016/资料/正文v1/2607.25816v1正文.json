@@ -1,0 +1,309 @@
+{
+  "url": "https://arxiv.org/html/2607.25816v1",
+  "final_url": "https://arxiv.org/html/2607.25816v1",
+  "status": 200,
+  "title": "Speculate While You Reason: Teaching Agents to Predict Their Next Tool Call via Joint Agent–Speculator RL",
+  "metadata": {},
+  "paper": {
+    "title": "Speculate While You Reason: Teaching Agents to Predict Their Next Tool Call via Joint Agent–Speculator RL",
+    "title_warning": null,
+    "abstract": "Abstract Large language model agents often spend substantial wall-clock time waiting for tool call results. Tool-call speculation can hide this latency by predicting and pre-executing an agent’s next tool call if the prediction matches the agent’s eventual tool call, but existing speculators are typically separate draft models or cached traces that are poorly aligned with the deployed agent’s own behavior. We identify this speculator–agent gap and show that the target agent itself is a strong next-call speculator.\nThis points to a simpler design: unifying the agent and speculator within the same model. In this paper, we introduce the self-speculating agent , a single model that both solves tasks in agent mode and predicts its next tool call from partial trajectories in speculator mode, fully reusing prefix KV cache. To enable this dual-mode agent without degrading performance, we propose a joint agent-speculator reinforcement learning method, which derives speculation targets from the agent’s own rollouts and alternates agent and speculator updates. Across agentic search QA and conversational tool-use agentic tasks, our method improves average next tool-call Hit@1 from 44.1 to 61.2 for Qwen3-4B and from 48.9 to 66.3 for Qwen3.5-4B, while preserving agent task success.",
+    "authors": [
+      {
+        "name": "Jiabao Ji",
+        "affiliations": [
+          "Affiliation: University of California, Santa Barbara"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Yujian Liu",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Li An",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Rohit Jain",
+        "affiliations": [
+          "Affiliation: Linkedin Inc"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Gungor Polatkan",
+        "affiliations": [
+          "Affiliation: Linkedin Inc"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Siyu Zhu",
+        "affiliations": [
+          "Affiliation: Linkedin Inc"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Shiyu Chang",
+        "affiliations": [
+          "Affiliation: University of California, Santa Barbara"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Jiabao Ji † † thanks: Equal contribution. Work done when Jiabao, Yujian, Li, were interning at Linkedin Inc. Affiliation: University of California, Santa Barbara Email: jiabaoji@ucsb.edu Yujian Liu Email: yujianliu@ucsb.edu Li An Email: lian@ucsb.edu Rohit Jain Affiliation: Linkedin Inc Email: chang87@ucsb.edu Gungor Polatkan Affiliation: Linkedin Inc Siyu Zhu Affiliation: Linkedin Inc Shiyu Chang Affiliation: University of California, Santa Barbara",
+    "arxiv_version": "2607.25816v1",
+    "arxiv_version_date": "2026-07-28"
+  },
+  "text": "Speculate While You Reason: Teaching Agents to Predict Their Next Tool Call via Joint Agent–Speculator RL Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: CC BY 4.0 arXiv:2607.25816v1 [cs.AI] 28 Jul 2026 Speculate While You Reason: Teaching Agents to Predict Their Next Tool Call via Joint Agent–Speculator RL Jiabao Ji † † thanks: Equal contribution. Work done when Jiabao, Yujian, Li, were interning at Linkedin Inc. Affiliation: University of California, Santa Barbara Email: jiabaoji@ucsb.edu Yujian Liu Email: yujianliu@ucsb.edu Li An Email: lian@ucsb.edu Rohit Jain Affiliation: Linkedin Inc Email: chang87@ucsb.edu Gungor Polatkan Affiliation: Linkedin Inc Siyu Zhu Affiliation: Linkedin Inc Shiyu Chang Affiliation: University of California, Santa Barbara Abstract Large language model agents often spend substantial wall-clock time waiting for tool call results. Tool-call speculation can hide this latency by predicting and pre-executing an agent’s next tool call if the prediction matches the agent’s eventual tool call, but existing speculators are typically separate draft models or cached traces that are poorly aligned with the deployed agent’s own behavior. We identify this speculator–agent gap and show that the target agent itself is a strong next-call speculator. This points to a simpler design: unifying the agent and speculator within the same model. In this paper, we introduce the self-speculating agent , a single model that both solves tasks in agent mode and predicts its next tool call from partial trajectories in speculator mode, fully reusing prefix KV cache. To enable this dual-mode agent without degrading performance, we propose a joint agent-speculator reinforcement learning method, which derives speculation targets from the agent’s own rollouts and alternates agent and speculator updates. Across agentic search QA and conversational tool-use agentic tasks, our method improves average next tool-call Hit@1 from 44.1 to 61.2 for Qwen3-4B and from 48.9 to 66.3 for Qwen3.5-4B, while preserving agent task success. 1 Introduction Figure 1: External versus self tool-call speculation. The upper panel shows an external draft model with separate parameters and KV cache, which predict a different next call due to the speculator–agent gap. The lower panel shows self-speculation with a shared prefix KV cache. Large language model (LLM) agents solve complex tasks by interleaving natural-language reasoning with calls to external tools, including web search engines, databases, code interpreters, and task-specific APIs ( Schick et al., 2023 ; Patil et al., 2023 ; Chen et al., 2023 ; Liu et al., 2024 ) . Recent work further trains and evaluates such agents in search, web, function-calling, and long-horizon interaction settings ( Jin et al., 2025 ; Song et al., 2025 ; Tan et al., 2025 ; Qi et al., 2025 ; Qian et al., 2025 ; Zhang et al., 2025 ; Liu et al., 2026 ; Luo et al., 2025 ) . These tools extend agents beyond their parametric knowledge by allowing them to retrieve up-to-date information, execute computations, inspect structured records, and interact with external environments. This flexibility, however, comes at the cost of latency. Unlike token generation, tool calls often involve remote services, network I/O, or even invoking another LLM as a sub-agent. As a result, agents may spend a substantial fraction of their inference time waiting for tool results rather than performing token generation ( Nichols et al., 2025 ; Huang et al., 2025 ; Hooper et al., 2026 ) , making reduced waiting time central to responsive agents. A promising approach is tool-call speculation : issue likely future tool calls before the agent explicitly produces them. A speculator observes an intermediate trajectory, predicts the agent’s next tool call, and executes that call in parallel while the agent continues reasoning. If the prediction exactly matches the agent’s eventual tool call, the cached tool call result can be reused, hiding the tool call latency. If it does not match, the pre-executed result must be discarded. This exact-match reuse scenerio makes tool-call speculation different from general tool use. Instead of predicting a general tool call, the speculator must produce the particular tool call that the deployed agent will actually take. This requirement makes the design of the speculator especially important. Prior work typically builds the speculator outside the deployed agent, either by using a smaller LLM as an external draft model ( Ye et al., 2026 ; Nichols et al., 2025 ; Huang et al., 2025 ) or by consulting cached tool call traces derived from previous agent trajectories ( Zhong et al., 2026 ; Sui et al., 2026 ) . These methods show promising results to reduce latency, but they share a fundamental limitation: the speculator is not the agent. An off-the-shelf draft model approximates a generic tool-using assistant rather than the particular agent being deployed. A cache-based method replays calls from previous trajectories, which may correspond to different user queries, different intermediate reasoning states, or outdated environments. In both cases, the speculation methods remain separated from the actual deployed agent. We refer to this separation as the speculator–agent gap : conditioned on the same intermediate agent trajectory, the speculator and the deployed agent may choose different next tool calls. Figure 1 illustrates this gap, where an external draft model maintains a separate set of model parameters and KV-cache and predicts a different call than the target agent eventually issues. In Section 2 , we find that the gap appears even within the same model family: smaller Qwen draft models often fail to match the 4B target agent’s next tool call, while the 4B agent itself is already a stronger off-the-shelf speculator when prompted to predict its own next call. External speculators also introduce practical systems overhead, including an additional model weights, a separate KV cache, or historical traces. These observations suggest a simpler speculator design: rather than aligning a separate speculator to the agent, the agent itself can speculate. This leads to the central research question: Can we train a agent to better anticipate its own next tool call while preserving task solving performance? We therefore present a self-speculating agent : a single model trained to operate in two modes. In agent mode , the model follows the standard agentic trajectory, producing reasoning, tool calls, observations, and final answers. In speculator mode , the same model receives an intermediate trajectory together with a short speculation suffix and directly predicts the next structured tool call. Because both modes share the trajectory prefix, inference can reuse the agent’s prefix KV cache and branch only for the speculation suffix and candidate call. Unlike external speculation, this approach does not require serving an auxiliary draft model or maintaining a historical tool-call traces. However, training such an agent is nontrivial. Self-speculation couples two objectives that are naturally imbalanced: the agent must remain effective at solving tasks, while also becoming accurate at predicting its own next tool call from partial trajectories. The two modes differ substantially in output distribution, and naively training the agent to improve speculation can hurt agent performance. To address this problem, we introduce joint agent-speculator RL During the RL process, we sample agent rollouts from the current policy, construct speculator queries from those rollouts, and optimize each mode in an alternating procedure. This keeps the speculator mode on-policy: it is trained on the same contexts that arise from the current agent, rather than on stale rollouts or data from a different model. We further stabilize this joint training with several training-time techniques, such as optimizer resets at mode switches. Experiments across agentic search QA and conversational tool use agentic tasks show that joint agent-speculator RL substantially improves speculation performance while preserving task performance. For Qwen3-4B and Qwen3.5-4B, average next tool-call Hit@1 score improves from 44.1 to 61.2 and from 48.9 to 66.3, respectively, while average downstream task success remains stable or slightly improves. Our contributions are as follows: • We identify the speculator–agent gap in agentic tool-use tasks where off-the-shelf draft models often fail to match the agent’s next structured call and add serving overhead. • We introduce a self-speculating agent, where one LLM switches between task-solving and next-call prediction modes. • We propose joint agent-speculator RL, which trains speculation from the current agent’s own rollouts while preserving task success. 2 Evaluating Off-the-Shelf Models for Tool-Call Speculation Off-the-shelf draft models are a natural starting point for tool-call speculation. We evaluate their speculator–agent gap in realistic agentic settings, where the speculator observes the deployed agent’s context immediately before a tool call and predicts the next tool call, including both the tool name and arguments. This setup measures whether an off-the-shelf model can match the deployed agent’s tool decisions under the same inference-time context. 2.1 Evaluation Protocol For each target agent, we run speculation online during the agent’s rollout. In each domain, we sample 50 evaluation queries and execute the deployed agent in the environment. Whenever the rollout reaches a tool-call boundary, the serving controller switches from the target agent model to an off-the-shelf speculator model. The speculator receives the current trajectory prefix with a fixed speculation suffix appended: <think> Okay, let’s see. The user provided what I need. I’ll look it up. The next step is to make the tool call. </think> The speculator then decodes one candidate tool call. The controller switches back to the target agent, lets the agent produce the actual call, and executes the agent’s call in the environment. Thus speculation is evaluated under the same online state that the agent sees, while the environment state is still determined only by the deployed agent. Figure 2 illustrates this online comparison in a τ \\tau -bench trajectory: the speculator is prompted from the current prefix, the agent continues independently, and the pre-executed result is reusable only when the speculated tool name and arguments exactly match the agent’s eventual call. Figure 2: Online tool-call speculation example. From the shared trajectory prefix, the left stream continues to the agent’s reasoning and actual tool call generation, while the right stream predicts the tool call in parallel. We instantiate this protocol in two same-family comparisons. For Qwen3-4B agent, we evaluate Qwen3-0.6B and Qwen3-1.7B as speculators; for Qwen3.5-4B agent, we evaluate Qwen3.5-0.8B and Qwen3.5-2B. In both families, we also prompt the target 4B model to predict its own next call from the same online prefix. We run the protocol on 50 queries from MuSiQue in the agentic SearchQA environment ( Jin et al., 2025 ) and airline domain of τ \\tau -bench ( Yao et al., 2024 ; Barres et al., 2025 ) . Table 1 reports both prediction quality and serving cost. We use Hit@1 exact match as the primary speculation metric because a pre-executed tool call is reusable only when both the tool name and argument dictionary match the agent’s eventual call. We also report speculation wall-clock time and peak GPU memory to capture the overhead of alternating between the target agent and a separate draft model during the same rollout. The memory estimate includes both resident model weights and peak KV-cache state: external speculators require the target agent weights, the draft model weights, and two active KV caches, whereas self-spec",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: CC BY 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "Schick et al., 2023",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib6"
+    },
+    {
+      "text": "Patil et al., 2023",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib7"
+    },
+    {
+      "text": "Chen et al., 2023",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib8"
+    },
+    {
+      "text": "Liu et al., 2024",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib9"
+    },
+    {
+      "text": "Jin et al., 2025",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib2"
+    },
+    {
+      "text": "Song et al., 2025",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib3"
+    },
+    {
+      "text": "Tan et al., 2025",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib4"
+    },
+    {
+      "text": "Qi et al., 2025",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib22"
+    },
+    {
+      "text": "Qian et al., 2025",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib10"
+    },
+    {
+      "text": "Zhang et al., 2025",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib11"
+    },
+    {
+      "text": "Liu et al., 2026",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib36"
+    },
+    {
+      "text": "Luo et al., 2025",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib14"
+    },
+    {
+      "text": "Nichols et al., 2025",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib19"
+    },
+    {
+      "text": "Huang et al., 2025",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib27"
+    },
+    {
+      "text": "Hooper et al., 2026",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib28"
+    },
+    {
+      "text": "Ye et al., 2026",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib18"
+    },
+    {
+      "text": "Zhong et al., 2026",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib20"
+    },
+    {
+      "text": "Sui et al., 2026",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib21"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2607.25816v1#S1.F1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2607.25816v1#S2"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2607.25816v1#S2.F2"
+    },
+    {
+      "text": "Yao et al., 2024",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib38"
+    },
+    {
+      "text": "Barres et al., 2025",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib39"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2607.25816v1#S2.T1"
+    },
+    {
+      "text": "2.2",
+      "url": "https://arxiv.org/html/2607.25816v1#S2.SS2"
+    },
+    {
+      "text": "Yu et al., 2025",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib5"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2607.25816v1#alg1"
+    },
+    {
+      "text": "Sutskever et al., 2013",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib16"
+    },
+    {
+      "text": "Kingma and Ba, 2015",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib17"
+    },
+    {
+      "text": "Chen et al., 2025b",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib43"
+    },
+    {
+      "text": "Sun et al. (2025)",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib44"
+    },
+    {
+      "text": "Su et al., 2025",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib40"
+    },
+    {
+      "text": "Yang et al., 2025",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib41"
+    },
+    {
+      "text": "Qwen Team, 2026",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib42"
+    },
+    {
+      "text": "3.3",
+      "url": "https://arxiv.org/html/2607.25816v1#S3.SS3"
+    },
+    {
+      "text": "A.1",
+      "url": "https://arxiv.org/html/2607.25816v1#A1.SS1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2607.25816v1#S3.T2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2607.25816v1#S4.T3"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2607.25816v1#S4.F3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2607.25816v1#S4.T4"
+    },
+    {
+      "text": "Ouyang et al., 2022",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib29"
+    },
+    {
+      "text": "Bai et al., 2022",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib30"
+    },
+    {
+      "text": "Shao et al., 2024",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib1"
+    },
+    {
+      "text": "DeepSeek-AI, 2025",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib31"
+    },
+    {
+      "text": "Kimi Team, 2025",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib32"
+    },
+    {
+      "text": "Hou et al., 2025",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib33"
+    },
+    {
+      "text": "Liu et al., 2025",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib34"
+    },
+    {
+      "text": "He et al., 2026",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib35"
+    },
+    {
+      "text": "Zheng et al., 2025",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib23"
+    },
+    {
+      "text": "Li et al., 2025",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib24"
+    },
+    {
+      "text": "Feng et al., 2025",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib25"
+    },
+    {
+      "text": "Singh et al., 2025",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib26"
+    },
+    {
+      "text": "Ji et al., 2025",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib37"
+    },
+    {
+      "text": "Chen et al., 2025a",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib12"
+    },
+    {
+      "text": "Wei et al., 2025",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib13"
+    },
+    {
+      "text": "Leviathan et al., 2023",
+      "url": "https://arxiv.org/html/2607.25816v1#bib.bib15"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/2212.08073"
+    }
+  ],
+  "matching_link_count": 122,
+  "links_truncated": true,
+  "invalid_links": []
+}

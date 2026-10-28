@@ -1,0 +1,297 @@
+{
+  "url": "https://arxiv.org/html/2608.05886v1",
+  "final_url": "https://arxiv.org/html/2608.05886v1",
+  "status": 200,
+  "title": "CodeGrep: An RL-Trained Retrieval Agent for LLM Coding Agents",
+  "metadata": {},
+  "paper": {
+    "title": "CodeGrep: An RL-Trained Retrieval Agent for LLM Coding Agents",
+    "title_warning": null,
+    "abstract": "Abstract Modern LLM coding agents—Claude Code, OpenHands—share\na common inefficiency: they spend most of their token budget finding the file to patch, not patching it. On SWE-Bench\nVerified, a 30 30 B OpenHands agent averages 23 23 rounds and 631 631 K\ntokens per resolved issue, dominated by grep , glob ,\nand view_file calls. No open, systematically-studied\nagent-style code retriever exists at scale to shorten this phase.\nWe introduce CodeGrep , a 14 14 B retrieval agent trained end-to-end with GRPO to issue multi-turn parallel grep / glob / read tool calls and return\ncandidate files to a frozen downstream coding agent. On all 500 500 SWE-Bench Verified instances, CodeGrep delivers a\nsmall but reproducibly positive resolve-rate lift\n( + 1.2 +1.2 pp: 25.8 % → 27.0 % 25.8\\%\\to 27.0\\% ) alongside a much larger efficiency\ngain ( − 15 % -15\\% rounds, − 19 % -19\\% tokens on resolved instances). Across\nthree retrievers, downstream utility follows a precision threshold : BM25 (precision 0.375 0.375 ) degrades the\nagent, Jina ( 0.445 0.445 ) is neutral, and only CodeGrep ( 0.677 0.677 )\ncrosses the threshold at which retrieval begins to buy efficiency.\nTo enable this study, we mine supervision from 67 67 K open-source\nagent trajectories (CATM) and build a Git-worktree environment for\nmulti-turn agent RL. In our setting, applying the efficiency signal\nat the advantage layer, rather than the reward layer, holds KL\ndrift to one-third and translates cleanly into downstream\nefficiency. We will release the model, training pipeline, RL\nenvironment, and evaluation harnesses.",
+    "authors": [
+      {
+        "name": "Wuya Chen",
+        "affiliations": [
+          "Affiliation: Netease Guangzhou AI Lab"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Yihao Yang",
+        "affiliations": [
+          "Affiliation: Independent Researcher"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Yang Cao",
+        "affiliations": [
+          "Affiliation: Independent Researcher"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Yue Lin",
+        "affiliations": [
+          "Affiliation: Netease Guangzhou AI Lab"
+        ],
+        "notes": []
+      },
+      {
+        "name": "",
+        "affiliations": [],
+        "notes": []
+      }
+    ],
+    "author_block": "Wuya Chen Email: chenwuya@corp.netease.com Affiliation: Netease Guangzhou AI Lab Yihao Yang Email: 13590078189@163.com Affiliation: Independent Researcher Yang Cao Email: yihao786@gmail.com Affiliation: Independent Researcher Yue Lin Email: cy1835208239@gmail.com Affiliation: Netease Guangzhou AI Lab Email: gzlinyue@corp.netease.com",
+    "arxiv_version": "2608.05886v1",
+    "arxiv_version_date": "2026-08-06"
+  },
+  "text": "CodeGrep: An RL-Trained Retrieval Agent for LLM Coding Agents Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: arXiv.org perpetual non-exclusive license arXiv:2608.05886v1 [cs.SE] 06 Aug 2026 CodeGrep: An RL-Trained Retrieval Agent for LLM Coding Agents Wuya Chen Email: chenwuya@corp.netease.com Affiliation: Netease Guangzhou AI Lab Yihao Yang Email: 13590078189@163.com Affiliation: Independent Researcher Yang Cao Email: yihao786@gmail.com Affiliation: Independent Researcher Yue Lin Email: cy1835208239@gmail.com Affiliation: Netease Guangzhou AI Lab Email: gzlinyue@corp.netease.com Abstract Modern LLM coding agents—Claude Code, OpenHands—share a common inefficiency: they spend most of their token budget finding the file to patch, not patching it. On SWE-Bench Verified, a 30 30 B OpenHands agent averages 23 23 rounds and 631 631 K tokens per resolved issue, dominated by grep , glob , and view_file calls. No open, systematically-studied agent-style code retriever exists at scale to shorten this phase. We introduce CodeGrep , a 14 14 B retrieval agent trained end-to-end with GRPO to issue multi-turn parallel grep / glob / read tool calls and return candidate files to a frozen downstream coding agent. On all 500 500 SWE-Bench Verified instances, CodeGrep delivers a small but reproducibly positive resolve-rate lift ( + 1.2 +1.2 pp: 25.8 % → 27.0 % 25.8\\%\\to 27.0\\% ) alongside a much larger efficiency gain ( − 15 % -15\\% rounds, − 19 % -19\\% tokens on resolved instances). Across three retrievers, downstream utility follows a precision threshold : BM25 (precision 0.375 0.375 ) degrades the agent, Jina ( 0.445 0.445 ) is neutral, and only CodeGrep ( 0.677 0.677 ) crosses the threshold at which retrieval begins to buy efficiency. To enable this study, we mine supervision from 67 67 K open-source agent trajectories (CATM) and build a Git-worktree environment for multi-turn agent RL. In our setting, applying the efficiency signal at the advantage layer, rather than the reward layer, holds KL drift to one-third and translates cleanly into downstream efficiency. We will release the model, training pipeline, RL environment, and evaluation harnesses. 1 Introduction Modern LLM coding agents—general-purpose assistants like Claude Code Anthropic (2025) and open GitHub-issue-solving frameworks like OpenHands Wang and others (2024) —share a common inefficiency in how they allocate their token budget: much of it is spent finding the file to patch, not writing the patch itself. In this work, we ground this observation on a concrete instance: a 30 30 B OpenHands agent on SWE-Bench Verified Jimenez et al. (2023) averages 23 23 rounds and 631 631 K tokens per resolved issue, with a large fraction consumed by grep , glob , and view_file calls issued in ambiguous exploration loops—often 20 + 20{+} rounds in a wrong direction before the agent gives up. Can a specialized retrieval submodule shorten this exploration phase? Two hypotheses have not been jointly tested. H1 (effectiveness) : better file-level retrieval steers the agent past dead-end explorations and raises the resolve rate. H2 (efficiency) : the agent resolves roughly the same set of issues but with a shorter rollout. Distinguishing them requires evaluating a retriever both on its intrinsic quality and on its downstream effect within the same agent stack—a comparison absent from prior open code retrievers, from lexical (BM25 Robertson and Zaragoza (2009) ) to static dense encoders Feng et al. (2020) ; Guo et al. (2021) ; Jina AI (2024) . We train CodeGrep , a 14 14 B retrieval agent optimized end-to-end with GRPO Shao et al. (2024) , and evaluate it against BM25 and Jina on SWE-Bench Verified. Neither H1 nor H2 holds uniformly : retrieval quality translates downstream through a precision threshold , not a linear payoff. Below the threshold, BM25 (precision 0.375 0.375 ) degrades the agent; near it, Jina ( 0.445 0.445 ) is neutral; above it, CodeGrep ( 0.677 0.677 ) cuts 15 % 15\\% rounds and 19 % 19\\% tokens on resolved instances, while adding a small but reproducibly positive + 1.2 +1.2 pp to the resolve rate. Three engineering ingredients enable this study. First, CATM (Code Agent Trajectory Mining) mines relevance labels from 67 67 K open-source OpenHands trajectories without human annotation (§ 3.4 ). Second, a Docker-free Git-worktree sandbox reduces per-rollout environment setup from minutes to milliseconds, making multi-turn agent RL tractable on a single 8 × 8{\\times} B200 node (§ 3.3 ). Third, a systematic reward study across three trained iterations ( v 1 → v 2 → v 3 v_{1}{\\to}v_{2}{\\to}v_{3} ) yields two observations about GRPO reward design: in our setting, applying an efficiency signal at the advantage layer is markedly more stable than at the reward layer, and removing an auxiliary component absent from the downstream tool improves both training stability and downstream efficiency (§ 3.5 ). Contributions. • CodeGrep , an open 14 14 B agent-style code retriever trained end-to-end with GRPO; injected into a frozen OpenHands agent, it cuts rounds by 15 % 15\\% and tokens by 19 % 19\\% on resolved SWE-Bench Verified instances while lifting resolve rate by + 1.2 +1.2 pp. • A precision-threshold characterisation of retrieval–agent coupling : across three retrievers (BM25 0.375 0.375 , Jina 0.445 0.445 , CodeGrep 0.677 0.677 ), downstream utility exhibits three regimes—hurts, neutral, buys efficiency (§ 5.1 ). • A reward-design study showing that (i) reward-layer multiplicative scaling of a tool-call penalty triples GRPO policy drift vs. advantage-layer scaling (KL 0.31 0.31 vs. 0.09 0.09 ); (ii) in our final iteration, dropping an auxiliary line-range component from the base reward improves both training stability and downstream efficiency (§ 3.5 ). • Full open release : model, CATM pipeline, RL environment, and all evaluation harnesses. 2 Related Work Code retrieval for SWE-Bench-style agents. Static retrievers—dense code encoders Feng et al. (2020) ; Guo et al. (2021) ; Guo et al. (2022) ; Jina AI (2024) and lexical baselines such as BM25 Robertson and Zaragoza (2009) —struggle when issue vocabulary does not overlap with the target code, a common failure mode in GitHub bug reports (§ 4.2 ). Pipeline systems such as Agentless Xia et al. (2024) , Moatless Örwall (2024) , and SWE-Fixer Xie et al. (2025) pair lightweight retrieval with LLM-based reranking, but keep the retrieval component non-trainable. Agent-style search and tool use. Building on ReAct Yao et al. (2023) and Toolformer Schick et al. (2023) , coding agents such as OpenHands Wang and others (2024) and SWE-agent Yang et al. (2024) operate over rich tool interfaces at the cost of dozens of sequential calls per issue. For search specifically, Search-R1 Jin et al. (2025) and ReasonIR Shao et al. (2025) train LLMs to use search engines with RL, but target indexed web corpora rather than repository file systems. Reinforcement learning for tool policies. GRPO Shao et al. (2024) has been adapted to multi-turn tool use in ToRL Li et al. (2025) , RAGEN Wang et al. (2025) , and concurrent Cognition SWE-grep Pan et al. (2025) . A recurring difficulty is reward-length exploitation when the reward mixes task accuracy with efficiency signals. Our v 1 → v 2 → v 3 v_{1}{\\to}v_{2}{\\to}v_{3} study (§ 3.5 ) traces one manifestation and its resolution: moving the efficiency signal from the reward to the advantage layer. Trajectory mining as supervision. Learning “what is relevant” from past agent reads is behavioural supervision with a long history in classical IR. LRAT Zhou et al. (2026) applied this to web-search agents with one-to-one browse-relevance pairs. CATM (§ 3.4 ) adapts the template to code retrievers that emit multiple parallel reads per turn, requiring one-to-many attribution and per-trajectory aggregation (Table 4 ); our source data are open-source OpenHands trajectories Nebius AI (2025) . 3 Method 3.1 System Overview The system runs in two decoupled phases (Fig. 1 ). During training , CodeGrep is optimized with GRPO in a custom RL environment (§ 3.3 ) against relevance labels mined by CATM (§ 3.4 ). During inference , the trained CodeGrep takes the issue description, emits a short list of candidate files, and those files are injected into the prompt of a frozen OpenHands downstream agent. Only the retriever is trained; the downstream agent is untouched, so any downstream measurement (§ 4 ) is unambiguously attributable to what the retriever contributes to the prompt. Agent Trajectories (67K) GRPO Training (CodeGrep, 14B) CodeGrep Checkpoint Training SWE-Bench Issue CodeGrep (14B) grep / glob / read SWE-Bench Agent Qwen3-30B, frozen Code Patch files Inference weights Figure 1: System overview. Training (blue) produces CodeGrep weights from open-source agent trajectories via GRPO. Inference (orange) uses the trained CodeGrep as a retrieval submodule whose output is injected into a frozen downstream agent’s prompt. 3.2 CodeGrep: The Retrieval Model CodeGrep is a 14 14 B-parameter retriever built on Qwen3-14B-Instruct Yang and others (2025) . It exposes three read-only primitives— grep (regex search), glob (path matching), and read (file contents)—mirroring how a developer navigates an unfamiliar codebase. At each turn it emits up to 8 8 tool calls executed concurrently; observations are appended to the context, and exploration terminates on a final answer or after 4 4 turns ( 3 3 exploration + 1 1 answer, 24 24 effective reads). The answer conforms to a fixed JSON schema: <answer>{\"files\": […], \"line_ranges\": […]}</answer> the line_ranges field is dead information downstream (the OpenHands editing tool consumes only file paths), so we drop it from the training objective in v 3 v_{3} (§ 3.5 ). 3.3 RL Environment: A Lightweight Multi-turn Tool Sandbox An RL environment for CodeGrep must expose the target repository at a specific commit so that grep / glob / read calls can execute and their observations feed back into the rollout. The default of reusing official SWE-Bench Docker images is intractable at single-node training scale: each image is 1 1 – 3 3 GB, pulls take minutes, and thousands of them need terabyte-scale disk. Because CodeGrep training only reads code, the Python environment inside each image is dead weight. We replace Docker with a worktree-based sandbox whose per-rollout setup completes in milliseconds. From any SWE-Bench-style dataset we extract unique (repo, commit) pairs; for each repo we keep a single git clone --bare and use git worktree add to instantiate one lightweight tree per commit (disk drops from N ⋅ repo_size N\\cdot\\text{repo\\_size} to repo_size + N ⋅ worktree_size \\text{repo\\_size}+N\\cdot\\text{worktree\\_size} , with no network I/O). At rollout time, grep / glob / read run as native subprocesses inside the target worktree, under path-traversal protection, a 64 64 -way concurrency limit, and per-tool timeouts. Environment interaction per rollout drops from minutes to milliseconds , making the training runs in § 3.6 feasible on a single 8 × 8{\\times} B200 node. Full plumbing, rollout scheduler, and the three-layer architecture diagram are in Appendix A . 3.4 Training Data: CATM (Code Agent Trajectory Mining) Ground-truth problem and fix. The natural “relevant files” label—files touched by the SWE-Bench gold patch—is incomplete: it omits auxiliary files that must be read to understand the fix but are not themselves edited. Directly optimizing against the patch signal therefore biases the retriever away from the behaviour we want. We instead adopt a behavioural notion of relevance: a file is relevant if some past agent, while solving the issue, opened it and produced non-trivial reasoning grounded in its contents. CATM (Code Agent Trajectory Mining) instantiates this notion for code retrieval and for agents that emit parallel tool calls",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: arXiv.org perpetual non-exclusive license",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "Anthropic (2025)",
+      "url": "https://arxiv.org/html/2608.05886v1#bib.bib10"
+    },
+    {
+      "text": "Wang and others (2024)",
+      "url": "https://arxiv.org/html/2608.05886v1#bib.bib2"
+    },
+    {
+      "text": "Jimenez et al. (2023)",
+      "url": "https://arxiv.org/html/2608.05886v1#bib.bib1"
+    },
+    {
+      "text": "Robertson and Zaragoza (2009)",
+      "url": "https://arxiv.org/html/2608.05886v1#bib.bib20"
+    },
+    {
+      "text": "Feng et al. (2020)",
+      "url": "https://arxiv.org/html/2608.05886v1#bib.bib13"
+    },
+    {
+      "text": "Guo et al. (2021)",
+      "url": "https://arxiv.org/html/2608.05886v1#bib.bib14"
+    },
+    {
+      "text": "Jina AI (2024)",
+      "url": "https://arxiv.org/html/2608.05886v1#bib.bib16"
+    },
+    {
+      "text": "Shao et al. (2024)",
+      "url": "https://arxiv.org/html/2608.05886v1#bib.bib4"
+    },
+    {
+      "text": "3.4",
+      "url": "https://arxiv.org/html/2608.05886v1#S3.SS4"
+    },
+    {
+      "text": "3.3",
+      "url": "https://arxiv.org/html/2608.05886v1#S3.SS3"
+    },
+    {
+      "text": "3.5",
+      "url": "https://arxiv.org/html/2608.05886v1#S3.SS5"
+    },
+    {
+      "text": "5.1",
+      "url": "https://arxiv.org/html/2608.05886v1#S5.SS1"
+    },
+    {
+      "text": "Guo et al. (2022)",
+      "url": "https://arxiv.org/html/2608.05886v1#bib.bib15"
+    },
+    {
+      "text": "4.2",
+      "url": "https://arxiv.org/html/2608.05886v1#S4.SS2"
+    },
+    {
+      "text": "Xia et al. (2024)",
+      "url": "https://arxiv.org/html/2608.05886v1#bib.bib17"
+    },
+    {
+      "text": "Örwall (2024)",
+      "url": "https://arxiv.org/html/2608.05886v1#bib.bib18"
+    },
+    {
+      "text": "Xie et al. (2025)",
+      "url": "https://arxiv.org/html/2608.05886v1#bib.bib19"
+    },
+    {
+      "text": "Yao et al. (2023)",
+      "url": "https://arxiv.org/html/2608.05886v1#bib.bib8"
+    },
+    {
+      "text": "Schick et al. (2023)",
+      "url": "https://arxiv.org/html/2608.05886v1#bib.bib21"
+    },
+    {
+      "text": "Yang et al. (2024)",
+      "url": "https://arxiv.org/html/2608.05886v1#bib.bib3"
+    },
+    {
+      "text": "Jin et al. (2025)",
+      "url": "https://arxiv.org/html/2608.05886v1#bib.bib22"
+    },
+    {
+      "text": "Shao et al. (2025)",
+      "url": "https://arxiv.org/html/2608.05886v1#bib.bib23"
+    },
+    {
+      "text": "Li et al. (2025)",
+      "url": "https://arxiv.org/html/2608.05886v1#bib.bib24"
+    },
+    {
+      "text": "Wang et al. (2025)",
+      "url": "https://arxiv.org/html/2608.05886v1#bib.bib25"
+    },
+    {
+      "text": "Pan et al. (2025)",
+      "url": "https://arxiv.org/html/2608.05886v1#bib.bib9"
+    },
+    {
+      "text": "Zhou et al. (2026)",
+      "url": "https://arxiv.org/html/2608.05886v1#bib.bib5"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2608.05886v1#A1.T4"
+    },
+    {
+      "text": "Nebius AI (2025)",
+      "url": "https://arxiv.org/html/2608.05886v1#bib.bib11"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2608.05886v1#S3.F1"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2608.05886v1#S4"
+    },
+    {
+      "text": "Yang and others (2025)",
+      "url": "https://arxiv.org/html/2608.05886v1#bib.bib6"
+    },
+    {
+      "text": "3.6",
+      "url": "https://arxiv.org/html/2608.05886v1#S3.SS6"
+    },
+    {
+      "text": "A",
+      "url": "https://arxiv.org/html/2608.05886v1#A1"
+    },
+    {
+      "text": "4.3",
+      "url": "https://arxiv.org/html/2608.05886v1#S4.SS3"
+    },
+    {
+      "text": "B",
+      "url": "https://arxiv.org/html/2608.05886v1#A2"
+    },
+    {
+      "text": "3.2",
+      "url": "https://arxiv.org/html/2608.05886v1#S3.SS2"
+    },
+    {
+      "text": "5.2",
+      "url": "https://arxiv.org/html/2608.05886v1#S5.SS2"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2608.05886v1#S3.E7"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2608.05886v1#A2.T6"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2608.05886v1#S3.T1"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2608.05886v1#S3.E3"
+    },
+    {
+      "text": "Zhao and others (2024)",
+      "url": "https://arxiv.org/html/2608.05886v1#bib.bib7"
+    },
+    {
+      "text": "Hu et al. (2022)",
+      "url": "https://arxiv.org/html/2608.05886v1#bib.bib12"
+    },
+    {
+      "text": "A.4",
+      "url": "https://arxiv.org/html/2608.05886v1#A1.SS4"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2608.05886v1#S3.F2"
+    },
+    {
+      "text": "D",
+      "url": "https://arxiv.org/html/2608.05886v1#A4"
+    },
+    {
+      "text": "E",
+      "url": "https://arxiv.org/html/2608.05886v1#A5"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2608.05886v1#S4.T2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2608.05886v1#S4.T3"
+    },
+    {
+      "text": "5.3",
+      "url": "https://arxiv.org/html/2608.05886v1#S5.SS3"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2608.05886v1#S7"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2608.05886v1#A4.F4"
+    },
+    {
+      "text": "8",
+      "url": "https://arxiv.org/html/2608.05886v1#A6.T8"
+    },
+    {
+      "text": "F",
+      "url": "https://arxiv.org/html/2608.05886v1#A6"
+    },
+    {
+      "text": "https://www.anthropic.com/claude-code",
+      "url": "https://www.anthropic.com/claude-code"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2608.05886v1#S1.p1.1"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2608.05886v1#S1.p2.1"
+    }
+  ],
+  "matching_link_count": 82,
+  "links_truncated": true,
+  "invalid_links": []
+}

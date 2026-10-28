@@ -1,0 +1,286 @@
+{
+  "url": "https://arxiv.org/html/2607.07508v1",
+  "final_url": "https://arxiv.org/html/2607.07508v1",
+  "status": 200,
+  "title": "Single-Rollout Asynchronous Optimization for Agentic Reinforcement Learning",
+  "metadata": {},
+  "paper": {
+    "title": "Single-Rollout Asynchronous Optimization for Agentic Reinforcement Learning",
+    "title_warning": null,
+    "abstract": "Abstract Reinforcement learning (RL) is becoming increasingly important for post-training large language models (LLMs).\nPrevious RL pipelines for LLMs were mostly synchronous and batch-interleaved, which is inefficient for long-horizon agentic tasks.\nRecently, asynchronous RL has emerged as a more efficient alternative by updating the model as rollouts arrive.\nHowever, existing asynchronous RL systems often emphasize throughput, while leaving training stability and task effectiveness largely underexplored.\nFor example, a key challenge is that group-wise sampling in the widely-used GRPO framework does not naturally fit asynchronous agentic training.\nIn this paper, we present Single-rollout Asynchronous Optimization (SAO) to address the stability and off-policy challenges in asynchronous RL.\nTo reduce off-policy effects and improve generalization, we replace group-wise sampling with single-rollout sampling, that is, using one rollout per prompt.\nWe further improve this single-rollout strategy with practical value-model training designs.\nTo improve optimization stability, we introduce a strict double-side token-level clipping strategy.\nSAO is able to train stably for one thousand steps and consistently outperform GRPO and its variants on agentic coding and reasoning benchmarks, such as SWE-Bench Verified, BeyondAIME, and IMOAnswerBench.\nWe also demonstrate that single-rollout RL is particularly effective in a simulated online learning setting, where the model must adapt to changing evolving environments.\nTo this end, SAO is successfully deployed in the agentic RL pipeline for training the open GLM-5.2 model (750B-A40B).",
+    "authors": [
+      {
+        "name": "Zhenyu Hou",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Yujiang Li 1 1 footnotemark: 1",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Jie Tang",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Yuxiao Dong",
+        "affiliations": [
+          "Affiliation: Tsinghua University"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Zhenyu Hou † † thanks: Equal Contribution. Work done while ZH and YL interned at Z.AI. Yujiang Li 1 1 footnotemark: 1 Jie Tang Yuxiao Dong Affiliation: Tsinghua University",
+    "arxiv_version": "2607.07508v1",
+    "arxiv_version_date": "2026-07-08"
+  },
+  "text": "Single-Rollout Asynchronous Optimization for Agentic Reinforcement Learning Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: CC BY 4.0 arXiv:2607.07508v1 [cs.LG] 08 Jul 2026 \\NewEnviron hide Single-Rollout Asynchronous Optimization for Agentic Reinforcement Learning Zhenyu Hou † † thanks: Equal Contribution. Work done while ZH and YL interned at Z.AI. Yujiang Li 1 1 footnotemark: 1 Jie Tang Yuxiao Dong Affiliation: Tsinghua University Abstract Reinforcement learning (RL) is becoming increasingly important for post-training large language models (LLMs). Previous RL pipelines for LLMs were mostly synchronous and batch-interleaved, which is inefficient for long-horizon agentic tasks. Recently, asynchronous RL has emerged as a more efficient alternative by updating the model as rollouts arrive. However, existing asynchronous RL systems often emphasize throughput, while leaving training stability and task effectiveness largely underexplored. For example, a key challenge is that group-wise sampling in the widely-used GRPO framework does not naturally fit asynchronous agentic training. In this paper, we present Single-rollout Asynchronous Optimization (SAO) to address the stability and off-policy challenges in asynchronous RL. To reduce off-policy effects and improve generalization, we replace group-wise sampling with single-rollout sampling, that is, using one rollout per prompt. We further improve this single-rollout strategy with practical value-model training designs. To improve optimization stability, we introduce a strict double-side token-level clipping strategy. SAO is able to train stably for one thousand steps and consistently outperform GRPO and its variants on agentic coding and reasoning benchmarks, such as SWE-Bench Verified, BeyondAIME, and IMOAnswerBench. We also demonstrate that single-rollout RL is particularly effective in a simulated online learning setting, where the model must adapt to changing evolving environments. To this end, SAO is successfully deployed in the agentic RL pipeline for training the open GLM-5.2 model (750B-A40B). Figure 1: The performance of SAO on reasoning and coding benchmarks. The four reasoning benchmarks are evaluated in a reasoning-with-Python-tool setting, where the baseline is the Qwen3-30B-A3B SFT model; SWE-Bench Verified evaluates coding with the Qwen3-30B-A3B baseline. SAO outperforms the corresponding baseline and GRPO across all five benchmarks. 1 Introduction Large Language Model (LLM) development is shifting from supervised pre-training toward post-training reinforcement learning (RL). Recent work in Reinforcement Learning has demonstrated that scaling RL compute together with test-time compute is a highly effective way to improve model intelligence ( DeepSeek-AI, 2024a ; OpenAI, 2024 ; Cobbe et al., 2021 ; Lightman et al., 2023 ) . Most LLM RL pipelines remain synchronous and interleaved: the policy generates a batch of rollouts, and optimization starts only after the entire batch is collected ( Ouyang and others, 2022 ; Rafailov et al., 2024 ) . For agentic and coding workloads, rollout lengths are highly variable, so short trajectories finish quickly while long ones become stragglers; as a result, large portions of the GPU cluster idle while waiting for the slowest rollouts ( DeepSeek-AI, 2024b ; Kwon et al., 2023 ; Yu et al., 2022 ) . Asynchronous RL mitigates this imbalanced generation overhead by consuming rollouts continuously as they arrive, improving utilization and wall-clock efficiency ( Mnih et al., 2016 ; Liang et al., 2018 ; Hoffman and others, 2020 ) . However, asynchrony introduces two challenges. First, each trajectory can be generated by multiple versions of the old rollout model, which leads to more unpredictable and severe off-policy, and thus harms the training stability. Previous works ( Fu et al., 2025 ; Noukhovitch et al., 2024 ) make attempts for asynchronous RL but mainly focus on efficiency optimization rather than effectiveness. Second, group-wise methods such as GRPO ( Shao and others, 2024 ; Wang and others, 2022 ) are mismatched to asynchronous training. GRPO samples a group of responses for each prompt and uses the group-level average for advantage estimation. The group-wise sampling induces latency-driven off-policy behavior because the group has to wait for the slower one to finish before fed into training. In addition, group-wise sampling is incompatible with online or complex agentic settings where the environment often provides only a single trajectory feedback per prompt ( Sutton and Barto, 2018 ; Schulman et al., 2017 ; Yao and others, 2022 ; Nakano and others, 2021 ) . In this paper, we propose Single-rollout Asynchronous Optimization (SAO) for agentic RL. It keeps asynchronous RL training stable and effective under policy lag while preserving the efficiency of asynchrony. Instead of group-wise sampling, such as GRPO, SAO uses single-rollout updates. To make this setting practical, it also introduces effective value-model training strategies. Our contributions are as follows: • To stabilize training under varied policy lag, we use token-level importance sampling strategy. It directly uses the log-probabilities from the rollout engine and applies stricter double-sided token-level clipping and masking. • To reduce off-policy effects, we use one single rollout sampling for each prompt instead of group-wise sampling previously populated by GRPO. To further make this setting practical in agentic RL, we improve the value model process. Specifically, we update the critic more frequent than the actor and fine-tune the value model with frozen attention. • To handle multi-turn agent trajectories with interleaved environment feedback, we derive a skip-observation token-level GAE estimator. It computes advantages across action-to-action boundaries. It also avoids propagating noise through observation tokens that are not generated by the model. We evaluate SAO on agentic coding and math reasoning benchmarks, including SWE-Bench Verified ( Jimenez et al., 2023 ) , AIME2025 ( Balunović et al., 2025 ) , BeyondAIME ( ByteDanceSeed, 2025 ) , HMMT ( Balunović et al., 2025 ) , and IMOAnswerBench ( Luong et al., 2025 ) . The results demonstrate that our asynchronous RL design can stably train for around one thousand steps and achieves consistently better performance than improved GRPO. In addition, we show that the single-rollout strategy in SAO is uniquely suited for simulated online learning, where it can adapt to dynamic environmental changes. 2 Preliminaries In reinforcement learning for language models, the model is parameterized by θ \\theta as a stochastic policy π θ ​ ( y | q ) \\pi_{\\theta}(y|q) , which generates a response sequence y = [ y 1 , … , y | y | ] y=[y_{1},\\dots,y_{|y|}] given a query q q from dataset 𝒟 \\mathcal{D} . RL optimizes π θ \\pi_{\\theta} by maximizing a clipped surrogate objective that encourages stable policy updates. Formally, for a given batch of data, the unified optimization target is defined as: 𝔼 ⁡ [ 1 | y | ​ ∑ t = 1 | y | min ⁡ ( r t ​ ( θ ) ​ A ^ t , clip ​ ( r t ​ ( θ ) , 1 − ϵ , 1 + ϵ ) ​ A ^ t ) ] \\mathbb{E}\\left[\\frac{1}{|y|}\\sum_{t=1}^{|y|}\\min\\left(r_{t}(\\theta)\\hat{A}_{t},\\text{clip}(r_{t}(\\theta),1-\\epsilon,1+\\epsilon)\\hat{A}_{t}\\right)\\right] where r t ​ ( θ ) = π θ ​ ( y t ∣ q , y < t ) π θ old ​ ( y t ∣ q , y < t ) r_{t}(\\theta)=\\frac{\\pi_{\\theta}(y_{t}\\mid q,y_{<t})}{\\pi_{\\theta_{\\text{old}}}(y_{t}\\mid q,y_{<t})} is the probability ratio between the current and old policies, ϵ \\epsilon is the clipping hyperparameter. The fundamental distinction between PPO ( Schulman et al., 2017 ) and GRPO ( DeepSeek-AI, 2024b ) lies in whether to estimate the advantage function A ^ t \\hat{A}_{t} and the necessity of auxiliary value networks. Proximal Policy Optimization (PPO). Standard PPO typically adopts an Actor-Critic architecture, requiring the training of a separate value function (Critic) V ϕ V_{\\phi} , parameterized by ϕ \\phi , to estimate the expected return of the current state. This critic is optimized concurrently with the policy to minimize the value error ℒ ϕ VF = 𝔼 ⁡ [ ( V ϕ ​ ( q , y < t ) − R ) 2 ] \\mathcal{L}_{\\phi}^{\\text{VF}}=\\mathbb{E}[(V_{\\phi}(q,y_{<t})-R)^{2}] , where R R denotes the cumulative reward. To balance bias and variance, PPO employs Generalized Advantage Estimation (GAE). The advantage A ^ t GAE \\hat{A}_{t}^{\\text{GAE}} is computed as an exponentially weighted sum of temporal difference errors: A ^ t GAE = ∑ l = 0 | y | − t − 1 ( γ ​ λ ) l ​ δ t + l \\hat{A}_{t}^{\\text{GAE}}=\\sum_{l=0}^{|y|-t-1}(\\gamma\\lambda)^{l}\\delta_{t+l} where δ t = r t + γ ​ V ϕ ​ ( s t + 1 ) − V ϕ ​ ( s t ) \\delta_{t}=r_{t}+\\gamma V_{\\phi}(s_{t+1})-V_{\\phi}(s_{t}) . While effective, this approach necessitates maintaining a copy of the model parameters for the value function, essentially doubling the memory footprint during training and increasing computational overhead. {hide} Group Relative Policy Optimization (GRPO). In contrast, GRPO obviates the need for a learned value function and thus reduces memory consumption. Instead of relying on a critic for baseline estimation, GRPO utilizes the properties of a group of sampled responses. For each query q q , the algorithm samples a group of G G outputs { y 1 , … , y G } \\{y_{1},\\dots,y_{G}\\} from the policy π θ old \\pi_{\\theta_{\\text{old}}} and computes their respective rewards { R 1 , … , R G } \\{R_{1},\\dots,R_{G}\\} . The advantage for the i i -th response is then derived by normalizing its reward against the group: A ^ i , t = R i − μ R σ R , with μ R = 1 G ​ ∑ j = 1 G R j \\hat{A}_{i,t}=\\frac{R_{i}-\\mu_{R}}{\\sigma_{R}},\\quad\\text{with}\\quad\\mu_{R}=\\frac{1}{G}\\sum_{j=1}^{G}R_{j} where, σ R = 1 G ​ ∑ j = 1 G ( R j − μ R ) 2 + ϵ stab \\sigma_{R}=\\sqrt{\\frac{1}{G}\\sum_{j=1}^{G}(R_{j}-\\mu_{R})^{2}+\\epsilon_{\\text{stab}}} . The group mean μ R \\mu_{R} effectively serves as the baseline, replacing the learned value function V ϕ V_{\\phi} . This formulation renders the advantage A ^ i , t \\hat{A}_{i,t} constant across all tokens within a specific response y i y_{i} , assuming sequence-level rewards. 3 Asynchronous Reinforcement Learning with Single Rollout Figure 2: Overview of SAO with single rollout design. The numbers denote the generation order of trajectories. For SAO, each trajectory becomes available for training immediately upon completion. In contrast, GRPO must wait until all trajectories in a group are generated before training can begin. In this section, we introduce SAO to tackle training instability and off-policy drift in asynchronous RL training. With a simple token-level clipping strategy and single rollout as an alternative to group-wise sampling, we show that asynchronous RL can be stably scaled to thousands of training steps and achieve significant performance improvements. Figure 2 shows the overall design of SAO. 3.1 Stabilizing Asynchronous RL via Direct Double-Sided Importance Sampling (DIS) A primary challenge in asynchronous RL is the “policy lag” that emerges between rollout models and the training models. In decoupled PPO for LLM, importance sampling is employed to relieve off-policy bias by keeping three distinct models: the current policy π θ \\pi_{\\theta} , the old policy π θ old \\pi_{\\theta_{\\text{old}}} , and the rollout policy π rollout \\pi_{\\text{rollout}} , where π θ π θ old \\frac{\\pi_{\\theta}}{\\pi_{\\theta_{\\text{old}}}} is used for staled off-policy correction and π θ old π rollout \\frac{\\pi_{\\theta_{\\text{old}}}}{\\pi_{\\text{rollout}}} for training-rollout mismatch. However, as rollout engines may undergo multiple updates during a single trajectory generation in asynchronous RL, this renders the tracking of exact behavior probabilities π θ old \\pi_{\\theta_{\\text{old}}} computationally prohibitive. Otherwise, we have to maintain an extensive history of model checkpoints ",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: CC BY 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "DeepSeek-AI, 2024a",
+      "url": "https://arxiv.org/html/2607.07508v1#bib.bib14"
+    },
+    {
+      "text": "OpenAI, 2024",
+      "url": "https://arxiv.org/html/2607.07508v1#bib.bib18"
+    },
+    {
+      "text": "Cobbe et al., 2021",
+      "url": "https://arxiv.org/html/2607.07508v1#bib.bib2"
+    },
+    {
+      "text": "Lightman et al., 2023",
+      "url": "https://arxiv.org/html/2607.07508v1#bib.bib3"
+    },
+    {
+      "text": "Ouyang and others, 2022",
+      "url": "https://arxiv.org/html/2607.07508v1#bib.bib1"
+    },
+    {
+      "text": "Rafailov et al., 2024",
+      "url": "https://arxiv.org/html/2607.07508v1#bib.bib12"
+    },
+    {
+      "text": "DeepSeek-AI, 2024b",
+      "url": "https://arxiv.org/html/2607.07508v1#bib.bib16"
+    },
+    {
+      "text": "Kwon et al., 2023",
+      "url": "https://arxiv.org/html/2607.07508v1#bib.bib4"
+    },
+    {
+      "text": "Yu et al., 2022",
+      "url": "https://arxiv.org/html/2607.07508v1#bib.bib5"
+    },
+    {
+      "text": "Mnih et al., 2016",
+      "url": "https://arxiv.org/html/2607.07508v1#bib.bib27"
+    },
+    {
+      "text": "Liang et al., 2018",
+      "url": "https://arxiv.org/html/2607.07508v1#bib.bib7"
+    },
+    {
+      "text": "Hoffman and others, 2020",
+      "url": "https://arxiv.org/html/2607.07508v1#bib.bib8"
+    },
+    {
+      "text": "Fu et al., 2025",
+      "url": "https://arxiv.org/html/2607.07508v1#bib.bib26"
+    },
+    {
+      "text": "Noukhovitch et al., 2024",
+      "url": "https://arxiv.org/html/2607.07508v1#bib.bib25"
+    },
+    {
+      "text": "Shao and others, 2024",
+      "url": "https://arxiv.org/html/2607.07508v1#bib.bib13"
+    },
+    {
+      "text": "Wang and others, 2022",
+      "url": "https://arxiv.org/html/2607.07508v1#bib.bib6"
+    },
+    {
+      "text": "Sutton and Barto, 2018",
+      "url": "https://arxiv.org/html/2607.07508v1#bib.bib11"
+    },
+    {
+      "text": "Schulman et al., 2017",
+      "url": "https://arxiv.org/html/2607.07508v1#bib.bib28"
+    },
+    {
+      "text": "Yao and others, 2022",
+      "url": "https://arxiv.org/html/2607.07508v1#bib.bib9"
+    },
+    {
+      "text": "Nakano and others, 2021",
+      "url": "https://arxiv.org/html/2607.07508v1#bib.bib10"
+    },
+    {
+      "text": "Jimenez et al., 2023",
+      "url": "https://arxiv.org/html/2607.07508v1#bib.bib30"
+    },
+    {
+      "text": "Balunović et al., 2025",
+      "url": "https://arxiv.org/html/2607.07508v1#bib.bib29"
+    },
+    {
+      "text": "ByteDanceSeed, 2025",
+      "url": "https://arxiv.org/html/2607.07508v1#bib.bib19"
+    },
+    {
+      "text": "Luong et al., 2025",
+      "url": "https://arxiv.org/html/2607.07508v1#bib.bib21"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2607.07508v1#S3.F2"
+    },
+    {
+      "text": "Team et al. (2025)",
+      "url": "https://arxiv.org/html/2607.07508v1#bib.bib35"
+    },
+    {
+      "text": "Zhang et al. (2021)",
+      "url": "https://arxiv.org/html/2607.07508v1#bib.bib31"
+    },
+    {
+      "text": "Yang et al., 2025a",
+      "url": "https://arxiv.org/html/2607.07508v1#bib.bib22"
+    },
+    {
+      "text": "OpenAI, 2025",
+      "url": "https://arxiv.org/html/2607.07508v1#bib.bib34"
+    },
+    {
+      "text": "Yue et al., 2025",
+      "url": "https://arxiv.org/html/2607.07508v1#bib.bib20"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2607.07508v1#S4.T1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2607.07508v1#S4.T2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2607.07508v1#S4.F3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2607.07508v1#S4.T4"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2607.07508v1#S4.T3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2607.07508v1#S4.F4"
+    },
+    {
+      "text": "GLM et al., 2025",
+      "url": "https://arxiv.org/html/2607.07508v1#bib.bib33"
+    },
+    {
+      "text": "5a",
+      "url": "https://arxiv.org/html/2607.07508v1#S4.F5.sf1"
+    },
+    {
+      "text": "5b",
+      "url": "https://arxiv.org/html/2607.07508v1#S4.F5.sf2"
+    },
+    {
+      "text": "Ahmadian and others, 2024",
+      "url": "https://arxiv.org/html/2607.07508v1#bib.bib15"
+    },
+    {
+      "text": "Zheng et al., 2025",
+      "url": "https://arxiv.org/html/2607.07508v1#bib.bib23"
+    },
+    {
+      "text": "Yang et al., 2025b",
+      "url": "https://arxiv.org/html/2607.07508v1#bib.bib24"
+    },
+    {
+      "text": "Espeholt and others, 2018",
+      "url": "https://arxiv.org/html/2607.07508v1#bib.bib17"
+    },
+    {
+      "text": "Lu et al., 2025",
+      "url": "https://arxiv.org/html/2607.07508v1#bib.bib36"
+    },
+    {
+      "text": "Xu et al., 2025",
+      "url": "https://arxiv.org/html/2607.07508v1#bib.bib37"
+    },
+    {
+      "text": "§5.1",
+      "url": "https://arxiv.org/html/2607.07508v1#S5.SS1.p1.1"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2607.07508v1#S1.p6.1"
+    },
+    {
+      "text": "§4.1",
+      "url": "https://arxiv.org/html/2607.07508v1#S4.SS1.p3.1"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2607.07508v1#S1.p1.1"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2607.07508v1#S1.p2.1"
+    },
+    {
+      "text": "§2",
+      "url": "https://arxiv.org/html/2607.07508v1#S2.p3.1"
+    },
+    {
+      "text": "§5.2",
+      "url": "https://arxiv.org/html/2607.07508v1#S5.SS2.p1.1"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2607.07508v1#S1.p3.1"
+    },
+    {
+      "text": "§5.2",
+      "url": "https://arxiv.org/html/2607.07508v1#S5.SS2.p2.1"
+    },
+    {
+      "text": "§4.5",
+      "url": "https://arxiv.org/html/2607.07508v1#S4.SS5.p3.1"
+    },
+    {
+      "text": "Link",
+      "url": "https://aclanthology.org/2025.emnlp-main.1794/"
+    },
+    {
+      "text": "https://openai.com/index/learning-to-reason-with-llms",
+      "url": "https://openai.com/index/learning-to-reason-with-llms"
+    }
+  ],
+  "matching_link_count": 73,
+  "links_truncated": true,
+  "invalid_links": []
+}

@@ -1,0 +1,296 @@
+{
+  "url": "https://arxiv.org/html/2609.32391v1",
+  "final_url": "https://arxiv.org/html/2609.32391v1",
+  "status": 200,
+  "title": "SCLATE: A Substrate for Continual-Learning Agent Training and Evaluation",
+  "metadata": {},
+  "paper": {
+    "title": "SCLATE : A Substrate for Continual-Learning Agent Training and Evaluation",
+    "title_warning": null,
+    "abstract": "Abstract Continual-learning agents are systems of models, harnesses, and memory operating over long multi-session horizons.\nEvaluating and training them requires interleaving tasks with agent-side events such as session stop and start, crons, and memory consolidation.\nYet existing benchmarks and training frameworks schedule only the benchmark’s own events, leaving each benchmark and agent pair to build a custom scheduling loop.\nWe present SCLATE , an execution substrate where benchmarks and unmodified agents each add their events to one open event scheduler through an adapter.\nA hybrid simulated clock runs these events on a shared timeline, flowing in real time while the agent works and skipping idle gaps, which compresses a month-long scenario into hours. SCLATE also serves as a rollout engine that runs any agent’s harness and memory unmodified, recording the tokens and log probabilities of every model call through an in-container proxy.\nWe port seven benchmarks to SCLATE and compare ten unmodified harness and memory configurations head to head on ten models.\nThe comparison shows that an added memory system does not reliably beat the harness’s native memory and that models differ widely in how they use the same harness and memory.\nWe then post-train Qwen3.5-4B through unmodified harnesses and memory systems.\nThe model learns to use both, reading 6.8 × \\times fewer file lines with a 16.7-point higher SWE-bench Verified pass rate, and writing richer memory records, while its held-out MetaClaw accuracy rises by up to 11.8 points.",
+    "authors": [
+      {
+        "name": "Youngmok Jung",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Sirajul Salekin",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Henry Tran",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Javier Movellan",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Zhao Huang",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Manjot Bilkhu",
+        "affiliations": [
+          "Affiliation: Apple"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Youngmok Jung Sirajul Salekin Henry Tran Javier Movellan Zhao Huang Manjot Bilkhu Affiliation: Apple",
+    "arxiv_version": "2609.32391v1",
+    "arxiv_version_date": "2026-09-26"
+  },
+  "text": "SCLATE: A Substrate for Continual-Learning Agent Training and Evaluation Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: CC BY 4.0 arXiv:2609.32391v1 [cs.AI] 26 Sep 2026 \\metadata [Correspondence] Youngmok Jung: yjung24@apple.com , Manjot Bilkhu: mbilkhu@apple.com SCLATE : A Substrate for Continual-Learning Agent Training and Evaluation Youngmok Jung Sirajul Salekin Henry Tran Javier Movellan Zhao Huang Manjot Bilkhu Affiliation: Apple September 26, 2026 Abstract Continual-learning agents are systems of models, harnesses, and memory operating over long multi-session horizons. Evaluating and training them requires interleaving tasks with agent-side events such as session stop and start, crons, and memory consolidation. Yet existing benchmarks and training frameworks schedule only the benchmark’s own events, leaving each benchmark and agent pair to build a custom scheduling loop. We present SCLATE , an execution substrate where benchmarks and unmodified agents each add their events to one open event scheduler through an adapter. A hybrid simulated clock runs these events on a shared timeline, flowing in real time while the agent works and skipping idle gaps, which compresses a month-long scenario into hours. SCLATE also serves as a rollout engine that runs any agent’s harness and memory unmodified, recording the tokens and log probabilities of every model call through an in-container proxy. We port seven benchmarks to SCLATE and compare ten unmodified harness and memory configurations head to head on ten models. The comparison shows that an added memory system does not reliably beat the harness’s native memory and that models differ widely in how they use the same harness and memory. We then post-train Qwen3.5-4B through unmodified harnesses and memory systems. The model learns to use both, reading 6.8 × \\times fewer file lines with a 16.7-point higher SWE-bench Verified pass rate, and writing richer memory records, while its held-out MetaClaw accuracy rises by up to 11.8 points. 1 Introduction A continual-learning agent is a system comprising a memory layer that retains accumulated experience, a harness that manages tools and context, and model training that refines its behavior ( Wang et al., 2023 ; Park et al., 2023 ; Chhikara et al., 2025 ; Ouyang et al., 2026 ; Sun et al., 2024 ; Shenfeld et al., 2026 ; Lee et al., 2026 ; Zhang et al., 2026b ) . Increasingly, agent platforms such as Claude Code, Codex, OpenClaw, and Hermes operate as such systems, learning across sequential sessions to accumulate a user’s preferences, facts, habits, and workflow state. Across such a lifecycle, the agent and its memory system initialize within an environment, execute interactive tasks while an independent grading event scores state transitions, trigger background routines to consolidate memories across session boundaries, and resume across days or weeks on a progressing timeline. Evaluating and training these systems requires an execution substrate that runs an unmodified agent and its memory system alongside benchmark scenarios under reproducible conditions. Yet no evaluation or training substrate can run an unmodified harness and memory across a multi-session continual-learning lifecycle. First, non-agentic benchmarks evaluate one-shot retrieval or prompt responses on pre-collected traces, lacking temporal horizons, session boundaries, or live agent loops ( Wu et al., 2025 ; Maharana et al., 2024 ; Jiang et al., 2025 ; Li et al., 2026 ) . Second, closed-agent benchmarks model multi-session scenarios but bind execution to built-in assistants, testing memory or skill modules only within private runners rather than supporting external harnesses ( Patil et al., 2025 ; Cheng et al., 2026 ; Zhong et al., 2026 ) . Third, agent-agnostic benchmarks accept external harnesses, yet keep event scheduling closed to the agent, dictating scenario turns while preventing agents from registering crons, session stop and start, or memory consolidation onto the shared timeline ( Shi et al., 2026 ; Jimenez et al., 2024 ; Xia et al., 2026 ; Froger et al., 2026 ) . On the training side, post-training rollout engines inherit these limitations by training agents only on existing single-session benchmarks, omitting session boundaries, persistent memory states, and asynchronous event simulation ( Xu et al., 2026 ; He et al., 2026 ; Yu et al., 2026 ; Tan et al., 2025 ) . Without a shared substrate to coordinate benchmark scenarios alongside agent-side events, researchers must build custom scheduling loops for every benchmark-agent pair, preventing controlled, head-to-head comparisons. To address these limitations, we introduce the Substrate for Continual Learning Agent Training and Evaluation ( SCLATE ), an open execution substrate where arbitrary continual-learning agents can be evaluated and trained across long-horizon lifecycles spanning days to weeks (Figure 1 ). SCLATE has three core mechanisms. First, in a continual-learning lifecycle both the benchmark and the agent produce events. SCLATE provides each with an adapter that registers those events on one open event scheduler, from scenario tasks to session stop and start, crons, and state save and restore. Second, to run multi-week scenarios in hours, the scheduler places these events on a hybrid simulated clock, visible to agent and memory processes, that flows in real time while the agent works and jumps across idle intervals between events. Third, to post-train models through unmodified harnesses and memory systems, an in-container proxy records every model call’s tokens and log probabilities and tags each call with the harness or memory component that made it. SCLATE pairs this with a decoupled rollout engine that controls agent, memory, and container state across training iterations behind one training-framework-agnostic interface, which we demonstrate with Slime ( Zhu et al., 2025 ) . Figure 1 : Continual-learning lifecycle across multi-session horizons. (a) Existing frameworks run only a built-in assistant or schedule only the benchmark’s own events, leaving agent-side events off the timeline. (b) SCLATE ’s open event scheduler lets the benchmark and the agent register their events on one simulated clock, so the same runs serve multi-session evaluation and post-training. We validate SCLATE on seven benchmarks, MetaClaw ( Xia et al., 2026 ) , GAIA-2 ( Froger et al., 2026 ) , AppWorld ( Trivedi et al., 2024 ) , LongMemEval ( Wu et al., 2025 ) , PersonaMem ( Jiang et al., 2025 ) , SWE-Gym ( Pan et al., 2024 ) , and SWE-bench Verified ( Jimenez et al., 2024 ) , spanning personal assistance, software engineering, and multi-session memory. With every harness and memory system running unmodified on the same benchmarks, SCLATE enables a head-to-head comparison of continual-learning agents across three harnesses, Claude Code, Hermes, and Codex, with their native memory or an external memory system, Mem0 ( Chhikara et al., 2025 ) , Hindsight ( Latimer et al., 2025 ) , or GBrain ( Gbrain Team, 2026 ) , and ten models, including every combination on MetaClaw. The comparison shows that no harness or memory is best for every model and that an added memory system does not reliably beat the harness’s native memory. Models also differ widely in how they use the same harness and memory, so continual-learning agents must be evaluated and trained with their model, harness, and memory together. SCLATE also supports post-training a model through its unmodified harness and memory. The model learns to use both, reading 6.8 × \\times fewer file lines with a 16.7-point higher SWE-bench Verified pass rate, and writing richer memory records, while its held-out accuracy on 30-workday MetaClaw rises by up to 11.8 points across configurations. SCLATE thus lets a continual-learning agent’s model, harness, and memory be evaluated and trained together. In summary, our contributions are the following. • An open event scheduler (§ 3.1 ) that owns the timeline and runs events from both benchmarks and unmodified agents on it, each added through an adapter (§ 3.2 ), compressing month-long scenarios into hours while preserving event order and timing (§ 4.1 ). • A rollout engine (§ 3.3 ) whose in-container capture proxy records every model call of an unmodified harness and memory, turning evaluation runs into training data. • SCLATE , our implementation with seven ported benchmarks, used for a head-to-head comparison of ten harness and memory configurations on ten models (§ 4.2 ) and for post-training through unmodified harnesses and memory (§ 4.3 ). 2 Related Work Continual-learning evaluation benchmarks. Evaluating continual-learning agents requires measuring how systems of models, harnesses, and memory persist and adapt across long multi-session horizons. Prior evaluation suites fall into three architectural tiers. First, non-agentic benchmarks score isolated dimensions such as memory retention and context compaction on pre-collected traces without an interactive agent loop ( Maharana et al., 2024 ; Wu et al., 2025 ; Jiang et al., 2025 ; Li et al., 2026 ; Hao et al., 2026 ) , failing to evaluate the end-to-end behavior of continual-learning agents across session boundaries. Second, closed-agent benchmarks evaluate memory retention, skill acquisition, and model adaptation, but hardwire a built-in agent directly into the evaluation runner rather than supporting external harnesses and memory systems ( Patil et al., 2025 ; Shen et al., 2026 ; Cheng et al., 2026 ; Zhong et al., 2026 ) . Third, agent-agnostic benchmarks advance to evaluating unmodified agents ( Xia et al., 2026 ; Froger et al., 2026 ; Shi et al., 2026 ) . However, they either lack an event scheduler entirely ( Xia et al., 2026 ) or rely on benchmark-driven execution cycles that treat the agent as a passive responder ( Froger et al., 2026 ; Shi et al., 2026 ) , leaving no mechanism to coordinate agent and memory events across continual-learning lifecycles. SCLATE decouples the event scheduling control loop from the benchmark into an open scheduler, supporting the broader continual-learning lifecycle events of agents and benchmarks. Rollout engines for agent post-training. A growing line of systems scales agent post-training by decoupling rollout execution from distributed training loops ( He et al., 2026 ; Tan et al., 2025 ; Xu et al., 2026 ; Zhu et al., 2025 ; Cao et al., 2025 ; Prime Intellect, 2026 ; Zhang et al., 2026a ) . To train unmodified agents, recent frameworks intercept model calls via network proxies ( Xu et al., 2026 ; He et al., 2026 ; Yu et al., 2026 ) or wrap execution loops in standardized abstractions ( Tan et al., 2025 ) . However, training continual-learning agents requires carrying session state across container restarts and attributing each model call to the harness or memory component that made it. SCLATE addresses these requirements by providing abstractions to manage rollout state across container lifecycles and the flexibility to route and attribute model calls by component, natively supporting continual-learning agents at scale while remaining agnostic to benchmarks and training frameworks. Table 3 in Appendix A compares SCLATE with these systems. 3 The SCLATE Substrate Figure 2 : SCLATE architecture. Adapters decouple benchmarks and agent harnesses into a uniform event stream, while the host orchestration manages container lifecycles and training batches. Inside replicated sandboxes, an open event scheduler coordinates benchmark and agent events on a hybrid simulated clock, while an in-container proxy captures token-faithful trajectories for post-training. Architecture overview. SCLATE is an execution substrate for continual-learning agent evaluation and post-training across multi-session horizons (Figure 2 ). SCLATE is organized into three decoupled tiers, an external tier of bench",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: CC BY 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "Wang et al., 2023",
+      "url": "https://arxiv.org/html/2609.32391v1#bib.bib29"
+    },
+    {
+      "text": "Park et al., 2023",
+      "url": "https://arxiv.org/html/2609.32391v1#bib.bib18"
+    },
+    {
+      "text": "Chhikara et al., 2025",
+      "url": "https://arxiv.org/html/2609.32391v1#bib.bib3"
+    },
+    {
+      "text": "Ouyang et al., 2026",
+      "url": "https://arxiv.org/html/2609.32391v1#bib.bib16"
+    },
+    {
+      "text": "Sun et al., 2024",
+      "url": "https://arxiv.org/html/2609.32391v1#bib.bib26"
+    },
+    {
+      "text": "Shenfeld et al., 2026",
+      "url": "https://arxiv.org/html/2609.32391v1#bib.bib24"
+    },
+    {
+      "text": "Lee et al., 2026",
+      "url": "https://arxiv.org/html/2609.32391v1#bib.bib12"
+    },
+    {
+      "text": "Zhang et al., 2026b",
+      "url": "https://arxiv.org/html/2609.32391v1#bib.bib35"
+    },
+    {
+      "text": "Wu et al., 2025",
+      "url": "https://arxiv.org/html/2609.32391v1#bib.bib30"
+    },
+    {
+      "text": "Maharana et al., 2024",
+      "url": "https://arxiv.org/html/2609.32391v1#bib.bib15"
+    },
+    {
+      "text": "Jiang et al., 2025",
+      "url": "https://arxiv.org/html/2609.32391v1#bib.bib9"
+    },
+    {
+      "text": "Li et al., 2026",
+      "url": "https://arxiv.org/html/2609.32391v1#bib.bib13"
+    },
+    {
+      "text": "Patil et al., 2025",
+      "url": "https://arxiv.org/html/2609.32391v1#bib.bib19"
+    },
+    {
+      "text": "Cheng et al., 2026",
+      "url": "https://arxiv.org/html/2609.32391v1#bib.bib2"
+    },
+    {
+      "text": "Zhong et al., 2026",
+      "url": "https://arxiv.org/html/2609.32391v1#bib.bib36"
+    },
+    {
+      "text": "Shi et al., 2026",
+      "url": "https://arxiv.org/html/2609.32391v1#bib.bib25"
+    },
+    {
+      "text": "Jimenez et al., 2024",
+      "url": "https://arxiv.org/html/2609.32391v1#bib.bib10"
+    },
+    {
+      "text": "Xia et al., 2026",
+      "url": "https://arxiv.org/html/2609.32391v1#bib.bib31"
+    },
+    {
+      "text": "Froger et al., 2026",
+      "url": "https://arxiv.org/html/2609.32391v1#bib.bib4"
+    },
+    {
+      "text": "Xu et al., 2026",
+      "url": "https://arxiv.org/html/2609.32391v1#bib.bib32"
+    },
+    {
+      "text": "He et al., 2026",
+      "url": "https://arxiv.org/html/2609.32391v1#bib.bib8"
+    },
+    {
+      "text": "Yu et al., 2026",
+      "url": "https://arxiv.org/html/2609.32391v1#bib.bib33"
+    },
+    {
+      "text": "Tan et al., 2025",
+      "url": "https://arxiv.org/html/2609.32391v1#bib.bib27"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.32391v1#S1.F1"
+    },
+    {
+      "text": "Zhu et al., 2025",
+      "url": "https://arxiv.org/html/2609.32391v1#bib.bib37"
+    },
+    {
+      "text": "Trivedi et al., 2024",
+      "url": "https://arxiv.org/html/2609.32391v1#bib.bib28"
+    },
+    {
+      "text": "Pan et al., 2024",
+      "url": "https://arxiv.org/html/2609.32391v1#bib.bib17"
+    },
+    {
+      "text": "Latimer et al., 2025",
+      "url": "https://arxiv.org/html/2609.32391v1#bib.bib11"
+    },
+    {
+      "text": "Gbrain Team, 2026",
+      "url": "https://arxiv.org/html/2609.32391v1#bib.bib5"
+    },
+    {
+      "text": "3.1",
+      "url": "https://arxiv.org/html/2609.32391v1#S3.SS1"
+    },
+    {
+      "text": "3.2",
+      "url": "https://arxiv.org/html/2609.32391v1#S3.SS2"
+    },
+    {
+      "text": "4.1",
+      "url": "https://arxiv.org/html/2609.32391v1#S4.SS1"
+    },
+    {
+      "text": "3.3",
+      "url": "https://arxiv.org/html/2609.32391v1#S3.SS3"
+    },
+    {
+      "text": "4.2",
+      "url": "https://arxiv.org/html/2609.32391v1#S4.SS2"
+    },
+    {
+      "text": "4.3",
+      "url": "https://arxiv.org/html/2609.32391v1#S4.SS3"
+    },
+    {
+      "text": "Hao et al., 2026",
+      "url": "https://arxiv.org/html/2609.32391v1#bib.bib6"
+    },
+    {
+      "text": "Shen et al., 2026",
+      "url": "https://arxiv.org/html/2609.32391v1#bib.bib23"
+    },
+    {
+      "text": "Cao et al., 2025",
+      "url": "https://arxiv.org/html/2609.32391v1#bib.bib1"
+    },
+    {
+      "text": "Prime Intellect, 2026",
+      "url": "https://arxiv.org/html/2609.32391v1#bib.bib20"
+    },
+    {
+      "text": "Zhang et al., 2026a",
+      "url": "https://arxiv.org/html/2609.32391v1#bib.bib34"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2609.32391v1#A1.T3"
+    },
+    {
+      "text": "A",
+      "url": "https://arxiv.org/html/2609.32391v1#A1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2609.32391v1#S3.F2"
+    },
+    {
+      "text": "B",
+      "url": "https://arxiv.org/html/2609.32391v1#A2"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.32391v1#alg1"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2609.32391v1#A2.T5"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2609.32391v1#A2.T6"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2609.32391v1#A3.F9"
+    },
+    {
+      "text": "C.4",
+      "url": "https://arxiv.org/html/2609.32391v1#A3.SS4"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2609.32391v1#A3.T7"
+    },
+    {
+      "text": "libfaketime Team, 2026",
+      "url": "https://arxiv.org/html/2609.32391v1#bib.bib14"
+    },
+    {
+      "text": "8",
+      "url": "https://arxiv.org/html/2609.32391v1#A3.F8"
+    },
+    {
+      "text": "C.2",
+      "url": "https://arxiv.org/html/2609.32391v1#A3.SS2"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2609.32391v1#A2.T4"
+    },
+    {
+      "text": "14",
+      "url": "https://arxiv.org/html/2609.32391v1#A5.F14"
+    },
+    {
+      "text": "D.1",
+      "url": "https://arxiv.org/html/2609.32391v1#A4.SS1"
+    },
+    {
+      "text": "8",
+      "url": "https://arxiv.org/html/2609.32391v1#A4.T8"
+    }
+  ],
+  "matching_link_count": 112,
+  "links_truncated": true,
+  "invalid_links": []
+}

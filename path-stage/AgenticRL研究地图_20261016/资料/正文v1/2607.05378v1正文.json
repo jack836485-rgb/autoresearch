@@ -1,0 +1,291 @@
+{
+  "url": "https://arxiv.org/html/2607.05378v1",
+  "final_url": "https://arxiv.org/html/2607.05378v1",
+  "status": 200,
+  "title": "CompactionRL: Reinforcement Learning with Context Compaction for Long-Horizon Agents",
+  "metadata": {},
+  "paper": {
+    "title": "CompactionRL: Reinforcement Learning with Context Compaction for Long-Horizon Agents",
+    "title_warning": null,
+    "abstract": "Abstract Long-horizon agentic LLMs are increasingly limited by finite context windows, as extended interaction trajectories can exceed the maximum context length before a task is completed.\nContext compaction offers a natural solution by summarizing previous interaction states and continuing the rollout under a compressed context, but incorporating compaction into reinforcement learning remains underexplored.\nWe propose CompactionRL, a reinforcement learning strategy to train long-horizon agentic LLMs with context compaction.\nOur approach jointly optimizes task execution and summary generation with token-level loss normalization and cross-trajectory generalized advantage estimation.\nThis design enables the LLM agents to learn from compacted long-horizon trajectories.\nWe train CompactionRL on top of open models and observe consistent performance gains on agentic coding tasks.\nCompactionRL enables the open GLM-4.5-Air model (106B-A30B) to achieve Pass@1 scores of 66.8% on SWE-bench Verified and 24.5% on Terminal-Bench 2.0, with absolute gains of 7.0 and 3.1 points, respectively.\nBuilt upon GLM-4.7-Flash (30B-A3B), CompactionRL improves Pass@1 by 5.5 and 6.8 points, reaching 56.0% on SWE-bench Verified and 20.2% on Terminal-Bench 2.0, respectively.\nCompactionRL is thus deployed in the RL pipeline for training the open GLM-5.2 model (750B-A40B).",
+    "authors": [
+      {
+        "name": "Yujiang Li",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Zhenyu Hou",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Yi Jing",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Jie Tang",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Yuxiao Dong",
+        "affiliations": [
+          "Affiliation: Tsinghua University"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Yujiang Li Zhenyu Hou Yi Jing Jie Tang Yuxiao Dong Affiliation: Tsinghua University",
+    "arxiv_version": "2607.05378v1",
+    "arxiv_version_date": "2026-07-06"
+  },
+  "text": "CompactionRL: Reinforcement Learning with Context Compaction for Long-Horizon Agents Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: arXiv.org perpetual non-exclusive license arXiv:2607.05378v1 [cs.LG] 06 Jul 2026 CompactionRL: Reinforcement Learning with Context Compaction for Long-Horizon Agents Yujiang Li Zhenyu Hou Yi Jing Jie Tang Yuxiao Dong Affiliation: Tsinghua University Abstract Long-horizon agentic LLMs are increasingly limited by finite context windows, as extended interaction trajectories can exceed the maximum context length before a task is completed. Context compaction offers a natural solution by summarizing previous interaction states and continuing the rollout under a compressed context, but incorporating compaction into reinforcement learning remains underexplored. We propose CompactionRL, a reinforcement learning strategy to train long-horizon agentic LLMs with context compaction. Our approach jointly optimizes task execution and summary generation with token-level loss normalization and cross-trajectory generalized advantage estimation. This design enables the LLM agents to learn from compacted long-horizon trajectories. We train CompactionRL on top of open models and observe consistent performance gains on agentic coding tasks. CompactionRL enables the open GLM-4.5-Air model (106B-A30B) to achieve Pass@1 scores of 66.8% on SWE-bench Verified and 24.5% on Terminal-Bench 2.0, with absolute gains of 7.0 and 3.1 points, respectively. Built upon GLM-4.7-Flash (30B-A3B), CompactionRL improves Pass@1 by 5.5 and 6.8 points, reaching 56.0% on SWE-bench Verified and 20.2% on Terminal-Bench 2.0, respectively. CompactionRL is thus deployed in the RL pipeline for training the open GLM-5.2 model (750B-A40B). 1 1 footnotetext: Equal Contribution. 2 2 footnotetext: Work done while YL, ZH, and YJ interned at Z.AI. 1 Introduction Large language model (LLM) agents are increasingly applied to long-horizon interactive tasks, such as software engineering, terminal-based problem solving, and web interaction ( Yao et al., 2023 ; Nakano and others, 2021 ; Jimenez et al., 2023 ) . These tasks require agents to repeatedly reason, act, observe environment feedback, and revise their plans over many steps. As the interaction proceeds, the accumulated history, including tool outputs, intermediate reasoning, error messages, and partial solutions, can exceed the model’s finite context window. Although longer-context models alleviate this issue, scaling context length alone is costly and does not fully solve degraded utilization over long sequences ( Beltagy et al., 2020 ; Dao et al., 2022 ; Liu et al., 2024 ; Hsieh et al., 2024 ) . Thus, long-horizon RL for LLM agents requires mechanisms that allow training to proceed under a fixed context budget. Context compaction provides a natural way to address this limitation. When the history approaches the context limit, earlier interaction history can be summarized into a shorter state, after which the agent resumes from the compacted summary and a small amount of recent context. Related ideas have been explored in language-agent memory, reflection, and long-horizon interaction systems ( Shinn et al., 2023 ; Park et al., 2023 ; Sun et al., 2025 ) . However, prior uses of compaction are mostly treated as inference-time heuristics or external memory operations. In RL training, compaction has a more fundamental role: once a summary replaces the original history, it determines what information is available for all subsequent actions. Therefore, task success depends not only on the execution policy, but also on the quality of the compaction policy. Existing RL pipelines for LLM agents are not designed for this setting. Recent methods such as GRPO optimize groups of complete rollouts with group-normalized advantages ( Shao and others, 2024 ) , while standard long-horizon RL methods typically assume that each trajectory can be processed without changing its context representation. Context compaction breaks these assumptions. A single rollout may be split into a variable number of segments depending on when compaction is triggered, making fixed-size group normalization ill-suited. Moreover, training compacted segments as independent samples can distort both loss weighting and temporal credit assignment, since segments from the same rollout share a task-level reward but differ in length and temporal distance to the final outcome. In this work, we propose CompactionRL, a PPO-based reinforcement learning framework for building long-horizon agentic LLMs with trainable context compaction, as shown in Figure 1 . CompactionRL incorporates compaction into rollout collection, and reconstructs the agent context from a summary once context budget is exhausted. Its core strategy is to jointly optimize task execution actions and summarization actions under the same final task reward. This enables RL training horizon to extend beyond the peak context length while keeping the actual working context budget fixed. Our contributions are summarized as follows: Figure 1: Left: Context compaction allows execution to continue under a fixed context window by initiating a new trace from a compressed summary once the context budget is exhausted. Without compaction, execution terminates upon exhaustion of the context budget. Right: CompactionRL consistently outperforms baseline models on SWE-bench Verified and Terminal-Bench 2.0 under compaction evaluation at both GLM-4.7-Flash(30B-A3B) and GLM-4.5-Air(106B-A30B) scales. • We bring context compaction into long-horizon agentic RL training. Compaction leads to a variable number of rollout segments, therefore, we move from group-wise optimization to a PPO formulation that learns from individual compaction segments. This helps avoid the constraints of group-relative baselines and instead relies on a critic to estimate token-level advantages. • We develop CompactionRL to jointly train trajectory generation and summary generation with a shared task-level reward, making summarization a learned part of the model rather than an inference-time heuristic. To handle compacted rollouts, we use token-level loss normalization to reduce length-induced weighting bias and cross-trajectory GAE to preserve temporal credit assignment across compaction boundaries. • CompactionRL achieves consistent gains on long-horizon agentic coding tasks. Compared with the base model with inference-time compaction, CompactionRL improves GLM-4.7-Flash by 5.5 5.5 points on SWE-bench Verified and 6.8 6.8 points on Terminal-Bench 2.0. It also improves GLM-4.5-Air by 7.0 7.0 and 3.1 3.1 points on the two coding benchmarks, respectively. These results show that RL-trained compaction can extend the effective training horizon of agentic LLMs without increasing the maximum working context length. 2 Related Work Context Compaction for Long-Horizon Agents. Long-horizon language agents must maintain task-relevant state across extended sequences of reasoning, tool calls, and environment feedback. A standard ReAct-style agent appends the full interaction history to the prompt ( Yao et al., 2023 ) , but this makes the context grow with the trajectory and can reduce both efficiency and effective information use in long contexts ( Liu et al., 2024 ) . Prior work has addressed this issue through longer-context modeling and evaluation ( Bai et al., 2024 ; Hsieh et al., 2024 ) , prompt or observation compression ( Jiang et al., 2023b ; Jiang et al., 2023a ) , and explicit memory or reflection mechanisms for agents ( Packer et al., 2023 ; Shinn et al., 2023 ; Park et al., 2023 ; Zhou et al., 2025 ) . These methods show that compressing or externalizing history can extend the effective horizon of LLM agents. Recent work has begun to incorporate context management into agent training. SUPO ( Lu et al., 2025 ) introduces summarization-based context management into multi-turn RL and optimizes summarization together with tool-use behavior; ReSum ( Wu et al., 2025 ) uses a periodic external summary tool and trains summary-conditioned agents with segmented trajectories; and Context-Folding ( Sun et al., 2025 ) frames context management as a branch-and-fold skill trained with reinforcement learning. However, how to jointly train long-horizon coding agents with both execution and compaction segments remains underexplored. Reinforcement Learning for Language Models. Reinforcement learning has become a central technique for improving language models with outcome feedback ( Uesato et al., 2022 ) . Early RLHF systems commonly adopt PPO with an explicit value function ( Schulman et al., 2017 ; Ouyang and others, 2022 ) , while recent reasoning-oriented LLM training often favors critic-free or group-relative objectives such as RLOO, GRPO, and DAPO ( Ahmadian and others, 2024 ; Shao and others, 2024 ; DeepSeek-AI, 2025 ; Hou et al., 2025b ; Yu et al., 2025 ; Zheng et al., 2025 ) that have shown strong performance on verifiable-reward tasks such as mathematical reasoning and coding ( Hou et al., 2025a ; Wei et al., 2025 ; Xu et al., 2025 ) . At the same time, recent studies show that critic-based methods can still be highly effective when value learning is carefully designed. VC-PPO ( Yuan et al., 2025 ) improves PPO through value pretraining and modified advantage estimation and VAPO ( Yue et al., 2025 ) further demonstrates that a value-based RL framework can achieve strong and stable reasoning performance. These results suggest that critics remain useful for long-horizon credit assignment. 3 Preliminaries Proximal Policy Optimization (PPO). In reinforcement learning for language models, Proximal Policy Optimization (PPO) ( Schulman et al., 2017 ) stabilizes policy updates with a clipped surrogate objective: J CLIP ​ ( θ ) = 𝔼 t ​ [ min ⁡ ( ρ t ​ ( θ ) ​ A t , clip ⁡ ( ρ t ​ ( θ ) , 1 − ϵ , 1 + ϵ ) ​ A t ) ] , J^{\\mathrm{CLIP}}(\\theta)=\\mathbb{E}_{t}\\left[\\min\\left(\\rho_{t}(\\theta)A_{t},\\,\\mathrm{clip}(\\rho_{t}(\\theta),1-\\epsilon,1+\\epsilon)A_{t}\\right)\\right], (1) where ρ t ​ ( θ ) \\rho_{t}(\\theta) is the importance sampling ratio between the current and rollout policies, A t A_{t} is the advantage estimate, and ϵ \\epsilon is the clipping threshold. The PPO critic additionally learns a value function V ϕ V_{\\phi} by regressing to return targets: ℒ VF ​ ( ϕ ) = 𝔼 t ​ [ ( V ϕ ​ ( x t ) − R ^ t ) 2 ] . \\mathcal{L}^{\\mathrm{VF}}(\\phi)=\\mathbb{E}_{t}\\left[\\left(V_{\\phi}(x_{t})-\\hat{R}_{t}\\right)^{2}\\right]. (2) PPO commonly uses Generalized Advantage Estimation (GAE) ( Schulman et al., 2015 ) to compute token-level advantages. For a trajectory with T T optimized tokens, the temporal-difference residual is δ t = r t + γ ​ V ϕ ​ ( x t + 1 ) − V ϕ ​ ( x t ) , \\delta_{t}=r_{t}+\\gamma V_{\\phi}(x_{t+1})-V_{\\phi}(x_{t}), (3) with V ϕ ​ ( x T + 1 ) = 0 V_{\\phi}(x_{T+1})=0 at the terminal state. GAE computes A t GAE = ∑ ℓ = 0 T − t ( γ ​ λ ) ℓ ​ δ t + ℓ , A_{t}^{\\mathrm{GAE}}=\\sum_{\\ell=0}^{T-t}(\\gamma\\lambda)^{\\ell}\\delta_{t+\\ell}, (4) and the corresponding return target is R ^ t = A t GAE + V ϕ ​ ( x t ) . \\hat{R}_{t}=A_{t}^{\\mathrm{GAE}}+V_{\\phi}(x_{t}). (5) 4 The CompactionRL Method We present CompactionRL, a reinforcement learning framework for long-horizon language agents under a fixed context budget. The central idea is to make context compaction part of rollout collection: when the interaction history approaches the context limit, the agent produces a compact summary of the previous trajectory and then resumes from a reconstructed context containing the summary and a short history tail of recent interaction. The summary is generated by the trainable policy and is optimized together with ordinary task-execution actions under the final task reward. Figure 2 gives an overview of the framework. Figure 2: Overview of CompactionRL. During rollout collection, the agent interacts with t",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: arXiv.org perpetual non-exclusive license",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "Yao et al., 2023",
+      "url": "https://arxiv.org/html/2607.05378v1#bib.bib23"
+    },
+    {
+      "text": "Nakano and others, 2021",
+      "url": "https://arxiv.org/html/2607.05378v1#bib.bib2"
+    },
+    {
+      "text": "Jimenez et al., 2023",
+      "url": "https://arxiv.org/html/2607.05378v1#bib.bib11"
+    },
+    {
+      "text": "Beltagy et al., 2020",
+      "url": "https://arxiv.org/html/2607.05378v1#bib.bib12"
+    },
+    {
+      "text": "Dao et al., 2022",
+      "url": "https://arxiv.org/html/2607.05378v1#bib.bib13"
+    },
+    {
+      "text": "Liu et al., 2024",
+      "url": "https://arxiv.org/html/2607.05378v1#bib.bib14"
+    },
+    {
+      "text": "Hsieh et al., 2024",
+      "url": "https://arxiv.org/html/2607.05378v1#bib.bib15"
+    },
+    {
+      "text": "Shinn et al., 2023",
+      "url": "https://arxiv.org/html/2607.05378v1#bib.bib20"
+    },
+    {
+      "text": "Park et al., 2023",
+      "url": "https://arxiv.org/html/2607.05378v1#bib.bib21"
+    },
+    {
+      "text": "Sun et al., 2025",
+      "url": "https://arxiv.org/html/2607.05378v1#bib.bib22"
+    },
+    {
+      "text": "Shao and others, 2024",
+      "url": "https://arxiv.org/html/2607.05378v1#bib.bib4"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2607.05378v1#S1.F1"
+    },
+    {
+      "text": "Bai et al., 2024",
+      "url": "https://arxiv.org/html/2607.05378v1#bib.bib16"
+    },
+    {
+      "text": "Jiang et al., 2023b",
+      "url": "https://arxiv.org/html/2607.05378v1#bib.bib17"
+    },
+    {
+      "text": "Jiang et al., 2023a",
+      "url": "https://arxiv.org/html/2607.05378v1#bib.bib18"
+    },
+    {
+      "text": "Packer et al., 2023",
+      "url": "https://arxiv.org/html/2607.05378v1#bib.bib19"
+    },
+    {
+      "text": "Zhou et al., 2025",
+      "url": "https://arxiv.org/html/2607.05378v1#bib.bib39"
+    },
+    {
+      "text": "Lu et al., 2025",
+      "url": "https://arxiv.org/html/2607.05378v1#bib.bib24"
+    },
+    {
+      "text": "Wu et al., 2025",
+      "url": "https://arxiv.org/html/2607.05378v1#bib.bib25"
+    },
+    {
+      "text": "Uesato et al., 2022",
+      "url": "https://arxiv.org/html/2607.05378v1#bib.bib38"
+    },
+    {
+      "text": "Schulman et al., 2017",
+      "url": "https://arxiv.org/html/2607.05378v1#bib.bib26"
+    },
+    {
+      "text": "Ouyang and others, 2022",
+      "url": "https://arxiv.org/html/2607.05378v1#bib.bib1"
+    },
+    {
+      "text": "Ahmadian and others, 2024",
+      "url": "https://arxiv.org/html/2607.05378v1#bib.bib7"
+    },
+    {
+      "text": "DeepSeek-AI, 2025",
+      "url": "https://arxiv.org/html/2607.05378v1#bib.bib5"
+    },
+    {
+      "text": "Hou et al., 2025b",
+      "url": "https://arxiv.org/html/2607.05378v1#bib.bib31"
+    },
+    {
+      "text": "Yu et al., 2025",
+      "url": "https://arxiv.org/html/2607.05378v1#bib.bib6"
+    },
+    {
+      "text": "Zheng et al., 2025",
+      "url": "https://arxiv.org/html/2607.05378v1#bib.bib10"
+    },
+    {
+      "text": "Hou et al., 2025a",
+      "url": "https://arxiv.org/html/2607.05378v1#bib.bib30"
+    },
+    {
+      "text": "Wei et al., 2025",
+      "url": "https://arxiv.org/html/2607.05378v1#bib.bib40"
+    },
+    {
+      "text": "Xu et al., 2025",
+      "url": "https://arxiv.org/html/2607.05378v1#bib.bib36"
+    },
+    {
+      "text": "Yuan et al., 2025",
+      "url": "https://arxiv.org/html/2607.05378v1#bib.bib27"
+    },
+    {
+      "text": "Yue et al., 2025",
+      "url": "https://arxiv.org/html/2607.05378v1#bib.bib8"
+    },
+    {
+      "text": "Schulman et al., 2015",
+      "url": "https://arxiv.org/html/2607.05378v1#bib.bib3"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2607.05378v1#S4.F2"
+    },
+    {
+      "text": "Qwen Team, 2026",
+      "url": "https://arxiv.org/html/2607.05378v1#bib.bib37"
+    },
+    {
+      "text": "Yang et al., 2025",
+      "url": "https://arxiv.org/html/2607.05378v1#bib.bib9"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2607.05378v1#S4.T1"
+    },
+    {
+      "text": "GLM et al., 2025",
+      "url": "https://arxiv.org/html/2607.05378v1#bib.bib33"
+    },
+    {
+      "text": "Wang et al., 2025",
+      "url": "https://arxiv.org/html/2607.05378v1#bib.bib28"
+    },
+    {
+      "text": "Zhu et al., 2025",
+      "url": "https://arxiv.org/html/2607.05378v1#bib.bib29"
+    },
+    {
+      "text": "Merrill et al., 2026",
+      "url": "https://arxiv.org/html/2607.05378v1#bib.bib32"
+    },
+    {
+      "text": "Harbor Framework Team, 2026",
+      "url": "https://arxiv.org/html/2607.05378v1#bib.bib35"
+    },
+    {
+      "text": "KRAFTON AI and Ludo Robotics, 2026",
+      "url": "https://arxiv.org/html/2607.05378v1#bib.bib34"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2607.05378v1#S5.T2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2607.05378v1#S5.T3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2607.05378v1#S5.T4"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2607.05378v1#S5.F3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2607.05378v1#S5.F4"
+    },
+    {
+      "text": "§2",
+      "url": "https://arxiv.org/html/2607.05378v1#S2.SS0.SSS0.Px2.p1.1"
+    },
+    {
+      "text": "§2",
+      "url": "https://arxiv.org/html/2607.05378v1#S2.SS0.SSS0.Px1.p1.1"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2607.05378v1#S1.p1.1"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/2508.06471"
+    },
+    {
+      "text": "§5.1",
+      "url": "https://arxiv.org/html/2607.05378v1#S5.SS1.p1.1"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.5281/zenodo.20953922"
+    },
+    {
+      "text": "Link",
+      "url": "https://doi.org/10.5281/zenodo.20953922"
+    },
+    {
+      "text": "§5.1",
+      "url": "https://arxiv.org/html/2607.05378v1#S5.SS1.p3.1"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/2506.11902"
+    }
+  ],
+  "matching_link_count": 84,
+  "links_truncated": true,
+  "invalid_links": []
+}

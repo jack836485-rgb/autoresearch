@@ -1,0 +1,283 @@
+{
+  "url": "https://arxiv.org/html/2609.36116v1",
+  "final_url": "https://arxiv.org/html/2609.36116v1",
+  "status": 200,
+  "title": "Dyad: Extending Large Language Models with Native Typed Decision-Making",
+  "metadata": {},
+  "paper": {
+    "title": "Dyad : Extending Large Language Models with Native Typed Decision-Making",
+    "title_warning": null,
+    "abstract": "Abstract We study how to build more capable general-purpose agents by\nextending large language models (LLMs) with native typed\ndecision-making.\nWe introduce Dyad , an architecture that augments a\npretrained LLM with an environment-conditioned action encoder that embeds each candidate action description in parallel, then scores these embeddings against the LLM’s internal state to yield a distribution over typed actions.\nBy factorizing decision-making into representations of the\nevolving interaction state and environment-specific action\nsemantics, Dyad introduces an inductive bias for learning\nreusable representations while keeping action scoring efficient even as the action space grows.\nWe investigate two complementary reinforcement learning settings driven by environment interaction.\nWith the LLM frozen, training the action encoder alone achieves\nconsistent gains across four unseen environments, enabling modular\nadaptation without modifying any LLM parameters.\nJointly optimizing both components outperforms conventional RL post-training across diverse interactive tasks and model scales, including a 3.80% average absolute gain on ALFWorld with a 9B model, while improving general knowledge, reasoning, and coding.",
+    "authors": [
+      {
+        "name": "Yundaichuan Zhan   Weishi Wang   Wenbiao Liu   Daniel Dahlmeier",
+        "affiliations": [
+          "Affiliation: Zhejiang University",
+          "Affiliation: SAP",
+          "Affiliation: Central South University"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Chengwei Qin   Juncheng Li   Fredrik D. Johansson   Zhongqi Yue",
+        "affiliations": [
+          "Affiliation: Zhejiang University",
+          "Affiliation: The Hong Kong University of Science and Technology (Guangzhou)",
+          "Affiliation: Chalmers University of Technology",
+          "Affiliation: Microsoft Research"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Yundaichuan Zhan   Weishi Wang   Wenbiao Liu   Daniel Dahlmeier Affiliation: Zhejiang University Affiliation: SAP Affiliation: Central South University Chengwei Qin   Juncheng Li   Fredrik D. Johansson   Zhongqi Yue † † thanks: Corresponding author. Affiliation: Zhejiang University Affiliation: The Hong Kong University of Science and Technology (Guangzhou) Affiliation: Chalmers University of Technology Affiliation: Microsoft Research",
+    "arxiv_version": "2609.36116v1",
+    "arxiv_version_date": "2026-09-28"
+  },
+  "text": "Dyad: Extending Large Language Models with Native Typed Decision-Making Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: CC BY 4.0 arXiv:2609.36116v1 [cs.LG] 28 Sep 2026 Dyad : Extending Large Language Models with Native Typed Decision-Making Yundaichuan Zhan Weishi Wang Wenbiao Liu Daniel Dahlmeier Affiliation: Zhejiang University Affiliation: SAP Affiliation: Central South University Chengwei Qin Juncheng Li Fredrik D. Johansson Zhongqi Yue † † thanks: Corresponding author. Affiliation: Zhejiang University Affiliation: The Hong Kong University of Science and Technology (Guangzhou) Affiliation: Chalmers University of Technology Affiliation: Microsoft Research Abstract We study how to build more capable general-purpose agents by extending large language models (LLMs) with native typed decision-making. We introduce Dyad , an architecture that augments a pretrained LLM with an environment-conditioned action encoder that embeds each candidate action description in parallel, then scores these embeddings against the LLM’s internal state to yield a distribution over typed actions. By factorizing decision-making into representations of the evolving interaction state and environment-specific action semantics, Dyad introduces an inductive bias for learning reusable representations while keeping action scoring efficient even as the action space grows. We investigate two complementary reinforcement learning settings driven by environment interaction. With the LLM frozen, training the action encoder alone achieves consistent gains across four unseen environments, enabling modular adaptation without modifying any LLM parameters. Jointly optimizing both components outperforms conventional RL post-training across diverse interactive tasks and model scales, including a 3.80% average absolute gain on ALFWorld with a 9B model, while improving general knowledge, reasoning, and coding. 1 Introduction Solving tasks through interaction with an environment requires two fundamentally different forms of computation ( Yao et al., 2023 ) : deliberate reasoning about goals or plans, and typed decision-making over available actions, analogous to Kahneman’s System 2 and System 1, respectively ( Kahneman, 2011 ) . For example, a shopping agent must reason about a customer’s requirements and compare products across web pages (System 2), while repeatedly selecting from the available actions in the active page to search, inspect products, choose options, and complete a purchase (System 1). Today, LLM-based agents typically handle both forms through autoregressive generation, i.e. , reasoning in language and generating text to specify actions, as illustrated in the middle of Figure 1 . However, this overloads the language-generation interface: the LLM assigns probabilities to vocabulary tokens rather than directly to permissible typed actions ( Yue et al., 2025 ) . Recent dedicated System 1 models, such as Jev ( Almeida, 2026 ) and its open-source alternatives ( Nandakishor, 2026 ; Featherless AI, 2026 ) , address this limitation by predicting typed decisions directly and in parallel, rather than generating their textual representations token by token, as shown on the left of Figure 1 . Yet language reasoning and typed decision-making need not be developed independently, as systems 1 and 2 are complementary modes of cognition rather than distinct physical systems ( Kahneman, 2011 ) : reasoning guides decisions, while decision outcomes inform subsequent reasoning. Recent works ( Yue et al., 2025 ; Zhao et al., 2026 ) take a step toward this integration by extending LLMs with direct environment actions, enabling interleaved language reasoning and decision-making. However, they are limited to fixed, pre-defined action spaces, and do not generalize to dynamically provided actions in unseen environments ( e.g. , unseen web pages). This raises a natural question: can pretrained LLMs support native typed decision-making over dynamic action spaces, and can jointly learning reasoning and decision-making yield more capable agents? Figure 1: Conceptual comparison of System 1, System 2, and Dyad for reasoning and acting. We introduce Dyad , an architecture that extends pretrained LLMs with native typed decision-making while retaining their autoregressive language reasoning capabilities, as illustrated on the right of Figure 1 . Specifically, we augment the pretrained LLM with an action encoder that embeds available action descriptions independently and in parallel, conditioned on the environment. Because these action representations depend on the environment and action semantics, but not on the evolving interaction state, they can be precomputed and reused across decision steps whenever the action definitions remain unchanged. When a decision is required, these embeddings are scored against the LLM’s internal state representation to produce a distribution directly over the available typed actions. This factorization separates the evolving interaction state from environment-specific action semantics, providing an inductive bias for learning reusable representations rather than an entangled state–action mapping. It further amortizes action encoding across interactions, enabling efficient decision-time scoring and adaptation to previously unseen action spaces. Dyad is trained in two complementary settings, both driven by end-to-end rewards from environment interaction. First, we freeze the pretrained LLM and train only the action encoder through reinforcement learning. The resulting agent consistently improves performance across four unseen environments, demonstrating that native typed decision-making can enhance existing LLMs without modifying their pretrained parameters. Second, we jointly optimize the LLM and action encoder on diverse interactive tasks. Dyad outperforms agentic RL baselines across model scales. On ALFWorld, it achieves a 3.80% average absolute gain with Qwen3.5-9B. Dyad also better preserves general knowledge, reasoning, and coding capabilities. In summary, our contributions are threefold: • We introduce Dyad, to our knowledge the first architecture to extend pretrained LLMs with native, parallel typed decision-making over dynamically provided action spaces. • We develop an end-to-end inference and training pipeline integrated with vLLM ( Kwon et al., 2023 ) and verl ( Sheng et al., 2025 ) , which we plan to open-source. • We show that Dyad improves agent performance across both frozen-LLM adaptation and joint optimization, generalizes across environments and model scales, and yields broad gains in general knowledge, reasoning, and coding. 2 Dyad: Native Typed Decision-Making in Pretrained LLMs 2.1 Problem Formulation Setting. We consider an LLM agent that interleaves language generation with direct interaction in an external environment e e . At step t t , the environment exposes a set of permissible typed actions 𝒜 t \\mathcal{A}_{t} , which may change over time. Each a ∈ 𝒜 t a\\in\\mathcal{A}_{t} is an environment-defined operation, potentially with arguments, that can be executed directly. This setting encompasses both direct decisions, such as routing a support request to a team, and tasks combining language reasoning with action, such as navigating unfamiliar software. Policy. The agent observes a language history h t h_{t} , comprising previously generated tokens and textual observations from its interactions. Its policy π θ \\pi_{\\theta} supports two modes: language generation, with a distribution π θ LM ​ ( v ∣ h t , e ) \\pi_{\\theta}^{\\mathrm{LM}}(v\\mid h_{t},e) over the vocabulary 𝒱 \\mathcal{V} , and typed decision-making, with a distribution π θ act ​ ( a ∣ h t , e , 𝒜 t ) \\pi_{\\theta}^{\\mathrm{act}}(a\\mid h_{t},e,\\mathcal{A}_{t}) over the currently permissible actions 𝒜 t \\mathcal{A}_{t} . Interaction. Generating a token v ∈ 𝒱 v\\in\\mathcal{V} extends the language history, whereas selecting a typed action a ∈ 𝒜 t a\\in\\mathcal{A}_{t} invokes the corresponding environment operation. The resulting textual observation is appended to the history; for example, an open(fridge) action may return a description of the fridge’s contents. The environment provides rewards based on task outcomes, such as successfully retrieving a requested item from the fridge. The agent’s objective is to maximize the expected cumulative reward from environment interaction. To realize such a policy, existing approaches often jointly encode the interaction state and available actions, entangling action semantics with the evolving state ( Nandakishor, 2026 ; Lee, 2026 ) . We introduce Dyad, which instead factorizes typed decision-making into pretrained LLM state representations within a single architecture (Section 2.2 ), followed by its learning procedure (Section 3 ). 2.2 Architecture Figure 2: Dyad architecture. State and environment-conditioned action representations are computed independently. Generating the interaction token v act v_{\\mathrm{act}} triggers typed action selection; otherwise, the pretrained LM head generates language tokens. Dyad extends a pretrained LLM with an action encoder, enabling language generation and typed decision-making within a single policy. Let f f denote the pretrained LLM’s transformer backbone, 𝐖 LM \\mathbf{W}_{\\mathrm{LM}} its language modeling head, and g g the action encoder. Given the interaction history h t h_{t} and environment description desc ⁡ ( e ) \\mathrm{desc}(e) , the two components produce a state representation 𝐪 t \\mathbf{q}_{t} and an environment-conditioned representation 𝐳 a \\mathbf{z}_{a} for each available action a ∈ 𝒜 t a\\in\\mathcal{A}_{t} : 𝐪 t = f ⁡ ( desc ⁡ ( e ) ⊕ h t ) , 𝐳 a = g ⁡ ( desc ⁡ ( e ) ⊕ desc ⁡ ( a ) ) , \\mathbf{q}_{t}=f(\\mathrm{desc}(e)\\oplus h_{t}),\\qquad\\mathbf{z}_{a}=g(\\mathrm{desc}(e)\\oplus\\mathrm{desc}(a)), (1) where desc ⁡ ( ⋅ ) \\mathrm{desc}(\\cdot) denotes textual description and ⊕ \\oplus denotes concatenation. Dyad retains the pretrained language modeling head to generate tokens according to π θ LM ​ ( v ∣ h t , e ) = softmax ⁡ ( 𝐖 LM ​ 𝐪 t ) v . \\pi_{\\theta}^{\\mathrm{LM}}(v\\mid h_{t},e)=\\operatorname{softmax}\\bigl(\\mathbf{W}_{\\mathrm{LM}}\\mathbf{q}_{t}\\bigr)_{v}. (2) Upon generating a dedicated interaction token v act ∈ 𝒱 v_{\\mathrm{act}}\\in\\mathcal{V} , Dyad selects a typed action by scoring each available action against the state representation: π θ act ​ ( a ∣ h t , e , 𝒜 t ) = softmax ⁡ ( 𝐙 t ​ 𝐪 t ) a , 𝐙 t = [ 𝐳 a 1 ⋯ 𝐳 a | 𝒜 t | ] ⊤ . \\pi_{\\theta}^{\\mathrm{act}}(a\\mid h_{t},e,\\mathcal{A}_{t})=\\operatorname{softmax}\\bigl(\\mathbf{Z}_{t}\\mathbf{q}_{t}\\bigr)_{a},\\qquad\\mathbf{Z}_{t}=\\begin{bmatrix}\\mathbf{z}_{a_{1}}&\\cdots&\\mathbf{z}_{a_{|\\mathcal{A}_{t}|}}\\end{bmatrix}^{\\top}. (3) The key design choice in Dyad is to factorize the computation of π θ act ​ ( a ∣ h t , e , 𝒜 t ) \\pi_{\\theta}^{\\mathrm{act}}(a\\mid h_{t},e,\\mathcal{A}_{t}) into a state representation 𝐪 t \\mathbf{q}_{t} and an environment-conditioned action representation 𝐳 a \\mathbf{z}_{a} with Eq. 1 . This encodes the inductive bias that the evolving interaction state can be represented independently of the currently available actions, while an action’s meaning depends on its environment rather than the current state. The action encoder therefore learns to express action semantics in the pretrained LLM’s representation space, enabling their compatibility to be measured directly. Moreover, independent action encoding makes the decision policy permutation-equivariant: reordering the available actions simply reorders their probabilities. We detail the two representations below. State Representation. We take the pretrained LLM’s hidden state at the current decision position as 𝐪 t \\mathbf{q}_{t} . Pretrained for next-token prediction, the backbone provides contextual features that support both language generation and typed decision-making. Action Representation.",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: CC BY 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "Yao et al., 2023",
+      "url": "https://arxiv.org/html/2609.36116v1#bib.bib26"
+    },
+    {
+      "text": "Kahneman, 2011",
+      "url": "https://arxiv.org/html/2609.36116v1#bib.bib1"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.36116v1#S1.F1"
+    },
+    {
+      "text": "Yue et al., 2025",
+      "url": "https://arxiv.org/html/2609.36116v1#bib.bib27"
+    },
+    {
+      "text": "Almeida, 2026",
+      "url": "https://arxiv.org/html/2609.36116v1#bib.bib2"
+    },
+    {
+      "text": "Nandakishor, 2026",
+      "url": "https://arxiv.org/html/2609.36116v1#bib.bib29"
+    },
+    {
+      "text": "Featherless AI, 2026",
+      "url": "https://arxiv.org/html/2609.36116v1#bib.bib31"
+    },
+    {
+      "text": "Zhao et al., 2026",
+      "url": "https://arxiv.org/html/2609.36116v1#bib.bib28"
+    },
+    {
+      "text": "Kwon et al., 2023",
+      "url": "https://arxiv.org/html/2609.36116v1#bib.bib3"
+    },
+    {
+      "text": "Sheng et al., 2025",
+      "url": "https://arxiv.org/html/2609.36116v1#bib.bib4"
+    },
+    {
+      "text": "Lee, 2026",
+      "url": "https://arxiv.org/html/2609.36116v1#bib.bib30"
+    },
+    {
+      "text": "2.2",
+      "url": "https://arxiv.org/html/2609.36116v1#S2.SS2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2609.36116v1#S3"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.36116v1#S2.E1"
+    },
+    {
+      "text": "A.2",
+      "url": "https://arxiv.org/html/2609.36116v1#A1.SS2"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2609.36116v1#S2.E2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2609.36116v1#S2.E3"
+    },
+    {
+      "text": "A.3",
+      "url": "https://arxiv.org/html/2609.36116v1#A1.SS3"
+    },
+    {
+      "text": "Schick et al., 2023",
+      "url": "https://arxiv.org/html/2609.36116v1#bib.bib23"
+    },
+    {
+      "text": "Gao et al., 2023",
+      "url": "https://arxiv.org/html/2609.36116v1#bib.bib25"
+    },
+    {
+      "text": "Gou et al., 2024",
+      "url": "https://arxiv.org/html/2609.36116v1#bib.bib20"
+    },
+    {
+      "text": "Zhou et al., 2024",
+      "url": "https://arxiv.org/html/2609.36116v1#bib.bib21"
+    },
+    {
+      "text": "Liu et al., 2024",
+      "url": "https://arxiv.org/html/2609.36116v1#bib.bib22"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.36116v1#S4.T1"
+    },
+    {
+      "text": "Hao et al., 2023",
+      "url": "https://arxiv.org/html/2609.36116v1#bib.bib24"
+    },
+    {
+      "text": "Chen et al., 2026",
+      "url": "https://arxiv.org/html/2609.36116v1#bib.bib5"
+    },
+    {
+      "text": "Du et al., 2026",
+      "url": "https://arxiv.org/html/2609.36116v1#bib.bib6"
+    },
+    {
+      "text": "Shridhar et al., 2021",
+      "url": "https://arxiv.org/html/2609.36116v1#bib.bib7"
+    },
+    {
+      "text": "Yao et al., 2022",
+      "url": "https://arxiv.org/html/2609.36116v1#bib.bib8"
+    },
+    {
+      "text": "Barres et al., 2026",
+      "url": "https://arxiv.org/html/2609.36116v1#bib.bib9"
+    },
+    {
+      "text": "Jimenez et al., 2024",
+      "url": "https://arxiv.org/html/2609.36116v1#bib.bib10"
+    },
+    {
+      "text": "Wang et al., 2024",
+      "url": "https://arxiv.org/html/2609.36116v1#bib.bib11"
+    },
+    {
+      "text": "HMMT February 2026",
+      "url": "https://huggingface.co/datasets/MathArena/hmmt_feb_2026"
+    },
+    {
+      "text": "Jain et al., 2025",
+      "url": "https://arxiv.org/html/2609.36116v1#bib.bib12"
+    },
+    {
+      "text": "Shao et al., 2024",
+      "url": "https://arxiv.org/html/2609.36116v1#bib.bib14"
+    },
+    {
+      "text": "Feng et al., 2025",
+      "url": "https://arxiv.org/html/2609.36116v1#bib.bib15"
+    },
+    {
+      "text": "Qwen Team, 2026",
+      "url": "https://arxiv.org/html/2609.36116v1#bib.bib16"
+    },
+    {
+      "text": "Meta, 2024",
+      "url": "https://arxiv.org/html/2609.36116v1#bib.bib17"
+    },
+    {
+      "text": "Abd et al., 2026",
+      "url": "https://arxiv.org/html/2609.36116v1#bib.bib18"
+    },
+    {
+      "text": "A",
+      "url": "https://arxiv.org/html/2609.36116v1#A1"
+    },
+    {
+      "text": "B",
+      "url": "https://arxiv.org/html/2609.36116v1#A2"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2609.36116v1#S5.T2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2609.36116v1#S5.T3"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2609.36116v1#S5.F3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2609.36116v1#S5.F4"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2609.36116v1#S5.T4"
+    },
+    {
+      "text": "B.3",
+      "url": "https://arxiv.org/html/2609.36116v1#A2.SS3"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2609.36116v1#S5.T5"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2609.36116v1#S5.F5"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2609.36116v1#S5.F6"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2609.36116v1#S5.T6"
+    },
+    {
+      "text": "A.1",
+      "url": "https://arxiv.org/html/2609.36116v1#A1.SS1"
+    },
+    {
+      "text": "Link",
+      "url": "https://doi.org/10.48550/arXiv.2607.02770"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.48550/ARXIV.2607.02770"
+    },
+    {
+      "text": "§5.1",
+      "url": "https://arxiv.org/html/2609.36116v1#S5.SS1.p3.1"
+    },
+    {
+      "text": "Link",
+      "url": "https://typesafe.ai/blog/introducing-system-one-models-and-jev"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2609.36116v1#S1.p2.1"
+    }
+  ],
+  "matching_link_count": 132,
+  "links_truncated": true,
+  "invalid_links": []
+}

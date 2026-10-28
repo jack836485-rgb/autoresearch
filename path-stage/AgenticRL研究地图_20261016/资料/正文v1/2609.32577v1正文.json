@@ -1,0 +1,269 @@
+{
+  "url": "https://arxiv.org/html/2609.32577v1",
+  "final_url": "https://arxiv.org/html/2609.32577v1",
+  "status": 200,
+  "title": "Groupwise Agentic Grading and Advantage Redistribution for Code Agent RL",
+  "metadata": {},
+  "paper": {
+    "title": "Groupwise Agentic Grading and Advantage Redistribution for Code Agent RL",
+    "title_warning": null,
+    "abstract": "Abstract Reinforcement learning (RL) for code agents often uses executable tests to provide binary rewards. With these rewards, Group Relative Policy Optimization (GRPO) assigns identical advantages to test-passing trajectories within each rollout group, overlooking differences in implementation quality and adherence to task requirements. This leaves the policy without a learning signal that favors clean, targeted implementations over those containing unnecessary or out-of-scope changes. We introduce Gagar , a framework for quality-aware credit redistribution in code agent RL. Built on dynamic sampling that retains groups containing both passing and failing trajectories, Gagar places all trajectories from each group in a shared workspace, where an SFT-trained agentic grader jointly inspects them and ranks the test-passing candidates. Based on this ranking, we downweight lower-ranked trajectories and proportionally rescale the advantages of all test-passing trajectories to restore their original sum. This sum-preserving redistribution retains the relative weights established by quality-based downweighting while shifting credit toward higher-quality implementations. We evaluate Gagar at industrial scale using pre-RL SFT checkpoints of MiMo-V2.6-Flash (310B total parameters) and MiMo-V2.6-Pro (1.02T total parameters). Controlled code-only Flash experiments show improved code agent performance, reduced trajectory-length growth, and more stable training. We further apply Gagar in large-scale mixed-task RL with both Flash and Pro. Our results support combining test-based verification with groupwise agentic grading to improve the quality and stability of code agent RL.",
+    "authors": [
+      {
+        "name": "Jinhao Dong 1,2 Liang Zhao 1 Zihao Yue 1,2 Wenhan Ma 1,3 Linghao Zhang 1 Lei Li 1,4 Shicheng Li 1 Yifan Song 1 Bowen Ye 1,3 Fuli Luo 1,† 1 LLM Core, Xiaomi 2 Renmin University of China 3 Peking University 4 University of Hong Kong † Corresponding author.",
+        "affiliations": [],
+        "notes": []
+      }
+    ],
+    "author_block": "Jinhao Dong 1,2 Liang Zhao 1 Zihao Yue 1,2 Wenhan Ma 1,3 Linghao Zhang 1 Lei Li 1,4 Shicheng Li 1 Yifan Song 1 Bowen Ye 1,3 Fuli Luo 1,† 1 LLM Core, Xiaomi 2 Renmin University of China 3 Peking University 4 University of Hong Kong † Corresponding author.",
+    "arxiv_version": "2609.32577v1",
+    "arxiv_version_date": "2026-09-26"
+  },
+  "text": "Groupwise Agentic Grading and Advantage Redistribution for Code Agent RL Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: arXiv.org perpetual non-exclusive license arXiv:2609.32577v1 [cs.CL] 26 Sep 2026 Groupwise Agentic Grading and Advantage Redistribution for Code Agent RL Jinhao Dong 1,2 Liang Zhao 1 Zihao Yue 1,2 Wenhan Ma 1,3 Linghao Zhang 1 Lei Li 1,4 Shicheng Li 1 Yifan Song 1 Bowen Ye 1,3 Fuli Luo 1,† 1 LLM Core, Xiaomi 2 Renmin University of China 3 Peking University 4 University of Hong Kong † Corresponding author. Abstract Reinforcement learning (RL) for code agents often uses executable tests to provide binary rewards. With these rewards, Group Relative Policy Optimization (GRPO) assigns identical advantages to test-passing trajectories within each rollout group, overlooking differences in implementation quality and adherence to task requirements. This leaves the policy without a learning signal that favors clean, targeted implementations over those containing unnecessary or out-of-scope changes. We introduce Gagar , a framework for quality-aware credit redistribution in code agent RL. Built on dynamic sampling that retains groups containing both passing and failing trajectories, Gagar places all trajectories from each group in a shared workspace, where an SFT-trained agentic grader jointly inspects them and ranks the test-passing candidates. Based on this ranking, we downweight lower-ranked trajectories and proportionally rescale the advantages of all test-passing trajectories to restore their original sum. This sum-preserving redistribution retains the relative weights established by quality-based downweighting while shifting credit toward higher-quality implementations. We evaluate Gagar at industrial scale using pre-RL SFT checkpoints of MiMo-V2.6-Flash (310B total parameters) and MiMo-V2.6-Pro (1.02T total parameters). Controlled code-only Flash experiments show improved code agent performance, reduced trajectory-length growth, and more stable training. We further apply Gagar in large-scale mixed-task RL with both Flash and Pro. Our results support combining test-based verification with groupwise agentic grading to improve the quality and stability of code agent RL. 1 Introduction Reinforcement learning (RL) with executable feedback provides a scalable approach to training code agents that inspect repositories, modify code, and validate their solutions over long interactions. In a common setup, each trajectory receives a binary reward according to whether its submitted implementation passes the tests. With group-relative advantage estimation, as used in GRPO ( Shao et al., 2024 ) , test-passing trajectories within the same rollout group receive identical outcome advantages. This provides a clear signal for learning to solve a task, but leaves an important question unanswered: among successful trajectories, which ones deserve stronger reinforcement? Passing the same tests does not imply equal implementation quality or equal practical value to developers. One solution may address the root cause with a focused change that follows repository conventions, while another introduces unnecessary complexity, weakens validation, or modifies code outside the requested scope. These differences shape the developer experience: they affect how much review and rework are needed before a patch can be accepted and merged, and how easily the resulting code can be maintained. Successful trajectories also differ in how effectively they gather evidence, identify a solution, and validate their changes. Binary feedback overlooks these distinctions when the test outcomes are identical. Our objective is to reinforce sound, efficient problem-solving strategies and precise, minimally invasive implementations that fully satisfy task requirements. In doing so, we aim to produce maintainable, merge-ready code and provide a reliable, low-friction user experience. Turning these distinctions into useful training signals requires both reliable assessment and appropriate credit allocation. Comparing successful trajectories from the same task can reveal unnecessary complexity or ineffective strategies that are difficult to recognize in isolation. We therefore adopt groupwise assessment rather than scoring trajectories independently. Reliable comparison also requires repository context and execution evidence that static, chat-based assessments may miss, motivating an agentic evaluator that can inspect code and run checks. Finally, simply downweighting lower-quality passes reduces the group’s total positive advantage while leaving negative advantages unchanged. We therefore seek to redistribute credit among successful trajectories rather than merely weaken their overall positive training signal. We introduce Gagar ( Groupwise Agentic Grading for Advantage Redistribution ), a quality-aware framework for code agent RL. For each mixed-outcome rollout group, an agentic grader receives a shared workspace containing the task specification, repository, submitted patches, execution results, and trajectories. It can inspect code and run targeted checks before ranking the test-passing candidates, allowing ties when the evidence is inconclusive. The grader compares different implementations for the same task to identify unnecessary changes and potential problems. The resulting ranking reflects relative quality within the group and guides credit redistribution from lower-quality to higher-quality implementations. The grader ranks passing solutions along five dimensions: suitability of the solution approach, implementation precision, minimality of changes, avoidance of unintended side effects, and consistency with codebase conventions. Gagar uses these rankings to downweight lower-quality passing trajectories, then proportionally rescales the advantages of all passing trajectories. In the sum-preserving formulation, this restores their original total positive advantage while retaining the ranking-based relative weights and leaving failed-trajectory advantages unchanged. Our primary controlled study evaluates Gagar in code-only RL initialized from a pre-RL SFT checkpoint of MiMo-V2.6-Flash (310B total, 15B active parameters) on DeepSWE v1.1 ( Huang et al., 2026 ) and SWE-bench Pro. Compared with binary-reward training, Gagar improves later-stage DeepSWE pass rates and training stability while reducing interaction turns and token usage on both benchmarks. We further assess implementation quality and problem-solving behavior through a blinded rubric-based evaluation, reporting average win rates among test-passing solutions. We also examine how sum-preserving redistribution relates to credit balance and training stability. We further apply Gagar in large-scale mixed-task RL with both MiMo-V2.6-Flash and MiMo-V2.6-Pro (1.02T total, 42B active parameters), starting from their respective pre-RL SFT checkpoints. After mixed-task RL, the DeepSWE v1.1 avg@3 scores reach 67.9 and 71.9 for Flash and Pro, respectively (Section 4.5 ). In summary, our contributions are: • A grading framework that combines groupwise grading with agentic repository inspection and execution checks to identify quality differences that isolated, text-only assessments may miss. • A quality-aware, zero-sum advantage redistribution formulation that shifts credit from lower- to higher-quality solutions while preserving total positive advantage and its balance with negative advantages. • Industrial-scale validation from pre-RL SFT checkpoints of MiMo-V2.6-Flash and MiMo-V2.6-Pro, demonstrating improvements in task performance, efficiency, and training stability. 2 Related Work Reinforcement Learning For LLM Agents. Reinforcement learning improves agents’ multi-step decision-making through feedback from interactions with external environments. Agent Lightning decouples agent execution from RL training ( Luo et al., 2025 ) , while HiPER assigns credit across planning and execution ( Peng et al., 2026 ) . GRPO estimates group-relative advantages ( Shao et al., 2024 ) , and DAPO filters uniform-outcome groups through dynamic sampling ( Yu et al., 2025 ) . We build on this setting to distinguish implementation quality among test-passing coding trajectories. Reward Modeling And Shaping. Reward modeling and shaping can enrich training feedback beyond task success by assessing solution quality and problem-solving behavior. ReCode adds candidate-wise process rewards for passing solutions ( Fan et al., 2026 ) , and TRIAGE supplies segment-level supervision ( Xu et al., 2026 ) , whereas we compare complete implementations within a task. Performance-based rewards also target runtime efficiency ( Feng et al., 2026 ) . CPO ( Ye et al., 2025 ) and GRRM ( Yang et al., 2026 ) use comparative evaluation for dialogue and translation, respectively. Agent-as-a-Judge evaluates task artifacts through agentic inspection ( Zhuge et al., 2025 ) . Groupwise Ranking Reward ranks verifier-passed multimodal reasoning with a single-pass, text-based grader ( Jia et al., 2026 ) . Our comparisons instead use interactive inspection of coding trajectories, patches, and repositories, including targeted execution checks. Credit Assignment. Credit assignment determines how feedback is allocated across the decisions and trajectories that produce an outcome. Temporal approaches include RUDDER’s return decomposition ( Arjona-Medina et al., 2019 ) and FACTOR’s trajectory-to-action and action-to-token allocation ( Ma et al., 2026 ) . GiGPO ( Feng et al., 2025 ) and GraphGPO ( Cheng et al., 2026 ) exploit shared intermediate states, which are difficult to align in code agent tasks, where trajectories often span over 100 turns and produce divergent repository and execution states. We instead redistribute credit across successful implementations without intermediate-state alignment. At the optimization level, reward and advantage shaping adjust which trajectories or tokens receive stronger reinforcement. PAPO adds rubric-based advantages normalized within the passing subset, yielding a zero-sum additive correction ( Tan et al., 2026 ) . EDAS reshapes failed-trajectory advantages using error diversity ( Liu et al., 2026 ) , while GTPO/GRPO-S ( Tan and Pan, 2025 ) and RL-ZVP ( Le et al., 2025 ) use entropy-guided shaping, the latter on zero-variance groups. We instead reweight successful-trajectory advantages in mixed-outcome groups using groupwise implementation-quality ranks, preserving total positive credit and quality-induced weight ratios. 3 Approach Gagar augments reinforcement learning for code agents with groupwise quality supervision beyond binary task outcomes. Figure 1 shows how groupwise agentic grading is integrated into the RL training loop. For each task, the grader jointly examines successful and failed attempts using their full trajectories, submitted patches, repository context, and test results. It can inspect code and run targeted checks before ranking the valid passing implementations. These rankings determine relative weights on positive advantages; sum-preserving redistribution then shifts credit toward higher-quality solutions while preserving the total positive advantage and leaving failed-trajectory advantages unchanged. The resulting sequence-level advantages supervise the model-generated response tokens during the policy update. We present the core method in this section; Appendix A.2 explains how to integrate it with reward adjustments such as length penalties. Figure 1: Overview of Gagar . Groupwise agentic grading ranks passing implementations and guides sum-preserving advantage redistribution. 3.1 Training Setup Let x x denote a coding task specified by its requirements, initial repository state, and execution environment. For each task, the rollout policy generates multiple trajectories, each comprising the agent’s responses, tool calls, and env",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: arXiv.org perpetual non-exclusive license",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "Shao et al., 2024",
+      "url": "https://arxiv.org/html/2609.32577v1#bib.bib15"
+    },
+    {
+      "text": "Huang et al., 2026",
+      "url": "https://arxiv.org/html/2609.32577v1#bib.bib7"
+    },
+    {
+      "text": "4.5",
+      "url": "https://arxiv.org/html/2609.32577v1#S4.SS5"
+    },
+    {
+      "text": "Luo et al., 2025",
+      "url": "https://arxiv.org/html/2609.32577v1#bib.bib12"
+    },
+    {
+      "text": "Peng et al., 2026",
+      "url": "https://arxiv.org/html/2609.32577v1#bib.bib14"
+    },
+    {
+      "text": "Yu et al., 2025",
+      "url": "https://arxiv.org/html/2609.32577v1#bib.bib22"
+    },
+    {
+      "text": "Fan et al., 2026",
+      "url": "https://arxiv.org/html/2609.32577v1#bib.bib4"
+    },
+    {
+      "text": "Xu et al., 2026",
+      "url": "https://arxiv.org/html/2609.32577v1#bib.bib19"
+    },
+    {
+      "text": "Feng et al., 2026",
+      "url": "https://arxiv.org/html/2609.32577v1#bib.bib6"
+    },
+    {
+      "text": "Ye et al., 2025",
+      "url": "https://arxiv.org/html/2609.32577v1#bib.bib21"
+    },
+    {
+      "text": "Yang et al., 2026",
+      "url": "https://arxiv.org/html/2609.32577v1#bib.bib20"
+    },
+    {
+      "text": "Zhuge et al., 2025",
+      "url": "https://arxiv.org/html/2609.32577v1#bib.bib23"
+    },
+    {
+      "text": "Jia et al., 2026",
+      "url": "https://arxiv.org/html/2609.32577v1#bib.bib8"
+    },
+    {
+      "text": "Arjona-Medina et al., 2019",
+      "url": "https://arxiv.org/html/2609.32577v1#bib.bib1"
+    },
+    {
+      "text": "Ma et al., 2026",
+      "url": "https://arxiv.org/html/2609.32577v1#bib.bib13"
+    },
+    {
+      "text": "Feng et al., 2025",
+      "url": "https://arxiv.org/html/2609.32577v1#bib.bib5"
+    },
+    {
+      "text": "Cheng et al., 2026",
+      "url": "https://arxiv.org/html/2609.32577v1#bib.bib2"
+    },
+    {
+      "text": "Tan et al., 2026",
+      "url": "https://arxiv.org/html/2609.32577v1#bib.bib17"
+    },
+    {
+      "text": "Liu et al., 2026",
+      "url": "https://arxiv.org/html/2609.32577v1#bib.bib10"
+    },
+    {
+      "text": "Tan and Pan, 2025",
+      "url": "https://arxiv.org/html/2609.32577v1#bib.bib16"
+    },
+    {
+      "text": "Le et al., 2025",
+      "url": "https://arxiv.org/html/2609.32577v1#bib.bib9"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.32577v1#S3.F1"
+    },
+    {
+      "text": "A.2",
+      "url": "https://arxiv.org/html/2609.32577v1#A1.SS2"
+    },
+    {
+      "text": "Liu et al., 2025",
+      "url": "https://arxiv.org/html/2609.32577v1#bib.bib11"
+    },
+    {
+      "text": "4.1",
+      "url": "https://arxiv.org/html/2609.32577v1#S4.SS1"
+    },
+    {
+      "text": "3.3",
+      "url": "https://arxiv.org/html/2609.32577v1#S3.SS3"
+    },
+    {
+      "text": "A.1",
+      "url": "https://arxiv.org/html/2609.32577v1#A1.SS1"
+    },
+    {
+      "text": "4.4",
+      "url": "https://arxiv.org/html/2609.32577v1#S4.SS4"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2609.32577v1#S3.E2"
+    },
+    {
+      "text": "A.3",
+      "url": "https://arxiv.org/html/2609.32577v1#A1.SS3"
+    },
+    {
+      "text": "3.1",
+      "url": "https://arxiv.org/html/2609.32577v1#S3.SS1"
+    },
+    {
+      "text": "Deng et al., 2025",
+      "url": "https://arxiv.org/html/2609.32577v1#bib.bib3"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2609.32577v1#S4.F2"
+    },
+    {
+      "text": "3.2",
+      "url": "https://arxiv.org/html/2609.32577v1#S3.SS2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2609.32577v1#S4.F3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2609.32577v1#S4.F4"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.32577v1#S3.E1"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.32577v1#S4.T1"
+    },
+    {
+      "text": "Team, 2026",
+      "url": "https://arxiv.org/html/2609.32577v1#bib.bib18"
+    },
+    {
+      "text": "https://proceedings.neurips.cc/paper/2019/hash/16105fb9cc614fc29e1bda00dab60d41-Abstract.html",
+      "url": "https://proceedings.neurips.cc/paper/2019/hash/16105fb9cc614fc29e1bda00dab60d41-Abstract.html"
+    },
+    {
+      "text": "10.48550/ARXIV.2605.26684",
+      "url": "https://doi.org/10.48550/ARXIV.2605.26684"
+    },
+    {
+      "text": "https://doi.org/10.48550/arXiv.2605.26684",
+      "url": "https://doi.org/10.48550/arXiv.2605.26684"
+    },
+    {
+      "text": "10.48550/ARXIV.2509.16941",
+      "url": "https://doi.org/10.48550/ARXIV.2509.16941"
+    },
+    {
+      "text": "https://doi.org/10.48550/arXiv.2509.16941",
+      "url": "https://doi.org/10.48550/arXiv.2509.16941"
+    },
+    {
+      "text": "10.18653/V1/2026.ACL-LONG.2031",
+      "url": "https://doi.org/10.18653/V1/2026.ACL-LONG.2031"
+    },
+    {
+      "text": "https://doi.org/10.18653/v1/2026.acl-long.2031",
+      "url": "https://doi.org/10.18653/v1/2026.acl-long.2031"
+    },
+    {
+      "text": "http://papers.nips.cc/paper_files/paper/2025/hash/420c9f777c0b4f78d515e53cf74d58b2-Abstract-Conference.html",
+      "url": "http://papers.nips.cc/paper_files/paper/2025/hash/420c9f777c0b4f78d515e53cf74d58b2-Abstract-Conference.html"
+    },
+    {
+      "text": "10.1609/AAAI.V40I36.40327",
+      "url": "https://doi.org/10.1609/AAAI.V40I36.40327"
+    },
+    {
+      "text": "https://doi.org/10.1609/aaai.v40i36.40327",
+      "url": "https://doi.org/10.1609/aaai.v40i36.40327"
+    },
+    {
+      "text": "10.48550/ARXIV.2607.07946",
+      "url": "https://doi.org/10.48550/ARXIV.2607.07946"
+    },
+    {
+      "text": "https://doi.org/10.48550/arXiv.2607.07946",
+      "url": "https://doi.org/10.48550/arXiv.2607.07946"
+    },
+    {
+      "text": "10.48550/ARXIV.2604.18892",
+      "url": "https://doi.org/10.48550/ARXIV.2604.18892"
+    },
+    {
+      "text": "https://doi.org/10.48550/arXiv.2604.18892",
+      "url": "https://doi.org/10.48550/arXiv.2604.18892"
+    },
+    {
+      "text": "10.48550/ARXIV.2509.21880",
+      "url": "https://doi.org/10.48550/ARXIV.2509.21880"
+    },
+    {
+      "text": "https://doi.org/10.48550/arXiv.2509.21880",
+      "url": "https://doi.org/10.48550/arXiv.2509.21880"
+    },
+    {
+      "text": "10.48550/ARXIV.2605.17333",
+      "url": "https://doi.org/10.48550/ARXIV.2605.17333"
+    },
+    {
+      "text": "https://doi.org/10.48550/arXiv.2605.17333",
+      "url": "https://doi.org/10.48550/arXiv.2605.17333"
+    }
+  ],
+  "matching_link_count": 88,
+  "links_truncated": true,
+  "invalid_links": []
+}

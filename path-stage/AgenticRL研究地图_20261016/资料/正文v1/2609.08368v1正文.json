@@ -1,0 +1,269 @@
+{
+  "url": "https://arxiv.org/html/2609.08368v1",
+  "final_url": "https://arxiv.org/html/2609.08368v1",
+  "status": 200,
+  "title": "Miles v0.1: Production-Level Post-Training",
+  "metadata": {},
+  "paper": {
+    "title": "Miles v0.1: Production-Level Post-Training",
+    "title_warning": null,
+    "abstract": "Abstract We present Miles v0.1, a full-stack, production-ready system for frontier post-training. Building upon the clean design of slime [ 1 ] , Miles designs each stage of the reinforcement-learning (RL) training loop around a single principle: components should be verified, clean, and customizable . With accuracy, efficiency, reliability, and scalability as first-class goals, Miles aims to make frontier-scale RL accessible to researchers and enterprises alike. This report walks through the system end to end: rollout engines built on SGLang [ 2 ] , a trainer with a choice of two backends (NVIDIA Megatron-LM [ 3 ] and PyTorch FSDP [ 4 ] ), and three weight-synchronization transports for different deployment topologies. Beyond full-parameter RL, Miles also supports LoRA RL [ 5 ] , on-policy distillation, supervised fine-tuning, and true-on-policy rollout-training alignment, and extends the same architecture to diffusion models. We close with an end-to-end case study: fully asynchronous agentic RL on a GLM-5.2 744B-A40B model over terminal-use coding tasks, running on 64 NVIDIA GB300 GPUs with a median step time of 263 seconds over the first 30 measured steps.",
+    "authors": [
+      {
+        "name": "RadixArk",
+        "affiliations": [],
+        "notes": []
+      }
+    ],
+    "author_block": "RadixArk",
+    "arxiv_version": "2609.08368v1",
+    "arxiv_version_date": "2026-09-08"
+  },
+  "text": "Miles v0.1: Production-Level Post-Training Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: arXiv.org perpetual non-exclusive license arXiv:2609.08368v1 [cs.LG] 08 Sep 2026 \\checkdata [Code] https://github.com/radixark/miles \\checkdata [Website] https://miles.radixark.com Miles v0.1: Production-Level Post-Training RadixArk September 8, 2026 Abstract We present Miles v0.1, a full-stack, production-ready system for frontier post-training. Building upon the clean design of slime [ 1 ] , Miles designs each stage of the reinforcement-learning (RL) training loop around a single principle: components should be verified, clean, and customizable . With accuracy, efficiency, reliability, and scalability as first-class goals, Miles aims to make frontier-scale RL accessible to researchers and enterprises alike. This report walks through the system end to end: rollout engines built on SGLang [ 2 ] , a trainer with a choice of two backends (NVIDIA Megatron-LM [ 3 ] and PyTorch FSDP [ 4 ] ), and three weight-synchronization transports for different deployment topologies. Beyond full-parameter RL, Miles also supports LoRA RL [ 5 ] , on-policy distillation, supervised fine-tuning, and true-on-policy rollout-training alignment, and extends the same architecture to diffusion models. We close with an end-to-end case study: fully asynchronous agentic RL on a GLM-5.2 744B-A40B model over terminal-use coding tasks, running on 64 NVIDIA GB300 GPUs with a median step time of 263 seconds over the first 30 measured steps. 1 Introduction Post-training turns a pretrained language model into a useful one. At frontier scale, post-training poses substantial challenges for training systems. For example, reinforcement learning (RL) for large language models no longer follows a single generate-then-update loop over short completions. Rollouts now span multiple turns, use tools, and let the model act in an external environment; the models producing the rollouts are often trillion-parameter mixtures of experts (MoE). Such challenges make it difficult to sustain high end-to-end hardware utilization: the system must juggle latency-sensitive rollouts with throughput-oriented training, often introducing bubbles and idle time. Meanwhile, the numerical gap between the rollout engines and the trainer can become large enough to invalidate the objective outright. To tackle these problems, we present Miles v0.1, a full-stack, production-ready system for frontier post-training. Miles builds on the clean design of slime [ 1 ] and centers on one principle: components should be verified, clean, and customizable . The report traces the path of the data through Miles , describing the mechanism, the settings that control each part, and what we measured. The report also states the limits of Miles : some precision formats remain at an early stage, some weight-transfer paths cover only certain model families, and some measurements come from one configuration rather than many. 1.1 The Miles RL Loop A reinforcement learning (RL) training job in Miles cycles through three stages that generate trajectories, update the policy (the model being optimized), and return the updated weights to generation. A prompt is one task drawn from the dataset; a trajectory is one attempt at that task, and a trajectory group collects trajectories generated from the same prompt: 1. Rollout : SGLang engines generate trajectories. In agentic RL, where the model acts across multiple turns, each rollout session interacts with its own isolated environment, which executes actions and produces the reward. 2. Training : The trainer uses NVIDIA Megatron-LM [ 3 ] or PyTorch FSDP [ 4 ] to consume completed trajectory groups, compute the RL loss, and update the policy. 3. Weight update : After each training step, Miles updates the RL policy by synchronizing the new weights with the rollout engines, minimizing interruption to in-flight rollouts. Note that the three stages need not run in lockstep. A schedule that makes the stages take turns idles hardware on both sides: the trainer waits for the slowest trajectory in the batch to return, and the engines then wait for the optimizer to finish. To overlap generation and training, Miles offers a fully asynchronous mode in which the engines continue generating while the trainer works, so the two sides can make progress concurrently. Figure 1 illustrates the Miles RL loop. Figure 1 : The Miles RL loop. 1.2 Report Organization This report first examines each element of the loop in Section 1.1 and explains how we make Miles accurate, efficient, reliable, and scalable. Section 2 covers the rollout stage, including fully asynchronous scheduling, agentic environments, token-in-token-out (TITO) sessions, and rollout routing replay. Section 3 covers the trainer: low-precision recipes, memory efficiency, the two training backends, and the objective itself. Section 4 covers weight synchronization. The report then broadens its scope beyond the core loop. Section 5 covers post-training paradigms beyond core RL, namely LoRA RL, on-policy distillation, and true-on-policy alignment, and Section 6 extends the architecture to diffusion models. Section 7 sets out verified coverage on the two axes that determine whether a given run is possible at all: day-0 model support (Section 7.1 ) and multi-vendor hardware (Section 7.2 ). Section 8 then states the code-quality principle that organizes the implementation, and Section 9 closes with the end-to-end GLM-5.2 case study on 64 NVIDIA GB300 GPUs. 2 Rollout Rollout generation poses two distinct problems in agentic RL: throughput and fidelity. Throughput matters because rollout generation dominates wall-clock time, so request placement and scheduling determine how fast the loop runs. Fidelity matters because the trainer’s view of a trajectory can silently diverge from what the policy actually sampled, corrupting the gradient without producing any error. Sections 2.1 and 2.2 address throughput by showing how requests are routed to preserve cache locality and how generation is decoupled from training. Sections 2.3 through 2.5 address fidelity by showing how environments attach to the rollout stack, how token-exact trajectories are recorded across turns, and how expert routing is kept identical between rollout and training. This section frequently refers to the following four terms, so we define them here. A prompt is one task drawn from the dataset. A trajectory is one attempt at that task by the current policy. For single-turn work, a trajectory is a single completion; for agentic work, it is an entire multi-turn episode comprising the model’s messages, its tool calls, and the environment’s replies. A group is the set of trajectories generated from the same prompt. The grouping matters because the objectives Miles targets, GRPO [ 6 ] among them, score a trajectory by comparing it against the other trajectories for the same prompt. Consequently, trajectories sharing a prompt have to be generated and consumed together, so Miles schedules, buffers, and discards data one group at a time rather than one trajectory at a time. A session is what the serving layer sees, namely the ordered set of requests belonging to a single episode. Note that a session may produce one or more trajectories. 2.1 Fast Agentic Rollout with SGLang Miles builds on SGLang’s fast serving stack and its optimizations for agentic workloads. This section does not intend to detail the optimizations in SGLang; instead, it explains how Miles integrates SGLang to turn fast inference into high-throughput agentic RL training. Request routing is central to this integration because it largely determines throughput for multi-turn rollouts. Each turn of a trajectory reuses nearly all of the context from earlier turns, and the engine that served the previous turn already holds that prefix in its KV cache. If the router sends the next turn to a different engine, that engine must prefill the entire history again, which can drastically reduce rollout throughput as the number of turns grows. Miles therefore fronts its SGLang [ 2 ] engine fleet with SGLang’s router and configures it to keep all requests from the same multi-turn episode on the same rollout engine. We refer to this cache-preserving binding as affinity . Affinity binds a serving-layer session (the ordered set of requests for one episode) to the holder of its KV cache for the session’s lifetime, so each turn prefills only the newly generated suffix. Miles applies affinity at two granularities: session-aware routing binds a session to the engine holding its prefix; and DP-rank-aware routing further narrows that binding to an individual data-parallel rank when DP attention is enabled. In contrast, load-based routing makes a fresh decision for every request and can separate the turns of one session, sacrificing prefix reuse. In practice, Miles uses SGLang’s key-based routing mode for affinity: it attaches a stable routing key to every request in a session, and the router consistently maps that key to the same destination (the same engine, or the same data-parallel rank when DP attention is enabled). Load-based routing remains available for single-turn workloads, where requests are independent and prefix reuse does not apply. Miles selects that mode automatically whenever session server is enabled. Session server is the Miles component between the agent and the engines that takes ownership of a multi-turn trajectory. The server holds the conversation history, decides how that history becomes tokens, and preserves the exact token IDs produced by the engines, so the trainer later sees precisely what the policy sampled. Section 2.4 describes the session server in full. The server matters here because it tracks session identity and can therefore supply a routing key. A trajectory that reaches the router carrying no key fails outright: Miles raises an error rather than routing it by load, because a silent fallback would cost the cache hit rate and leave nothing in the logs to explain why. Affinity alone can still imbalance the engine fleet. Pinning each trajectory to one engine means that an engine assigned several long trajectories falls behind, while an engine assigned short trajectories runs out of work. The session server therefore strategically decides how a new session picks its engine: each new session goes to the engine with the fewest active requests and then stays there for its lifetime. Affinity and least-loaded placement together hold the prefix-cache hit rate at 96% in the reference run of Section 9 . 2.2 Fully Asynchronous RL Fully asynchronous RL allows rollout generation and training to progress concurrently in Miles 1 1 1 https://miles.radixark.com/docs/user-guide/fully-async . The rollout engines generate trajectories continuously while the trainer consumes whichever trajectories have finished when it needs a batch, so the system doesn’t alternate between training and rollout phases. Concurrent execution requires GPU capacity for both stages at once, so the stages use separate GPU pools, a disaggregated placement. Note that Miles refuses to start a fully asynchronous run when the trainer and rollout engines share GPUs (a colocated placement). The overlap between rollout and training removes the idle time that a slow trajectory creates in a synchronous, turn-taking schedule. When generation and training take turns, a batch completes only after its slowest trajectory finishes, leaving most GPUs idle before that point; the trainer also waits because it needs the complete batch. Long-context and tool-using tasks spend a large part of each batch in this idle state. Under the asynchronous schedule, later batches generate alongside the straggler while the trainer consumes batches that have already completed. In practice, rollout generation runs continuously; the",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: arXiv.org perpetual non-exclusive license",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "https://github.com/radixark/miles",
+      "url": "https://github.com/radixark/miles"
+    },
+    {
+      "text": "https://miles.radixark.com",
+      "url": "https://miles.radixark.com"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.08368v1#bib.bib1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2609.08368v1#bib.bib2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2609.08368v1#bib.bib3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2609.08368v1#bib.bib4"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2609.08368v1#bib.bib5"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.08368v1#S1.F1"
+    },
+    {
+      "text": "1.1",
+      "url": "https://arxiv.org/html/2609.08368v1#S1.SS1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2609.08368v1#S2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2609.08368v1#S3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2609.08368v1#S4"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2609.08368v1#S5"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2609.08368v1#S6"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2609.08368v1#S7"
+    },
+    {
+      "text": "7.1",
+      "url": "https://arxiv.org/html/2609.08368v1#S7.SS1"
+    },
+    {
+      "text": "7.2",
+      "url": "https://arxiv.org/html/2609.08368v1#S7.SS2"
+    },
+    {
+      "text": "8",
+      "url": "https://arxiv.org/html/2609.08368v1#S8"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2609.08368v1#S9"
+    },
+    {
+      "text": "2.1",
+      "url": "https://arxiv.org/html/2609.08368v1#S2.SS1"
+    },
+    {
+      "text": "2.2",
+      "url": "https://arxiv.org/html/2609.08368v1#S2.SS2"
+    },
+    {
+      "text": "2.3",
+      "url": "https://arxiv.org/html/2609.08368v1#S2.SS3"
+    },
+    {
+      "text": "2.5",
+      "url": "https://arxiv.org/html/2609.08368v1#S2.SS5"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2609.08368v1#bib.bib6"
+    },
+    {
+      "text": "2.4",
+      "url": "https://arxiv.org/html/2609.08368v1#S2.SS4"
+    },
+    {
+      "text": "https://miles.radixark.com/docs/user-guide/fully-async",
+      "url": "https://miles.radixark.com/docs/user-guide/fully-async"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.08368v1#S2.T1"
+    },
+    {
+      "text": "2.2.2",
+      "url": "https://arxiv.org/html/2609.08368v1#S2.SS2.SSS2"
+    },
+    {
+      "text": "2.2.1",
+      "url": "https://arxiv.org/html/2609.08368v1#S2.SS2.SSS1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2609.08368v1#S2.T2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2609.08368v1#S2.T3"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2609.08368v1#S2.F2"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2609.08368v1#S2.T4"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2609.08368v1#bib.bib7"
+    },
+    {
+      "text": "8",
+      "url": "https://arxiv.org/html/2609.08368v1#bib.bib8"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2609.08368v1#bib.bib9"
+    },
+    {
+      "text": "10",
+      "url": "https://arxiv.org/html/2609.08368v1#bib.bib10"
+    },
+    {
+      "text": "11",
+      "url": "https://arxiv.org/html/2609.08368v1#bib.bib11"
+    },
+    {
+      "text": "12",
+      "url": "https://arxiv.org/html/2609.08368v1#bib.bib12"
+    },
+    {
+      "text": "13",
+      "url": "https://arxiv.org/html/2609.08368v1#bib.bib13"
+    },
+    {
+      "text": "14",
+      "url": "https://arxiv.org/html/2609.08368v1#bib.bib14"
+    },
+    {
+      "text": "15",
+      "url": "https://arxiv.org/html/2609.08368v1#bib.bib15"
+    },
+    {
+      "text": "16",
+      "url": "https://arxiv.org/html/2609.08368v1#bib.bib16"
+    },
+    {
+      "text": "17",
+      "url": "https://arxiv.org/html/2609.08368v1#bib.bib17"
+    },
+    {
+      "text": "3.4",
+      "url": "https://arxiv.org/html/2609.08368v1#S3.SS4"
+    },
+    {
+      "text": "https://miles.radixark.com/docs/user-guide/agentic-rollout",
+      "url": "https://miles.radixark.com/docs/user-guide/agentic-rollout"
+    },
+    {
+      "text": "18",
+      "url": "https://arxiv.org/html/2609.08368v1#bib.bib18"
+    },
+    {
+      "text": "5.2",
+      "url": "https://arxiv.org/html/2609.08368v1#S5.SS2"
+    },
+    {
+      "text": "5.3",
+      "url": "https://arxiv.org/html/2609.08368v1#S5.SS3"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2609.08368v1#S2.F3"
+    },
+    {
+      "text": "2.4.1",
+      "url": "https://arxiv.org/html/2609.08368v1#S2.SS4.SSS1"
+    },
+    {
+      "text": "Ma et al. [19]",
+      "url": "https://arxiv.org/html/2609.08368v1#bib.bib19"
+    },
+    {
+      "text": "3.2",
+      "url": "https://arxiv.org/html/2609.08368v1#S3.SS2"
+    },
+    {
+      "text": "3.1",
+      "url": "https://arxiv.org/html/2609.08368v1#S3.SS1"
+    },
+    {
+      "text": "3.3",
+      "url": "https://arxiv.org/html/2609.08368v1#S3.SS3"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2609.08368v1#S3.T5"
+    },
+    {
+      "text": "20",
+      "url": "https://arxiv.org/html/2609.08368v1#bib.bib20"
+    }
+  ],
+  "matching_link_count": 166,
+  "links_truncated": true,
+  "invalid_links": []
+}

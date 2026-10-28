@@ -1,0 +1,277 @@
+{
+  "url": "https://arxiv.org/html/2610.12274v1",
+  "final_url": "https://arxiv.org/html/2610.12274v1",
+  "status": 200,
+  "title": "HarnessSQL: Harness-Native Training for SQL Agents in Realistic Database Environments",
+  "metadata": {},
+  "paper": {
+    "title": "HarnessSQL : Harness-Native Training for SQL Agents in Realistic Database Environments",
+    "title_warning": null,
+    "abstract": "Abstract Text-to-SQL models are commonly trained to map questions directly to static queries, whereas real-world database agents operate through stateful, multi-turn interaction with live databases—inspecting schemas, executing probe queries, diagnosing errors, and revising hypotheses. This creates a critical train–deploy mismatch, as the execution harness that mediates this interaction is introduced only at inference time. To bridge this gap, we propose HarnessSQL , a harness-native post-training framework that preserves the full interaction structure throughout both supervised fine-tuning and reinforcement learning. HarnessSQL builds isolated, executable database environments paired with hidden execution oracles, rolls out teachers directly inside the target SQL harness, and retains only verified trajectories for full-sequence SFT, followed by execution-reward RL. Across Spider 2.0-SQLite, HarnessSQL dramatically boosts the execution accuracy of compact models, raising Qwen3-8B from 15.5% to 45.2% and Qwen3-14B from 22.2% to 54.8%, while transferring effectively to out-of-distribution interactive benchmarks such as BIRD-Interact and LiveSQLBench. Our findings demonstrate that training database agents directly within their execution harness is essential for mastering complex, long-horizon database workflows.\nCode is released at https://github.com/YangHaolin0526/HarnessSQL",
+    "authors": [
+      {
+        "name": "Haolin Yang   Jipeng Zhang 1 1 footnotemark: 1 Zhiqiang Qian   Jian Xie   Shuaishuai Gong",
+        "affiliations": [
+          "Affiliation: Hong Kong University of Science and Technology  Microsoft Research",
+          "Affiliation: Tsinghua University  University of Macau"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Yike Guo   Sirui Han 2 2 footnotemark: 2",
+        "affiliations": [],
+        "notes": []
+      }
+    ],
+    "author_block": "Haolin Yang   Jipeng Zhang 1 1 footnotemark: 1 Zhiqiang Qian   Jian Xie   Shuaishuai Gong † † thanks: Equal contribution. Affiliation: Hong Kong University of Science and Technology  Microsoft Research Affiliation: Tsinghua University  University of Macau Yike Guo   Sirui Han 2 2 footnotemark: 2 † † thanks: Corresponding authors.",
+    "arxiv_version": "2610.12274v1",
+    "arxiv_version_date": "2026-10-08"
+  },
+  "text": "HarnessSQL: Harness-Native Training for SQL Agents in Realistic Database Environments Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: CC BY 4.0 arXiv:2610.12274v1 [cs.CL] 08 Oct 2026 HarnessSQL : Harness-Native Training for SQL Agents in Realistic Database Environments Haolin Yang Jipeng Zhang 1 1 footnotemark: 1 Zhiqiang Qian Jian Xie Shuaishuai Gong † † thanks: Equal contribution. Affiliation: Hong Kong University of Science and Technology Microsoft Research Affiliation: Tsinghua University University of Macau Yike Guo Sirui Han 2 2 footnotemark: 2 † † thanks: Corresponding authors. Abstract Text-to-SQL models are commonly trained to map questions directly to static queries, whereas real-world database agents operate through stateful, multi-turn interaction with live databases—inspecting schemas, executing probe queries, diagnosing errors, and revising hypotheses. This creates a critical train–deploy mismatch, as the execution harness that mediates this interaction is introduced only at inference time. To bridge this gap, we propose HarnessSQL , a harness-native post-training framework that preserves the full interaction structure throughout both supervised fine-tuning and reinforcement learning. HarnessSQL builds isolated, executable database environments paired with hidden execution oracles, rolls out teachers directly inside the target SQL harness, and retains only verified trajectories for full-sequence SFT, followed by execution-reward RL. Across Spider 2.0-SQLite, HarnessSQL dramatically boosts the execution accuracy of compact models, raising Qwen3-8B from 15.5% to 45.2% and Qwen3-14B from 22.2% to 54.8%, while transferring effectively to out-of-distribution interactive benchmarks such as BIRD-Interact and LiveSQLBench. Our findings demonstrate that training database agents directly within their execution harness is essential for mastering complex, long-horizon database workflows. Code is released at https://github.com/YangHaolin0526/HarnessSQL 1 Introduction Figure 1: From one-shot Text-to-SQL to harness-interactive database agents. A stable sandbox and structured SQL harness enable iterative exploration, execution feedback, revision, and submission. Text-to-SQL has traditionally been formulated as a direct mapping from a natural-language question and database schema to an executable SQL query ( Yu et al., 2018 ; Li et al., 2023 ) . This abstraction has enabled substantial progress, but it increasingly diverges from how modern systems solve realistic database tasks. Benchmarks such as Spider2.0 ( Lei et al., 2025 ) place agents in large, unfamiliar database environments where the information required to solve a task cannot always be captured in a static prompt. An agent may need to inspect tables, examine schemas and values, execute intermediate queries, diagnose errors, and revise its solution over multiple turns. Recent systems have consequently begun to treat Text-to-SQL as an interactive problem, using tools and execution feedback to reason over databases rather than generating a query in a single pass ( Deng et al., 2025 ; Li et al., 2026 ) . This shift raises a corresponding question: how should such SQL agents be trained? Figure 1 illustrates why interactive SQL agents require more than simply adding tools at inference time. Even for a seemingly simple request such as “How many unique customers purchased in 2023?”, the agent may not know in advance which tables, keys, or values are relevant ( Pham et al., 2026 ) . It may first inspect the schema, issue a plausible query, encounter an execution error such as referencing a nonexistent user_id column, and then use the returned database state to revise its hypothesis before submitting a correct query. This process exposes three coupled challenges. First, the environment must be executable and reproducible: the agent needs access to authentic schemas, values, query results, and runtime errors rather than a static textual approximation. Second, the harness itself shapes the policy: which inspection and execution tools are available, what observations are exposed, and how submission and termination are defined determine the sequence of decisions the model can make. Third, the supervision must capture the interaction process rather than only the terminal SQL: a correct final query does not teach the model when to inspect the schema, how to interpret an execution failure, or how to recover from an incorrect intermediate hypothesis ( Guo et al., 2026 ) . Recent interactive SQL benchmarks and harness studies increasingly expose these requirements at evaluation time ( Xu et al., 2025 ; Yao et al., 2026a ) , yet most SQL post-training still focuses on static question–SQL supervision or terminal execution correctness. This creates a fundamental train–deploy mismatch: models are trained to produce answers, but deployed as policies that must explore, execute, revise, and terminate through a concrete database harness. To resolve these challenges, we introduce HarnessSQL , a harness-native post-training framework that aligns the supervision of database agents directly with their runtime execution interface. HarnessSQL consists of three core components: 1. Executable SQL Environment Construction. We instantiate isolated database sandboxes that provide authentic schemas, query execution, runtime feedback, and hidden executable verification, enabling agent trajectories to be generated and evaluated against real database states. 2. SQL-Specific Harness Adaptation. Rather than directly adopting a generic agent harness, we adapt its interaction interface and execution protocol to the characteristics of SQL tasks. The resulting harness exposes task-relevant observations and actions while reducing unnecessary interaction complexity, making teacher rollouts more reliable and the resulting trajectories easier for compact models to learn from. 3. Harness-Native Post-Training. We collect oracle-verified full interaction trajectories directly inside the adapted harness and use them for supervised fine-tuning, followed by execution-reward reinforcement learning in the same environment. This two-stage training process teaches the model not only to produce correct SQL, but also to acquire the complete interaction policy for exploration, execution, recovery, and submission. Empirical results demonstrate that harness-native training substantially elevates compact models. On Spider 2.0-SQLite, HarnessSQL improves Qwen3-8B execution accuracy from 15.5% to 45.2% and Qwen3-14B from 22.2% to 54.8% after SFT and RL. Furthermore, the learned policies transfer effectively to out-of-distribution interactive environments, reaching 9.0%/11.3% on BIRD-Interact Mini and 24.8%/28.5% on LiveSQLBench Base-Lite for 8B/14B models. Controlled comparisons confirm that harness-native post-training significantly outperforms conventional non-harness fine-tuning, highlighting the importance of aligning training with the deployment interaction interface. Our contributions are threefold: (1) Problem Formulation: We identify a train–deploy mismatch in database agents and formulate interactive Text-to-SQL as long-horizon policy learning grounded in an executable harness, highlighting the coupled roles of environment, interaction interface, and trajectory-level supervision. (2) HarnessSQL Framework: We develop a harness-native pipeline spanning sandbox environment construction, dedicated SQL harness design, and end-to-end full-trajectory post-training via SFT and execution-reward RL. (3) State-of-the-Art Compact Agents: We show that HarnessSQL substantially improves 8B/14B open-weight models on Spider 2.0 and transfers to out-of-distribution interactive benchmarks, demonstrating the effectiveness of training database agents natively within their deployment environment. 2 Problem Setting 2.1 SQL agents as partially observed policies We formalize interactive Text-to-SQL as a partially observed Markov decision process (POMDP) mediated by an execution harness. A task instance is defined as a tuple x = ( q , 𝒟 , h , v ) x=(q,\\mathcal{D},h,v) , where q q is the natural-language user instruction, 𝒟 \\mathcal{D} denotes the underlying database instance, h h specifies the execution harness, and v v is a hidden executable oracle. At each turn t ∈ [ 1 , T ] t\\in[1,T] , the agent receives an observation o t ∈ 𝒪 o_{t}\\in\\mathcal{O} emitted by the harness and generates an action a t ∈ 𝒜 a_{t}\\in\\mathcal{A} according to its policy π θ ​ ( a t ∣ s t ) \\pi_{\\theta}(a_{t}\\mid s_{t}) , where the visible state s t = ( q , a 1 , o 1 , … , a t − 1 , o t − 1 ) s_{t}=(q,a_{1},o_{1},\\dots,a_{t-1},o_{t-1}) comprises the dialogue history. The action a t a_{t} consists of natural-language reasoning accompanied by either a tool call (e.g., schema lookup or query execution) or a terminal submission. An entire interaction episode is represented as: τ = ( q , a 1 , o 1 , a 2 , o 2 , … , a T , o T , y ) , \\tau=(q,a_{1},o_{1},a_{2},o_{2},\\dots,a_{T},o_{T},y), (1) where y y is the final submitted SQL artifact extracted from a T a_{T} . Crucially, the agent never observes the full ground-truth state of 𝒟 \\mathcal{D} directly; instead, o t = h ⁡ ( 𝒟 , a t ) o_{t}=h(\\mathcal{D},a_{t}) is a harness-dependent projection bounded by system protocols (such as row truncations, query timeouts, and error message formatting). Task success is evaluated over the complete trajectory by a joint reward function: R ⁡ ( τ , x ) = R result ​ ( y , v ) ⋅ R protocol ​ ( τ , h ) . R(\\tau;x)=R_{\\mathrm{result}}(y,v)\\cdot R_{\\mathrm{protocol}}(\\tau,h). (2) Here, R result ​ ( y , v ) ∈ { 0 , 1 } R_{\\mathrm{result}}(y,v)\\in\\{0,1\\} evaluates the denotational execution equivalence of the submitted artifact y y against the hidden verifier v v over 𝒟 \\mathcal{D} , rather than relying on surface-form string matching. R protocol ​ ( τ , h ) ∈ { 0 , 1 } R_{\\mathrm{protocol}}(\\tau,h)\\in\\{0,1\\} verifies compliance with harness invariants, including read-only query constraints, adherence to action schemas, absence of repeated redundant queries, and termination within the step budget T T . Figure 2: Overview of HarnessSQL , our harness-native post-training framework for interactive SQL agents. (a) Databases and hidden execution oracles are encapsulated into isolated, containerized sandboxes, where a SQL-specific harness mediates agent–environment interaction through four actions: table discovery ( sql_list_tables ), schema inspection ( sql_schema ), query execution ( sql_exec ), and submission ( sql_submit ). The harness exposes schemas, query results, and execution errors while enforcing interaction and execution constraints. Harness-native SFT provides an interaction cold start from verified multi-turn trajectories, after which harness-native RL further optimizes the policy through online sandbox interaction and execution-based rewards. (b) An example trajectory illustrates the resulting workflow: the agent discovers tables, inspects the schema, executes a query, observes an execution error, revises its solution, and submits the verified result. 2.2 The Train–Deploy Mismatch Existing SQL post-training frameworks predominantly conceptualize Text-to-SQL as a one-shot conditional generation task. Formally, conventional supervision maximizes the likelihood of the golden query y ∗ y^{*} conditioned on the prompt and a static schema description 𝒮 \\mathcal{S} : ℒ static ​ ( θ ) = − log ⁡ π θ ​ ( y ∗ ∣ q , 𝒮 ) . \\mathcal{L}_{\\mathrm{static}}(\\theta)=-\\log\\pi_{\\theta}(y^{*}\\mid q,\\mathcal{S}). (3) Even recent reasoning-oriented methods that incorporate chain-of-thought traces c c still formulate the objective as π θ ( c , y ∗ ∣ q , 𝒮 ) \\pi_{\\theta}(c,y^{*}\\mid q,\\mathcal{S}) , terminating statically without environment interaction. When deploying such a model as an interactive agent, a severe distributional and structural mismat",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: CC BY 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "https://github.com/YangHaolin0526/HarnessSQL",
+      "url": "https://github.com/YangHaolin0526/HarnessSQL"
+    },
+    {
+      "text": "Yu et al., 2018",
+      "url": "https://arxiv.org/html/2610.12274v1#bib.bib8"
+    },
+    {
+      "text": "Li et al., 2023",
+      "url": "https://arxiv.org/html/2610.12274v1#bib.bib9"
+    },
+    {
+      "text": "Lei et al., 2025",
+      "url": "https://arxiv.org/html/2610.12274v1#bib.bib10"
+    },
+    {
+      "text": "Deng et al., 2025",
+      "url": "https://arxiv.org/html/2610.12274v1#bib.bib12"
+    },
+    {
+      "text": "Li et al., 2026",
+      "url": "https://arxiv.org/html/2610.12274v1#bib.bib6"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2610.12274v1#S1.F1"
+    },
+    {
+      "text": "Pham et al., 2026",
+      "url": "https://arxiv.org/html/2610.12274v1#bib.bib14"
+    },
+    {
+      "text": "Guo et al., 2026",
+      "url": "https://arxiv.org/html/2610.12274v1#bib.bib15"
+    },
+    {
+      "text": "Xu et al., 2025",
+      "url": "https://arxiv.org/html/2610.12274v1#bib.bib16"
+    },
+    {
+      "text": "Yao et al., 2026a",
+      "url": "https://arxiv.org/html/2610.12274v1#bib.bib25"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2610.12274v1#S2.F2"
+    },
+    {
+      "text": "I",
+      "url": "https://arxiv.org/html/2610.12274v1#A9"
+    },
+    {
+      "text": "DeepSeek AI, 2026",
+      "url": "https://arxiv.org/html/2610.12274v1#bib.bib36"
+    },
+    {
+      "text": "A",
+      "url": "https://arxiv.org/html/2610.12274v1#A1"
+    },
+    {
+      "text": "Yu et al., 2025",
+      "url": "https://arxiv.org/html/2610.12274v1#bib.bib35"
+    },
+    {
+      "text": "C",
+      "url": "https://arxiv.org/html/2610.12274v1#A3"
+    },
+    {
+      "text": "D",
+      "url": "https://arxiv.org/html/2610.12274v1#A4"
+    },
+    {
+      "text": "Huo et al., 2025",
+      "url": "https://arxiv.org/html/2610.12274v1#bib.bib13"
+    },
+    {
+      "text": "BIRD Team, 2026",
+      "url": "https://arxiv.org/html/2610.12274v1#bib.bib37"
+    },
+    {
+      "text": "G",
+      "url": "https://arxiv.org/html/2610.12274v1#A7"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2610.12274v1#S5.T1"
+    },
+    {
+      "text": "Li et al., 2025",
+      "url": "https://arxiv.org/html/2610.12274v1#bib.bib4"
+    },
+    {
+      "text": "Yao et al., 2026b",
+      "url": "https://arxiv.org/html/2610.12274v1#bib.bib5"
+    },
+    {
+      "text": "F",
+      "url": "https://arxiv.org/html/2610.12274v1#A6"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2610.12274v1#S5.T2"
+    },
+    {
+      "text": "B",
+      "url": "https://arxiv.org/html/2610.12274v1#A2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2610.12274v1#S5.T3"
+    },
+    {
+      "text": "B.1",
+      "url": "https://arxiv.org/html/2610.12274v1#A2.SS1"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2610.12274v1#S5.F3"
+    },
+    {
+      "text": "He et al., 2026a",
+      "url": "https://arxiv.org/html/2610.12274v1#bib.bib2"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2610.12274v1#S5.F4"
+    },
+    {
+      "text": "Shao et al., 2024",
+      "url": "https://arxiv.org/html/2610.12274v1#bib.bib33"
+    },
+    {
+      "text": "Zheng et al., 2025",
+      "url": "https://arxiv.org/html/2610.12274v1#bib.bib34"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2610.12274v1#S5.T4"
+    },
+    {
+      "text": "B.2",
+      "url": "https://arxiv.org/html/2610.12274v1#A2.SS2"
+    },
+    {
+      "text": "Talaei et al., 2024",
+      "url": "https://arxiv.org/html/2610.12274v1#bib.bib11"
+    },
+    {
+      "text": "Yao et al., 2023",
+      "url": "https://arxiv.org/html/2610.12274v1#bib.bib17"
+    },
+    {
+      "text": "Qin et al., 2023",
+      "url": "https://arxiv.org/html/2610.12274v1#bib.bib20"
+    },
+    {
+      "text": "Wang et al., 2024",
+      "url": "https://arxiv.org/html/2610.12274v1#bib.bib21"
+    },
+    {
+      "text": "Yang et al., 2024",
+      "url": "https://arxiv.org/html/2610.12274v1#bib.bib22"
+    },
+    {
+      "text": "Liu et al., 2023",
+      "url": "https://arxiv.org/html/2610.12274v1#bib.bib23"
+    },
+    {
+      "text": "Yao et al., 2024",
+      "url": "https://arxiv.org/html/2610.12274v1#bib.bib24"
+    },
+    {
+      "text": "Wang et al., 2023",
+      "url": "https://arxiv.org/html/2610.12274v1#bib.bib18"
+    },
+    {
+      "text": "Wu et al., 2026",
+      "url": "https://arxiv.org/html/2610.12274v1#bib.bib32"
+    },
+    {
+      "text": "Schick et al., 2023",
+      "url": "https://arxiv.org/html/2610.12274v1#bib.bib19"
+    },
+    {
+      "text": "Tang et al., 2023",
+      "url": "https://arxiv.org/html/2610.12274v1#bib.bib26"
+    },
+    {
+      "text": "Chen et al., 2023",
+      "url": "https://arxiv.org/html/2610.12274v1#bib.bib27"
+    },
+    {
+      "text": "Zeng et al., 2023",
+      "url": "https://arxiv.org/html/2610.12274v1#bib.bib28"
+    },
+    {
+      "text": "Mitra et al., 2024",
+      "url": "https://arxiv.org/html/2610.12274v1#bib.bib29"
+    },
+    {
+      "text": "He et al., 2026b",
+      "url": "https://arxiv.org/html/2610.12274v1#bib.bib1"
+    },
+    {
+      "text": "Liu et al., 2024b",
+      "url": "https://arxiv.org/html/2610.12274v1#bib.bib30"
+    },
+    {
+      "text": "Liu et al., 2024a",
+      "url": "https://arxiv.org/html/2610.12274v1#bib.bib31"
+    },
+    {
+      "text": "He et al., 2025",
+      "url": "https://arxiv.org/html/2610.12274v1#bib.bib7"
+    },
+    {
+      "text": "Zhang et al., 2025",
+      "url": "https://arxiv.org/html/2610.12274v1#bib.bib3"
+    },
+    {
+      "text": "H",
+      "url": "https://arxiv.org/html/2610.12274v1#A8"
+    },
+    {
+      "text": "J",
+      "url": "https://arxiv.org/html/2610.12274v1#A10"
+    }
+  ],
+  "matching_link_count": 99,
+  "links_truncated": true,
+  "invalid_links": []
+}

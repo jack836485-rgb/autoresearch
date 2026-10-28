@@ -1,0 +1,285 @@
+{
+  "url": "https://arxiv.org/html/2605.03195v1",
+  "final_url": "https://arxiv.org/html/2605.03195v1",
+  "status": 200,
+  "title": "Terminus-4B: Can a Smaller Model Replace Frontier LLMs at Agentic Execution Tasks?",
+  "metadata": {},
+  "paper": {
+    "title": "Terminus-4B: Can a Smaller Model Replace Frontier LLMs at Agentic Execution Tasks?",
+    "title_warning": null,
+    "abstract": "Abstract. Modern coding agents increasingly delegate specialized subtasks to subagents, which are smaller, focused agentic loops that handle narrow responsibilities like search, debugging or terminal execution. This architectural pattern keeps the main agent’s context window clean by isolating verbose outputs (e.g. build logs, test results, etc.) within the subagent context. Typically when agents employ subagents for such tasks, they use frontier models as these subagents. In this paper, we investigate whether a finetuned small language model (SLM) can achieve comparable performance to frontier models in the task of agentic terminal execution. We present Terminus-4B, which is a post-trained Qwen3-4B model via Supervised Finetuning (SFT) and Reinforcement Learning (RL) using rubric-based LLM-as-judge reward, specifically for this task. In our extensive evaluation spanning various frontier models, training ablations and main agent configurations, we find that Terminus-4B is able to reduce the main agent’s token usage by up to ∼ \\sim 30% compared to the No Subagent baseline with no impact to agent performance on benchmarks like SWE-Bench Pro and our internal SWE-Bench C# benchmark, which tends to be heavy in verbose execution tasks. Furthermore, Terminus-4B improves key metrics showing the main agent relying on the outputs of the subagent and doing fewer terminal execution tasks by itself. We see that our model not only closes the gap between the Vanilla Qwen model and frontier models like Claude Sonnet / Opus / GPT-5.3-Codex, but often even exceeds their performance.",
+    "authors": [
+      {
+        "name": "Spandan Garg",
+        "affiliations": [
+          "Affiliation: Microsoft , USA"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Vikram Nitin",
+        "affiliations": [
+          "Affiliation: Microsoft , USA"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Yufan Huang",
+        "affiliations": [
+          "Affiliation: Microsoft , USA"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Spandan Garg email: spgarg@microsoft.com Affiliation: Microsoft , USA , Vikram Nitin email: vikramnitin@microsoft.com Affiliation: Microsoft , USA and Yufan Huang email: yufanhuang@microsoft.com Affiliation: Microsoft , USA",
+    "arxiv_version": "2605.03195v1",
+    "arxiv_version_date": "2026-05-04"
+  },
+  "text": "Terminus-4B: Can a Smaller Model Replace Frontier LLMs at Agentic Execution Tasks? Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: CC BY-NC-ND 4.0 arXiv:2605.03195v1 [cs.AI] 04 May 2026 Terminus-4B: Can a Smaller Model Replace Frontier LLMs at Agentic Execution Tasks? Spandan Garg email: spgarg@microsoft.com Affiliation: Microsoft , USA , Vikram Nitin email: vikramnitin@microsoft.com Affiliation: Microsoft , USA and Yufan Huang email: yufanhuang@microsoft.com Affiliation: Microsoft , USA Abstract. Modern coding agents increasingly delegate specialized subtasks to subagents, which are smaller, focused agentic loops that handle narrow responsibilities like search, debugging or terminal execution. This architectural pattern keeps the main agent’s context window clean by isolating verbose outputs (e.g. build logs, test results, etc.) within the subagent context. Typically when agents employ subagents for such tasks, they use frontier models as these subagents. In this paper, we investigate whether a finetuned small language model (SLM) can achieve comparable performance to frontier models in the task of agentic terminal execution. We present Terminus-4B, which is a post-trained Qwen3-4B model via Supervised Finetuning (SFT) and Reinforcement Learning (RL) using rubric-based LLM-as-judge reward, specifically for this task. In our extensive evaluation spanning various frontier models, training ablations and main agent configurations, we find that Terminus-4B is able to reduce the main agent’s token usage by up to ∼ \\sim 30% compared to the No Subagent baseline with no impact to agent performance on benchmarks like SWE-Bench Pro and our internal SWE-Bench C# benchmark, which tends to be heavy in verbose execution tasks. Furthermore, Terminus-4B improves key metrics showing the main agent relying on the outputs of the subagent and doing fewer terminal execution tasks by itself. We see that our model not only closes the gap between the Vanilla Qwen model and frontier models like Claude Sonnet / Opus / GPT-5.3-Codex, but often even exceeds their performance. 1. Introduction In recent times, coding agents ( 1 , 2 , 3 , 4 ) have made strides in software engineering tasks, ranging all the way from writing tests to resolving complex repo-level GitHub issues. A crucial component to all these workflows is terminal execution i.e. the process of running builds, installing dependencies and running diagnostic tests to reproduce issues and validate fixes. While essential, these tasks flood the agent’s context window with terminal outputs. A single verbose test can easily produce tens of thousands of tokens displacing the code context, editing and planning the agent needs to do for downstream decisions. As the trajectory grows, this creates a compounding problem: each new command output further crowds the context window, limiting how many actual problem solving steps the agent can take before it hits the token window limit. In practice, terminal output is often the single largest consumer of context in coding agent trajectories. We argue that this direct execution pattern, where the agent runs commands in its own context and absorbs the full output, is primitive and represents a major inefficiency in agent design of today’s coding agents. The information the main agent needs from these terminal execution is often just a concise summary of what took place such as a line representing the error or a table at the end, and not the full raw output from the shell command. Popular coding agents have increasingly adopted a subagent architecture as a way to address context limitation of LLMs. Rather than performing expensive tasks in the main agent loop, the agent delegates them to a specialized subagent. The subagent executes the task independently based on the inputs provided and returns output in a format expected by the main agent, absorbing the context hit from the intermediate steps. This pattern has been successfully adapted to tasks like search ( 3 ) , debugging ( 5 ) , etc. We believe terminal execution is a natural candidate for this pattern.Despite the clear fit, applying the subagent pattern to terminal execution has its own challenges. The subagent must be able to handle diverse repositories spanning various languages. It must be able to interpret errors correctly and decide what to do in response, handle timeouts gracefully, etc. Even more importantly, it should produce effective summaries as its final response, as that is the only window the main agent has into what the subagent did. A subagent producing vague summaries (e.g. \"The build failed.\" ) or hallucinated outputs is worse than no subagent at all. This is because the main agent would not only need to repeat the work, but could be misled by a faulty subagent. Typically, subagents rely on frontier models because of their adaptability to different tasks. Given the narrow nature of this task, we believe that using an expensive frontier LLM is overkill and a much smaller model should be capable of performing the task. In this work, we apply the subagent pattern to terminal execution, by adding an Execution Subagent to an existing agent. The subagent is given a single Terminal tool, bounded by a turn limit and a targeted system prompt instructing the agent to return structured summaries. The main agent can delegate tasks to this subagent with a simple query. To avoid using an expensive frontier LLM, we introduce Terminus-4B, which is a Qwen3-4B ( 6 ) model post-trained specifically for agentic terminal execution. We conduct a two-stage training pipeline with supervised finetuning (SFT) on trajectories collected from our internal usage telemetry data, followed by Reinforcement Learning (RL) with Group Relative Policy Optimization (GRPO) ( 7 ) with a novel subagent training pipeline and rubric-based LLM-as-judge reward ( 8 , 9 ) . The subagent pipeline is able to isolate the subagent task from the main agent to ensure each rollout begins with the same problem, while keeping the main agent’s role in the rollout minimal, resulting in cost-effective training. The reward scores candidate rollouts against reference trajectories across various quality dimensions and failure modes, providing a rich multi-dimensional training signal suited for this task. Our contributions are as follows: • Execution Subagent & Terminus-4B. We design and integrate Execution Subagent into a production coding agent framework. By using our own custom finetuned Terminus-4B model with Execution Subagent, we can reduce token usage by up to ∼ \\sim 30% while preserving the agent performance on challenging coding benchmarks like SWE-Bench Pro and our internal, SWE-Bench C#. • Subagent Training Framework We present a novel post-training framework for subagent model training that decouples the subagent from the main agent loop. This enables fast and cost-effective rollouts with minimal reliance on frontier LLMs. We are able to use a vanilla Qwen3-4B itself as the main agent during rollouts. • Task Formulation & Reward Design We introduce a novel rubric-based multi-dimensional LLM-as-judge reward that compares the rollouts against reference trajectories along suality and failure dimensions, providing a rich training signal for a task where traditional outcome-based rewards ( 10 ) aren’t readily available. • Comprehensive Evaluation We conduct an extensive ablation on the subagent design and model training using SWE-Bench Pro and our internal benchmark, SWE-Bench C#, measuring impact on resolve rate, token efficiency and behavior signals. We complement this analysis with a 5-dimension LLM judge evaluation of the subagent response from the main agent’s perspective. In our evaluation, we demonstrate that Terminus-4B matches or exceeds frontier model performance as an Execution Subagent. 2. Background and Related Work Our work intersects and extends several research threads in coding agent space, such as multi-agent / subagent architectures, small language models for agentic workloads, RL for multi-turn LLM-based agents and LLM-judge / rubric-based reward design. We discuss each below. 2.1. Multi-Agent and Subagent Architectures Decomposing complex tasks across multiple agents has been studied extensively. AutoGen ( 11 ) provides a flexible framework for agent to agent conversation. Works like MetaGPT ( 12 ) , ChatDev ( 13 ) , explore role-based collaboration between multiple agents. He et al. ( 14 ) systematically reviewed the landscape of LLM-based multi-agent systems for software engineering highlighting the current capabilities and limitations of these approaches. Anthropic’s multi-agent research ( 15 ) system adopts the orchestrator-worker pattern, where a lead agent delegates tasks to specialized subagents that operate in isolated contexts. Claude Code ( 3 ) further formalizes this pattern as subagents, with built in general purpose and plan subagents and the ability to author custom ones. Our Execution Subagent follows the same orchestrator-worker pattern, but specializes in the domain of terminal execution tasks within coding agents, a task where verbose tool outputs are especially prevalent. 2.2. Small Language Models for Agentic Tasks A growing body of work argues that small language models are essential for the future of Agentic AI ( 16 ) . They argue that a bulk of agent invocations involve repetitive tasks for which SLMs are not only sufficient, but also 10-30 times cheaper than frontier LLMs. The Qwen3 family ( 6 ) represents a strong open-weight SLM family that has native tool-calling capabilities and growing body of research showing that appropriate post-training ( 17 , 18 ) can allow them to achieve competitive results on focused tasks. Terminal-4B applies these learnings and principles to the targeted yet impactful task of terminal execution. 2.3. Terminal Tasks and Execution Agents Probably the closest to our domain, TerminalBench ( terminal ) provides a benchmark of realistic command-line tasks executed in sandboxed Docker environments, finding that Frontier LLMs still resolve fewer than 65% of tasks while smaller models score only around 15%. Recent coding-agent training works ( 19 , 20 ) explicitly evaluate on Terminal-Bench as an out of domain task to see if the LLM generalizes to such tasks. More closely related to our work, Gandhi et al. ( 21 ) procedurally generate terminal tasks and use vanilla PPO to train small models for terminal use. Our work differs from this because we train via a novel rubric-based reward design on tasks mined from GitHub issues and treat terminal execution as a delegated subagent as our goal is to reduce main agent’s token usage. To the best of our knowledge, prior work has treated terminal execution as a capability of the main agent rather than something that can be delegated to specialized subagent running a finetuned smaller model. Our work fills this gap. 2.4. Context Management for Long-Horizon Tasks As LLMs and agents grow in capabilities, so do their trajectories in length and context management becomes an important concern when it comes to agent design. Long context inflates cost and degrades reasoning capabilities by diluting attention away from task-relevant tokens in the trajectory. Focus ( 22 ) introduces an agent that autonomously decides when to consolidate key learnings into a persistent blocks and actively prunes the agent interaction history. Sun et al. introduce Context folding ( 23 ) , which is a framework that allows agents to branch sub-trajectories to handle subtasks and then fold them into the main trajectory. Memex(RL) ( 24 ) introduces a compact representation of context with concise structured summaries and stable indices, SWE-ContextBench ( 25 ) explicitly evaluates how summarized and raw context affects coding agents capabilities. Our subagent approach is complementary to these past",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: CC BY-NC-ND 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2605.03195v1#bib.bib1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2605.03195v1#bib.bib2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2605.03195v1#bib.bib3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2605.03195v1#bib.bib4"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2605.03195v1#bib.bib5"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2605.03195v1#bib.bib6"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2605.03195v1#bib.bib7"
+    },
+    {
+      "text": "8",
+      "url": "https://arxiv.org/html/2605.03195v1#bib.bib8"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2605.03195v1#bib.bib9"
+    },
+    {
+      "text": "10",
+      "url": "https://arxiv.org/html/2605.03195v1#bib.bib10"
+    },
+    {
+      "text": "11",
+      "url": "https://arxiv.org/html/2605.03195v1#bib.bib11"
+    },
+    {
+      "text": "12",
+      "url": "https://arxiv.org/html/2605.03195v1#bib.bib12"
+    },
+    {
+      "text": "13",
+      "url": "https://arxiv.org/html/2605.03195v1#bib.bib13"
+    },
+    {
+      "text": "14",
+      "url": "https://arxiv.org/html/2605.03195v1#bib.bib14"
+    },
+    {
+      "text": "15",
+      "url": "https://arxiv.org/html/2605.03195v1#bib.bib15"
+    },
+    {
+      "text": "16",
+      "url": "https://arxiv.org/html/2605.03195v1#bib.bib16"
+    },
+    {
+      "text": "17",
+      "url": "https://arxiv.org/html/2605.03195v1#bib.bib17"
+    },
+    {
+      "text": "18",
+      "url": "https://arxiv.org/html/2605.03195v1#bib.bib18"
+    },
+    {
+      "text": "19",
+      "url": "https://arxiv.org/html/2605.03195v1#bib.bib19"
+    },
+    {
+      "text": "20",
+      "url": "https://arxiv.org/html/2605.03195v1#bib.bib20"
+    },
+    {
+      "text": "21",
+      "url": "https://arxiv.org/html/2605.03195v1#bib.bib21"
+    },
+    {
+      "text": "22",
+      "url": "https://arxiv.org/html/2605.03195v1#bib.bib22"
+    },
+    {
+      "text": "23",
+      "url": "https://arxiv.org/html/2605.03195v1#bib.bib23"
+    },
+    {
+      "text": "24",
+      "url": "https://arxiv.org/html/2605.03195v1#bib.bib24"
+    },
+    {
+      "text": "25",
+      "url": "https://arxiv.org/html/2605.03195v1#bib.bib25"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2605.03195v1#S3.F1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2605.03195v1#S4.F2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2605.03195v1#S4.F3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2605.03195v1#S4.F4"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2605.03195v1#S4.T1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2605.03195v1#S4.T2"
+    },
+    {
+      "text": "4.2.1",
+      "url": "https://arxiv.org/html/2605.03195v1#S4.SS2.SSS1"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2605.03195v1#S4.F5"
+    },
+    {
+      "text": "26",
+      "url": "https://arxiv.org/html/2605.03195v1#bib.bib26"
+    },
+    {
+      "text": "27",
+      "url": "https://arxiv.org/html/2605.03195v1#bib.bib27"
+    },
+    {
+      "text": "28",
+      "url": "https://arxiv.org/html/2605.03195v1#bib.bib28"
+    },
+    {
+      "text": "29",
+      "url": "https://arxiv.org/html/2605.03195v1#bib.bib29"
+    },
+    {
+      "text": "30",
+      "url": "https://arxiv.org/html/2605.03195v1#bib.bib30"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2605.03195v1#S5.F7"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2605.03195v1#S4.F6"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2605.03195v1#S6.T3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2605.03195v1#S6.T4"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2605.03195v1#S6.T5"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2605.03195v1#S6.T6"
+    },
+    {
+      "text": "https://code.visualstudio.com/blogs/2025/04/07/agentMode",
+      "url": "https://code.visualstudio.com/blogs/2025/04/07/agentMode"
+    },
+    {
+      "text": "https://arxiv.org/abs/2407.16741",
+      "url": "https://arxiv.org/abs/2407.16741"
+    },
+    {
+      "text": "https://www.anthropic.com/claude-code",
+      "url": "https://www.anthropic.com/claude-code"
+    },
+    {
+      "text": "https://arxiv.org/abs/2405.15793",
+      "url": "https://arxiv.org/abs/2405.15793"
+    },
+    {
+      "text": "https://arxiv.org/abs/2602.18571",
+      "url": "https://arxiv.org/abs/2602.18571"
+    },
+    {
+      "text": "https://arxiv.org/abs/2505.09388",
+      "url": "https://arxiv.org/abs/2505.09388"
+    },
+    {
+      "text": "https://arxiv.org/abs/2402.03300",
+      "url": "https://arxiv.org/abs/2402.03300"
+    },
+    {
+      "text": "https://arxiv.org/abs/2306.05685",
+      "url": "https://arxiv.org/abs/2306.05685"
+    },
+    {
+      "text": "http://dx.doi.org/10.18653/v1/2024.acl-long.745",
+      "url": "http://dx.doi.org/10.18653/v1/2024.acl-long.745"
+    },
+    {
+      "text": "https://arxiv.org/abs/2203.02155",
+      "url": "https://arxiv.org/abs/2203.02155"
+    },
+    {
+      "text": "https://arxiv.org/abs/2308.08155",
+      "url": "https://arxiv.org/abs/2308.08155"
+    },
+    {
+      "text": "https://arxiv.org/abs/2308.00352",
+      "url": "https://arxiv.org/abs/2308.00352"
+    },
+    {
+      "text": "https://arxiv.org/abs/2307.07924",
+      "url": "https://arxiv.org/abs/2307.07924"
+    }
+  ],
+  "matching_link_count": 77,
+  "links_truncated": true,
+  "invalid_links": []
+}

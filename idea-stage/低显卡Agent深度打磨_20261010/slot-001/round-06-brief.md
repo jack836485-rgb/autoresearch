@@ -1,0 +1,15 @@
+## 背景
+
+定位关键词：tool-use、observation contracts、temporal validity、materialization。过期的工具访问凭据与已经取得的稳定内容具有不同有效期；正确诊断expired artifact并不指明该刷新哪一层或是否仍需刷新。 当前仍关联Q001语义不当使用和Q005诊断后的执行恢复，聚焦访问artifact与静态内容生命周期；未处理first-touch或一般错误数值。ContractBench §4.4/AppendixS（https://arxiv.org/html/2605.17281v1）显示正确过期标签未提高该类恢复，且已测TTL主动重排。本方向不把TTL提醒或排序当新意。
+
+## 核心 Claim
+
+待验证：当公开工具协议明确访问artifact只需在指定调用边界有效，而成功materialization产生不受该访问期限支配的静态内容时，将有效期义务绑定到实际消费位置并在materialization后转移/解除，比对来源整条链统一标stale或只附expired标签更能减少误诊、无效renew和延迟取得内容的失败；不保证无法公开确定生命周期的工具。
+
+## 方法设计的核心思想
+
+输入用户任务、公开工具前/后置语义、实际调用与结果。记录每个artifact的kind、issued_at/expires_at、消费操作及公开效应。对下一proposed action，检查其真正消费的artifact：发起HTTP请求需要URL当时有效，已成功取得的本地静态文件由materialization后置语义建立新对象，URL期限不继续约束其本地处理。若任务明确仍需远端URL或协议要求完成前有效，则保留对应义务。未知后置生命周期不推断永久有效。恢复只更新仍未消费的过期访问artifact；若actor已经明确选定需取得的静态对象，可在返回URL后将必要materialization连续执行，减少插入反思/验证造成的租期消耗。这不是绕过许可，工具只执行已有授权任务。输出是与当前消费位置相匹配的检测证据及renew/materialize/use选择，不自动宣称内容准确、freshness或完整性。所有actor计划、生命周期解释、下载、检查、renew与缓存传输计成本。 AWS官方（https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-presigned-url.html）明确在HTTP请求时检查URL期限，开始下载可越过期限继续；不能误写所有协议要求完成前有效。缓存和typestate成熟，按效应迁移义务是否有独立贡献需判断。
+
+## 最小实验
+
+完整可实现CPU标准任务：静态对象内容在episode中不变，issue_url返回opaque字符串及截止时间；download检查请求开始时间，成功后用公开耗时推进virtual clock并返回本地file对象；read_local(file)不受URL截止时间限制；renew重新发URL并收费。另一协议变体require_finish检查下载完成时刻，第三变体reference_only只给远端引用无稳定copy。全部协议对在线方法公开，真实对象数据/任务终态只给离线evaluator。任务要求本地分析指定对象并保存正确结果，不要求交付URL。agent不读金标准DAG；仅从当前明确proposed action的参数绑定推消费位置。对比同冻结actor普通/failure-aware ReAct、expired-label coaching（在线由公开clock/expiry生成，非oracle）、全来源链TTL失效后renew、EDF/即时有效检查、明确typed materialization标准控制器及本方法。标准控制器完整定义：URL仅在其HTTP边界检验，成功file后续本地使用；直接控制器作为机制等价强对照，所有有actor的主比较保持同模型/解码/完整token与调用预算。变更只在义务传播与连续materialization安排；单列取消连续执行/取消义务迁移的机制对照。指标全部任务终态成功、正确artifact异常判断、renew次数、错误完成、干净任务损失及完整CPU/网络/API/clock成本。若收益由确定性typed controller全解释且更便宜，或复制后仍沿用URL作为强制任务字段，则核心迁移Claim不成立；不把当前valid当未来保证。模型/耗时/TTL/预算/样本待确认，未执行。 ToolMaze actor入口已核实（https://raw.githubusercontent.com/Zhudongsheng75/ToolMaze/main/evaluation/agents/openai_agent.py）；ContractBench作者repo返回404、HF内容读取失败，未认定其完整可运行实现，保留为创新边界而采用上面完整标准任务。最小定义不用hash/checksum，不运行实验、不调用付费模型。

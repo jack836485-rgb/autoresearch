@@ -1,0 +1,299 @@
+{
+  "url": "https://arxiv.org/html/2608.04007v1",
+  "final_url": "https://arxiv.org/html/2608.04007v1",
+  "status": 200,
+  "title": "TurnSight: Turn-Level Hindsight Self-Distillation for Tool-Integrated Reasoning",
+  "metadata": {},
+  "paper": {
+    "title": "TurnSight: Turn-Level Hindsight Self-Distillation for Tool-Integrated Reasoning",
+    "title_warning": null,
+    "abstract": "Abstract Tool-Integrated Reasoning (TIR) enables LLMs to solve complex tasks through iterative tool interactions.\nHowever, existing reinforcement learning methods often rely on trajectory-level supervision, limiting fine-grained credit assignment in long-horizon TIR scenarios.\nOn-policy self-distillation offers denser signals through teacher branches with privileged context, but existing approaches typically derive such context from ground-truth answers or retrieved skills, which may not reflect the states actually visited by the agent.\nMoreover, token-level supervision fails to capture the turn-level structure of tool interactions.\nTo address this, we propose TurnSight, a turn-level hindsight self-distillation framework that derives supervision directly from execution-conditioned hindsight.\nIt then constructs multiple hindsight views with different lookahead horizons and selects reliable supervision through cross-horizon directional agreement.\nFinally, the selected hindsight signal is normalized across sibling rollouts and used to adaptively modulate RL advantages while preserving their original optimization direction.\nExtensive experiments on three benchmarks demonstrate the effectiveness of TurnSight.\nOur codes are available at https://github.com/quchangle1/TurnSight .",
+    "authors": [
+      {
+        "name": "Changle Qu",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Sunhao Dai",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Hengyi Cai",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Yuqi Zhou",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Xinran Chen",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Simon",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Jun Xu",
+        "affiliations": [],
+        "notes": []
+      }
+    ],
+    "author_block": "Changle Qu Sunhao Dai Hengyi Cai Yuqi Zhou Xinran Chen Simon Jun Xu",
+    "arxiv_version": "2608.04007v1",
+    "arxiv_version_date": "2026-08-04"
+  },
+  "text": "TurnSight: Turn-Level Hindsight Self-Distillation for Tool-Integrated Reasoning Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: CC BY-NC-ND 4.0 arXiv:2608.04007v1 [cs.CL] 04 Aug 2026 TurnSight: Turn-Level Hindsight Self-Distillation for Tool-Integrated Reasoning Changle Qu Sunhao Dai Hengyi Cai Yuqi Zhou Xinran Chen Simon Jun Xu Abstract Tool-Integrated Reasoning (TIR) enables LLMs to solve complex tasks through iterative tool interactions. However, existing reinforcement learning methods often rely on trajectory-level supervision, limiting fine-grained credit assignment in long-horizon TIR scenarios. On-policy self-distillation offers denser signals through teacher branches with privileged context, but existing approaches typically derive such context from ground-truth answers or retrieved skills, which may not reflect the states actually visited by the agent. Moreover, token-level supervision fails to capture the turn-level structure of tool interactions. To address this, we propose TurnSight, a turn-level hindsight self-distillation framework that derives supervision directly from execution-conditioned hindsight. It then constructs multiple hindsight views with different lookahead horizons and selects reliable supervision through cross-horizon directional agreement. Finally, the selected hindsight signal is normalized across sibling rollouts and used to adaptively modulate RL advantages while preserving their original optimization direction. Extensive experiments on three benchmarks demonstrate the effectiveness of TurnSight. Our codes are available at https://github.com/quchangle1/TurnSight . 1 Gaoling School of Artificial Intelligence, Renmin University of China 2 Baidu Inc. {changlequ,junxu}@ruc.edu.cn Introduction Tool-Integrated Reasoning (TIR) enables large language models (LLMs) to solve complex tasks by interleaving reasoning with external tool interactions ( Gou et al. 2024 ; Qu et al. 2025a ; Qu et al. 2025b ) . Unlike single-step generation, a TIR agent repeatedly selects tools, constructs arguments, observes execution results, and adapts its subsequent behavior. These interactions substantially expand the capabilities of LLMs, but also create a difficult temporal credit-assignment problem: the final task outcome reveals whether a trajectory succeeded, yet provides little information about which intermediate tool interactions are useful, redundant, or harmful. Reinforcement learning with verifiable rewards (RLVR) provides a natural framework for training TIR agents ( Chang et al. 2026 ; Jiang et al. 2026 ) . However, as shown in Figure 1 (a), outcome-based methods such as GRPO typically propagate a single trajectory-level advantage to all generated actions, assigning similar credit to decisions with very different causal effects ( Shao et al. 2024 ; Zeng et al. 2025 ) . Recent methods provide denser supervision by matching generated tool calls against annotated or reference tool trajectories ( Qian et al. 2025 ; Qu et al. 2026 ) . Although effective, such supervision assumes that the reference action remains appropriate at the state visited by the learned policy. This assumption becomes fragile in multi-turn interaction: once the agent makes a different tool call, the environment changes, and subsequent states may diverge from the reference trajectory. Thus, effective credit assignment for TIR requires supervision that is both fine-grained and state-aligned. Figure 1: Comparison of credit assignment strategies for TIR. (a) Trajectory-level RL assigns identical credit to all turns. (b) Existing OPSD may use state-misaligned privileged context and produce conflicting token-level signals. (c) TurnSight derives coherent turn-level credit from execution-conditioned hindsight across multiple lookahead depths. On-policy self-distillation (OPSD) ( Shenfeld et al. 2026 ; Li et al. 2026b ; Kim et al. 2026 ) offers a promising way to obtain such supervision. It evaluates student-generated behavior using a privileged view available only during training, thereby providing feedback on on-policy states rather than prescribing an external trajectory. However, applying OPSD to multi-turn TIR is nevertheless non-trivial. As shown in Figure 1 (b), existing methods often enrich the teacher with globally informative context, such as ground-truth answers, reference rollouts, or distilled skills ( Zhao et al. 2026 ; Hübotter et al. 2026 ; Lu et al. 2026 ; Ye et al. 2026b ) . These signals describe how to solve the task, but not whether a tool interaction was appropriate at the state where it occurred. This mismatch is especially pronounced in TIR, where each tool call changes the external environment and may cause subsequent states to diverge from the reference path. In this setting, the trajectory itself contains the most state-aligned supervision, with tool execution outcomes serving as hindsight signals. State alignment alone is insufficient, however. Existing self-distillation methods generally produce token-level signals, whereas the fundamental decision unit in TIR is a complete tool interaction, comprising reasoning, tool selection, and argument construction. Within a turn, token-level supervision can vary in magnitude or even sign due to formatting tokens and argument-level variations. Optimizing these signals independently can therefore assign conflicting credit within the same interaction. This motivates our turn-level formulation, which aggregates hindsight supervision at the interaction level to provide more coherent credit assignment. In this paper, we propose TurnSight, a turn-level hindsight self-distillation method for multi-turn TIR. Instead of relying on external reference trajectories, TurnSight constructs hindsight supervision directly from on-policy tool execution outcomes. To better match the decision granularity of multi-turn TIR, it first aggregates token-level hindsight evidence into coherent turn-level signals. It then constructs multiple hindsight views with different lookahead horizons and selects reliable supervision through cross-horizon directional agreement. Finally, the selected hindsight signal is normalized across sibling rollouts and used to construct bounded, sign-aware weights that modulate RL advantages without changing their optimization direction. As a result, TurnSight introduces no auxiliary imitation objective, is independent of the underlying reward construction, and can be seamlessly integrated with existing policy-gradient RL algorithms. Extensive experiments on both in-domain and out-of-domain benchmarks verify the effectiveness of TurnSight and its ability to generalize across diverse tool-use scenarios. In summary, our main contributions are as follows: ∙ \\bullet We formulate two requirements for credit assignment in multi-turn TIR: supervision should be aligned with on-policy execution states and coherent at the interaction level. ∙ \\bullet We propose TurnSight, which derives execution-conditioned, multi-horizon hindsight assessments to modulate RL advantages without changing their direction. ∙ \\bullet Extensive experiments on both in-domain and out-of-domain benchmarks demonstrate the effectiveness, robustness, and generalization ability of TurnSight. Related Work Tool-Integrated Reasoning Recent RLVR methods, particularly GRPO-style algorithms ( Shao et al. 2024 ; Yu et al. 2025 ) , have emerged as an effective paradigm for improving TIR by directly optimizing models with task-level feedback ( Wang et al. 2025 ; Xue et al. 2026 ; Qu et al. 2025b ) . Early approaches typically rely on sparse outcome rewards ( Li et al. 2025 ; Feng et al. 2025 ) or trajectory-level supervision ( Qian et al. 2025 ; Zhang et al. 2025 ; Zeng et al. 2025 ; Wei et al. 2025 ) , where all reasoning turns within a trajectory receive identical advantage signals, limiting fine-grained credit assignment. Recent efforts improve this by introducing turn-level supervision through LLM-based evaluation ( Wang et al. 2026a ) or by comparing predicted tool calls with ground-truth tool executions ( Qu et al. 2026 ) . However, these methods rely on annotated or reference tool trajectories, making optimization closer to imitation learning and limiting exploration. In contrast, TurnSight combines RL with on-policy self-distillation to achieve fine-grained credit assignment without ground-truth trajectories while preserving exploration. On-Policy Self-Distillation On-policy self-distillation evaluates student-generated trajectories using a privileged teacher view constructed from the same model with additional information, providing dense supervision on the states visited by the student ( Sang et al. 2026 ; Ma et al. 2026 ; Li et al. 2026a ; Wang et al. 2026b ) . Rather than directly matching the teacher distribution, recent methods use teacher–student disagreement to reweight RL advantages, allocate fine-grained credit, or bound distillation interventions ( Yang et al. 2026 ; Zhang et al. 2026 ; Ding et al. 2026 ; Zhou et al. 2026b ; Zhou et al. 2026a ) . Despite these advances, existing methods often rely on globally informative teacher signals and token-level distillation, which may not provide state-aligned supervision at the natural turn-level granularity of TIR. In contrast, we propose TurnSight, which constructs turn-level hindsight supervision directly from on-policy tool execution outcomes, enabling fine-grained and state-aligned credit assignment. Figure 2: The illustration of our proposed turn-level hindsight self-distillation framework TurnSight for TIR. Preliminaries In this section, we first formulate the task of TIR, followed by the agentic RL framework and the OPSD mechanism. Task Formulation Given a user prompt q ∼ 𝒟 q\\sim\\mathcal{D} and a set of M M tools 𝒯 = { t 1 , … , t M } \\mathcal{T}=\\{t_{1},\\ldots,t_{M}\\} , where each tool is specified by its name and argument schema, an agent with policy π θ \\pi_{\\theta} interacts with an environment to produce a trajectory τ = ( s 1 , … , s K ) \\tau=(s_{1},\\ldots,s_{K}) . We represent a non-terminal turn as s k = ( n k , 𝒞 k , o k ) s_{k}=(n_{k},\\mathcal{C}_{k},o_{k}) , where n k n_{k} is the natural-language reasoning and 𝒞 k \\mathcal{C}_{k} is the set of tool calls issued in that turn. Each call contains a tool name and a JSON argument object. A trajectory terminates when the policy emits its final answer or reaches the pre-defined maximum turn limit L L . For the terminal turn, 𝒞 K = ∅ \\mathcal{C}_{K}=\\emptyset and o K = ∅ o_{K}=\\emptyset . Our goal is to achieve fine-grained turn-level credit assignment by leveraging execution-aware supervision. Agentic Reinforcement Learning We optimize the agent policy π θ \\pi_{\\theta} using GRPO ( Shao et al. 2024 ) . For each prompt q ∼ 𝒟 q\\sim\\mathcal{D} , the behavior policy π θ old \\pi_{\\theta_{\\mathrm{old}}} samples a group of G G interaction trajectories { τ i } i = 1 G \\{\\tau_{i}\\}_{i=1}^{G} . Rather than training an additional critic to predict state values, GRPO constructs policy-gradient advantages by comparing the rewards of trajectories generated for the same prompt. This group-wise comparison provides a prompt-dependent baseline and reduces the cost of value-function estimation. The optimization objective is written as 𝒥 GRPO ( θ ) = 𝔼 q ∼ D , { τ i } ∼ π θ old ( ⋅ | q ) 1 G ∑ i = 1 G 1 | τ i | ∑ t = 1 | τ i | [ min ( ρ i , t A ^ i , t , clip ( ρ i , t , 1 − ϵ , 1 + ϵ ) A ^ i , t ) − β 𝔻 KL ( π θ | π ref ) ] , \\begin{split}&\\mathcal{J}_{\\text{GRPO}}(\\theta)=\\mathbb{E}_{q\\sim D,\\{\\tau_{i}\\}\\sim\\pi_{\\theta_{\\text{old}}}(\\cdot|q)}\\frac{1}{G}\\sum_{i=1}^{G}\\frac{1}{|\\tau_{i}|}\\sum_{t=1}^{|\\tau_{i}|}\\bigg[\\min(\\\\ &\\rho_{i,t}\\hat{A}_{i,t},\\text{clip}(\\rho_{i,t},1-\\epsilon,1+\\epsilon)\\hat{A}_{i,t})-\\beta\\mathbb{D}_{\\text{KL}}(\\pi_{\\theta}|\\pi_{\\text{ref}})\\bigg],\\end{split} where ρ i , t = π θ ​ ( τ i , t | q , τ i , < t ) π θ old ​ ( τ i , t | q",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: CC BY-NC-ND 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "Gou et al. 2024",
+      "url": "https://arxiv.org/html/2608.04007v1#bib.bib19"
+    },
+    {
+      "text": "Qu et al. 2025a",
+      "url": "https://arxiv.org/html/2608.04007v1#bib.bib29"
+    },
+    {
+      "text": "Qu et al. 2025b",
+      "url": "https://arxiv.org/html/2608.04007v1#bib.bib20"
+    },
+    {
+      "text": "Chang et al. 2026",
+      "url": "https://arxiv.org/html/2608.04007v1#bib.bib30"
+    },
+    {
+      "text": "Jiang et al. 2026",
+      "url": "https://arxiv.org/html/2608.04007v1#bib.bib31"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2608.04007v1#Sx1.F1"
+    },
+    {
+      "text": "Shao et al. 2024",
+      "url": "https://arxiv.org/html/2608.04007v1#bib.bib1"
+    },
+    {
+      "text": "Zeng et al. 2025",
+      "url": "https://arxiv.org/html/2608.04007v1#bib.bib27"
+    },
+    {
+      "text": "Qian et al. 2025",
+      "url": "https://arxiv.org/html/2608.04007v1#bib.bib22"
+    },
+    {
+      "text": "Qu et al. 2026",
+      "url": "https://arxiv.org/html/2608.04007v1#bib.bib15"
+    },
+    {
+      "text": "Shenfeld et al. 2026",
+      "url": "https://arxiv.org/html/2608.04007v1#bib.bib3"
+    },
+    {
+      "text": "Li et al. 2026b",
+      "url": "https://arxiv.org/html/2608.04007v1#bib.bib6"
+    },
+    {
+      "text": "Kim et al. 2026",
+      "url": "https://arxiv.org/html/2608.04007v1#bib.bib7"
+    },
+    {
+      "text": "Zhao et al. 2026",
+      "url": "https://arxiv.org/html/2608.04007v1#bib.bib4"
+    },
+    {
+      "text": "Hübotter et al. 2026",
+      "url": "https://arxiv.org/html/2608.04007v1#bib.bib2"
+    },
+    {
+      "text": "Lu et al. 2026",
+      "url": "https://arxiv.org/html/2608.04007v1#bib.bib9"
+    },
+    {
+      "text": "Ye et al. 2026b",
+      "url": "https://arxiv.org/html/2608.04007v1#bib.bib5"
+    },
+    {
+      "text": "Yu et al. 2025",
+      "url": "https://arxiv.org/html/2608.04007v1#bib.bib35"
+    },
+    {
+      "text": "Wang et al. 2025",
+      "url": "https://arxiv.org/html/2608.04007v1#bib.bib24"
+    },
+    {
+      "text": "Xue et al. 2026",
+      "url": "https://arxiv.org/html/2608.04007v1#bib.bib26"
+    },
+    {
+      "text": "Li et al. 2025",
+      "url": "https://arxiv.org/html/2608.04007v1#bib.bib21"
+    },
+    {
+      "text": "Feng et al. 2025",
+      "url": "https://arxiv.org/html/2608.04007v1#bib.bib23"
+    },
+    {
+      "text": "Zhang et al. 2025",
+      "url": "https://arxiv.org/html/2608.04007v1#bib.bib25"
+    },
+    {
+      "text": "Wei et al. 2025",
+      "url": "https://arxiv.org/html/2608.04007v1#bib.bib28"
+    },
+    {
+      "text": "Wang et al. 2026a",
+      "url": "https://arxiv.org/html/2608.04007v1#bib.bib32"
+    },
+    {
+      "text": "Sang et al. 2026",
+      "url": "https://arxiv.org/html/2608.04007v1#bib.bib37"
+    },
+    {
+      "text": "Ma et al. 2026",
+      "url": "https://arxiv.org/html/2608.04007v1#bib.bib10"
+    },
+    {
+      "text": "Li et al. 2026a",
+      "url": "https://arxiv.org/html/2608.04007v1#bib.bib38"
+    },
+    {
+      "text": "Wang et al. 2026b",
+      "url": "https://arxiv.org/html/2608.04007v1#bib.bib39"
+    },
+    {
+      "text": "Yang et al. 2026",
+      "url": "https://arxiv.org/html/2608.04007v1#bib.bib8"
+    },
+    {
+      "text": "Zhang et al. 2026",
+      "url": "https://arxiv.org/html/2608.04007v1#bib.bib11"
+    },
+    {
+      "text": "Ding et al. 2026",
+      "url": "https://arxiv.org/html/2608.04007v1#bib.bib12"
+    },
+    {
+      "text": "Zhou et al. 2026b",
+      "url": "https://arxiv.org/html/2608.04007v1#bib.bib14"
+    },
+    {
+      "text": "Zhou et al. 2026a",
+      "url": "https://arxiv.org/html/2608.04007v1#bib.bib13"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2608.04007v1#Sx2.F2"
+    },
+    {
+      "text": "Ye et al. 2026a",
+      "url": "https://arxiv.org/html/2608.04007v1#bib.bib33"
+    },
+    {
+      "text": "Patil et al. 2025",
+      "url": "https://arxiv.org/html/2608.04007v1#bib.bib34"
+    },
+    {
+      "text": "Ye et al. 2025",
+      "url": "https://arxiv.org/html/2608.04007v1#bib.bib16"
+    },
+    {
+      "text": "Yang et al. 2025",
+      "url": "https://arxiv.org/html/2608.04007v1#bib.bib17"
+    },
+    {
+      "text": "Zhong et al. 2026",
+      "url": "https://arxiv.org/html/2608.04007v1#bib.bib36"
+    },
+    {
+      "text": "Sheng et al. 2025",
+      "url": "https://arxiv.org/html/2608.04007v1#bib.bib18"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2608.04007v1#Sx4.T1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2608.04007v1#Sx5.T2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2608.04007v1#Sx5.F3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2608.04007v1#Sx5.F4"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2608.04007v1#Sx5.F5"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2608.04007v1#Sx5.F6"
+    },
+    {
+      "text": "Link",
+      "url": "https://openreview.net/forum?id=0Af7UiJISU"
+    },
+    {
+      "text": "Introduction",
+      "url": "https://arxiv.org/html/2608.04007v1#Sx1.p2.1"
+    },
+    {
+      "text": "On-Policy Self-Distillation",
+      "url": "https://arxiv.org/html/2608.04007v1#Sx2.SSx2.p1.1"
+    },
+    {
+      "text": "Tool-Integrated Reasoning",
+      "url": "https://arxiv.org/html/2608.04007v1#Sx2.SSx1.p1.1"
+    },
+    {
+      "text": "Introduction",
+      "url": "https://arxiv.org/html/2608.04007v1#Sx1.p1.1"
+    },
+    {
+      "text": "Link",
+      "url": "https://openreview.net/forum?id=QkfkxyRizZ"
+    },
+    {
+      "text": "Introduction",
+      "url": "https://arxiv.org/html/2608.04007v1#Sx1.p3.1"
+    },
+    {
+      "text": "Experimental Setups",
+      "url": "https://arxiv.org/html/2608.04007v1#Sx5.SSx1.p3.1"
+    },
+    {
+      "text": "Link",
+      "url": "https://openreview.net/forum?id=g2LCOW43Md"
+    },
+    {
+      "text": "Appendix A",
+      "url": "https://arxiv.org/html/2608.04007v1#A1.p4.1"
+    }
+  ],
+  "matching_link_count": 75,
+  "links_truncated": true,
+  "invalid_links": []
+}

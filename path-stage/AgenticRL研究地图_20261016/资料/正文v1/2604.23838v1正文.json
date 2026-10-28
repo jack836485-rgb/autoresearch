@@ -1,0 +1,272 @@
+{
+  "url": "https://arxiv.org/html/2604.23838v1",
+  "final_url": "https://arxiv.org/html/2604.23838v1",
+  "status": 200,
+  "title": "JigsawRL: Assembling RL Pipelines for Efficient LLM Post-Training",
+  "metadata": {},
+  "paper": {
+    "title": "JigsawRL:\nAssembling RL Pipelines for Efficient LLM Post-Training",
+    "title_warning": null,
+    "abstract": "Abstract We present JigsawRL, a cost-efficient framework that explores Pipeline Multiplexing as a new dimension of RL parallelism. JigsawRL decomposes each pipeline into a Sub-Stage Graph that exposes the intra-stage and inter-worker imbalance hidden by stage-level systems. On this abstraction, JigsawRL resolves multiplexing interference through dynamic resource allocation, eliminates fragmented utilization by migrating long-tail rollouts across workers, and formulates their coordination as a graph scheduling problem solved with a look-ahead heuristic. On 4-64 H100/A100 GPUs across different agentic RL pipelines and models, JigsawRL achieves up to 1.85 × \\times throughput over Verl on synchronous RL, 1.54 × \\times over StreamRL and AReaL on asynchronous RL, and supports heterogeneous pipelines with moderate latency trade-off.",
+    "authors": [
+      {
+        "name": "Zhengding Hu, Hehua Ouyang, Chang Chen, Zaifeng Pan, Yue Guan",
+        "affiliations": [
+          "Affiliation: Zhongkai Yu, Zhen Wang, Steven Swanson, Yufei Ding",
+          "Affiliation: University of California, San Diego"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Zhengding Hu, Hehua Ouyang, Chang Chen, Zaifeng Pan, Yue Guan Affiliation: Zhongkai Yu, Zhen Wang, Steven Swanson, Yufei Ding Affiliation: University of California, San Diego",
+    "arxiv_version": "2604.23838v1",
+    "arxiv_version_date": "2026-04-26"
+  },
+  "text": "JigsawRL: Assembling RL Pipelines for Efficient LLM Post-Training Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: arXiv.org perpetual non-exclusive license arXiv:2604.23838v1 [cs.LG] 26 Apr 2026 JigsawRL: Assembling RL Pipelines for Efficient LLM Post-Training Zhengding Hu, Hehua Ouyang, Chang Chen, Zaifeng Pan, Yue Guan Affiliation: Zhongkai Yu, Zhen Wang, Steven Swanson, Yufei Ding Affiliation: University of California, San Diego Abstract We present JigsawRL, a cost-efficient framework that explores Pipeline Multiplexing as a new dimension of RL parallelism. JigsawRL decomposes each pipeline into a Sub-Stage Graph that exposes the intra-stage and inter-worker imbalance hidden by stage-level systems. On this abstraction, JigsawRL resolves multiplexing interference through dynamic resource allocation, eliminates fragmented utilization by migrating long-tail rollouts across workers, and formulates their coordination as a graph scheduling problem solved with a look-ahead heuristic. On 4-64 H100/A100 GPUs across different agentic RL pipelines and models, JigsawRL achieves up to 1.85 × \\times throughput over Verl on synchronous RL, 1.54 × \\times over StreamRL and AReaL on asynchronous RL, and supports heterogeneous pipelines with moderate latency trade-off. 1 Introduction Reinforcement learning (RL) [ 34 ] has become a standard technique for LLM post-training. Unlike the one-time process of creating a foundation model, RL is often applied iteratively to adapt a single pretrained model into various specialized versions. By continuously collecting feedback on specific task sets, RL allows researchers to branch a base model into different directions, such as enhancing complex reasoning [ 15 , 43 , 20 ] , agentic behaviors [ 24 , 7 , 52 ] , or tool-usage capabilities [ 11 ] . For example, within the Qwen model family (0.5–72B parameters) alone, the community has already published approximately 180,000 RL fine-tuned variants [ 2 ] . With such wide application, the cost efficiency of RL pipelines has emerged as a critical concern for both research and production. Yet, existing RL frameworks [ 45 , 28 , 71 ] primarily optimize for time efficiency, while overlooking cost efficiency as a first-class objective. Our profiling on Verl [ 45 ] reveals that improving time efficiency does not necessarily translate to better cost efficiency. As shown in Figure 2 (a), scaling up GPU resources increases pipeline throughput, but leads to rapidly growing monetary costs with diminishing returns. This inefficiency stems from resource underutilization in RL pipelines. Figure 2 (b) demonstrates that the average GPU utilization, measured as MFU, is below 10%. As the number of GPUs increases, MFU degrades even further. Figure 1: (a) Trade-off between pipeline throughput and monetary cost 2 2 2 Monetary costs are estimated based on the on-demand pricing of AWS EC2 A100 instances [ 3 ] ($4.10 per GPU hour). across different models, spanning from base models [ 57 ] to partially tuned variants [ 15 ] . (b) Pipeline resource utilization, measured by FLOPs utilization (MFU). Figure 2: Comparison of execution behaviors under existing RL frameworks (a-d) and JigsawRL’s sub-stage-level spatial multiplexing (e). Existing approaches suffer from low utilization and inter-worker imbalance. JigsawRL multiplexes sub-stages with complementary resource demands from different pipelines to improve GPU utilization and thus cost efficiency. This cost inefficiency mainly comes from workload imbalance in the rollout stage [ 13 , 69 ] . Due to the strict synchronization between alternating rollout and training, each step is gated by the slowest samples. As shown in Figure 2 (a), a small number of long sequences dominate the rollout step, causing the effective batch size to shrink during decoding and thus reducing GPU utilization. This imbalance is further exacerbated by the emerging trend of agentic workloads, where multi-turn reasoning [ 7 , 24 ] and external tool-calling [ 22 , 11 ] introduce highly stochastic and long-tailed sequence distributions. Existing RL systems explore asynchronous execution [ 68 , 12 , 44 ] and time multiplexing [ 55 , 56 , 69 ] to improve the efficiency, but they still fail to eliminate the workload imbalance both within and between stages. As shown in Figure 2 (b), one-step off-policy execution such as StreamRL [ 68 ] overlaps rollout and training across workers, but the imbalance within rollout still remains. Figure 2 (c) shows fully asynchronous execution like AReaL [ 12 ] , which further relaxes synchronization but introduces imbalance across workers as rollout and training progress at different speeds. With these training and rollout disaggregation settings [ 68 , 44 , 13 ] , partial resource reallocation helps mitigate imbalances across workers, but introduces additional overheads for frequent weight transfer. Moreover, off-policy methods introduce data staleness, which can affect convergence and stability [ 66 ] . Figure 2 (d) shows time multiplexing such as RollMux [ 55 ] , which enables concurrent pipelines with disaggregated workers, but imbalance within each rollout stage and across workers still exists. The above works are still constrained by the dependencies and imbalance within a single RL pipeline, and GPU utilization still has room for improvement. In this work, we explore a new dimension of RL parallelism: Spatial Multiplexing of concurrent RL workloads . We leverage multiple concurrent workloads in shared clusters and serverless environments [ 33 , 54 , 61 ] . This multi-workload setting provides more diverse stages and more concurrent execution opportunities, which better fills low-utilization periods. However, achieving efficient multiplexing is challenging due to the complex and dynamic execution behaviors in RL pipelines, making compute and memory resource demand vary over time. Naive approaches such as static resource partitioning [ 31 , 32 ] or reusing existing inference multiplexing frameworks [ 10 , 64 ] either lead to resource contention or fail to fill low-utilization periods effectively. Efficient multiplexing thus requires modeling these dynamic behaviors to enable resource coordination and pipeline scheduling. To this end, we propose JigsawRL, a cost-efficient and adaptive RL multiplexing system. The core abstraction is the Sub-Stage Execution Graph , which decomposes coarse-grained stages (e.g., rollout and training) into fine-grained sub-stages with distinct compute and memory characteristics, exposing intra-stage and inter-worker imbalance that stage-level systems cannot see. Based on this abstraction, JigsawRL formulates pipeline execution as two graph operations. Sub-stage Multiplexing enables concurrent execution of sub-stages across pipelines with dynamic resource allocation. Sub-stage Merging migrates long-tail rollout samples across DP instances to eliminate fragmented execution. A look-ahead heuristic coordinates both operations along the critical path. In summary, our main contributions are as follows: • We propose the Sub-Stage Graph abstraction that exposes intra-stage and inter-worker imbalance hidden by stage-level systems, turning pipeline multiplexing into a graph construction and scheduling problem. • We observe that RL sub-stages exhibit complementary compute and memory demands, and exploit this through sub-stage multiplexing with dynamic resource allocation. • We observe that long-tail rollouts fragment GPU utilization across DP workers, and address this through sub-stage merging with sample migration and balancing. • On up to 64 GPUs across three agentic RL pipelines and six models, JigsawRL achieves up to 1.85 × 1.85\\times throughput over synchronous and 1.54 × 1.54\\times over asynchronous baselines, and supports heterogeneous pipelines. 2 Background and Related Work 2.1 Reinforcement Learning for LLMs Reinforcement learning (RL) has become an essential technique for aligning human preferences [ 34 , 4 ] and enhancing capabilities [ 15 , 20 ] . Through iterative multi-stage training loops, RL enables models to obtain feedback from reward mechanisms and continuously refine their generation policies. Therefore, optimizing the efficiency of RL pipelines is critical for meeting practical deployment demands. Modern RL systems adopt a multi-stage pipeline design. A typical pipeline processes each global batch sequentially through several stages. The Rollout stage generates responses from the current model. The Reference stage computes log probabilities using a frozen model to regularize policy updates. The Reward stage evaluates outputs using a reward model [ 34 ] or rule-based signals [ 15 ] . The Training stage performs backpropagation and updates model parameters. Recent agentic pipelines [ 22 , 11 ] further include a Tool stage to incorporate external feedback. The performance bottleneck of RL pipelines varies across workloads. Table 1 shows the stage time breakdown of Verl [ 45 ] under different models and tasks. We observe three key patterns. First, model capability and task difficulty affect stage composition: weaker models or harder tasks lead to longer reasoning chains and increase the proportion of rollout. Second, scaling GPUs shifts bottlenecks across stages. Due to limited scalability and sensitivity to imbalance, rollout becomes dominant at larger scales. Third, agentic workloads introduce additional overhead from tool usage, which can account for a large portion of execution time. Overall, these results show that bottlenecks are highly workload-dependent, requiring coordinated orchestration across stages. 2.2 RL Frameworks Building efficient RL systems for LLMs has attracted considerable research attention. Existing frameworks [ 45 , 28 , 36 , 27 , 60 , 18 , 50 , 13 , 14 , 55 , 71 , 69 , 16 , 56 ] adopt a tightly coupled design that leverages high-performance LLM serving engines [ 23 , 67 ] for the rollout stage and training engines [ 46 , 65 ] for the training stages, while incorporating various optimizations for complex execution pipelines and stage orchestration. Parallelism Optimization for Synchronous RL. Standard RL pipelines operate in a strictly synchronous and sequential manner, alternating between rollout and training stages. Frameworks such as Verl [ 45 ] and NeMo-RL [ 28 ] allow independent parallelism configurations for the two engines by dynamically switching execution contexts at runtime and performing parameter resharding. ReaL [ 27 ] further formulates multi-stage pipeline deployment as a graph search problem, automatically identifying optimal parallelism configurations. Disaggregated frameworks [ 50 , 18 , 47 ] decouple rollout and training engines across separate GPU clusters to avoid step-wise context switching, but incur additional overheads such as GPU idling and communication for weight synchronization. Specific pipeline optimizations have also been proposed, including rollout length-based scheduling [ 13 , 36 ] and speculative decoding [ 25 , 49 , 16 , 42 , 6 ] , to mitigate rollout imbalance. Table 1: Stage time proportion across different RL pipeline configurations with GRPO [ 43 ] .In our evaluated workload, the Reward stage is rule-based [ 15 ] with negligible overhead. Model Size Task #GPUs Rollout Reference Training Tool Qwen3-0.6B GSM8K 4 66.1% 14.2% 19.7% — Qwen3-4B GSM8K 4 52.2% 18.7% 29.1% — Qwen3-4B AIME 4 80.9% 6.9% 12.2% — Qwen3-4B GSM8K 64 67.4% 15.8% 16.8% — Qwen3-4B Search-R1 4 39.1% 16.6% 24.6% 19.7% Asynchronous RL. Synchronous RL suffers from imbalanced rollout (see Section 3.1 ) due to long-tail samples, which leads to underutilized GPU resources. Off-policy algorithms [ 29 , 39 ] break the strict dependency between stages, enabling asynchronous rollout and training so that idle GPUs can proceed with subsequent-stage computation instead of blocking. AReaL [ 12 ] improves p",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: arXiv.org perpetual non-exclusive license",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "34",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib23"
+    },
+    {
+      "text": "15",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib24"
+    },
+    {
+      "text": "43",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib4"
+    },
+    {
+      "text": "20",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib27"
+    },
+    {
+      "text": "24",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib70"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib25"
+    },
+    {
+      "text": "52",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib8"
+    },
+    {
+      "text": "11",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib9"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib26"
+    },
+    {
+      "text": "45",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib1"
+    },
+    {
+      "text": "28",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib36"
+    },
+    {
+      "text": "71",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib2"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2604.23838v1#footnote2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib59"
+    },
+    {
+      "text": "57",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib58"
+    },
+    {
+      "text": "13",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib3"
+    },
+    {
+      "text": "69",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib60"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2604.23838v1#S1.F2"
+    },
+    {
+      "text": "22",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib10"
+    },
+    {
+      "text": "68",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib64"
+    },
+    {
+      "text": "12",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib42"
+    },
+    {
+      "text": "44",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib55"
+    },
+    {
+      "text": "55",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib48"
+    },
+    {
+      "text": "56",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib69"
+    },
+    {
+      "text": "66",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib57"
+    },
+    {
+      "text": "33",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib30"
+    },
+    {
+      "text": "54",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib28"
+    },
+    {
+      "text": "61",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib71"
+    },
+    {
+      "text": "31",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib21"
+    },
+    {
+      "text": "32",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib20"
+    },
+    {
+      "text": "10",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib19"
+    },
+    {
+      "text": "64",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib65"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib31"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2604.23838v1#S2.T1"
+    },
+    {
+      "text": "36",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib43"
+    },
+    {
+      "text": "27",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib22"
+    },
+    {
+      "text": "60",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib44"
+    },
+    {
+      "text": "18",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib45"
+    },
+    {
+      "text": "50",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib46"
+    },
+    {
+      "text": "14",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib47"
+    },
+    {
+      "text": "16",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib51"
+    },
+    {
+      "text": "23",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib37"
+    },
+    {
+      "text": "67",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib34"
+    },
+    {
+      "text": "46",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib38"
+    },
+    {
+      "text": "65",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib35"
+    },
+    {
+      "text": "47",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib49"
+    },
+    {
+      "text": "25",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib52"
+    },
+    {
+      "text": "49",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib50"
+    },
+    {
+      "text": "42",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib68"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib67"
+    },
+    {
+      "text": "3.1",
+      "url": "https://arxiv.org/html/2604.23838v1#S3.SS1"
+    },
+    {
+      "text": "29",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib53"
+    },
+    {
+      "text": "39",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib54"
+    },
+    {
+      "text": "62",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib56"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2604.23838v1#S3.F3"
+    },
+    {
+      "text": "53",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib5"
+    },
+    {
+      "text": "41",
+      "url": "https://arxiv.org/html/2604.23838v1#bib.bib7"
+    }
+  ],
+  "matching_link_count": 145,
+  "links_truncated": true,
+  "invalid_links": []
+}

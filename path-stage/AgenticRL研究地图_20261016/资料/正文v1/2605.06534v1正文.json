@@ -1,0 +1,269 @@
+{
+  "url": "https://arxiv.org/html/2605.06534v1",
+  "final_url": "https://arxiv.org/html/2605.06534v1",
+  "status": 200,
+  "title": "ROSE: Rollout On Serving GPUs via Cooperative Elasticity for Agentic RL",
+  "metadata": {},
+  "paper": {
+    "title": "ROSE : Rollout On Serving GPUs via Cooperative Elasticity for Agentic RL",
+    "title_warning": null,
+    "abstract": "Abstract. Agentic reinforcement learning (RL) has emerged as a key driver for improving LLMs’ multi-step reasoning and tool-use capabilities. However, its efficiency is bottlenecked by long-tail rollouts with multi-turn environment interactions. This renders static GPU provisioning a poor fit: overprovisioning wastes GPUs on stragglers, whereas underprovisioning increases contention and slows training. We observe that production serving clusters routinely leave substantial GPU compute and memory headroom. We therefore argue for cooperative elasticity : opportunistically repurposing underutilized serving GPUs to execute rollouts. Realizing cooperative elasticity is non-trivial due to preserving serving Service Level Objectives (SLOs) under bursty traffic, and heavy communication overhead. We present ROSE , a cooperative, resource-elastic post-training system that safely harvests idle compute and memory on serving GPUs to expedite agentic RL rollouts. ROSE comprises three components: (1) an SLO-safe co-serving executor that improves rollout throughput while preserving serving SLOs via efficient GPU memory and compute sharing; (2) a cross-cluster weight transfer engine that leverages weight shards and sparsity for fast cross-cluster weight synchronization; and (3) an elastic rollout scheduler that dynamically provisions cooperative capacity and routes trajectory rollouts across dedicated rollout GPUs and opportunistic serving GPUs. Experiments across multiple model sizes and cluster scales show that ROSE improves average end-to-end throughput by 1.20 – 3.31 × 1.20\\text{--}3.31\\times versus state-of-the-art resource-fixed and elastic baselines.",
+    "authors": [
+      {
+        "name": "Wei Gao †∗ , Yuheng Zhao †∗ , Dilxat Muhtar ‡ , Dakai An † , Xuchun Shang ‡ , Tianyuan Wu † , Lunxi Cao † , Shaopan Xiong ‡ , Weixun Wang ‡ , Ju Huang ‡ , Teng Ma ‡ , Siran Yang ‡ , Jiamang Wang ‡ , Lin Qu ‡ , Bo Zheng ‡ , Wei Wang † † HKUST ‡ Alibaba Group ∗ Equal contribution",
+        "affiliations": [],
+        "notes": []
+      }
+    ],
+    "author_block": "Wei Gao †∗ , Yuheng Zhao †∗ , Dilxat Muhtar ‡ , Dakai An † , Xuchun Shang ‡ , Tianyuan Wu † , Lunxi Cao † , Shaopan Xiong ‡ , Weixun Wang ‡ , Ju Huang ‡ , Teng Ma ‡ , Siran Yang ‡ , Jiamang Wang ‡ , Lin Qu ‡ , Bo Zheng ‡ , Wei Wang † † HKUST ‡ Alibaba Group ∗ Equal contribution",
+    "arxiv_version": "2605.06534v1",
+    "arxiv_version_date": "2026-05-07"
+  },
+  "text": "ROSE: Rollout On Serving GPUs via Cooperative Elasticity for Agentic RL Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: CC BY 4.0 arXiv:2605.06534v1 [cs.DC] 07 May 2026 ROSE : Rollout On Serving GPUs via Cooperative Elasticity for Agentic RL Wei Gao †∗ , Yuheng Zhao †∗ , Dilxat Muhtar ‡ , Dakai An † , Xuchun Shang ‡ , Tianyuan Wu † , Lunxi Cao † , Shaopan Xiong ‡ , Weixun Wang ‡ , Ju Huang ‡ , Teng Ma ‡ , Siran Yang ‡ , Jiamang Wang ‡ , Lin Qu ‡ , Bo Zheng ‡ , Wei Wang † † HKUST ‡ Alibaba Group ∗ Equal contribution Abstract. Agentic reinforcement learning (RL) has emerged as a key driver for improving LLMs’ multi-step reasoning and tool-use capabilities. However, its efficiency is bottlenecked by long-tail rollouts with multi-turn environment interactions. This renders static GPU provisioning a poor fit: overprovisioning wastes GPUs on stragglers, whereas underprovisioning increases contention and slows training. We observe that production serving clusters routinely leave substantial GPU compute and memory headroom. We therefore argue for cooperative elasticity : opportunistically repurposing underutilized serving GPUs to execute rollouts. Realizing cooperative elasticity is non-trivial due to preserving serving Service Level Objectives (SLOs) under bursty traffic, and heavy communication overhead. We present ROSE , a cooperative, resource-elastic post-training system that safely harvests idle compute and memory on serving GPUs to expedite agentic RL rollouts. ROSE comprises three components: (1) an SLO-safe co-serving executor that improves rollout throughput while preserving serving SLOs via efficient GPU memory and compute sharing; (2) a cross-cluster weight transfer engine that leverages weight shards and sparsity for fast cross-cluster weight synchronization; and (3) an elastic rollout scheduler that dynamically provisions cooperative capacity and routes trajectory rollouts across dedicated rollout GPUs and opportunistic serving GPUs. Experiments across multiple model sizes and cluster scales show that ROSE improves average end-to-end throughput by 1.20 – 3.31 × 1.20\\text{--}3.31\\times versus state-of-the-art resource-fixed and elastic baselines. 1. Introduction The advent of agentic reinforcement learning (RL) is reshaping large language model (LLM) post-training, shifting models from passive response generation to actively interacting with complex, dynamic environments. Recent advances in tool use ( Hao et al., 2025 ; Wu et al., 2025a ) , computer use ( Luo et al., 2025b ; Lu et al., 2025b ; Liu et al., 2025 ) , and software engineering ( Jimenez et al., 2024 ; Team, 2025 ; Yang et al., 2025c ) suggest that this training paradigm enables LLMs to progressively solve complex tasks through planning ( Li et al., 2025 ) , tool use ( Singh et al., 2025 ) , and multi-step reasoning ( Rawat et al., 2025 ) . A typical agentic RL training pipeline consists of two stages, rollout and training . During rollout, the agent LLM interacts with environments over multiple turns. At each turn, the agent decodes tokens that serve as action signals, and then runs prefill on the feedback returned by the environment. The resulting sequence of actions and feedback forms a trajectory. During training, the agent LLM updates its weights using the collected trajectories, and then synchronizes the updated weights to the rollout stage for the next iteration. Practically , agentic RL is predominantly pursued in industry, where organizations can absorb the substantial training cost and the operational complexity of interactive environments, and where sizeable serving GPUs are already deployed for production usage of agentic LLMs. Similar to conventional single-turn RL, end-to-end agentic RL training is dominated by the rollout stage, which accounts for over 70% of total wall-clock time (see 1(a) ). Rollout batches also exhibit a pronounced long-tail distribution in execution time (see 1(b) ). Beyond this shared characterization, agentic RL rollouts differ from single-turn RL in two key aspects. First, multi-turn environment interactions impose stringent demands on compute throughput to reduce rollout overhead. In particular, the prefill phase is compute-intensive and benefits from prefix caching and resource scaling (see 1(c) ). Second, agentic RL typically launches additional rollouts to improve trajectory quality for gradient stability ( Yu et al., 2025b ; Zheng et al., 2025 ) , which in turn exacerbates GPU memory pressure and contention. Collectively, both characteristics suggest that scaling out GPUs for rollout can expedite agentic RL training. However, long-tail trajectories render static provisioning inefficient: overprovisioning leaves GPUs idle while waiting for stragglers, whereas underprovisioning amplifies contention among concurrent rollouts and increases rollout latency. Recently, many resource-fixed RL systems have been proposed to improve efficiency given a fixed GPU budget , using techniques such as resource disaggregation ( Wu et al., 2025b ; Zhong et al., 2025a ) , colocation ( Sheng et al., 2024a ; Hu et al., 2024 ) , asynchronous execution ( Fu et al., 2025 ; Sheng et al., 2025 ; Lu et al., 2025a ; Han et al., 2025 ) , fully asynchronous training ( Fu et al., 2025 ) , tail batching ( Gao et al., 2025b ) , stage overlapping ( Xia et al., 2025 ; Zhong et al., 2025b ; Cao et al., 2025 ) , and speculative decoding ( He et al., 2025 ; Shao et al., 2025 ; Cheng et al., 2025a ; Qin et al., 2025 ) . While effective within a fixed allocation, these systems still require manual GPU provisioning. Because rollout demand varies over time, an allocation that is appropriate for one RL step can be suboptimal for another ( 1(d) ). Existing resource-elastic RL systems typically realize elasticity by acquiring additional GPUs for rollouts on demand, using spot instances (e.g., RLBoost ( Wu et al., 2025c ) ) or serverless GPUs (e.g., tinker ( Thinking Machines AI, 2025 ) , OpenPipe ( OpenPipe, 2025 ) ). While effective when spare capacity is readily available, this add-capacity approach has three limitations. First, the achievable speedup is bounded by the availability of incremental GPUs, which can be scarce during cluster-wide contention ( Wu et al., 2025c ) . Second, because these GPUs are outside the steady-state deployment, elasticity often incurs repeated model initialization when capacity churns (e.g., spot preemption or serverless pool rotation), reducing effective throughput ( 3(c) ). Third, acquiring extra GPUs typically increases monetary cost due to dynamic provisioning and pricing variability. An alternative is bidirectional autoscaling , which shrinks the serving cluster during low load and redirects freed GPUs to rollouts. However, serving traffic is bursty at second-level granularity (§ 3.2 ), and reclaiming GPUs back to serving takes tens of seconds ( 3(c) ), making bidirectional autoscaling unable to preserve serving SLOs (§ 3.3 , § 6.5 ). Instead, we explore cooperative elasticity , which reuses already-deployed serving capacity within an organization. In many industrial LLM companies, the RL training team and the LLM serving team are part of the same institution and operate separate large-scale GPU clusters. Prior studies ( Wang et al., 2025c ; Yu et al., 2025c ; Zhao et al., 2025 ; Xing et al., 2025 ; Qiao et al., 2025 ) report that fluctuating serving traffic causes serving GPU underutilization. Our empirical study (see 3(b) ) confirms that serving GPUs have low compute utilization (18.9%) and memory utilization (14.3%). Cooperative elasticity turns this headroom into rollout capacity by harvesting idle GPU cycles and memory from the serving cluster subject to Service Level Objectives (SLOs) constraints. By reusing existing capacity, cooperative elasticity expands effective rollout resources without acquiring additional GPUs, avoids on-demand provisioning overheads, and incurs little incremental monetary cost. In this paper, we present ROSE , a cooperative, elastic system for agentic RL post-training that harvests serving GPUs for rollouts. While promising, repurposing serving GPUs poses two primary challenges. First, co-locating heterogeneous serving and rollout LLMs must preserve serving SLOs under bursty traffic, despite contention for both GPU memory and compute ( C1 ). Prior GPU multiplexing systems cannot simultaneously handle heterogeneous KVC layouts across models ( Qiao et al., 2025 ) , retain rollout prefix cache in GPU for short-lived reuse ( Yu et al., 2025c ; Xiang et al., 2025 ) , and yield resources promptly under serving bursts ( Yu et al., 2025c ; Xiang et al., 2025 ; Duan et al., 2024 ) (§ 6.5 ). We observe three properties of agentic rollouts that enable SLO-safe co-serving: (1) heterogeneous models require flexible KVC rebalancing across incompatible layouts, (2) rollout environment interactions are short-lived (typically < < 10 s ( Gao et al., 2025c ) ), favoring in-GPU prefix caching with fast memory preemption, and (3) rollouts tolerate seconds-level latency because preempted rollouts can be rerouted to dedicated rollout GPUs. We design a co-serving executor that combines CUDA VMM for cross-model KV cache rebalancing, preemptive memory sharing that retains rollout prefix cache in GPU and aggressively reclaims it during serving bursts, and dual-SLO admission control that prioritizes serving via temporal sharing while opportunistically executing rollouts. Second, the serving and RL clusters may reside in different datacenters connected by bandwidth-limited links (10–200 Gbps Ethernet), causing cross-cluster weight transfer to take dozens of seconds to minutes ( 3(d) ), eroding the speedups from elastic rollouts ( C2 ). Existing bandwidth-optimized communication systems ( Fei et al., 2021 ; Wang et al., 2025d ; Lim et al., 2024 ; Sergeev and Balso, 2018 ) rely on collective communication over fixed process groups with uniform sharding, which cannot accommodate cooperative elasticity where (1) serving GPUs dynamically join or leave across RL steps, and (2) training and serving adopt different parallelism strategies requiring automatic shard mapping. Furthermore, we observe that RL post-training weight deltas exhibit lossless sparsity ( Figure 6 ), a property rare in conventional LLM training ( Muhamed et al., 2024 ; Sarfi et al., 2025 ; Yang et al., 2025b ) that can be exploited for cross-cluster transfer. We design a cross-cluster weight transfer engine that combines a relay layer for asynchronous, fault-tolerant propagation, shard-aware routing across heterogeneous parallelism configurations, and sparsity-aware compression that transmits only non-zero deltas, reducing transfer overhead to within 20 seconds even under 20 Gbps Ethernet (§ 6.3 ). Beyond these challenges, we design a rollout scheduler that capitalizes on cooperative elasticity by dynamically dispatching rollouts across dedicated rollout GPUs and opportunistic serving GPUs. To adapt to time-varying serving load, the scheduler uses two heuristics. First, it performs turn-wise, concurrency-aware routing to decide how many rollouts to offload to serving GPUs while maintaining high rollout throughput. Second, it adopts a cache-affinity placement policy that preferentially routes each turn to the GPU holding the trajectory’s prefix KVC, and otherwise falls back to load-aware placement. Together, these policies allow ROSE to exploit underutilized serving capacity to accelerate rollouts while minimizing interference with serving workloads. This paper makes the following contributions: • We propose cooperative elasticity , the first approach to harvest serving GPUs for RL rollouts while preserving serving SLOs. • We design a co-serving executor that uniquely supports heterogeneous LLMs, prefix caching, and bursty serving—capabilities not simultaneously addressed by prior co-serv",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: CC BY 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "Hao et al., 2025",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib15"
+    },
+    {
+      "text": "Wu et al., 2025a",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib53"
+    },
+    {
+      "text": "Luo et al., 2025b",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib28"
+    },
+    {
+      "text": "Lu et al., 2025b",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib27"
+    },
+    {
+      "text": "Liu et al., 2025",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib25"
+    },
+    {
+      "text": "Jimenez et al., 2024",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib19"
+    },
+    {
+      "text": "Team, 2025",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib46"
+    },
+    {
+      "text": "Yang et al., 2025c",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib60"
+    },
+    {
+      "text": "Li et al., 2025",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib22"
+    },
+    {
+      "text": "Singh et al., 2025",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib45"
+    },
+    {
+      "text": "Rawat et al., 2025",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib36"
+    },
+    {
+      "text": "1(a)",
+      "url": "https://arxiv.org/html/2605.06534v1#S2.F1.sf1"
+    },
+    {
+      "text": "1(b)",
+      "url": "https://arxiv.org/html/2605.06534v1#S2.F1.sf2"
+    },
+    {
+      "text": "1(c)",
+      "url": "https://arxiv.org/html/2605.06534v1#S2.F1.sf3"
+    },
+    {
+      "text": "Yu et al., 2025b",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib64"
+    },
+    {
+      "text": "Zheng et al., 2025",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib70"
+    },
+    {
+      "text": "Wu et al., 2025b",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib54"
+    },
+    {
+      "text": "Zhong et al., 2025a",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib72"
+    },
+    {
+      "text": "Sheng et al., 2024a",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib41"
+    },
+    {
+      "text": "Hu et al., 2024",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib18"
+    },
+    {
+      "text": "Fu et al., 2025",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib9"
+    },
+    {
+      "text": "Sheng et al., 2025",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib40"
+    },
+    {
+      "text": "Lu et al., 2025a",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib26"
+    },
+    {
+      "text": "Han et al., 2025",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib14"
+    },
+    {
+      "text": "Gao et al., 2025b",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib11"
+    },
+    {
+      "text": "Xia et al., 2025",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib56"
+    },
+    {
+      "text": "Zhong et al., 2025b",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib73"
+    },
+    {
+      "text": "Cao et al., 2025",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib2"
+    },
+    {
+      "text": "He et al., 2025",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib17"
+    },
+    {
+      "text": "Shao et al., 2025",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib38"
+    },
+    {
+      "text": "Cheng et al., 2025a",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib3"
+    },
+    {
+      "text": "Qin et al., 2025",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib33"
+    },
+    {
+      "text": "1(d)",
+      "url": "https://arxiv.org/html/2605.06534v1#S2.F1.sf4"
+    },
+    {
+      "text": "Wu et al., 2025c",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib55"
+    },
+    {
+      "text": "Thinking Machines AI, 2025",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib47"
+    },
+    {
+      "text": "OpenPipe, 2025",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib30"
+    },
+    {
+      "text": "3(c)",
+      "url": "https://arxiv.org/html/2605.06534v1#S2.F3.sf3"
+    },
+    {
+      "text": "3.2",
+      "url": "https://arxiv.org/html/2605.06534v1#S3.SS2"
+    },
+    {
+      "text": "3.3",
+      "url": "https://arxiv.org/html/2605.06534v1#S3.SS3"
+    },
+    {
+      "text": "6.5",
+      "url": "https://arxiv.org/html/2605.06534v1#S6.SS5"
+    },
+    {
+      "text": "Wang et al., 2025c",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib51"
+    },
+    {
+      "text": "Yu et al., 2025c",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib65"
+    },
+    {
+      "text": "Zhao et al., 2025",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib68"
+    },
+    {
+      "text": "Xing et al., 2025",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib59"
+    },
+    {
+      "text": "Qiao et al., 2025",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib32"
+    },
+    {
+      "text": "3(b)",
+      "url": "https://arxiv.org/html/2605.06534v1#S2.F3.sf2"
+    },
+    {
+      "text": "Xiang et al., 2025",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib57"
+    },
+    {
+      "text": "Duan et al., 2024",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib5"
+    },
+    {
+      "text": "Gao et al., 2025c",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib12"
+    },
+    {
+      "text": "3(d)",
+      "url": "https://arxiv.org/html/2605.06534v1#S2.F3.sf4"
+    },
+    {
+      "text": "Fei et al., 2021",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib78"
+    },
+    {
+      "text": "Wang et al., 2025d",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib52"
+    },
+    {
+      "text": "Lim et al., 2024",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib24"
+    },
+    {
+      "text": "Sergeev and Balso, 2018",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib87"
+    },
+    {
+      "text": "Figure 6",
+      "url": "https://arxiv.org/html/2605.06534v1#S4.F6"
+    },
+    {
+      "text": "Muhamed et al., 2024",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib88"
+    },
+    {
+      "text": "Sarfi et al., 2025",
+      "url": "https://arxiv.org/html/2605.06534v1#bib.bib89"
+    }
+  ],
+  "matching_link_count": 202,
+  "links_truncated": true,
+  "invalid_links": []
+}

@@ -1,0 +1,301 @@
+{
+  "url": "https://arxiv.org/html/2608.24571v1",
+  "final_url": "https://arxiv.org/html/2608.24571v1",
+  "status": 200,
+  "title": "Joint Optimization of Tool Creation and Use for Large Language Model Agents",
+  "metadata": {},
+  "paper": {
+    "title": "Joint Optimization of Tool Creation and Use for Large Language Model Agents",
+    "title_warning": null,
+    "abstract": "Abstract Tool-augmented language models are bounded by the APIs humans bothered to write; existing tool-creation systems patch this by prompting a frozen LLM at inference time, leaving the model that writes a tool decoupled from the one that uses it, with no signal that the schemas it produces are schemas it can invoke.\nWe propose SMITH (Schema-grounded Multi-task Iterative Tool Honing), a reinforcement learning framework that jointly trains tool creation and tool use inside a single policy. Each rollout is either a build task (write a tool from a few examples) or a use task (invoke a pooled tool on a held-out question). Three separate reward axes catch schema, code, and outcome failures independently, so each failure mode contributes its own gradient.\nA 4B Qwen3 trained with SMITH on 13 procedural reasoning tasks with exact verifiers reaches 79.8 79.8 macro-average accuracy on held-out tasks, the best across all evaluated methods and ahead of an untrained 30B-A3B tool-writer. It also reaches 40.4 40.4 on TabMWP-Hard and 42.6 42.6 on out-of-domain GQA ( + 7.6 +7.6 over the best same-backbone inference-time baseline), without any visual or tabular training data. Tools written by our 4B models also lifted the performance of LFM-2.5-350M and Qwen3-30B-A3B under same reasoning tasks. Code Project Page",
+    "authors": [
+      {
+        "name": "Zhi Rui Tam",
+        "affiliations": [
+          "Affiliation: Appier AI Research",
+          "Affiliation: National Taiwan University"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Chieh-Yen Lin",
+        "affiliations": [
+          "Affiliation: Appier AI Research"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Yun-Nung Chen",
+        "affiliations": [
+          "Affiliation: National Taiwan University"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Shao-Hua Sun",
+        "affiliations": [
+          "Affiliation: Appier AI Research",
+          "Affiliation: National Taiwan University"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Hung-yi Lee",
+        "affiliations": [
+          "Affiliation: National Taiwan University"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Zhi Rui Tam Affiliation: Appier AI Research Affiliation: National Taiwan University Chieh-Yen Lin Affiliation: Appier AI Research Yun-Nung Chen Affiliation: National Taiwan University Shao-Hua Sun Affiliation: Appier AI Research Affiliation: National Taiwan University Hung-yi Lee Affiliation: National Taiwan University",
+    "arxiv_version": "2608.24571v1",
+    "arxiv_version_date": "2026-08-25"
+  },
+  "text": "Joint Optimization of Tool Creation and Use for Large Language Model Agents Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: CC BY 4.0 arXiv:2608.24571v1 [cs.AI] 25 Aug 2026 \\DeclareFloatingEnvironment boxes Joint Optimization of Tool Creation and Use for Large Language Model Agents Zhi Rui Tam Affiliation: Appier AI Research Affiliation: National Taiwan University Chieh-Yen Lin Affiliation: Appier AI Research Yun-Nung Chen Affiliation: National Taiwan University Shao-Hua Sun Affiliation: Appier AI Research Affiliation: National Taiwan University Hung-yi Lee Affiliation: National Taiwan University Abstract Tool-augmented language models are bounded by the APIs humans bothered to write; existing tool-creation systems patch this by prompting a frozen LLM at inference time, leaving the model that writes a tool decoupled from the one that uses it, with no signal that the schemas it produces are schemas it can invoke. We propose SMITH (Schema-grounded Multi-task Iterative Tool Honing), a reinforcement learning framework that jointly trains tool creation and tool use inside a single policy. Each rollout is either a build task (write a tool from a few examples) or a use task (invoke a pooled tool on a held-out question). Three separate reward axes catch schema, code, and outcome failures independently, so each failure mode contributes its own gradient. A 4B Qwen3 trained with SMITH on 13 procedural reasoning tasks with exact verifiers reaches 79.8 79.8 macro-average accuracy on held-out tasks, the best across all evaluated methods and ahead of an untrained 30B-A3B tool-writer. It also reaches 40.4 40.4 on TabMWP-Hard and 42.6 42.6 on out-of-domain GQA ( + 7.6 +7.6 over the best same-backbone inference-time baseline), without any visual or tabular training data. Tools written by our 4B models also lifted the performance of LFM-2.5-350M and Qwen3-30B-A3B under same reasoning tasks. Code Project Page 1 Introduction Human progress depends on accumulated tools. Rather than solving every problem from first principles, people rely on instruments refined over generations [ 11 , 4 ] . Large Language Models (LLMs) face a similar limitation: relying only on parametric memory restricts their ability to perform exact computation [ 5 ] , access up-to-date knowledge [ 3 ] , and carry out reliable symbolic reasoning [ 9 ] . Tool-augmented LLMs were introduced to overcome these limits [ 12 , 27 , 26 ] . By invoking external interfaces such as calculators, code interpreters, and search engines, models can solve problems beyond what is encoded in their frozen weights. However, existing tool-augmented systems still rely on fixed, human-designed toolsets. Such predefined APIs may be incomplete, poorly matched to new tasks, or entirely unavailable, placing a hard limit on model capability. This motivates a shift from static tool use to dynamic tool creation , where models synthesize reusable callable functions on demand. LATM [ 2 ] first explored this direction by prompting GPT-4 to generate JSON-schema tools from demonstrations, and later work incorporated retrieval, verification, and multi-stage generation pipelines [ 35 , 31 , 17 ] . Despite this progress, existing methods do not explicitly optimize for tool quality or reusability during training of LLMs. Moreover, they separate tool creation from tool use: a stronger model writes the tool while a weaker model invokes it [ 2 , 35 ] . As a result, the tool creator is never incentivized to design schemas it can reliably use itself. A key open problem is therefore how to train a single model to become both a better tool creator and a better tool user . Reinforcement learning provides a natural framework for this objective [ 1 , 23 , 34 ] : a model can create a tool, apply it to held-out queries, and directly optimize against answer correctness. Yet, training under this paradigm introduces two major challenges. First, reward decomposition : a generated tool contains both a schema ( e . g ., function name, parameters, and types) and a backend implementation ( e . g ., executable Python code). Failures in these two components require different corrective signals, making reward assignment nontrivial. Second, circular evaluation : evaluating tool quality requires a judge, but self-evaluation is inherently unreliable [ 19 ] , while fixed external evaluators raise questions about trustworthiness and alignment [ 36 ] . In addition, a competent evaluator must itself understand tool use well enough to assess whether a schema is practically callable and reusable across harder downstream queries. To address these challenges, we propose SMITH ( Schema-grounded Multi-task Iterative Tool Honing ), a reinforcement learning framework that jointly trains tool creation and tool use within a single policy. SMITH disentangles schema and implementation failures through three complementary reward signals: execution accuracy, LLM-as-judge quality, and format consistency. To reduce circular evaluation, the judge is periodically synchronized from the evolving policy rather than sharing live training weights, enabling the evaluator to improve alongside the policy while maintaining stability. Finally, SMITH evaluates tools created on simpler tasks using harder downstream queries, explicitly rewarding reusable abstractions rather than task-specific shortcuts. We train SMITH on 13 procedural task families from Reasoning-Gym [ 25 ] and evaluate both in-domain generalization and zero-shot transfer to unseen benchmarks. Our 4B model achieves the best overall held-out Reasoning-Gym performance ( 79.8 % 79.8\\% macro accuracy), outperforming inference-time tool-writing frameworks such as LATM [ 2 ] , CRAFT [ 35 ] , Trove [ 31 ] , and KTCE [ 17 ] , as well as models distilled from substantially larger teachers. Despite using far fewer decoding tokens, SMITH also surpasses a 30B inference-time tool writer on unseen tasks. Beyond procedural reasoning, SMITH transfers zero-shot to entirely new modalities: it achieves state-of-the-art performance on TabMWP-Hard and improves GQA visual question answering by up to + 7.6 +7.6 points over same-backbone baselines, despite never being trained on tabular or visual data. The learned tools further generalize across models: tools written by our 4B policy enable a frozen 350M model to match the performance of a 30B tool writer. Finally, the same training recipe consistently improves both Qwen3-8B and Granite-3.3-8B, suggesting that jointly optimizing tool creation and tool use under structured rewards is a scalable path toward reusable and transferable tool-building capabilities. 2 SMITH: Schema-grounded multi-task iterative tool honing Figure 1: SMITH jointly trains tool creation and tool use in a single shared policy. The build task rewards schema correctness and execution accuracy; the use task rewards answer correctness using only the schema. Because the same model that writes a tool must also invoke it, ambiguous or broken schemas are penalized directly—a feedback loop that prompting-only approaches cannot provide. SMITH is a multi-task RL framework that jointly trains two complementary skills: tool creation (build) and tool use . In the build task the model synthesizes a reusable tool, expressed as both a Python function and an OpenAI-compatible JSON schema, a structured description of the function’s name, parameters, and types that exposes the tool through a standard invocation interface. In the use task the model sees only this compact JSON schema (not the underlying code) and must invoke the tool to answer a held-out question. This schema-grounded design forces the model to produce concise, self-contained interfaces: a tool whose schema is ambiguous or incomplete will fail at use time, providing a direct training signal for schema quality. We train the shared policy using DAPO [ 34 ] , a clip-higher variant of GRPO [ 23 ] that stabilizes entropy and avoids reward collapse during on-policy rollouts. Each training step samples a batch ℬ \\mathcal{B} of prompts split into two equal halves, | ℬ build | = | ℬ use | = B / 2 |\\mathcal{B}_{\\mathrm{build}}|=|\\mathcal{B}_{\\mathrm{use}}|=B/2 . Keeping the two reward streams structurally separate while training on the same policy allows the two skills to reinforce each other. Task formulation. For each training instance of tool generation, the policy receives N = 4 N{=}4 question-answer pairs { ( q i , a i ) } i = 1 N \\{(q_{i},a_{i})\\}_{i=1}^{N} as context for problem induction : the model must infer a general solution strategy and express it as both a Python function 𝒞 \\mathcal{C} and an OpenAI-compatible JSON schema 𝒮 \\mathcal{S} . A disjoint set of K = 16 K{=}16 held-out questions 𝒯 = { ( q j , a j ) } j = 1 K \\mathcal{T}=\\{(q_{j},a_{j})\\}_{j=1}^{K} is then used to evaluate the generated tool without the model ever observing the ground truth answers at generation time. For use tasks, the model instead receives a single target question and must invoke a tool from the pool (if one exists for the category) or first build one from the same N N in-context examples before invoking it. 2.1 Build task rewards Evaluation reward. The generated tool ( 𝒞 , 𝒮 ) (\\mathcal{C},\\mathcal{S}) is evaluated against the hidden test set 𝒯 \\mathcal{T} . Each question q j q_{j} is presented to an evaluator model π eval \\pi^{\\mathrm{eval}} that may call the generated tool; a correct answer requires both a successful tool invocation and an output verified by an LLM equivalence judge. π eval \\pi^{\\mathrm{eval}} is initialized from the same base checkpoint as the policy and is periodically refreshed by copying the latest policy weights, providing a stable but improving evaluation target without the instability of evaluating against the live training weights. The evaluation reward is the fraction of test questions answered correctly: r eval = 1 | 𝒯 | ∑ j = 1 | 𝒯 | [ π eval ( q j ∣ 𝒞 , 𝒮 ) ≈ a j ] . r^{\\mathrm{eval}}=\\frac{1}{|\\mathcal{T}|}\\sum_{j=1}^{|\\mathcal{T}|}\\mathbf{1}\\!\\left[\\pi^{\\mathrm{eval}}\\!\\left(q_{j}\\mid\\mathcal{C},\\mathcal{S}\\right)\\approx a_{j}\\right]. (1) Counting only answers obtained through a successful tool call prevents the policy from exploiting the fallback of text-only reasoning, which would bypass the tool-writing objective entirely. Format reward. We apply a format reward r fmt ∈ { 0 , r f } r^{\\mathrm{fmt}}\\in\\{0,r_{f}\\} ( r f = 0.5 r_{f}=0.5 ) when the response contains exactly one Python block and one JSON block whose function names and parameter signatures are mutually consistent. If the generated response cannot be parsed into a valid ( 𝒞 , 𝒮 ) (\\mathcal{C},\\mathcal{S}) pair (e.g. missing code or schema), the rollout is terminated early and all reward axes are set to zero; r fmt = 0 r^{\\mathrm{fmt}}=0 alone does not terminate the rollout. The build environment reward folds the format and evaluation signals together: r build env = r fmt + r eval . r^{\\mathrm{env}}_{\\mathrm{build}}=r^{\\mathrm{fmt}}+r^{\\mathrm{eval}}. (2) Judge reward. A separate LLM judge π judge \\pi^{\\mathrm{judge}} scores the generated tool on three axes: code correctness s code s_{\\mathrm{code}} , schema quality s schema s_{\\mathrm{schema}} , and an overall quality score s overall ∈ [ 0 , 1 ] s_{\\mathrm{overall}}\\in[0,1] . A schema-code alignment check is applied after scoring: if the function signatures in 𝒞 \\mathcal{C} and 𝒮 \\mathcal{S} disagree, the score is halved; a syntax error in 𝒞 \\mathcal{C} yields a fixed negative reward to penalize broken code: r judge = { − 0.5 if ​ 𝒞 ​ contains a syntax error, 0.5 ⋅ s overall if schema and code signatures disagree, s overall otherwise. r^{\\mathrm{judge}}=\\begin{cases}-0.5&\\text{if }\\mathcal{C}\\text{ contains a syntax error,}\\\\ 0.5\\cdot s_{\\mathrm{overall}}&\\text{if schema and code signatures disagree,}\\\\ s_{\\mathrm{overall}}&\\text{otherwise.}\\end{cases} (3) Crucially,",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: CC BY 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "Code",
+      "url": "https://github.com/appier-research/smith"
+    },
+    {
+      "text": "Project Page",
+      "url": "https://tool-use-smith.github.io/"
+    },
+    {
+      "text": "11",
+      "url": "https://arxiv.org/html/2608.24571v1#bib.bib1"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2608.24571v1#bib.bib2"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2608.24571v1#bib.bib9"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2608.24571v1#bib.bib8"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2608.24571v1#bib.bib33"
+    },
+    {
+      "text": "12",
+      "url": "https://arxiv.org/html/2608.24571v1#bib.bib14"
+    },
+    {
+      "text": "27",
+      "url": "https://arxiv.org/html/2608.24571v1#bib.bib13"
+    },
+    {
+      "text": "26",
+      "url": "https://arxiv.org/html/2608.24571v1#bib.bib4"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2608.24571v1#bib.bib15"
+    },
+    {
+      "text": "35",
+      "url": "https://arxiv.org/html/2608.24571v1#bib.bib18"
+    },
+    {
+      "text": "31",
+      "url": "https://arxiv.org/html/2608.24571v1#bib.bib17"
+    },
+    {
+      "text": "17",
+      "url": "https://arxiv.org/html/2608.24571v1#bib.bib19"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2608.24571v1#bib.bib32"
+    },
+    {
+      "text": "23",
+      "url": "https://arxiv.org/html/2608.24571v1#bib.bib23"
+    },
+    {
+      "text": "34",
+      "url": "https://arxiv.org/html/2608.24571v1#bib.bib24"
+    },
+    {
+      "text": "19",
+      "url": "https://arxiv.org/html/2608.24571v1#bib.bib7"
+    },
+    {
+      "text": "36",
+      "url": "https://arxiv.org/html/2608.24571v1#bib.bib6"
+    },
+    {
+      "text": "25",
+      "url": "https://arxiv.org/html/2608.24571v1#bib.bib25"
+    },
+    {
+      "text": "2.2",
+      "url": "https://arxiv.org/html/2608.24571v1#S2.SS2"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2608.24571v1#S2.E5"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2608.24571v1#S2.E4"
+    },
+    {
+      "text": "3.4",
+      "url": "https://arxiv.org/html/2608.24571v1#S3.SS4"
+    },
+    {
+      "text": "16",
+      "url": "https://arxiv.org/html/2608.24571v1#bib.bib27"
+    },
+    {
+      "text": "M",
+      "url": "https://arxiv.org/html/2608.24571v1#A13"
+    },
+    {
+      "text": "10",
+      "url": "https://arxiv.org/html/2608.24571v1#bib.bib26"
+    },
+    {
+      "text": "Wang et al. [30]",
+      "url": "https://arxiv.org/html/2608.24571v1#bib.bib29"
+    },
+    {
+      "text": "33",
+      "url": "https://arxiv.org/html/2608.24571v1#bib.bib28"
+    },
+    {
+      "text": "E",
+      "url": "https://arxiv.org/html/2608.24571v1#A5"
+    },
+    {
+      "text": "2.1",
+      "url": "https://arxiv.org/html/2608.24571v1#S2.SS1"
+    },
+    {
+      "text": "F",
+      "url": "https://arxiv.org/html/2608.24571v1#A6"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2608.24571v1#bib.bib10"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2608.24571v1#S3.T1"
+    },
+    {
+      "text": "15",
+      "url": "https://arxiv.org/html/2608.24571v1#bib.bib30"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2608.24571v1#S3.T2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2608.24571v1#S3.T3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2608.24571v1#S3.T4"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2608.24571v1#S3.T5"
+    },
+    {
+      "text": "20",
+      "url": "https://arxiv.org/html/2608.24571v1#bib.bib31"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2608.24571v1#S3.T6"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2608.24571v1#S3.T7"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2608.24571v1#S1.p3.1"
+    },
+    {
+      "text": "Appendix A",
+      "url": "https://arxiv.org/html/2608.24571v1#A1.p2.1"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2608.24571v1#S1.p2.1"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2608.24571v1#S1.p5.1"
+    },
+    {
+      "text": "§3.4",
+      "url": "https://arxiv.org/html/2608.24571v1#S3.SS4.p1.1"
+    },
+    {
+      "text": "§3.5",
+      "url": "https://arxiv.org/html/2608.24571v1#S3.SS5.p2.1"
+    },
+    {
+      "text": "Table 1",
+      "url": "https://arxiv.org/html/2608.24571v1#S3.T1.6.4.1.1"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2608.24571v1#S1.p1.1"
+    },
+    {
+      "text": "Appendix A",
+      "url": "https://arxiv.org/html/2608.24571v1#A1.p3.1"
+    },
+    {
+      "text": "Appendix I",
+      "url": "https://arxiv.org/html/2608.24571v1#A9.p1.1"
+    },
+    {
+      "text": "Appendix A",
+      "url": "https://arxiv.org/html/2608.24571v1#A1.p4.1"
+    },
+    {
+      "text": "§3.2",
+      "url": "https://arxiv.org/html/2608.24571v1#S3.SS2.p4.1"
+    },
+    {
+      "text": "Appendix A",
+      "url": "https://arxiv.org/html/2608.24571v1#A1.p1.1"
+    },
+    {
+      "text": "item 2",
+      "url": "https://arxiv.org/html/2608.24571v1#A8.I1.i2.p1.1"
+    },
+    {
+      "text": "§3.7",
+      "url": "https://arxiv.org/html/2608.24571v1#S3.SS7.p2.1"
+    }
+  ],
+  "matching_link_count": 99,
+  "links_truncated": true,
+  "invalid_links": []
+}

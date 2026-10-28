@@ -1,0 +1,594 @@
+{
+  "url": "https://arxiv.org/html/2607.12829v1",
+  "final_url": "https://arxiv.org/html/2607.12829v1",
+  "status": 200,
+  "title": "Accelerating Masked Diffusion Large Language Models: A Survey of Efficient Inference Techniques",
+  "metadata": {},
+  "paper": {
+    "title": "Accelerating Masked Diffusion Large Language Models: A Survey of Efficient Inference Techniques",
+    "title_warning": null,
+    "abstract": "Abstract Diffusion large language models (dLLMs) offer a theoretical advantage in parallel generation over standard autoregressive models. However, parallel generation alone does not guarantee practical speedups. Realizing this efficiency requires specialized inference mechanisms, such as diffusion-aware caching and reuse. Consequently, as inference efficiency becomes a prerequisite for practical deployment, recent research has actively explored acceleration techniques across algorithms, architectures, and systems. However, rigorous comparisons remain difficult, as end-to-end latency stems from intricate trade-offs between algorithmic, architectural, and system-level factors that are often conflated in existing benchmarks. In this survey, we introduce a unified latency decomposition framework for dLLMs to disentangle these factors and analyze their impact on inference speed in real deployments. Guided by this framework, we categorize acceleration techniques along three axes covering algorithmic innovations, architectural and system optimizations, and inference-time scaling. Finally, we provide guidelines for reproducible benchmarking and highlight open challenges for realizing the full potential of parallel generation.",
+    "authors": [
+      {
+        "name": "Daehoon Gwak",
+        "affiliations": [
+          "Affiliation: KAIST AI"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Minhyung Lee",
+        "affiliations": [
+          "Affiliation: Yonsei University"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Junwoo Park",
+        "affiliations": [
+          "Affiliation: KAIST AI"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Jaegul Choo",
+        "affiliations": [
+          "Affiliation: KAIST AI"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Daehoon Gwak Affiliation: KAIST AI Email: daehoon.gwak@kaist.ac.kr Minhyung Lee Affiliation: Yonsei University Email: jchoo@kaist.ac.kr Junwoo Park Affiliation: KAIST AI Jaegul Choo Affiliation: KAIST AI",
+    "arxiv_version": "2607.12829v1",
+    "arxiv_version_date": "2026-07-14",
+    "sections": [
+      {
+        "id": "S1",
+        "heading": "1 Introduction",
+        "level": 1,
+        "text": "Autoregressive (AR) models remain the dominant paradigm for large language models. However, their inference cost scales linearly with the generated length. Specifically, producing L L tokens requires at least L L dependent decoding iterations. This sequential dependency is a fundamental barrier for latency-sensitive applications and high-throughput serving, motivating extensive research on parallel generation. Recently, Diffusion-based large language models (dLLMs) Nie et al. (2025) ; Ye et al. (2025b) ; Inception Labs et al. (2025) have emerged as a promising alternative. They replace strict left-to-right decoding with iterative refinement, enabling parallel updates across multiple token positions Austin et al. (2021) ; Lou et al. (2024) ; Sahoo et al. (2024) . However, parallel generation alone does not guarantee practical speedups. Realizing this efficiency requires specialized inference mechanisms, such as diffusion-aware caching and reuse, which introduce their own complexities. Consequently, as inference efficiency becomes a prerequisite for practical deployment, recent research has actively explored acceleration techniques across algorithms, architectures, and systems. However, rigorous comparisons remain difficult, as end-to-end latency stems from intricate trade-offs between these factors. For instance, an algorithmic method might reduce refinement steps but increase per-step policy overhead, while a system optimization might improve throughput at the cost of memory pressure. These algorithmic, architectural, and system-level impacts are often conflated in existing benchmarks, making it challenging to isolate the true sources of performance gains in real-world deployments. To address these challenges, this survey focuses specifically on inference-time efficiency in diffusion-based language generation. While recent surveys provide broad overviews of diffusion language modeling Li et al. (2025e) or parallel generation mechanisms Zhang et al. (2025a) , our work synthesizes the literature through a distinct, deployment-oriented efficiency lens. Specifically, we aim to clarify: (i) the determinants of end-to-end latency, throughput, and memory in realistic workloads; (ii) the inherent trade-offs between quality, speed, and memory across different acceleration techniques; and (iii) the best practices for reproducible benchmarking to ensure meaningful comparisons. Family Primary levers (Eq. 1 ) Key idea Section Algorithmic efficiency Schedules & policies T ↓ T\\downarrow , C policy ↑ C_{\\mathrm{policy}}\\uparrow Fewer steps via confidence/dilated schedules and selective updates; overhead depends on implementation. Section 4.1 Decoding algorithm T ↓ T\\downarrow or G t ↓ G_{t}\\downarrow , C policy ↑ C_{\\mathrm{policy}}\\uparrow Larger parallel progress or draft-and-verify; gains hinge on acceptance and orchestration cost. Section 4.2 Distillation / consistency T ↓ T\\downarrow Few-step samplers shift cost to training; quality/calibration can become sensitive. Section 4.3 Architectural & systems efficiency Architecture & numerics C fwd ↓ C_{\\mathrm{fwd}}\\downarrow , Mem ↓ \\downarrow Reduce per-forward cost via sparse/structured decoding or quantization; depends on kernel maturity. Section 5.1 Caching & reuse C fwd ↓ C_{\\mathrm{fwd}}\\downarrow , C sys ↓ C_{\\mathrm{sys}}\\downarrow , Mem ↑ \\uparrow Reuse KV/activations across refinement steps; explicit memory–speed trade-off. Section 5.2 System-level serving C sys ↓ C_{\\mathrm{sys}}\\downarrow Kernel/orchestration/microbatching improvements matter most for batch-1 and deployment regimes. Section 5.3 Inference-time scaling Guidance & search G t ↑ G_{t}\\uparrow , C policy ↑ C_{\\mathrm{policy}}\\uparrow , Mem ↑ \\uparrow Multi-pass decoding improves quality/constraints but increases total evaluations and memory pressure. Section 6 Table 1: Compact taxonomy of inference-efficiency techniques for diffusion LLMs, organized by the latency decomposition in Eq. 1 . Each family is summarized by the primary terms it tends to affect (arrows indicate the typical direction at a matched quality target), and the last column points to the section where we discuss representative methods, trade-offs, and evaluation considerations in detail. This survey makes three primary contributions: • We introduce a unified latency decomposition framework tailored to dLLMs, providing a rigorous basis for analyzing inference efficiency beyond nominal step counts. • We propose a structured taxonomy that categorizes acceleration techniques into algorithmic, architectural, and system-level optimizations, explicitly mapping them to the terms in our efficiency framework. • We establish best practices for reproducible benchmarking, covering latency, throughput, and memory measurement, and identify key open challenges at the intersection of algorithms and systems. The remainder of this survey is organized as follows. We begin by reviewing the fundamentals of discrete diffusion decoding (Section 2 ) and presenting our latency decomposition framework (Section 3 ). We then survey acceleration methods, grouped into algorithmic innovations (Section 4 ), architectural and system optimizations (Section 5 ), and inference-time scaling strategies (Section 6 ). Finally, we provide a practitioner’s guide for interpreting efficiency claims and mapping objectives to the levers in Eq. ( 1 ) (Section 7 ), and discuss future research directions (Section 8 )."
+      },
+      {
+        "id": "S2",
+        "heading": "2 Background: Discrete Diffusion Decoding for Language",
+        "level": 1,
+        "text": "This section reviews essential mechanics and notation of discrete diffusion models needed for our inference-time efficiency discussion. We focus on the common masked discrete diffusion setting, since it induces an explicit refinement loop with repeated Transformer evaluations which is the primary bottleneck addressed by recent acceleration methods."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px1",
+        "heading": "Setup and notation.",
+        "level": 4,
+        "text": "Let 𝒱 \\mathcal{V} be a vocabulary and let 𝐱 = ( x 1 , … , x L ) ∈ 𝒱 L \\mathbf{x}=(x_{1},\\dots,x_{L})\\in\\mathcal{V}^{L} denote a length- L L generated span, typically conditioned on a prompt or context 𝐜 \\mathbf{c} . When discussing inference cost, we distinguish the generated length L L from the total length processed by the model per evaluation, L in L_{\\mathrm{in}} (e.g., prompt length plus the generated span). Discrete diffusion introduces a sequence of states 𝐱 T , 𝐱 T − 1 , … , 𝐱 0 \\mathbf{x}_{T},\\mathbf{x}_{T-1},\\ldots,\\mathbf{x}_{0} , where larger t t indicates heavier corruption; 𝐱 0 \\mathbf{x}_{0} is the final output and 𝐱 T \\mathbf{x}_{T} is commonly an all- [MASK] template. We write ℳ t ⊆ { 1 , … , L } \\mathcal{M}_{t}\\subseteq\\{1,\\dots,L\\} for the masked positions at step t t . A standard forward corruption in this setting is absorbing masking: as t t increases, a subset of positions is replaced by [MASK] , yielding a Markov chain over discrete states Austin et al. (2021) . A corruption schedule controls how the expected mask ratio evolves with t t , which determines how much information remains visible at intermediate states. Given a partially corrupted sequence 𝐱 t \\mathbf{x}_{t} and condition 𝐜 \\mathbf{c} , the denoising model predicts token distributions, often for all positions even if the loss is applied only on masked positions Sahoo et al. (2024) . For our purposes, the key operational point is that inference repeatedly evaluates the model under changing corruption patterns, and each evaluation typically processes a sequence of length L in L_{\\mathrm{in}} ."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px2",
+        "heading": "Reverse-time decoding and update sparsity.",
+        "level": 4,
+        "text": "At inference time, decoding starts from 𝐱 T \\mathbf{x}_{T} (often all [MASK] ) and iteratively refines toward 𝐱 0 \\mathbf{x}_{0} . A generic reverse step from 𝐱 t \\mathbf{x}_{t} to 𝐱 t − 1 \\mathbf{x}_{t-1} consists of: (1) Predict: run the model on 𝐱 t \\mathbf{x}_{t} and 𝐜 \\mathbf{c} to obtain per-position token distributions; (2) Select: choose an update set 𝒰 t ⊆ ℳ t \\mathcal{U}_{t}\\subseteq\\mathcal{M}_{t} (which masked positions to fill or revise); (3) Commit: sample or take arg ⁡ max \\arg\\max on 𝒰 t \\mathcal{U}_{t} to form 𝐱 t − 1 \\mathbf{x}_{t-1} , optionally allowing remasking or other corrections. When | 𝒰 t | |\\mathcal{U}_{t}| is large, many tokens are updated in parallel, which is the main pathway to potential speedups over left-to-right AR decoding. Although the model may be evaluated on the full sequence, many practical schedules and policies change only a subset of positions per step. Let Δ t ⊆ { 1 , … , L } \\Delta_{t}\\subseteq\\{1,\\dots,L\\} denote the positions whose token values actually change between steps t t and t − 1 t{-}1 (often Δ t ⊆ 𝒰 t \\Delta_{t}\\subseteq\\mathcal{U}_{t} ). When | Δ t | ≪ L |\\Delta_{t}|\\ll L , the trajectory exhibits update sparsity , a property exploited by both adaptive scheduling/policy choices and diffusion-aware reuse mechanisms surveyed later. However, quantifying the actual speedups from these techniques requires disentangling multiple interacting factors such as step count, per-step compute, and systems overhead, which motivates the latency decomposition framework we introduce next. Workload B , L B,L Init 𝐱 T \\mathbf{x}_{T} all [MASK] Policy / schedule C policy C_{\\mathrm{policy}} Model eval(s) G t ⋅ C fwd G_{t}\\cdot C_{\\mathrm{fwd}} Commit / update 𝐱 t → 𝐱 t − 1 \\mathbf{x}_{t}\\!\\to\\!\\mathbf{x}_{t-1} Output 𝐱 0 \\mathbf{x}_{0} repeat t = T , … , 1 t=T,\\dots,1 Diffusion-aware cache / reuse (Mem ↑ \\uparrow , latency ↓ \\downarrow ) Systems / serving overhead C sys ​ ( L in , B ) C_{\\mathrm{sys}}(L_{\\mathrm{in}},B) Figure 1: End-to-end inference schematic for masked/discrete diffusion decoding and the latency terms in Eq. 1 . The reverse-time refinement loop (repeat t = T , … , 1 t=T,\\dots,1 ) alternates lightweight policy/schedule decisions ( C policy C_{\\mathrm{policy}} ) and G t G_{t} model evaluations (each with cost C fwd C_{\\mathrm{fwd}} , dependent on the processed length L in L_{\\mathrm{in}} and batch size B B ) to update 𝐱 t → 𝐱 t − 1 \\mathbf{x}_{t}\\!\\to\\!\\mathbf{x}_{t-1} . Diffusion-aware caching/reuse can reduce redundant per-step computation or orchestration at the cost of higher memory, while systems/serving overhead C sys ​ ( L in , B ) C_{\\mathrm{sys}}(L_{\\mathrm{in}},B) applies to the entire request."
+      },
+      {
+        "id": "S3",
+        "heading": "3 Latency Decomposition and Measuring Inference Efficiency",
+        "level": 1,
+        "text": "Efficiency claims for diffusion-based LLM inference are easy to misinterpret. In masked dLLMs, the refinement step count T T is a coarse proxy. However, wall-clock latency depends on how many full-sequence model evaluations are executed, how expensive each evaluation is under the chosen hardware/precision/length/batch regime, and how much overhead arises from scheduling policies and serving systems. This section introduces a compact decomposition that we use as a unifying lens throughout the survey."
+      },
+      {
+        "id": "S3.SS0.SSS0.Px1",
+        "heading": "Latency decomposition.",
+        "level": 4,
+        "text": "Consider conditional generation under prompt/context 𝐜 \\mathbf{c} with batch size B B and generated span length L L . Let L in L_{\\mathrm{in}} denote the total sequence length processed per model evaluation, typically prompt length plus the generated span. Most masked/discrete decoders run an iterative loop for T T refinement steps, and each step typically performs at least one full-sequence model evaluation. Moreover, inference-time mechanisms such as guidance or deliberate compute scaling can require multiple evaluations per nominal step Schiff et al. (2025) ; Dang et al. (2025) . We decompose end-to-end latency as: Latency ⁡ ( L in , B ) ≈ ∑ t = 1 T ( G t ⋅ C fwd ​ ( L in , B ) + C policy ​ ( t , L ) ) + C sys ​ ( L in , B ) , \\begin{split}\\mathrm{Latency}(L_{\\mathrm{in}},B)&\\approx\\sum_{t=1}^{T}\\Big(G_{t}\\cdot C_{\\mathrm{fwd}}(L_{\\mathrm{in}},B)+C_{\\mathrm{policy}}(t;L)\\Big)\\\\ &\\qquad\\qquad+C_{\\mathrm{sys}}(L_{\\mathrm{in}},B),\\end{split} (1) where C fwd ​ ( L in , B ) C_{\\mathrm{fwd}}(L_{\\mathrm{in}},B) is the cost of one model forward pass; G t ≥ 1 G_{t}\\geq 1 is the number of forward passes executed at step t t (capturing multi-pass decoding); C policy ​ ( t , L ) C_{\\mathrm{policy}}(t;L) captures schedule/policy overhead (e.g., update-set selection, remasking, stopping); and C sys ​ ( L in , B ) C_{\\mathrm{sys}}(L_{\\mathrm{in}},B) captures systems overhead such as kernel dispatch, memory movement, cache management, and framework orchestration, which can be substantial in interactive and microbatching regimes Ma et al. (2025b) ; Fan et al. (2025) . We also define the total number of model evaluations as N fwd ≜ ∑ t = 1 T G t N_{\\mathrm{fwd}}\\triangleq\\sum_{t=1}^{T}G_{t} . Equation ( 1 ) clarifies that “reducing T T ” is only one lever. Speedups can come from reducing T T (fewer refinement iterations), reducing N fwd N_{\\mathrm{fwd}} (less multi-pass compute), lowering C fwd C_{\\mathrm{fwd}} (architectural/numerical improvements), lowering C policy C_{\\mathrm{policy}} (lighter scheduling and fewer synchronizations), or lowering C sys C_{\\mathrm{sys}} (serving and orchestration optimizations). Table 1 summarizes how major technique families map to these terms, and Figure 1 shows where each cost arises in the decoding pipeline. Common pitfalls include treating T T as a speed proxy without accounting for N fwd N_{\\mathrm{fwd}} , using ambiguous “tokens/sec” definitions, and timing without a consistent end-to-end protocol (warmup, synchronization, and clear inclusion/exclusion of host overhead). In the remainder of the survey, we organize acceleration methods by which terms in Eq. ( 1 ) they primarily target, making trade-offs explicit."
+      },
+      {
+        "id": "S4",
+        "heading": "4 Algorithmic Efficiency: Reducing T T and N fwd N_{\\mathrm{fwd}}",
+        "level": 1,
+        "text": "Algorithmic acceleration methods primarily reduce inference latency by decreasing the refinement iterations T T and/or the total number of model evaluations N fwd = ∑ t = 1 T G t N_{\\mathrm{fwd}}=\\sum_{t=1}^{T}G_{t} in Eq. 1 . They modify the sampling trajectory —the schedule, the update policy, or the decoding algorithm—rather than the model kernels or serving stack. In practice, realized gains depend not only on T T but also on policy overhead C policy C_{\\mathrm{policy}} and synchronization costs (Section 3 )."
+      },
+      {
+        "id": "S4.SS1",
+        "heading": "4.1 Advanced Schedules & Policies",
+        "level": 2,
+        "text": "Schedules control the corruption level across steps, while policies decide which positions to update and when to stop. Both determine how much parallel progress each step makes, and thus how small T T can be at a fixed quality target."
+      },
+      {
+        "id": "S4.SS1.SSS1",
+        "heading": "4.1.1 Non-uniform, dilated, and jump schedules",
+        "level": 3,
+        "text": "Reducing T T can be achieved by reallocating steps non-uniformly along the reverse-time trajectory, e.g., skipping/dilating portions while maintaining stable refinement Luxembourg et al. (2025) ; Amin et al. (2025) . Related work studies faster discrete diffusion solvers or higher-order updates that approximate longer trajectories with fewer evaluations Chen et al. (2024) ; Ren et al. (2025) . For meaningful comparisons, the mapping from “nominal steps” to actual evaluation count (including multi-stage updates) should be explicit, since it affects both T T and N fwd N_{\\mathrm{fwd}} ."
+      },
+      {
+        "id": "S4.SS1.SSS2",
+        "heading": "4.1.2 Confidence/entropy-driven unmasking and early exit",
+        "level": 3,
+        "text": "Adaptive policies use uncertainty signals (probability, entropy, margin) to choose update sets 𝒰 t \\mathcal{U}_{t} and concentrate computation on difficult positions Mohamed et al. (2025) ; Ben-Hamu et al. (2025) . Training-free variable-length denoising or early stopping further reduces the average step count by terminating when confidence criteria are met Li et al. (2025c) . These methods can introduce nontrivial C policy C_{\\mathrm{policy}} (scoring/sorting/thresholding) and implementation-sensitive overheads; thus, reporting should include N fwd N_{\\mathrm{fwd}} and step-count distributions (e.g., percentiles), not only mean T T ."
+      },
+      {
+        "id": "S4.SS1.SSS3",
+        "heading": "4.1.3 Learned unmasking policies",
+        "level": 3,
+        "text": "Learned policies predict which positions to update (or when to stop) via supervised learning or policy-gradient/RL objectives Jazbec et al. (2025) ; Wang et al. (2025a) . They can improve the quality–latency frontier, but should be reported with (i) the policy feature set, (ii) any extra model calls, and (iii) an ablation isolating policy overhead from gains due to fewer evaluations."
+      },
+      {
+        "id": "S4.SS2",
+        "heading": "4.2 Speculative & Parallel Decoding",
+        "level": 2,
+        "text": "Decoding-algorithm changes can reduce the effective expensive computation per sequence by enabling larger jumps in sequence space or amortizing strong-model calls via verification. In Eq. 1 , these methods target T ↓ T\\downarrow and/or reduce expensive evaluations, but the net gain depends on acceptance and orchestration cost."
+      },
+      {
+        "id": "S4.SS2.SSS1",
+        "heading": "4.2.1 Draft-and-verify (speculative) diffusion decoding",
+        "level": 3,
+        "text": "Speculative diffusion decoding produces candidate updates with a cheaper mechanism and verifies/corrects them with a stronger denoiser Christopher et al. (2025) ; Li et al. (2025a) ; Gao et al. (2025) . Speedups depend on acceptance rate and the relative cost of draft vs verification, so compute accounting should separate draft and verify evaluations and report acceptance statistics alongside end-to-end latency."
+      },
+      {
+        "id": "S4.SS2.SSS2",
+        "heading": "4.2.2 Block / set decoding and structured parallel updates",
+        "level": 3,
+        "text": "Block/set decoding updates structured groups of tokens per iteration, effectively interpolating between AR and fully parallel refinement Gat et al. (2025) ; Arriola et al. (2025a) . These methods can reduce iterations at matched quality, but may increase per-step decision complexity; evaluation should clarify how the structure changes Δ t \\Delta_{t} and whether full-length L in L_{\\mathrm{in}} reprocessing is required each step."
+      },
+      {
+        "id": "S4.SS2.SSS3",
+        "heading": "4.2.3 Hybrid diffusion–autoregressive decoding",
+        "level": 3,
+        "text": "Hybrid decoders combine diffusion refinement with autoregressive components, e.g., diffusion for global proposals and AR for final emission Li et al. (2025b) ; Liu et al. (2025) . Because different modules may dominate runtime under different regimes, results should state which module dominates compute and how L in L_{\\mathrm{in}} differs across modules."
+      },
+      {
+        "id": "S4.SS3",
+        "heading": "4.3 Distillation & Consistency",
+        "level": 2,
+        "text": "Distillation-based methods reduce inference cost by shifting work to training, aiming to shrink T T toward a small constant without increasing G t G_{t} ."
+      },
+      {
+        "id": "S4.SS3.SSS1",
+        "heading": "4.3.1 Step / sampler distillation",
+        "level": 3,
+        "text": "Progressive and learnable sampler distillation compress multi-step sampling into fewer steps Salimans and Ho (2022) ; Fu et al. (2025) ; Hayakawa et al. (2025) . The main benefit is direct T ↓ T\\downarrow , while common caveats include sensitivity in calibration/controllability as trajectories become shorter."
+      },
+      {
+        "id": "S4.SS3.SSS2",
+        "heading": "4.3.2 Consistency-style objectives",
+        "level": 3,
+        "text": "Consistency objectives enable few-step (or direct) mapping from noisy templates to clean samples Song et al. (2023) ; Kim et al. (2025) . They target the dominant T ⋅ C fwd T\\cdot C_{\\mathrm{fwd}} term with minimal inference-time logic, but should be evaluated across step budgets to show graceful quality degradation as T T shrinks."
+      },
+      {
+        "id": "S4.SS3.SSS3",
+        "heading": "4.3.3 Self-distillation through time and unrolled generation",
+        "level": 3,
+        "text": "Self-distillation across steps and unrolled training encourage faster convergence in fewer iterations Savinov et al. (2022) ; Deschenaux and Gulcehre (2025) . From an efficiency lens, the key is robustness across workloads and decoding configurations, not only the smallest achievable T T ."
+      },
+      {
+        "id": "S5",
+        "heading": "5 Architectural & Systems Efficiency: Reducing C fwd C_{\\mathrm{fwd}} and C sys C_{\\mathrm{sys}}",
+        "level": 1,
+        "text": "Even with the same refinement iterations T T and evaluation count N fwd N_{\\mathrm{fwd}} , end-to-end latency in Eq. 1 can vary substantially across implementations and deployment regimes. This section focuses on lowering the per-evaluation cost C fwd ​ ( L in , B ) C_{\\mathrm{fwd}}(L_{\\mathrm{in}},B) and the request-level overhead C sys ​ ( L in , B ) C_{\\mathrm{sys}}(L_{\\mathrm{in}},B) . A key difference from autoregressive serving is that masked diffusion decoding repeatedly evaluates a (typically) full-sequence Transformer under gradually changing token patterns, which creates both opportunities (reuse across similar steps) and challenges (cache invalidation, orchestration overhead, memory pressure)."
+      },
+      {
+        "id": "S5.SS1",
+        "heading": "5.1 Dynamic Compute & Sparsity",
+        "level": 2,
+        "text": "Architectural and numerical optimizations primarily target C fwd C_{\\mathrm{fwd}} (and sometimes peak memory), aiming to make each refinement evaluation cheaper. Unlike Section 4 , these methods do not necessarily reduce T T , but can yield large gains when N fwd N_{\\mathrm{fwd}} remains nontrivial."
+      },
+      {
+        "id": "S5.SS1.SSS1",
+        "heading": "5.1.1 Sparse / structured computation for diffusion decoding",
+        "level": 3,
+        "text": "Because diffusion decoding revisits similar intermediate states across steps, several works investigate sparsity patterns tailored to diffusion LMs, e.g., sparse attention mechanisms to reduce attention cost and memory footprint Wang et al. (2025c) . The practical benefit depends strongly on kernel maturity and how sparsity interacts with batching and sequence length; thus, wall-clock latency (not only FLOPs) should be reported under the intended runtime stack."
+      },
+      {
+        "id": "S5.SS1.SSS2",
+        "heading": "5.1.2 Lightweight denoisers and decoding architectures",
+        "level": 3,
+        "text": "Another route is to reduce C fwd C_{\\mathrm{fwd}} via architectural choices that maintain refinement behavior with lower per-step cost, such as convolutional decoding or alternative decoder structures for diffusion language modeling Seo et al. (2025) ; Arriola et al. (2025b) . In practice, such designs should be evaluated together with the decoding configuration (steps/policy), since architectural changes can shift where the bottleneck lies (compute vs memory bandwidth vs orchestration)."
+      },
+      {
+        "id": "S5.SS1.SSS3",
+        "heading": "5.1.3 Numerics and quantization",
+        "level": 3,
+        "text": "Quantization and reduced-precision execution can lower both compute and memory cost per evaluation, but require calibration that matches the diffusion decoding distribution across timesteps and masking patterns Xu and Yang (2025) ; Zhang et al. (2025b) . For efficiency claims, it is important to report the precision mode, any accuracy recovery tricks, and whether the timed measurement includes dequantization/casting overheads inside the forward path."
+      },
+      {
+        "id": "S5.SS2",
+        "heading": "5.2 Diffusion-Aware Caching (KV & Activation)",
+        "level": 2,
+        "text": "Caching and reuse aim to exploit redundancy across refinement steps, reducing effective C fwd C_{\\mathrm{fwd}} and sometimes C sys C_{\\mathrm{sys}} at the cost of higher memory. Unlike autoregressive decoding, diffusion decoding revises token values across the sequence; thus, naive KV caching can become stale and requires diffusion-specific refresh and eviction strategies."
+      },
+      {
+        "id": "S5.SS2.SSS1",
+        "heading": "5.2.1 KV caching across refinement steps",
+        "level": 3,
+        "text": "A growing line of work adapts KV caching to diffusion LMs by selectively reusing attention states across steps while accounting for token revisions Ma et al. (2025a) ; Wu et al. (2025) ; Hu et al. (2025) ; Nguyen-Tri et al. (2025) . These approaches can reduce repeated attention computation when consecutive states are similar, but they introduce a clear memory–speed trade-off and can shift the bottleneck to memory bandwidth and cache management."
+      },
+      {
+        "id": "S5.SS2.SSS2",
+        "heading": "5.2.2 Selective refresh and cache eviction",
+        "level": 3,
+        "text": "Because only a subset of token values often changes per step (Section 2 ), caching can be made more effective by refreshing only where updates occur and evicting cache entries predicted to be unhelpful Huang et al. (2025a) ; Song et al. (2025) ; Jiang et al. (2025) ; Bu et al. (2025) . A key evaluation point is whether caching remains beneficial under realistic serving regimes (microbatching, long-context prompts, and concurrent requests), where memory pressure and fragmentation can dominate."
+      },
+      {
+        "id": "S5.SS2.SSS3",
+        "heading": "5.2.3 Reporting implications",
+        "level": 3,
+        "text": "For diffusion-aware caching, a minimal report should include: (i) peak GPU memory with and without caching, (ii) wall-clock latency and throughput under matched L in L_{\\mathrm{in}} and concurrency, and (iii) quality at the exact caching configuration. Because caching can also change C sys C_{\\mathrm{sys}} (extra bookkeeping, synchronization, or memory movement), timing should follow an end-to-end protocol (Section 3 ) rather than isolated kernel timings."
+      },
+      {
+        "id": "S5.SS3",
+        "heading": "5.3 System-Level Optimization",
+        "level": 2,
+        "text": "System-level optimizations target C sys ​ ( L in , B ) C_{\\mathrm{sys}}(L_{\\mathrm{in}},B) by reducing orchestration overheads and improving utilization across the repeated refinement loop. These effects are often most visible for batch-1 latency and interactive settings, where dispatch and synchronization overheads can become comparable to compute."
+      },
+      {
+        "id": "S5.SS3.SSS1",
+        "heading": "5.3.1 Diffusion-aware inference frameworks",
+        "level": 3,
+        "text": "Dedicated inference frameworks for diffusion LMs aim to streamline the refinement loop, manage caching, and reduce per-step overheads that do not scale with model FLOPs Ma et al. (2025b) . From an efficiency perspective, the systems should be evaluated across batch sizes and concurrency levels to show when C sys C_{\\mathrm{sys}} dominates versus when compute dominates."
+      },
+      {
+        "id": "S5.SS3.SSS2",
+        "heading": "5.3.2 Production serving and memory dynamics",
+        "level": 3,
+        "text": "Production-oriented work highlights that diffusion decoding can create distinct memory and orchestration challenges due to repeated full-sequence evaluations, cache growth, and step-wise control flow Fan et al. (2025) . Accordingly, system claims should report not only average latency but also tail latency (p95) and memory headroom under realistic request mixes."
+      },
+      {
+        "id": "S6",
+        "heading": "6 Inference-Time Scaling: The G t G_{t} Factor",
+        "level": 1,
+        "text": "Many recent improvements in diffusion-based language generation come from inference-time scaling : deliberately spending more computation at test time to improve quality, controllability, or constraint satisfaction. In Eq. 1 , these methods typically increase the per-step evaluation multiplier G t G_{t} (hence N fwd N_{\\mathrm{fwd}} ), and often also increase C policy C_{\\mathrm{policy}} and memory footprint due to maintaining additional trajectories, scores, or caches. As a result, step counts alone can be especially misleading in this regime: two decoders with the same T T can differ substantially in wall-clock latency and peak memory depending on the scaling strategy."
+      },
+      {
+        "id": "S6.SS1",
+        "heading": "6.1 Guidance as Multi-Pass Decoding",
+        "level": 2,
+        "text": "Guidance mechanisms improve generation quality or enforce preferences by altering the reverse-time update using additional signals, often requiring multiple model evaluations per refinement step. In masked/discrete diffusion, simple guidance variants can be implemented in a way that resembles classifier-free guidance (or related conditioning tricks), which naturally introduces a multi-pass structure Schiff et al. (2025) . Recent work also explores adaptive guidance rules that modulate the guidance strength or update pattern based on uncertainty, which can improve the quality–compute trade-off but makes G t G_{t} and C policy C_{\\mathrm{policy}} configuration-dependent Li et al. (2025d) ; Ye et al. (2025a) . Remasking-based scaling can be viewed similarly: additional refinement passes (or repeated mask-and-refine cycles) increase effective compute beyond the nominal step count Wang et al. (2025b) . From an efficiency standpoint, guidance should be reported by explicitly stating: (i) how many forwards are executed per step (the resulting G t G_{t} schedule), (ii) whether evaluations are performed on the full length L in L_{\\mathrm{in}} , and (iii) the exact operating point (guidance strength / masking thresholds) at which quality is measured. Without this, comparisons that only match T T can significantly under- or over-estimate runtime."
+      },
+      {
+        "id": "S6.SS2",
+        "heading": "6.2 Search and Trajectory-Level Scaling",
+        "level": 2,
+        "text": "A second scaling family treats diffusion decoding as an implicit search problem over refinement trajectories. Instead of committing to a single reverse chain, these methods explore multiple candidates and select or resample trajectories based on scores, rewards, or constraints. This often yields strong gains in alignment or constraint satisfaction, but increases compute roughly with the breadth/particles/expansions used, directly inflating N fwd N_{\\mathrm{fwd}} ."
+      },
+      {
+        "id": "S6.SS2.SSS1",
+        "heading": "6.2.1 Particle / SMC-style scaling",
+        "level": 3,
+        "text": "Particle-based methods (e.g., Particle Gibbs sampling) scale computation by maintaining and resampling a set of candidate trajectories, using the additional compute to better explore the posterior over discrete sequences Dang et al. (2025) . In Eq. 1 , the dominant effect is G t ↑ G_{t}\\uparrow (multiple evaluations per step and/or per particle), with additional policy overhead from resampling and scoring."
+      },
+      {
+        "id": "S6.SS2.SSS2",
+        "heading": "6.2.2 Tree search and constrained inference",
+        "level": 3,
+        "text": "Tree-search formulations explicitly branch on promising refinements and evaluate candidates with search policies, e.g., MCTS layered on top of diffusion decoding Huang et al. (2025b) . Related work studies constrained decoding objectives for discrete diffusion, where the scaling budget is spent on ensuring constraints or optimizing utility under constraints Cardei et al. (2025) ; Suresh et al. (2025) . Diffusion tree sampling provides another scalable framework for inference-time alignment by expanding candidate refinement paths Jain et al. (2025) . These approaches can be effective when constraints are hard to satisfy with a single-pass decoder, but their efficiency is highly regime-dependent: branching increases memory pressure (multiple partial states and caches) and can interact strongly with serving-level overheads (Section 5 )."
+      },
+      {
+        "id": "S7",
+        "heading": "7 Practitioner’s Guide",
+        "level": 1,
+        "text": "This section translates the surveyed techniques into a practical workflow grounded in Eq. ( 1 ). We do not introduce a new benchmark nor report new measurements; instead, we summarize diffusion-specific knobs that determine inference-time compute and explain how to interpret efficiency claims beyond nominal step counts."
+      },
+      {
+        "id": "S7.SS0.SSS0.Px1",
+        "heading": "Core principle.",
+        "level": 4,
+        "text": "In diffusion-based decoding, the refinement budget T T alone is not a reliable proxy for speed. End-to-end latency depends on the total number of model evaluations N fwd = ∑ t = 1 T G t N_{\\mathrm{fwd}}=\\sum_{t=1}^{T}G_{t} , the per-evaluation cost, and overhead from schedule/policy logic and iterative control flow (Eq. ( 1 )). Accordingly, when comparing methods, it is essential to make the effective compute budget explicit (via T T and G t G_{t} ) and to compare at matched quality operating points."
+      },
+      {
+        "id": "S7.SS1",
+        "heading": "7.1 A Workflow Grounded in Eq. ( 1 )",
+        "level": 2,
+        "text": "We recommend the following workflow when selecting and evaluating acceleration methods."
+      },
+      {
+        "id": "S7.SS1.SSS0.Px1",
+        "heading": "Step 1: Fix the workload and objective.",
+        "level": 4,
+        "text": "Specify prompt length and generated length (or their distributions), and define the processed length per model evaluation L in L_{\\mathrm{in}} . Clarify the objective: latency-sensitive generation, throughput-oriented serving, or quality/constraint-critical decoding."
+      },
+      {
+        "id": "S7.SS1.SSS0.Px2",
+        "heading": "Step 2: Make the compute budget explicit in diffusion terms.",
+        "level": 4,
+        "text": "Report the refinement budget T T together with the per-step evaluation multiplier G t G_{t} (hence N fwd = ∑ t G t N_{\\mathrm{fwd}}=\\sum_{t}G_{t} ). If the method introduces multi-pass evaluation (e.g., guidance, verification, particles, or branching), state how G t G_{t} changes and what the effective evaluation count becomes."
+      },
+      {
+        "id": "S7.SS1.SSS0.Px3",
+        "heading": "Step 3: Choose levers that target the dominant term(s).",
+        "level": 4,
+        "text": "Use Eq. ( 1 ) as a diagnostic lens: methods in Section 4 primarily reduce iterations ( T T ) and/or evaluations ( N fwd N_{\\mathrm{fwd}} ); methods in Section 5 reduce per-evaluation cost via numerics, structured compute, and reuse/caching across steps; methods in Section 6 often increase G t G_{t} (thus N fwd N_{\\mathrm{fwd}} ) to improve quality or satisfy constraints. In practice, the most meaningful comparison is to isolate which term(s) changed and what trade-offs were introduced."
+      },
+      {
+        "id": "S7.SS1.SSS0.Px4",
+        "heading": "Step 4: Compare on a small matched-quality frontier.",
+        "level": 4,
+        "text": "When a method exposes a compute–quality knob (steps, early-exit thresholds, guidance strength, number of particles/branches), reporting a few operating points makes the trade-off explicit and avoids comparisons at mismatched operating points."
+      },
+      {
+        "id": "S7.SS1.SSS0.Px5",
+        "heading": "Quick reference.",
+        "level": 4,
+        "text": "Table 2 provides a compact map from common goals (latency, throughput, and quality-critical decoding) to the corresponding levers in Eq. ( 1 ) and the survey sections where representative methods are discussed. Bottleneck / Goal Recommended Approach Sec. Latency-Sensitive Minimize T T & C sys C_{\\mathrm{sys}} (Batch ≈ \\approx 1, Chat) ⋅ \\cdot Advanced Schedules § 4.1 ⋅ \\cdot System/Kernel Opt. § 5.3 Throughput-Bound Minimize C fwd C_{\\mathrm{fwd}} (Mem trade-off) (Serving, Offline) ⋅ \\cdot Diffusion-aware Cache § 5.2 ⋅ \\cdot Sparsity / Quantization § 5.1 Quality-Critical Scale G t G_{t} (Multi-pass) (Reasoning, Math) ⋅ \\cdot Guidance / Re-ranking § 6 ⋅ \\cdot Verify w/ cheap Draft § 4.2 Table 2: Decision matrix mapping deployment scenarios to primary efficiency factors in Eq. 1 . We identify the dominant bottleneck for each case, including latency, throughput, and quality, and recommend corresponding acceleration families discussed in this survey."
+      },
+      {
+        "id": "S7.SS2",
+        "heading": "7.2 Diffusion-Specific Notes for Interpreting Efficiency Claims",
+        "level": 2,
+        "text": "Most ambiguity in efficiency comparisons for diffusion decoding comes from under-specifying the refinement trajectory and the number of model evaluations. The following diffusion-specific items are often sufficient to make comparisons interpretable without prescribing a particular measurement protocol: • Trajectory and stopping: T T , the schedule type, and any early-exit criteria. • Evaluation accounting: G t G_{t} (or its description) and N fwd = ∑ t G t N_{\\mathrm{fwd}}=\\sum_{t}G_{t} , especially when guidance/search/verification is used. • Speculative or hybrid pipelines: evaluation counts per module (draft vs verify; diffusion vs AR) and acceptance/rejection statistics when applicable. • Update sparsity (recommended): a compact statistic such as the average fraction of changed positions | Δ t | / L |\\Delta_{t}|/L , since many reuse/caching mechanisms implicitly rely on sparsity across refinement steps (Section 2 )."
+      },
+      {
+        "id": "S7.SS3",
+        "heading": "7.3 Common Pitfalls for Interpreting Speedups",
+        "level": 2,
+        "text": "Finally, we highlight recurring sources of ambiguity that can make “speedup” claims hard to interpret: • T T reported without G t G_{t} : identical step counts can correspond to very different compute budgets when multi-pass decoding is used. • Multi-pass logic hidden in a single iteration: methods that pack multiple evaluations into one nominal step should make the effective N fwd N_{\\mathrm{fwd}} explicit. • Comparisons at mismatched operating points: when a method trades compute for quality (or vice versa), reporting a small frontier is often more informative than a single tuned point. Taken together, making ( T , G t , N fwd ) (T,\\,G_{t},\\,N_{\\mathrm{fwd}}) explicit and tying claimed gains back to Eq. ( 1 ) is typically sufficient to keep diffusion inference efficiency comparisons robust and interpretable."
+      },
+      {
+        "id": "S8",
+        "heading": "8 Conclusion & Open Challenges",
+        "level": 1,
+        "text": "Diffusion-based large language models (dLLMs) offer a fundamentally different inference interface from autoregressive decoding: generation proceeds by iterative refinement with parallel updates over multiple token positions. This creates a genuine opportunity for faster-than-AR decoding, but practical speedups require inference mechanisms that turn parallel updates into fewer effective model evaluations, cheaper evaluations, and lower iteration overhead. This survey focused on that inference-efficiency question. We organized the acceleration landscape into three complementary axes. First, algorithmic techniques modify the refinement trajectory—schedules, update policies, decoding algorithms, and distillation—to reduce the iteration budget T T and/or the effective evaluation count N fwd N_{\\mathrm{fwd}} (Section 4 ). Second, architectural and systems techniques reduce the per-evaluation cost and amortize redundant computation across steps via numerics, structured compute, and diffusion-aware reuse (Section 5 ). Third, inference-time scaling methods deliberately increase compute (often via multi-pass evaluation) to improve quality or satisfy constraints, making the compute–quality trade-off explicit (Section 6 ). A unifying lesson across these threads is that efficiency gains in dLLM inference are rarely attributable to a single knob. Step reduction is most effective when it does not silently increase multi-pass computation ( G t G_{t} ), policy overhead, or sensitivity to decoding hyperparameters. Reuse and caching can yield substantial wall-clock gains when consecutive states are similar, but they introduce explicit memory trade-offs and require diffusion-specific refresh/eviction logic. Finally, scaling strategies can be powerful in quality-critical settings, but their benefits are meaningful only when the added evaluation budget is accounted for in the same currency as the base decoder (Eq. ( 1 )). To keep these trade-offs interpretable, we distilled a lightweight practitioner workflow and diffusion-specific disclosure items in Section 7 . Open challenges. We highlight several directions that, in our view, will most strongly shape the next phase of progress in accelerating diffusion-based language inference: • Few-step decoding without brittle quality or control. Distillation and consistency-style approaches can shrink T T dramatically, but robustness across prompts, lengths, and controllability settings remains uneven. An open problem is to achieve few-step generation that degrades gracefully with step budgets and remains well-calibrated under diverse decoding policies (Section 4.3 ). • Predictable acceleration from adaptive schedules and policies. Adaptive unmasking and early-exit policies can reduce average compute, yet their benefits can be eroded by policy overhead or instability across workloads. Designing low-overhead policies with predictable speed–quality behavior (and clear failure modes) is central to making trajectory-level acceleration reliable (Section 4.1 ). • Diffusion-aware reuse with correctness guarantees under token revisions. Reuse mechanisms must remain valid when tokens are revised across steps. Better criteria for cache validity, selective refresh, and error control—especially under long contexts and memory constraints—are needed to make reuse both fast and dependable (Section 5.2 ). • Co-design of parallel updates and kernel-friendly execution. Many decoders exhibit update sparsity ( | Δ t | ≪ L |\\Delta_{t}|\\ll L ), yet most implementations still execute near full-sequence computation. Bridging diffusion-specific structure to hardware- and compiler-friendly execution (e.g., structured sparsity and efficient partial updates) is key to converting theoretical parallelism into consistent wall-clock gains (Section 5.1 ). • Compute-adaptive scaling for reasoning and constraints. Guidance and search-based methods can improve quality, but they increase G t G_{t} and can interact strongly with the base trajectory. A promising direction is compute-adaptive scaling that allocates additional evaluations only when needed, while keeping the compute budget and its effect on quality transparent (Section 6 )."
+      },
+      {
+        "id": "S8.SS0.SSS0.Px1",
+        "heading": "Limitations of this survey.",
+        "level": 4,
+        "text": "This survey focuses on masked/discrete diffusion language models, where the refinement loop involves explicit token-level updates. Continuous-embedding approaches (e.g., Diffusion-LM Li et al. (2022) and its variants) operate in a fundamentally different latent space and involve distinct efficiency trade-offs that warrant separate treatment. Although this survey focuses on language generation, diffusion-style iterative refinement is also relevant to structured sequence domains such as time-series imputation and forecasting Alcaraz and Strodthoff (2023) . Recent work further applies large language diffusion models to time-series forecasting Pei et al. (2025) . Also, the field is evolving rapidly: many techniques surveyed here were published or released within the past year, and standardized benchmarks for dLLM inference efficiency remain lacking. As a result, direct comparisons across papers are often confounded by differences in model scale, evaluation protocol, and hardware configuration. While we have attempted to organize the literature through a unified framework (Eq. 1 ), we caution that reported speedups should be interpreted with attention to the specific experimental setup. Finally, we restrict our attention to inference-time efficiency. Training efficiency ( e.g., data efficiency and adaptation from pretrained AR models) is an important but orthogonal concern that we do not address in depth."
+      },
+      {
+        "id": "Sx1",
+        "heading": "Acknowledgments",
+        "level": 1,
+        "text": "This work was supported by the Institute for Information & communications Technology Planning & Evaluation (IITP) grants funded by the Korean government (MSIT) (RS-2019-II190075, Artificial Intelligence Graduate School Program (KAIST); RS-2025-02304967, AI Star Fellowship (KAIST); and RS-2024-00396828, Development of AI-based Low-Power 5G-A O-DU/O-CU; contribution rate: 33.3%)."
+      },
+      {
+        "id": "bib",
+        "heading": "References",
+        "level": 1,
+        "text": "Alcaraz and Strodthoff (2023) J. M. L. Alcaraz and N. Strodthoff Diffusion-based time series imputation and forecasting with structured state space models . TMLR . Cited by: §8 . Amin et al. (2025) A. N. Amin, N. Gruver, and A. G. Wilson Why Masking Diffusion Works: Condition on the Jump Schedule for Improved Discrete Diffusion . In NeurIPS , Cited by: §4.1.1 . Arriola et al. (2025a) M. Arriola, A. Gokaslan, J. T. Chiu, et al. Block Diffusion: Interpolating Between Autoregressive and Diffusion Language Models . In ICLR , Cited by: §4.2.2 . Arriola et al. (2025b) M. Arriola, Y. Schiff, H. Phung, A. Gokaslan, and V. Kuleshov Encoder-Decoder Diffusion Language Models for Efficient Training and Inference . In NeurIPS , Cited by: §5.1.2 . Austin et al. (2021) J. Austin, D. D. Johnson, J. Ho, D. Tarlow, and R. van den Berg Structured Denoising Diffusion Models in Discrete State-Spaces . In NeurIPS , Cited by: §1 , §2 . Ben-Hamu et al. (2025) H. Ben-Hamu, I. Gat, D. Severo, N. Nolte, and B. Karrer Accelerated Sampling from Masked Diffusion Models via Entropy Bounded Unmasking . In NeurIPS , Cited by: §4.1.2 . Bu et al. (2025) J. Bu, P. Ling, Y. Zhou, et al. DiCache: Let Diffusion Model Determine Its Own Cache . Note: arXiv Cited by: §5.2.2 . Cardei et al. (2025) M. Cardei, J. K. Christopher, T. Hartvigsen, Kailkhura, et al. Constrained Discrete Diffusion . In NeurIPS , Cited by: §6.2.2 . Chen et al. (2024) Z. Chen, H. Yuan, Y. Li, Y. Kou, J. Zhang, and Q. Gu Fast Sampling via Discrete Non-Markov Diffusion Models with Predetermined Transition Time . In NeurIPS , Cited by: §4.1.1 . Christopher et al. (2025) J. K. Christopher, B. R. Bartoldson, T. Ben-Nun, et al. Speculative Diffusion Decoding: Accelerating Language Generation through Diffusion . In NAACL , Cited by: §4.2.1 . Dang et al. (2025) M. Dang, J. Han, M. Xu, K. Xu, A. Srivastava, and S. Ermon Inference-Time Scaling of Diffusion Language Models with Particle Gibbs Sampling . Note: arXiv Cited by: §3 , §6.2.1 . Deschenaux and Gulcehre (2025) J. Deschenaux and C. Gulcehre Beyond Autoregression: Fast LLMs via Self-Distillation Through Time . In ICLR , Cited by: §4.3.3 . Fan et al. (2025) J. Fan, Y. Zhang, X. Li, and D. S. Nikolopoulos Taming the Memory Footprint Crisis: System Design for Production Diffusion LLM Serving . Note: arXiv Cited by: §3 , §5.3.2 . Fu et al. (2025) F. Fu, T. Guo, and Z. Liu Learnable Sampler Distillation for Discrete Diffusion Models . In NeurIPS , Cited by: §4.3.1 . Gao et al. (2025) Y. Gao, Z. Ji, Y. Wang, B. Qi, H. Xu, and L. Zhang Self Speculative Decoding for Diffusion Large Language Models . Note: arXiv Cited by: §4.2.1 . Gat et al. (2025) I. Gat, H. Ben-Hamu, M. Havasi, D. Haziza, J. Reizenstein, G. Synnaeve, D. Lopez-Paz, B. Karrer, and Y. Lipman Set Block Decoding is a Language Model Inference Accelerator . Note: arXiv Cited by: §4.2.2 . Hayakawa et al. (2025) S. Hayakawa, Y. Takida, M. Imaizumi, H. Wakaki, and Y. Mitsufuji Distillation of Discrete Diffusion through Dimensional Correlations . In ICML , Cited by: §4.3.1 . Hu et al. (2025) Z. Hu, J. Meng, Y. Akhauri, M. S. Abdelfattah, J. Seo, Z. Zhang, and U. Gupta FlashDLM: Accelerating Diffusion Language Model Inference via Efficient KV Caching and Guided Diffusion . Note: arXiv Cited by: §5.2.1 . Huang et al. (2025a) J. Huang, Y. Zhang, Y. Yang, B. Huang, B. Qi, D. Liu, and L. Zhang Mask Tokens as Prophet: Fine-Grained Cache Eviction for Efficient dLLM Inference . Note: arXiv Cited by: §5.2.2 . Huang et al. (2025b) Z. Huang K. Ramnath et al. Diffusion Language Model Inference with Monte Carlo Tree Search . Note: arXiv Cited by: §6.2.2 . Inception Labs et al. (2025) Inception Labs, S. Khanna, S. Kharbanda, et al. Mercury: Ultra-Fast Language Models Based on Diffusion . Note: arXiv Cited by: §1 . Jain et al. (2025) V. Jain, K. Sareen, M. Pedramfar, and S. Ravanbakhsh Diffusion Tree Sampling: Scalable inference-time alignment of diffusion models . In NeurIPS , Cited by: §6.2.2 . Jazbec et al. (2025) M. Jazbec T. X. Olausson et al. Learning Unmasking Policies for Diffusion Language Models . Note: arXiv Cited by: §4.1.3 . Jiang et al. (2025) Y. Jiang, Y. Cai, X. Luo, J. Fu, J. Wang, C. Liu, and X. Yang D ^2 Cache: Accelerating Diffusion-Based LLMs via Dual Adaptive Caching . Note: arXiv Cited by: §5.2.2 . Kim et al. (2025) M. Kim, C. Xu, C. Hooper, H. Singh, B. Athiwaratkun, C. Zhang, K. Keutzer, and A. Gholami CDLM: Consistency Diffusion Language Models For Faster Sampling . Note: arXiv Cited by: §4.3.2 . Li et al. (2025a) G. Li, Z. Fu, M. Fang, Q. Zhao, M. Tang, C. Yuan, and J. Wang DiffuSpec: Unlocking Diffusion Language Models for Speculative Decoding . Note: arXiv Cited by: §4.2.1 . Li et al. (2025b) J. Li, J. Guan, W. Wu, and C. Li ReFusion: A Diffusion Large Language Model with Parallel Autoregressive Decoding . Note: arXiv Cited by: §4.2.3 . Li et al. (2025c) J. Li, X. Dong, Y. Zang, Y. Cao, J. Wang, and D. Lin Beyond Fixed: Training-Free Variable-Length Denoising for Diffusion Large Language Models . Note: arXiv Cited by: §4.1.2 . Li et al. (2025d) P. Li S. Yan et al. Adaptive Classifier-Free Guidance via Dynamic Low-Confidence Masking . In NeurIPS , Cited by: §6.1 . Li et al. (2025e) T. Li, M. Chen, B. Guo, and Z. Shen A Survey on Diffusion Language Models . Note: arXiv Cited by: §1 . Li et al. (2022) X. L. Li, J. Thickstun, I. Gulrajani, P. Liang, and T. B. Hashimoto Diffusion-LM Improves Controllable Text Generation . In NeurIPS , Cited by: §8 . Liu et al. (2025) J. Liu, X. Dong, Z. Ye, R. Mehta, Y. Fu, V. Singh, J. Kautz, C. Zhang, and P. Molchanov TiDAR: Think in Diffusion, Talk in Autoregression . Note: arXiv Cited by: §4.2.3 . Lou et al. (2024) A. Lou, C. Meng, and S. Ermon Discrete Diffusion Modeling by Estimating the Ratios of the Data Distribution . In ICML , Cited by: §1 . Luxembourg et al. (2025) O. Luxembourg H. Permuter et al. Plan for Speed: Dilated Scheduling for Masked Diffusion Language Models . Note: arXiv Cited by: §4.1.1 . Ma et al. (2025a) X. Ma, R. Yu, G. Fang, and X. Wang dKV-Cache: The Cache for Diffusion Language Models . In NeurIPS , Cited by: §5.2.1 . Ma et al. (2025b) Y. Ma, L. Du, L. Wei, et al. dInfer: An Efficient Inference Framework for Diffusion Language Models . Note: arXiv Cited by: §3 , §5.3.1 . Mohamed et al. (2025) A. Mohamed, Y. Zhang, M. Vazirgiannis, and G. Shang Fast-Decoding Diffusion Language Models via Progress-Aware Confidence Schedules . Note: arXiv Cited by: §4.1.2 . Nguyen-Tri et al. (2025) Q. Nguyen-Tri, M. Ranjan, and Z. Shen Attention Is All You Need for KV Cache in Diffusion LLMs . Note: arXiv Cited by: §5.2.1 . Nie et al. (2025) S. Nie, F. Zhu, Z. You, et al. Large Language Diffusion Models . In NeurIPS , Cited by: §1 . Pei et al. (2025) Y. Pei, T. Ren, Y. Wang, Z. Sun, W. Ju, C. Chen, X. Hua, and X. Luo LEAF: large language diffusion model for time series forecasting . In EMNLP , Cited by: §8 . Ren et al. (2025) Y. Ren H. Chen et al. Fast Solvers for Discrete Diffusion Models: Theory and Applications of High-Order Algorithms . In NeurIPS , Cited by: §4.1.1 . Sahoo et al. (2024) S. S. Sahoo M. Arriola et al. Simple and Effective Masked Diffusion Language Models . In NeurIPS , Cited by: §1 , §2 . Salimans and Ho (2022) T. Salimans and J. Ho Progressive Distillation for Fast Sampling of Diffusion Models . In ICLR , Cited by: §4.3.1 . Savinov et al. (2022) N. Savinov, J. Chung, M. Binkowski, E. Elsen, and A. van den Oord Step-unrolled Denoising Autoencoders for Text Generation . In ICLR , Cited by: §4.3.3 . Schiff et al. (2025) Y. Schiff S. S. Sahoo et al. Simple Guidance Mechanisms for Discrete Diffusion Models . In ICLR , Cited by: §3 , §6.1 . Seo et al. (2025) Y. Seo, D. Lee, J. Kim, and J. Yeo Fast and Fluent Diffusion Language Models via Convolutional Decoding and Rejective Fine-tuning . In NeurIPS , Cited by: §5.1.2 . Song et al. (2023) Y. Song, P. Dhariwal, M. Chen, and I. Sutskever Consistency Models . In ICML , Cited by: §4.3.2 . Song et al. (2025) Y. Song, X. Liu, R. Li, Z. Liu, Z. Huang, Q. Guo, Z. He, and X. Qiu Sparse-dLLM: Accelerating Diffusion LLMs with Dynamic Cache Eviction . Note: arXiv Cited by: §5.2.2 . Suresh et al. (2025) T. Suresh, D. Banerjee, S. Ugare, S. Misailovic, and G. Singh DINGO: Constrained Inference for Diffusion LLMs . In NeurIPS , Cited by: §6.2.2 . Wang et al. (2025a) C. Wang, P. Rashidinejad, D. Su, et al. SPG: Sandwiched Policy Gradient for Masked Diffusion Language Models . Note: arXiv:2510.09541 Cited by: §4.1.3 . Wang et al. (2025b) G. Wang, Y. Schiff, S. S. Sahoo, and V. Kuleshov Remasking Discrete Diffusion Models with Inference-Time Scaling . In NeurIPS , Cited by: §6.1 . Wang et al. (2025c) Z. Wang, G. Fang, X. Ma, X. Yang, and X. Wang SparseD: Sparse Attention for Diffusion Language Models . Note: arXiv Cited by: §5.1.1 . Wu et al. (2025) C. Wu H. Zhang et al. Fast-dLLM: Training-free Acceleration of Diffusion LLM by Enabling KV Cache and Parallel Decoding . Note: arXiv Cited by: §5.2.1 . Xu and Yang (2025) C. Xu and D. Yang DLLMQuant: Quantizing Diffusion-based Large Language Models . Note: arXiv Cited by: §5.1.3 . Ye et al. (2025a) H. Ye, R. Kevin, and T. Molei What Exactly Does Guidance Do in Masked Discrete Diffusion Models . Note: arXiv:2506.10971 Cited by: §6.1 . Ye et al. (2025b) J. Ye, Z. Xie, L. Zheng, J. Gao, Z. Wu, X. Jiang, Z. Li, and L. Kong Dream 7B: Diffusion Large Language Models . Note: arXiv Cited by: §1 . Zhang et al. (2025a) L. Zhang L. Fang et al. A Survey on Parallel Text Generation: From Parallel Decoding to Diffusion Language Models . Note: arXiv Cited by: §1 . Zhang et al. (2025b) T. Zhang, Z. Li, X. Yan, H. Qin, Y. Guo, and Y. Zhang Quant-dLLM: Post-Training Extreme Low-Bit Quantization for Diffusion Large Language Models . Note: arXiv Cited by: §5.1.3 ."
+      }
+    ]
+  },
+  "text": "Accelerating Masked Diffusion Large Language Models: A Survey of Efficient Inference Techniques Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: arXiv.org perpetual non-exclusive license arXiv:2607.12829v1 [cs.LG] 14 Jul 2026 Accelerating Masked Diffusion Large Language Models: A Survey of Efficient Inference Techniques Daehoon Gwak Affiliation: KAIST AI Email: daehoon.gwak@kaist.ac.kr Minhyung Lee Affiliation: Yonsei University Email: jchoo@kaist.ac.kr Junwoo Park Affiliation: KAIST AI Jaegul Choo Affiliation: KAIST AI Abstract Diffusion large language models (dLLMs) offer a theoretical advantage in parallel generation over standard autoregressive models. However, parallel generation alone does not guarantee practical speedups. Realizing this efficiency requires specialized inference mechanisms, such as diffusion-aware caching and reuse. Consequently, as inference efficiency becomes a prerequisite for practical deployment, recent research has actively explored acceleration techniques across algorithms, architectures, and systems. However, rigorous comparisons remain difficult, as end-to-end latency stems from intricate trade-offs between algorithmic, architectural, and system-level factors that are often conflated in existing benchmarks. In this survey, we introduce a unified latency decomposition framework for dLLMs to disentangle these factors and analyze their impact on inference speed in real deployments. Guided by this framework, we categorize acceleration techniques along three axes covering algorithmic innovations, architectural and system optimizations, and inference-time scaling. Finally, we provide guidelines for reproducible benchmarking and highlight open challenges for realizing the full potential of parallel generation. 1 Introduction Autoregressive (AR) models remain the dominant paradigm for large language models. However, their inference cost scales linearly with the generated length. Specifically, producing L L tokens requires at least L L dependent decoding iterations. This sequential dependency is a fundamental barrier for latency-sensitive applications and high-throughput serving, motivating extensive research on parallel generation. Recently, Diffusion-based large language models (dLLMs) Nie et al. (2025) ; Ye et al. (2025b) ; Inception Labs et al. (2025) have emerged as a promising alternative. They replace strict left-to-right decoding with iterative refinement, enabling parallel updates across multiple token positions Austin et al. (2021) ; Lou et al. (2024) ; Sahoo et al. (2024) . However, parallel generation alone does not guarantee practical speedups. Realizing this efficiency requires specialized inference mechanisms, such as diffusion-aware caching and reuse, which introduce their own complexities. Consequently, as inference efficiency becomes a prerequisite for practical deployment, recent research has actively explored acceleration techniques across algorithms, architectures, and systems. However, rigorous comparisons remain difficult, as end-to-end latency stems from intricate trade-offs between these factors. For instance, an algorithmic method might reduce refinement steps but increase per-step policy overhead, while a system optimization might improve throughput at the cost of memory pressure. These algorithmic, architectural, and system-level impacts are often conflated in existing benchmarks, making it challenging to isolate the true sources of performance gains in real-world deployments. To address these challenges, this survey focuses specifically on inference-time efficiency in diffusion-based language generation. While recent surveys provide broad overviews of diffusion language modeling Li et al. (2025e) or parallel generation mechanisms Zhang et al. (2025a) , our work synthesizes the literature through a distinct, deployment-oriented efficiency lens. Specifically, we aim to clarify: (i) the determinants of end-to-end latency, throughput, and memory in realistic workloads; (ii) the inherent trade-offs between quality, speed, and memory across different acceleration techniques; and (iii) the best practices for reproducible benchmarking to ensure meaningful comparisons. Family Primary levers (Eq. 1 ) Key idea Section Algorithmic efficiency Schedules & policies T ↓ T\\downarrow , C policy ↑ C_{\\mathrm{policy}}\\uparrow Fewer steps via confidence/dilated schedules and selective updates; overhead depends on implementation. Section 4.1 Decoding algorithm T ↓ T\\downarrow or G t ↓ G_{t}\\downarrow , C policy ↑ C_{\\mathrm{policy}}\\uparrow Larger parallel progress or draft-and-verify; gains hinge on acceptance and orchestration cost. Section 4.2 Distillation / consistency T ↓ T\\downarrow Few-step samplers shift cost to training; quality/calibration can become sensitive. Section 4.3 Architectural & systems efficiency Architecture & numerics C fwd ↓ C_{\\mathrm{fwd}}\\downarrow , Mem ↓ \\downarrow Reduce per-forward cost via sparse/structured decoding or quantization; depends on kernel maturity. Section 5.1 Caching & reuse C fwd ↓ C_{\\mathrm{fwd}}\\downarrow , C sys ↓ C_{\\mathrm{sys}}\\downarrow , Mem ↑ \\uparrow Reuse KV/activations across refinement steps; explicit memory–speed trade-off. Section 5.2 System-level serving C sys ↓ C_{\\mathrm{sys}}\\downarrow Kernel/orchestration/microbatching improvements matter most for batch-1 and deployment regimes. Section 5.3 Inference-time scaling Guidance & search G t ↑ G_{t}\\uparrow , C policy ↑ C_{\\mathrm{policy}}\\uparrow , Mem ↑ \\uparrow Multi-pass decoding improves quality/constraints but increases total evaluations and memory pressure. Section 6 Table 1: Compact taxonomy of inference-efficiency techniques for diffusion LLMs, organized by the latency decomposition in Eq. 1 . Each family is summarized by the primary terms it tends to affect (arrows indicate the typical direction at a matched quality target), and the last column points to the section where we discuss representative methods, trade-offs, and evaluation considerations in detail. This survey makes three primary contributions: • We introduce a unified latency decomposition framework tailored to dLLMs, providing a rigorous basis for analyzing inference efficiency beyond nominal step counts. • We propose a structured taxonomy that categorizes acceleration techniques into algorithmic, architectural, and system-level optimizations, explicitly mapping them to the terms in our efficiency framework. • We establish best practices for reproducible benchmarking, covering latency, throughput, and memory measurement, and identify key open challenges at the intersection of algorithms and systems. The remainder of this survey is organized as follows. We begin by reviewing the fundamentals of discrete diffusion decoding (Section 2 ) and presenting our latency decomposition framework (Section 3 ). We then survey acceleration methods, grouped into algorithmic innovations (Section 4 ), architectural and system optimizations (Section 5 ), and inference-time scaling strategies (Section 6 ). Finally, we provide a practitioner’s guide for interpreting efficiency claims and mapping objectives to the levers in Eq. ( 1 ) (Section 7 ), and discuss future research directions (Section 8 ). 2 Background: Discrete Diffusion Decoding for Language This section reviews essential mechanics and notation of discrete diffusion models needed for our inference-time efficiency discussion. We focus on the common masked discrete diffusion setting, since it induces an explicit refinement loop with repeated Transformer evaluations which is the primary bottleneck addressed by recent acceleration methods. Setup and notation. Let 𝒱 \\mathcal{V} be a vocabulary and let 𝐱 = ( x 1 , … , x L ) ∈ 𝒱 L \\mathbf{x}=(x_{1},\\dots,x_{L})\\in\\mathcal{V}^{L} denote a length- L L generated span, typically conditioned on a prompt or context 𝐜 \\mathbf{c} . When discussing inference cost, we distinguish the generated length L L from the total length processed by the model per evaluation, L in L_{\\mathrm{in}} (e.g., prompt length plus the generated span). Discrete diffusion introduces a sequence of states 𝐱 T , 𝐱 T − 1 , … , 𝐱 0 \\mathbf{x}_{T},\\mathbf{x}_{T-1},\\ldots,\\mathbf{x}_{0} , where larger t t indicates heavier corruption; 𝐱 0 \\mathbf{x}_{0} is the final output and 𝐱 T \\mathbf{x}_{T} is commonly an all- [MASK] template. We write ℳ t ⊆ { 1 , … , L } \\mathcal{M}_{t}\\subseteq\\{1,\\dots,L\\} for the masked positions at step t t . A standard forward corruption in this setting is absorbing masking: as t t increases, a subset of positions is replaced by [MASK] , yielding a Markov chain over discrete states Austin et al. (2021) . A corruption schedule controls how the expected mask ratio evolves with t t , which determines how much information remains visible at intermediate states. Given a partially corrupted sequence 𝐱 t \\mathbf{x}_{t} and condition 𝐜 \\mathbf{c} , the denoising model predicts token distributions, often for all positions even if the loss is applied only on masked positions Sahoo et al. (2024) . For our purposes, the key operational point is that inference repeatedly evaluates the model under changing corruption patterns, and each evaluation typically processes a sequence of length L in L_{\\mathrm{in}} . Reverse-time decoding and update sparsity. At inference time, decoding starts from 𝐱 T \\mathbf{x}_{T} (often all [MASK] ) and iteratively refines toward 𝐱 0 \\mathbf{x}_{0} . A generic reverse step from 𝐱 t \\mathbf{x}_{t} to 𝐱 t − 1 \\mathbf{x}_{t-1} consists of: (1) Predict: run the model on 𝐱 t \\mathbf{x}_{t} and 𝐜 \\mathbf{c} to obtain per-position token distributions; (2) Select: choose an update set 𝒰 t ⊆ ℳ t \\mathcal{U}_{t}\\subseteq\\mathcal{M}_{t} (which masked positions to fill or revise); (3) Commit: sample or take arg ⁡ max \\arg\\max on 𝒰 t \\mathcal{U}_{t} to form 𝐱 t − 1 \\mathbf{x}_{t-1} , optionally allowing remasking or other corrections. When | 𝒰 t | |\\mathcal{U}_{t}| is large, many tokens are updated in parallel, which is the main pathway to potential speedups over left-to-right AR decoding. Although the model may be evaluated on the full sequence, many practical schedules and policies change only a subset of positions per step. Let Δ t ⊆ { 1 , … , L } \\Delta_{t}\\subseteq\\{1,\\dots,L\\} denote the positions whose token values actually change between steps t t and t − 1 t{-}1 (often Δ t ⊆ 𝒰 t \\Delta_{t}\\subseteq\\mathcal{U}_{t} ). When | Δ t | ≪ L |\\Delta_{t}|\\ll L , the trajectory exhibits update sparsity , a property exploited by both adaptive scheduling/policy choices and diffusion-aware reuse mechanisms surveyed later. However, quantifying the actual speedups from these techniques requires disentangling multiple interacting factors such as step count, per-step compute, and systems overhead, which motivates the latency decomposition framework we introduce next. Workload B , L B,L Init 𝐱 T \\mathbf{x}_{T} all [MASK] Policy / schedule C policy C_{\\mathrm{policy}} Model eval(s) G t ⋅ C fwd G_{t}\\cdot C_{\\mathrm{fwd}} Commit / update 𝐱 t → 𝐱 t − 1 \\mathbf{x}_{t}\\!\\to\\!\\mathbf{x}_{t-1} Output 𝐱 0 \\mathbf{x}_{0} repeat t = T , … , 1 t=T,\\dots,1 Diffusion-aware cache / reuse (Mem ↑ \\uparrow , latency ↓ \\downarrow ) Systems / serving overhead C sys ​ ( L in , B ) C_{\\mathrm{sys}}(L_{\\mathrm{in}},B) Figure 1: End-to-end inference schematic for masked/discrete diffusion decoding and the latency terms in Eq. 1 . The reverse-time refinement loop (repeat t = T , … , 1 t=T,\\dots,1 ) alternates lightweight policy/schedule decisions ( C policy C_{\\mathrm{policy}} ) and G t G_{t} model evaluations (each with cost C fwd C_{\\mathrm{fwd}} , dependent on the processed length L in L_{\\mathrm{in}} and batch size B B ) to update 𝐱 t → 𝐱 t − 1 \\mathbf{x}_{t}\\!\\to\\!\\mathbf{x}_{t-1} . Diffusion-aware caching/reuse can reduce redundant per-step computation or orchestration at the cost of higher memory, while systems/serving overhead C sys ​ ( L in , B ) C_{\\mathrm{sys}}(L_{\\mathrm{in}},B) applies to the entire request. 3 Latency Decomposition and Measuring Inference Efficiency Efficiency claims for diffusion-based LLM inference are easy to misinterpret. In masked dLLMs, the refinement step count T T is a coarse proxy. However, wall-clock latency depends on how many full-sequence model evaluations are executed, how expensive each evaluation is under the chosen hardware/precision/length/batch regime, and how much overhead arises from scheduling policies and serving systems. This section introduces a compact decomposition that we use as a unifying lens throughout the survey. Latency decomposition. Consider conditional generation under prompt/context 𝐜 \\mathbf{c} with batch size B B and generated span length L L . Let L in L_{\\mathrm{in}} denote the total sequence length processed per model evaluation, typically prompt length plus the generated span. Most masked/discrete decoders run an iterative loop for T T refinement steps, and each step typically performs at least one full-sequence model evaluation. Moreover, inference-time mechanisms such as guidance or deliberate compute scaling can require multiple evaluations per nominal step Schiff et al. (2025) ; Dang et al. (2025) . We decompose end-to-end latency as: Latency ⁡ ( L in , B ) ≈ ∑ t = 1 T ( G t ⋅ C fwd ​ ( L in , B ) + C policy ​ ( t , L ) ) + C sys ​ ( L in , B ) , \\begin{split}\\mathrm{Latency}(L_{\\mathrm{in}},B)&\\approx\\sum_{t=1}^{T}\\Big(G_{t}\\cdot C_{\\mathrm{fwd}}(L_{\\mathrm{in}},B)+C_{\\mathrm{policy}}(t;L)\\Big)\\\\ &\\qquad\\qquad+C_{\\mathrm{sys}}(L_{\\mathrm{in}},B),\\end{split} (1) where C fwd ​ ( L in , B ) C_{\\mathrm{fwd}}(L_{\\mathrm{in}},B) is the cost of one model forward pass; G t ≥ 1 G_{t}\\geq 1 is the number of forward passes executed at step t t (capturing multi-pass decoding); C policy ​ ( t , L ) C_{\\mathrm{policy}}(t;L) captures schedule/policy overhead (e.g., update-set selection, remasking, stopping); and C sys ​ ( L in , B ) C_{\\mathrm{sys}}(L_{\\mathrm{in}},B) captures systems overhead such as kernel dispatch, memory movement, cache management, and framework orchestration, which can be substantial in interactive and microbatching regimes Ma et al. (2025b) ; Fan et al. (2025) . We also define the total number of model evaluations as N fwd ≜ ∑ t = 1 T G t N_{\\mathrm{fwd}}\\triangleq\\sum_{t=1}^{T}G_{t} . Equation ( 1 ) clarifies that “reducing T T ” is only one lever. Speedups can come from reducing T T (fewer refinement iterations), reducing N fwd N_{\\mathrm{fwd}} (less multi-pass compute), lowering C fwd C_{\\mathrm{fwd}} (architectural/numerical improvements), lowering C policy C_{\\mathrm{policy}} (lighter scheduling and fewer synchronizations), or lowering C sys C_{\\mathrm{sys}} (serving and orchestration optimizations). Table 1 summarizes how major technique families map to these terms, and Figure 1 shows where each cost arises in the decoding pipeline. Common pitfalls include treating T T as a speed proxy without accounting for N fwd N_{\\mathrm{fwd}} , using ambiguous “tokens/sec” definitions, and timing without a consistent end-to-end protocol (warmup, synchronization, and clear inclusion/exclusion of host overhead). In the remainder of the survey, we organize acceleration methods by which terms in Eq. ( 1 ) they primarily target, making trade-offs explicit. 4 Algorithmic Efficiency: Reducing T T and N fwd N_{\\mathrm{fwd}} Algorithmic acceleration methods primarily reduce inference latency by decreasing the refinement iterations T T and/or the total number of model evaluations N fwd = ∑ t = 1 T G t N_{\\mathrm{fwd}}=\\sum_{t=1}^{T}G_{t} in Eq. 1 . They modify the sampling trajectory —the schedule, the update policy, or the decoding algorithm—rather than the model kernels or serving stack. In practice, realized gains depend not only on T T but also on policy overhead C policy C_{\\mathrm{policy}} and synchronization costs (Section 3 ). 4.1 Advanced Schedules & Policies Schedules control the corruption level across steps, while policies decide which positions to update and when to stop. Both determine how much parallel progress each step makes, and thus how small T T can be at a fixed quality target. 4.1.1 Non-uniform, dilated, and jump schedules Reducing T T can be achieved by reallocating steps non-uniformly along the reverse-time trajectory, e.g., skipping/dilating portions while maintaining stable refinement Luxembourg et al. (2025) ; Amin et al. (2025) . Related work studies faster discrete diffusion solvers or higher-order updates that approximate longer trajectories with fewer evaluations Chen et al. (2024) ; Ren et al. (2025) . For meaningful comparisons, the mapping from “nominal steps” to actual evaluation count (including multi-stage updates) should be explicit, since it affects both T T and N fwd N_{\\mathrm{fwd}} . 4.1.2 Confidence/entropy-driven unmasking and early exit Adaptive policies use uncertainty signals (probability, entropy, margin) to choose update sets 𝒰 t \\mathcal{U}_{t} and concentrate computation on difficult positions Mohamed et al. (2025) ; Ben-Hamu et al. (2025) . Training-free variable-length denoising or early stopping further reduces the average step count by terminating when confidence criteria are met Li et al. (2025c) . These methods can introduce nontrivial C policy C_{\\mathrm{policy}} (scoring/sorting/thresholding) and implementation-sensitive overheads; thus, reporting should include N fwd N_{\\mathrm{fwd}} and step-count distributions (e.g., percentiles), not only mean T T . 4.1.3 Learned unmasking policies Learned policies predict which positions to update (or when to stop) via supervised learning or policy-gradient/RL objectives Jazbec et al. (2025) ; Wang et al. (2025a) . They can improve the quality–latency frontier, but should be reported with (i) the policy feature set, (ii) any extra model calls, and (iii) an ablation isolating policy overhead from gains due to fewer evaluations. 4.2 Speculative & Parallel Decoding Decoding-algorithm changes can reduce the effective expensive computation per sequence by enabling larger jumps in sequence space or amortizing strong-model calls via verification. In Eq. 1 , these methods target T ↓ T\\downarrow and/or reduce expensive evaluations, but the net gain depends on acceptance and orchestration cost. 4.2.1 Draft-and-verify (speculative) diffusion decoding Speculative diffusion decoding produces candidate updates with a cheaper mechanism and verifies/corrects them with a stronger denoiser Christopher et al. (2025) ; Li et al. (2025a) ; Gao et al. (2025) . Speedups depend on acceptance rate and the relative cost of draft vs verification, so compute accounting should separate draft and verify evaluations and report acceptance statistics alongside end-to-end latency. 4.2.2 Block / set decoding and structured parallel updates Block/set decoding updates structured groups of tokens per iteration, effectively interpolating between AR and fully parallel refinement Gat et al. (2025) ; Arriola et al. (2025a) . These methods can reduce iterations at matched quality, but may increase per-step decision complexity; evaluation should clarify how the structure changes Δ t \\Delta_{t} and whether full-length L in L_{\\mathrm{in}} reprocessing is required each step. 4.2.3 Hybrid diffusion–autoregressive decoding Hybrid decoders combine diffusion refinement with autoregressive components, e.g., diffusion for global proposals and AR for final emission Li et al. (2025b) ; Liu et al. (2025) . Because different modules may dominate runtime under different regimes, results should state which module dominates compute and how L in L_{\\mathrm{in}} differs across modules. 4.3 Distillation & Consistency Distillation-based methods reduce inference cost by shifting work to training, aiming to shrink T T toward a small constant without increasing G t G_{t} . 4.3.1 Step / sampler distillation Progressive and learnable sampler distillation compress multi-step sampling into fewer steps Salimans and Ho (2022) ; Fu et al. (2025) ; Hayakawa et al. (2025) . The main benefit is direct T ↓ T\\downarrow , while common caveats include sensitivity in calibration/controllability as trajectories become shorter. 4.3.2 Consistency-style objectives Consistency objectives enable few-step (or direct) mapping from noisy templates to clean samples Song et al. (2023) ; Kim et al. (2025) . They target the dominant T ⋅ C fwd T\\cdot C_{\\mathrm{fwd}} term with minimal inference-time logic, but should be evaluated across step budgets to show graceful quality degradation as T T shrinks. 4.3.3 Self-distillation through time and unrolled generation Self-distillation across steps and unrolled training encourage faster convergence in fewer iterations Savinov et al. (2022) ; Deschenaux and Gulcehre (2025) . From an efficiency lens, the key is robustness across workloads and decoding configurations, not only the smallest achievable T T . 5 Architectural & Systems Efficiency: Reducing C fwd C_{\\mathrm{fwd}} and C sys C_{\\mathrm{sys}} Even with the same refinement iterations T T and evaluation count N fwd N_{\\mathrm{fwd}} , end-to-end latency in Eq. 1 can vary substantially across implementations and deployment regimes. This section focuses on lowering the per-evaluation cost C fwd ​ ( L in , B ) C_{\\mathrm{fwd}}(L_{\\mathrm{in}},B) and the request-level overhead C sys ​ ( L in , B ) C_{\\mathrm{sys}}(L_{\\mathrm{in}},B) . A key difference from autoregressive serving is that masked diffusion decoding repeatedly evaluates a (typically) full-sequence Transformer under gradually changing token patterns, which creates both opportunities (reuse across similar steps) and challenges (cache invalidation, orchestration overhead, memory pressure). 5.1 Dynamic Compute & Sparsity Architectural and numerical optimizations primarily target C fwd C_{\\mathrm{fwd}} (and sometimes peak memory), aiming to make each refinement evaluation cheaper. Unlike Section 4 , these methods do not necessarily reduce T T , but can yield large gains when N fwd N_{\\mathrm{fwd}} remains nontrivial. 5.1.1 Sparse / structured computation for diffusion decoding Because diffusion decoding revisits similar intermediate states across steps, several works investigate sparsity patterns tailored to diffusion LMs, e.g., sparse attention mechanisms to reduce attention cost and memory footprint Wang et al. (2025c) . The practical benefit depends strongly on kernel maturity and how sparsity interacts with batching and sequence length; thus, wall-clock latency (not only FLOPs) should be reported under the intended runtime stack. 5.1.2 Lightweight denoisers and decoding architectures Another route is to reduce C fwd C_{\\mathrm{fwd}} via architectural choices that maintain refinement behavior with lower per-step cost, such as convolutional decoding or alternative decoder structures for diffusion language modeling Seo et al. (2025) ; Arriola et al. (2025b) . In practice, such designs should be evaluated together with the decoding configuration (steps/policy), since architectural changes can shift where the bottleneck lies (compute vs memory bandwidth vs orchestration). 5.1.3 Numerics and quantization Quantization and reduced-precision execution can lower both compute and memory cost per evaluation, but require calibration that matches the diffusion decoding distribution across timesteps and masking patterns Xu and Yang (2025) ; Zhang et al. (2025b) . For efficiency claims, it is important to report the precision mode, any accuracy recovery tricks, and whether the timed measurement includes dequantization/casting overheads inside the forward path. 5.2 Diffusion-Aware Caching (KV & Activation) Caching and reuse aim to exploit redundancy across refinement steps, reducing effective C fwd C_{\\mathrm{fwd}} and sometimes C sys C_{\\mathrm{sys}} at the cost of higher memory. Unlike autoregressive decoding, diffusion decoding revises token values across the sequence; thus, naive KV caching can become stale and requires diffusion-specific refresh and eviction strategies. 5.2.1 KV caching across refinement steps A growing line of work adapts KV caching to diffusion LMs by selectively reusing attention states across steps while accounting for token revisions Ma et al. (2025a) ; Wu et al. (2025) ; Hu et al. (2025) ; Nguyen-Tri et al. (2025) . These approaches can reduce repeated attention computation when consecutive states are similar, but they introduce a clear memory–speed trade-off and can shift the bottleneck to memory bandwidth and cache management. 5.2.2 Selective refresh and cache eviction Because only a subset of token values often changes per step (Section 2 ), caching can be made more effective by refreshing only where updates occur and evicting cache entries predicted to be unhelpful Huang et al. (2025a) ; Song et al. (2025) ; Jiang et al. (2025) ; Bu et al. (2025) . A key evaluation point is whether caching remains beneficial under realistic serving regimes (microbatching, long-context prompts, and concurrent requests), where memory pressure and fragmentation can dominate. 5.2.3 Reporting implications For diffusion-aware caching, a minimal report should include: (i) peak GPU memory with and without caching, (ii) wall-clock latency and throughput under matched L in L_{\\mathrm{in}} and concurrency, and (iii) quality at the exact caching configuration. Because caching can also change C sys C_{\\mathrm{sys}} (extra bookkeeping, synchronization, or memory movement), timing should follow an end-to-end protocol (Section 3 ) rather than isolated kernel timings. 5.3 System-Level Optimization System-level optimizations target C sys ​ ( L in , B ) C_{\\mathrm{sys}}(L_{\\mathrm{in}},B) by reducing orchestration overheads and improving utilization across the repeated refinement loop. These effects are often most visible for batch-1 latency and interactive settings, where dispatch and synchronization overheads can become comparable to compute. 5.3.1 Diffusion-aware inference frameworks Dedicated inference frameworks for diffusion LMs aim to streamline the refinement loop, manage caching, and reduce per-step overheads that do not scale with model FLOPs Ma et al. (2025b) . From an efficiency perspective, the systems should be evaluated across batch sizes and concurrency levels to show when C sys C_{\\mathrm{sys}} dominates versus when compute dominates. 5.3.2 Production serving and memory dynamics Production-oriented work highlights that diffusion decoding can create distinct memory and orchestration challenges due to repeated full-sequence evaluations, cache growth, and step-wise control flow Fan et al. (2025) . Accordingly, system claims should report not only average latency but also tail latency (p95) and memory headroom under realistic request mixes. 6 Inference-Time Scaling: The G t G_{t} Factor Many recent improvements in diffusion-based language generation come from inference-time scaling : deliberately spending more computation at test time to improve quality, controllability, or constraint satisfaction. In Eq. 1 , these methods typically increase the per-step evaluation multiplier G t G_{t} (hence N fwd N_{\\mathrm{fwd}} ), and often also increase C policy C_{\\mathrm{policy}} and memory footprint due to maintaining additional trajectories, scores, or caches. As a result, step counts alone can be especially misleading in this regime: two decoders with the same T T can differ substantially in wall-clock latency and peak memory depending on the scaling strategy. 6.1 Guidance as Multi-Pass Decoding Guidance mechanisms improve generation quality or enforce preferences by altering the reverse-time update using additional signals, often requiring multiple model evaluations per refinement step. In masked/discrete diffusion, simple guidance variants can be implemented in a way that resembles classifier-free guidance (or related conditioning tricks), which naturally introduces a multi-pass structure Schiff et al. (2025) . Recent work also explores adaptive guidance rules that modulate the guidance strength or update pattern based on uncertainty, which can improve the quality–compute trade-off but makes G t G_{t} and C policy C_{\\mathrm{policy}} configuration-dependent Li et al. (2025d) ; Ye et al. (2025a) . Remasking-based scaling can be viewed similarly: additional refinement passes (or repeated mask-and-refine cycles) increase effective compute beyond the nominal step count Wang et al. (2025b) . From an efficiency standpoint, guidance should be reported by explicitly stating: (i) how many forwards are executed per step (the resulting G t G_{t} schedule), (ii) whether evaluations are performed on the full length L in L_{\\mathrm{in}} , and (iii) the exact operating point (guidance strength / masking thresholds) at which quality is measured. Without this, comparisons that only match T T can significantly under- or over-estimate runtime. 6.2 Search and Trajectory-Level Scaling A second scaling family treats diffusion decoding as an implicit search problem over refinement trajectories. Instead of committing to a single reverse chain, these methods explore multiple candidates and select or resample trajectories based on scores, rewards, or constraints. This often yields strong gains in alignment or constraint satisfaction, but increases compute roughly with the breadth/particles/expansions used, directly inflating N fwd N_{\\mathrm{fwd}} . 6.2.1 Particle / SMC-style scaling Particle-based methods (e.g., Particle Gibbs sampling) scale computation by maintaining and resampling a set of candidate trajectories, using the additional compute to better explore the posterior over discrete sequences Dang et al. (2025) . In Eq. 1 , the dominant effect is G t ↑ G_{t}\\uparrow (multiple evaluations per step and/or per particle), with additional policy overhead from resampling and scoring. 6.2.2 Tree search and constrained inference Tree-search formulations explicitly branch on promising refinements and evaluate candidates with search policies, e.g., MCTS layered on top of diffusion decoding Huang et al. (2025b) . Related work studies constrained decoding objectives for discrete diffusion, where the scaling budget is spent on ensuring constraints or optimizing utility under constraints Cardei et al. (2025) ; Suresh et al. (2025) . Diffusion tree sampling provides another scalable framework for inference-time alignment by expanding candidate refinement paths Jain et al. (2025) . These approaches can be effective when constraints are hard to satisfy with a single-pass decoder, but their efficiency is highly regime-dependent: branching increases memory pressure (multiple partial states and caches) and can interact strongly with serving-level overheads (Section 5 ). 7 Practitioner’s Guide This section translates the surveyed techniques into a practical workflow grounded in Eq. ( 1 ). We do not introduce a new benchmark nor report new measurements; instead, we summarize diffusion-specific knobs that determine inference-time compute and explain how to interpret efficiency claims beyond nominal step counts. Core principle. In diffusion-based decoding, the refinement budget T T alone is not a reliable proxy for speed. End-to-end latency depends on the total number of model evaluations N fwd = ∑ t = 1 T G t N_{\\mathrm{fwd}}=\\sum_{t=1}^{T}G_{t} , the per-evaluation cost, and overhead from schedule/policy logic and iterative control flow (Eq. ( 1 )). Accordingly, when comparing methods, it is essential to make the effective compute budget explicit (via T T and G t G_{t} ) and to compare at matched quality operating points. 7.1 A Workflow Grounded in Eq. ( 1 ) We recommend the following workflow when selecting and evaluating acceleration methods. Step 1: Fix the workload and objective. Specify prompt length and generated length (or their distributions), and define the processed length per model evaluation L in L_{\\mathrm{in}} . Clarify the objective: latency-sensitive generation, throughput-oriented serving, or quality/constraint-critical decoding. Step 2: Make the compute budget explicit in diffusion terms. Report the refinement budget T T together with the per-step evaluation multiplier G t G_{t} (hence N fwd = ∑ t G t N_{\\mathrm{fwd}}=\\sum_{t}G_{t} ). If the method introduces multi-pass evaluation (e.g., guidance, verification, particles, or branching), state how G t G_{t} changes and what the effective evaluation count becomes. Step 3: Choose levers that target the dominant term(s). Use Eq. ( 1 ) as a diagnostic lens: methods in Section 4 primarily reduce iterations ( T T ) and/or evaluations ( N fwd N_{\\mathrm{fwd}} ); methods in Section 5 reduce per-evaluation cost via numerics, structured compute, and reuse/caching across steps; methods in Section 6 often increase G t G_{t} (thus N fwd N_{\\mathrm{fwd}} ) to improve quality or satisfy constraints. In practice, the most meaningful comparison is to isolate which term(s) changed and what trade-offs were introduced. Step 4: Compare on a small matched-quality frontier. When a method exposes a compute–quality knob (steps, early-exit thresholds, guidance strength, number of particles/branches), reporting a few operating points makes the trade-off explicit and avoids comparisons at mismatched operating points. Quick reference. Table 2 provides a compact map from common goals (latency, throughput, and quality-critical decoding) to the corresponding levers in Eq. ( 1 ) and the survey sections where representative methods are discussed. Bottleneck / Goal Recommended Approach Sec. Latency-Sensitive Minimize T T & C sys C_{\\mathrm{sys}} (Batch ≈ \\approx 1, Chat) ⋅ \\cdot Advanced Schedules § 4.1 ⋅ \\cdot System/Kernel Opt. § 5.3 Throughput-Bound Minimize C fwd C_{\\mathrm{fwd}} (Mem trade-off) (Serving, Offline) ⋅ \\cdot Diffusion-aware Cache § 5.2 ⋅ \\cdot Sparsity / Quantization § 5.1 Quality-Critical Scale G t G_{t} (Multi-pass) (Reasoning, Math) ⋅ \\cdot Guidance / Re-ranking § 6 ⋅ \\cdot Verify w/ cheap Draft § 4.2 Table 2: Decision matrix mapping deployment scenarios to primary efficiency factors in Eq. 1 . We identify the dominant bottleneck for each case, including latency, throughput, and quality, and recommend corresponding acceleration families discussed in this survey. 7.2 Diffusion-Specific Notes for Interpreting Efficiency Claims Most ambiguity in efficiency comparisons for diffusion decoding comes from under-specifying the refinement trajectory and the number of model evaluations. The following diffusion-specific items are often sufficient to make comparisons interpretable without prescribing a particular measurement protocol: • Trajectory and stopping: T T , the schedule type, and any early-exit criteria. • Evaluation accounting: G t G_{t} (or its description) and N fwd = ∑ t G t N_{\\mathrm{fwd}}=\\sum_{t}G_{t} , especially when guidance/search/verification is used. • Speculative or hybrid pipelines: evaluation counts per module (draft vs verify; diffusion vs AR) and acceptance/rejection statistics when applicable. • Update sparsity (recommended): a compact statistic such as the average fraction of changed positions | Δ t | / L |\\Delta_{t}|/L , since many reuse/caching mechanisms implicitly rely on sparsity across refinement steps (Section 2 ). 7.3 Common Pitfalls for Interpreting Speedups Finally, we highlight recurring sources of ambiguity that can make “speedup” claims hard to interpret: • T T reported without G t G_{t} : identical step counts can correspond to very different compute budgets when multi-pass decoding is used. • Multi-pass logic hidden in a single iteration: methods that pack multiple evaluations into one nominal step should make the effective N fwd N_{\\mathrm{fwd}} explicit. • Comparisons at mismatched operating points: when a method trades compute for quality (or vice versa), reporting a small frontier is often more informative than a single tuned point. Taken together, making ( T , G t , N fwd ) (T,\\,G_{t},\\,N_{\\mathrm{fwd}}) explicit and tying claimed gains back to Eq. ( 1 ) is typically sufficient to keep diffusion inference efficiency comparisons robust and interpretable. 8 Conclusion & Open Challenges Diffusion-based large language models (dLLMs) offer a fundamentally different inference interface from autoregressive decoding: generation proceeds by iterative refinement with parallel updates over multiple token positions. This creates a genuine opportunity for faster-than-AR decoding, but practical speedups require inference mechanisms that turn parallel updates into fewer effective model evaluations, cheaper evaluations, and lower iteration overhead. This survey focused on that inference-efficiency question. We organized the acceleration landscape into three complementary axes. First, algorithmic techniques modify the refinement trajectory—schedules, update policies, decoding algorithms, and distillation—to reduce the iteration budget T T and/or the effective evaluation count N fwd N_{\\mathrm{fwd}} (Section 4 ). Second, architectural and systems techniques reduce the per-evaluation cost and amortize redundant computation across steps via numerics, structured compute, and diffusion-aware reuse (Section 5 ). Third, inference-time scaling methods deliberately increase compute (often via multi-pass evaluation) to improve quality or satisfy constraints, making the compute–quality trade-off explicit (Section 6 ). A unifying lesson across these threads is that efficiency gains in dLLM inference are rarely attributable to a single knob. Step reduction is most effective when it does not silently increase multi-pass computation ( G t G_{t} ), policy overhead, or sensitivity to decoding hyperparameters. Reuse and caching can yield substantial wall-clock gains when consecutive states are similar, but they introduce explicit memory trade-offs and require diffusion-specific refresh/eviction logic. Finally, scaling strategies can be powerful in quality-critical settings, but their benefits are meaningful only when the added evaluation budget is accounted for in the same currency as the base decoder (Eq. ( 1 )). To keep these trade-offs interpretable, we distilled a lightweight practitioner workflow and diffusion-specific disclosure items in Section 7 . Open challenges. We highlight several directions that, in our view, will most strongly shape the next phase of progress in accelerating diffusion-based language inference: • Few-step decoding without brittle quality or control. Distillation and consistency-style approaches can shrink T T dramatically, but robustness across prompts, lengths, and controllability settings remains uneven. An open problem is to achieve few-step generation that degrades gracefully with step budgets and remains well-calibrated under diverse decoding policies (Section 4.3 ). • Predictable acceleration from adaptive schedules and policies. Adaptive unmasking and early-exit policies can reduce average compute, yet their benefits can be eroded by policy overhead or instability across workloads. Designing low-overhead policies with predictable speed–quality behavior (and clear failure modes) is central to making trajectory-level acceleration reliable (Section 4.1 ). • Diffusion-aware reuse with correctness guarantees under token revisions. Reuse mechanisms must remain valid when tokens are revised across steps. Better criteria for cache validity, selective refresh, and error control—especially under long contexts and memory constraints—are needed to make reuse both fast and dependable (Section 5.2 ). • Co-design of parallel updates and kernel-friendly execution. Many decoders exhibit update sparsity ( | Δ t | ≪ L |\\Delta_{t}|\\ll L ), yet most implementations still execute near full-sequence computation. Bridging diffusion-specific structure to hardware- and compiler-friendly execution (e.g., structured sparsity and efficient partial updates) is key to converting theoretical parallelism into consistent wall-clock gains (Section 5.1 ). • Compute-adaptive scaling for reasoning and constraints. Guidance and search-based methods can improve quality, but they increase G t G_{t} and can interact strongly with the base trajectory. A promising direction is compute-adaptive scaling that allocates additional evaluations only when needed, while keeping the compute budget and its effect on quality transparent (Section 6 ). Limitations of this survey. This survey focuses on masked/discrete diffusion language models, where the refinement loop involves explicit token-level updates. Continuous-embedding approaches (e.g., Diffusion-LM Li et al. (2022) and its variants) operate in a fundamentally different latent space and involve distinct efficiency trade-offs that warrant separate treatment. Although this survey focuses on language generation, diffusion-style iterative refinement is also relevant to structured sequence domains such as time-series imputation and forecasting Alcaraz and Strodthoff (2023) . Recent work further applies large language diffusion models to time-series forecasting Pei et al. (2025) . Also, the field is evolving rapidly: many techniques surveyed here were published or released within the past year, and standardized benchmarks for dLLM inference efficiency remain lacking. As a result, direct comparisons across papers are often confounded by differences in model scale, evaluation protocol, and hardware configuration. While we have attempted to organize the literature through a unified framework (Eq. 1 ), we caution that reported speedups should be interpreted with attention to the specific experimental setup. Finally, we restrict our attention to inference-time efficiency. Training efficiency ( e.g., data efficiency and adaptation from pretrained AR models) is an important but orthogonal concern that we do not address in depth. Acknowledgments This work was supported by the Institute for Information & communications Technology Planning & Evaluation (IITP) grants funded by the Korean government (MSIT) (RS-2019-II190075, Artificial Intelligence Graduate School Program (KAIST); RS-2025-02304967, AI Star Fellowship (KAIST); and RS-2024-00396828, Development of AI-based Low-Power 5G-A O-DU/O-CU; contribution rate: 33.3%). References Alcaraz and Strodthoff (2023) J. M. L. Alcaraz and N. Strodthoff Diffusion-based time series imputation and forecasting with structured state space models . TMLR . Cited by: §8 . Amin et al. (2025) A. N. Amin, N. Gruver, and A. G. Wilson Why Masking Diffusion Works: Condition on the Jump Schedule for Improved Discrete Diffusion . In NeurIPS , Cited by: §4.1.1 . Arriola et al. (2025a) M. Arriola, A. Gokaslan, J. T. Chiu, et al. Block Diffusion: Interpolating Between Autoregressive and Diffusion Language Models . In ICLR , Cited by: §4.2.2 . Arriola et al. (2025b) M. Arriola, Y. Schiff, H. Phung, A. Gokaslan, and V. Kuleshov Encoder-Decoder Diffusion Language Models for Efficient Training and Inference . In NeurIPS , Cited by: §5.1.2 . Austin et al. (2021) J. Austin, D. D. Johnson, J. Ho, D. Tarlow, and R. van den Berg Structured Denoising Diffusion Models in Discrete State-Spaces . In NeurIPS , Cited by: §1 , §2 . Ben-Hamu et al. (2025) H. Ben-Hamu, I. Gat, D. Severo, N. Nolte, and B. Karrer Accelerated Sampling from Masked Diffusion Models via Entropy Bounded Unmasking . In NeurIPS , Cited by: §4.1.2 . Bu et al. (2025) J. Bu, P. Ling, Y. Zhou, et al. DiCache: Let Diffusion Model Determine Its Own Cache . Note: arXiv Cited by: §5.2.2 . Cardei et al. (2025) M. Cardei, J. K. Christopher, T. Hartvigsen, Kailkhura, et al. Constrained Discrete Diffusion . In NeurIPS , Cited by: §6.2.2 . Chen et al. (2024) Z. Chen, H. Yuan, Y. Li, Y. Kou, J. Zhang, and Q. Gu Fast Sampling via Discrete Non-Markov Diffusion Models with Predetermined Transition Time . In NeurIPS , Cited by: §4.1.1 . Christopher et al. (2025) J. K. Christopher, B. R. Bartoldson, T. Ben-Nun, et al. Speculative Diffusion Decoding: Accelerating Language Generation through Diffusion . In NAACL , Cited by: §4.2.1 . Dang et al. (2025) M. Dang, J. Han, M. Xu, K. Xu, A. Srivastava, and S. Ermon Inference-Time Scaling of Diffusion Language Models with Particle Gibbs Sampling . Note: arXiv Cited by: §3 , §6.2.1 . Deschenaux and Gulcehre (2025) J. Deschenaux and C. Gulcehre Beyond Autoregression: Fast LLMs via Self-Distillation Through Time . In ICLR , Cited by: §4.3.3 . Fan et al. (2025) J. Fan, Y. Zhang, X. Li, and D. S. Nikolopoulos Taming the Memory Footprint Crisis: System Design for Production Diffusion LLM Serving . Note: arXiv Cited by: §3 , §5.3.2 . Fu et al. (2025) F. Fu, T. Guo, and Z. Liu Learnable Sampler Distillation for Discrete Diffusion Models . In NeurIPS , Cited by: §4.3.1 . Gao et al. (2025) Y. Gao, Z. Ji, Y. Wang, B. Qi, H. Xu, and L. Zhang Self Speculative Decoding for Diffusion Large Language Models . Note: arXiv Cited by: §4.2.1 . Gat et al. (2025) I. Gat, H. Ben-Hamu, M. Havasi, D. Haziza, J. Reizenstein, G. Synnaeve, D. Lopez-Paz, B. Karrer, and Y. Lipman Set Block Decoding is a Language Model Inference Accelerator . Note: arXiv Cited by: §4.2.2 . Hayakawa et al. (2025) S. Hayakawa, Y. Takida, M. Imaizumi, H. Wakaki, and Y. Mitsufuji Distillation of Discrete Diffusion through Dimensional Correlations . In ICML , Cited by: §4.3.1 . Hu et al. (2025) Z. Hu, J. Meng, Y. Akhauri, M. S. Abdelfattah, J. Seo, Z. Zhang, and U. Gupta FlashDLM: Accelerating Diffusion Language Model Inference via Efficient KV Caching and Guided Diffusion . Note: arXiv Cited by: §5.2.1 . Huang et al. (2025a) J. Huang, Y. Zhang, Y. Yang, B. Huang, B. Qi, D. Liu, and L. Zhang Mask Tokens as Prophet: Fine-Grained Cache Eviction for Efficient dLLM Inference . Note: arXiv Cited by: §5.2.2 . Huang et al. (2025b) Z. Huang K. Ramnath et al. Diffusion Language Model Inference with Monte Carlo Tree Search . Note: arXiv Cited by: §6.2.2 . Inception Labs et al. (2025) Inception Labs, S. Khanna, S. Kharbanda, et al. Mercury: Ultra-Fast Language Models Based on Diffusion . Note: arXiv Cited by: §1 . Jain et al. (2025) V. Jain, K. Sareen, M. Pedramfar, and S. Ravanbakhsh Diffusion Tree Sampling: Scalable inference-time alignment of diffusion models . In NeurIPS , Cited by: §6.2.2 . Jazbec et al. (2025) M. Jazbec T. X. Olausson et al. Learning Unmasking Policies for Diffusion Language Models . Note: arXiv Cited by: §4.1.3 . Jiang et al. (2025) Y. Jiang, Y. Cai, X. Luo, J. Fu, J. Wang, C. Liu, and X. Yang D ^2 Cache: Accelerating Diffusion-Based LLMs via Dual Adaptive Caching . Note: arXiv Cited by: §5.2.2 . Kim et al. (2025) M. Kim, C. Xu, C. Hooper, H. Singh, B. Athiwaratkun, C. Zhang, K. Keutzer, and A. Gholami CDLM: Consistency Diffusion Language Models For Faster Sampling . Note: arXiv Cited by: §4.3.2 . Li et al. (2025a) G. Li, Z. Fu, M. Fang, Q. Zhao, M. Tang, C. Yuan, and J. Wang DiffuSpec: Unlocking Diffusion Language Models for Speculative Decoding . Note: arXiv Cited by: §4.2.1 . Li et al. (2025b) J. Li, J. Guan, W. Wu, and C. Li ReFusion: A Diffusion Large Language Model with Parallel Autoregressive Decoding . Note: arXiv Cited by: §4.2.3 . Li et al. (2025c) J. Li, X. Dong, Y. Zang, Y. Cao, J. Wang, and D. Lin Beyond Fixed: Training-Free Variable-Length Denoising for Diffusion Large Language Models . Note: arXiv Cited by: §4.1.2 . Li et al. (2025d) P. Li S. Yan et al. Adaptive Classifier-Free Guidance via Dynamic Low-Confidence Masking . In NeurIPS , Cited by: §6.1 . Li et al. (2025e) T. Li, M. Chen, B. Guo, and Z. Shen A Survey on Diffusion Language Models . Note: arXiv Cited by: §1 . Li et al. (2022) X. L. Li, J. Thickstun, I. Gulrajani, P. Liang, and T. B. Hashimoto Diffusion-LM Improves Controllable Text Generation . In NeurIPS , Cited by: §8 . Liu et al. (2025) J. Liu, X. Dong, Z. Ye, R. Mehta, Y. Fu, V. Singh, J. Kautz, C. Zhang, and P. Molchanov TiDAR: Think in Diffusion, Talk in Autoregression . Note: arXiv Cited by: §4.2.3 . Lou et al. (2024) A. Lou, C. Meng, and S. Ermon Discrete Diffusion Modeling by Estimating the Ratios of the Data Distribution . In ICML , Cited by: §1 . Luxembourg et al. (2025) O. Luxembourg H. Permuter et al. Plan for Speed: Dilated Scheduling for Masked Diffusion Language Models . Note: arXiv Cited by: §4.1.1 . Ma et al. (2025a) X. Ma, R. Yu, G. Fang, and X. Wang dKV-Cache: The Cache for Diffusion Language Models . In NeurIPS , Cited by: §5.2.1 . Ma et al. (2025b) Y. Ma, L. Du, L. Wei, et al. dInfer: An Efficient Inference Framework for Diffusion Language Models . Note: arXiv Cited by: §3 , §5.3.1 . Mohamed et al. (2025) A. Mohamed, Y. Zhang, M. Vazirgiannis, and G. Shang Fast-Decoding Diffusion Language Models via Progress-Aware Confidence Schedules . Note: arXiv Cited by: §4.1.2 . Nguyen-Tri et al. (2025) Q. Nguyen-Tri, M. Ranjan, and Z. Shen Attention Is All You Need for KV Cache in Diffusion LLMs . Note: arXiv Cited by: §5.2.1 . Nie et al. (2025) S. Nie, F. Zhu, Z. You, et al. Large Language Diffusion Models . In NeurIPS , Cited by: §1 . Pei et al. (2025) Y. Pei, T. Ren, Y. Wang, Z. Sun, W. Ju, C. Chen, X. Hua, and X. Luo LEAF: large language diffusion model for time series forecasting . In EMNLP , Cited by: §8 . Ren et al. (2025) Y. Ren H. Chen et al. Fast Solvers for Discrete Diffusion Models: Theory and Applications of High-Order Algorithms . In NeurIPS , Cited by: §4.1.1 . Sahoo et al. (2024) S. S. Sahoo M. Arriola et al. Simple and Effective Masked Diffusion Language Models . In NeurIPS , Cited by: §1 , §2 . Salimans and Ho (2022) T. Salimans and J. Ho Progressive Distillation for Fast Sampling of Diffusion Models . In ICLR , Cited by: §4.3.1 . Savinov et al. (2022) N. Savinov, J. Chung, M. Binkowski, E. Elsen, and A. van den Oord Step-unrolled Denoising Autoencoders for Text Generation . In ICLR , Cited by: §4.3.3 . Schiff et al. (2025) Y. Schiff S. S. Sahoo et al. Simple Guidance Mechanisms for Discrete Diffusion Models . In ICLR , Cited by: §3 , §6.1 . Seo et al. (2025) Y. Seo, D. Lee, J. Kim, and J. Yeo Fast and Fluent Diffusion Language Models via Convolutional Decoding and Rejective Fine-tuning . In NeurIPS , Cited by: §5.1.2 . Song et al. (2023) Y. Song, P. Dhariwal, M. Chen, and I. Sutskever Consistency Models . In ICML , Cited by: §4.3.2 . Song et al. (2025) Y. Song, X. Liu, R. Li, Z. Liu, Z. Huang, Q. Guo, Z. He, and X. Qiu Sparse-dLLM: Accelerating Diffusion LLMs with Dynamic Cache Eviction . Note: arXiv Cited by: §5.2.2 . Suresh et al. (2025) T. Suresh, D. Banerjee, S. Ugare, S. Misailovic, and G. Singh DINGO: Constrained Inference for Diffusion LLMs . In NeurIPS , Cited by: §6.2.2 . Wang et al. (2025a) C. Wang, P. Rashidinejad, D. Su, et al. SPG: Sandwiched Policy Gradient for Masked Diffusion Language Models . Note: arXiv:2510.09541 Cited by: §4.1.3 . Wang et al. (2025b) G. Wang, Y. Schiff, S. S. Sahoo, and V. Kuleshov Remasking Discrete Diffusion Models with Inference-Time Scaling . In NeurIPS , Cited by: §6.1 . Wang et al. (2025c) Z. Wang, G. Fang, X. Ma, X. Yang, and X. Wang SparseD: Sparse Attention for Diffusion Language Models . Note: arXiv Cited by: §5.1.1 . Wu et al. (2025) C. Wu H. Zhang et al. Fast-dLLM: Training-free Acceleration of Diffusion LLM by Enabling KV Cache and Parallel Decoding . Note: arXiv Cited by: §5.2.1 . Xu and Yang (2025) C. Xu and D. Yang DLLMQuant: Quantizing Diffusion-based Large Language Models . Note: arXiv Cited by: §5.1.3 . Ye et al. (2025a) H. Ye, R. Kevin, and T. Molei What Exactly Does Guidance Do in Masked Discrete Diffusion Models . Note: arXiv:2506.10971 Cited by: §6.1 . Ye et al. (2025b) J. Ye, Z. Xie, L. Zheng, J. Gao, Z. Wu, X. Jiang, Z. Li, and L. Kong Dream 7B: Diffusion Large Language Models . Note: arXiv Cited by: §1 . Zhang et al. (2025a) L. Zhang L. Fang et al. A Survey on Parallel Text Generation: From Parallel Decoding to Diffusion Language Models . Note: arXiv Cited by: §1 . Zhang et al. (2025b) T. Zhang, Z. Li, X. Yan, H. Qin, Y. Guo, and Y. Zhang Quant-dLLM: Post-Training Extreme Low-Bit Quantization for Diffusion Large Language Models . Note: arXiv Cited by: §5.1.3 .",
+  "text_truncated": false,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: arXiv.org perpetual non-exclusive license",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "Nie et al. (2025)",
+      "url": "https://arxiv.org/html/2607.12829v1#bib.bib38"
+    },
+    {
+      "text": "Ye et al. (2025b)",
+      "url": "https://arxiv.org/html/2607.12829v1#bib.bib53"
+    },
+    {
+      "text": "Inception Labs et al. (2025)",
+      "url": "https://arxiv.org/html/2607.12829v1#bib.bib24"
+    },
+    {
+      "text": "Austin et al. (2021)",
+      "url": "https://arxiv.org/html/2607.12829v1#bib.bib4"
+    },
+    {
+      "text": "Lou et al. (2024)",
+      "url": "https://arxiv.org/html/2607.12829v1#bib.bib32"
+    },
+    {
+      "text": "Sahoo et al. (2024)",
+      "url": "https://arxiv.org/html/2607.12829v1#bib.bib40"
+    },
+    {
+      "text": "Li et al. (2025e)",
+      "url": "https://arxiv.org/html/2607.12829v1#bib.bib30"
+    },
+    {
+      "text": "Zhang et al. (2025a)",
+      "url": "https://arxiv.org/html/2607.12829v1#bib.bib56"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2607.12829v1#S3.E1"
+    },
+    {
+      "text": "4.1",
+      "url": "https://arxiv.org/html/2607.12829v1#S4.SS1"
+    },
+    {
+      "text": "4.2",
+      "url": "https://arxiv.org/html/2607.12829v1#S4.SS2"
+    },
+    {
+      "text": "4.3",
+      "url": "https://arxiv.org/html/2607.12829v1#S4.SS3"
+    },
+    {
+      "text": "5.1",
+      "url": "https://arxiv.org/html/2607.12829v1#S5.SS1"
+    },
+    {
+      "text": "5.2",
+      "url": "https://arxiv.org/html/2607.12829v1#S5.SS2"
+    },
+    {
+      "text": "5.3",
+      "url": "https://arxiv.org/html/2607.12829v1#S5.SS3"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2607.12829v1#S6"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2607.12829v1#S2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2607.12829v1#S3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2607.12829v1#S4"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2607.12829v1#S5"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2607.12829v1#S7"
+    },
+    {
+      "text": "8",
+      "url": "https://arxiv.org/html/2607.12829v1#S8"
+    },
+    {
+      "text": "Schiff et al. (2025)",
+      "url": "https://arxiv.org/html/2607.12829v1#bib.bib43"
+    },
+    {
+      "text": "Dang et al. (2025)",
+      "url": "https://arxiv.org/html/2607.12829v1#bib.bib10"
+    },
+    {
+      "text": "Ma et al. (2025b)",
+      "url": "https://arxiv.org/html/2607.12829v1#bib.bib34"
+    },
+    {
+      "text": "Fan et al. (2025)",
+      "url": "https://arxiv.org/html/2607.12829v1#bib.bib12"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2607.12829v1#S1.T1"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2607.12829v1#S2.F1"
+    },
+    {
+      "text": "Luxembourg et al. (2025)",
+      "url": "https://arxiv.org/html/2607.12829v1#bib.bib33"
+    },
+    {
+      "text": "Amin et al. (2025)",
+      "url": "https://arxiv.org/html/2607.12829v1#bib.bib1"
+    },
+    {
+      "text": "Chen et al. (2024)",
+      "url": "https://arxiv.org/html/2607.12829v1#bib.bib8"
+    },
+    {
+      "text": "Ren et al. (2025)",
+      "url": "https://arxiv.org/html/2607.12829v1#bib.bib39"
+    },
+    {
+      "text": "Mohamed et al. (2025)",
+      "url": "https://arxiv.org/html/2607.12829v1#bib.bib36"
+    },
+    {
+      "text": "Ben-Hamu et al. (2025)",
+      "url": "https://arxiv.org/html/2607.12829v1#bib.bib5"
+    },
+    {
+      "text": "Li et al. (2025c)",
+      "url": "https://arxiv.org/html/2607.12829v1#bib.bib28"
+    },
+    {
+      "text": "Jazbec et al. (2025)",
+      "url": "https://arxiv.org/html/2607.12829v1#bib.bib21"
+    },
+    {
+      "text": "Wang et al. (2025a)",
+      "url": "https://arxiv.org/html/2607.12829v1#bib.bib50"
+    },
+    {
+      "text": "Christopher et al. (2025)",
+      "url": "https://arxiv.org/html/2607.12829v1#bib.bib9"
+    },
+    {
+      "text": "Li et al. (2025a)",
+      "url": "https://arxiv.org/html/2607.12829v1#bib.bib27"
+    },
+    {
+      "text": "Gao et al. (2025)",
+      "url": "https://arxiv.org/html/2607.12829v1#bib.bib14"
+    },
+    {
+      "text": "Gat et al. (2025)",
+      "url": "https://arxiv.org/html/2607.12829v1#bib.bib15"
+    },
+    {
+      "text": "Arriola et al. (2025a)",
+      "url": "https://arxiv.org/html/2607.12829v1#bib.bib2"
+    },
+    {
+      "text": "Li et al. (2025b)",
+      "url": "https://arxiv.org/html/2607.12829v1#bib.bib29"
+    },
+    {
+      "text": "Liu et al. (2025)",
+      "url": "https://arxiv.org/html/2607.12829v1#bib.bib31"
+    },
+    {
+      "text": "Salimans and Ho (2022)",
+      "url": "https://arxiv.org/html/2607.12829v1#bib.bib41"
+    },
+    {
+      "text": "Fu et al. (2025)",
+      "url": "https://arxiv.org/html/2607.12829v1#bib.bib13"
+    },
+    {
+      "text": "Hayakawa et al. (2025)",
+      "url": "https://arxiv.org/html/2607.12829v1#bib.bib16"
+    },
+    {
+      "text": "Song et al. (2023)",
+      "url": "https://arxiv.org/html/2607.12829v1#bib.bib45"
+    },
+    {
+      "text": "Kim et al. (2025)",
+      "url": "https://arxiv.org/html/2607.12829v1#bib.bib23"
+    },
+    {
+      "text": "Savinov et al. (2022)",
+      "url": "https://arxiv.org/html/2607.12829v1#bib.bib42"
+    },
+    {
+      "text": "Deschenaux and Gulcehre (2025)",
+      "url": "https://arxiv.org/html/2607.12829v1#bib.bib11"
+    },
+    {
+      "text": "Wang et al. (2025c)",
+      "url": "https://arxiv.org/html/2607.12829v1#bib.bib49"
+    },
+    {
+      "text": "Seo et al. (2025)",
+      "url": "https://arxiv.org/html/2607.12829v1#bib.bib44"
+    },
+    {
+      "text": "Arriola et al. (2025b)",
+      "url": "https://arxiv.org/html/2607.12829v1#bib.bib3"
+    },
+    {
+      "text": "Xu and Yang (2025)",
+      "url": "https://arxiv.org/html/2607.12829v1#bib.bib52"
+    },
+    {
+      "text": "Zhang et al. (2025b)",
+      "url": "https://arxiv.org/html/2607.12829v1#bib.bib55"
+    },
+    {
+      "text": "Ma et al. (2025a)",
+      "url": "https://arxiv.org/html/2607.12829v1#bib.bib35"
+    }
+  ],
+  "matching_link_count": 104,
+  "links_truncated": true,
+  "invalid_links": []
+}

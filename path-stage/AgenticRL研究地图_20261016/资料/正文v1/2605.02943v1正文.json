@@ -1,0 +1,271 @@
+{
+  "url": "https://arxiv.org/html/2605.02943v1",
+  "final_url": "https://arxiv.org/html/2605.02943v1",
+  "status": 200,
+  "title": "Healthcare AI GYM for Medical Agents",
+  "metadata": {},
+  "paper": {
+    "title": "Healthcare AI GYM for Medical Agents",
+    "title_warning": null,
+    "abstract": "Abstract Clinical reasoning demands multi-step interactions—gathering patient history, ordering tests, interpreting results, and making safe treatment decisions—yet a unified training environment provides the breadth of clinical domains and specialized tools to train generalizable medical AI agents through reinforcement learning remains elusive.\nWe present a comprehensive empirical study of multi-turn agentic RL for medical AI, built on Healthcare AI GYM , a gymnasium-compatible environment spanning 10 clinical domains with 3.6K+ tasks, 135 domain-specific tools, and a knowledge base of 828K medical passages.\nOur analysis reveals that agentic multi-turn structure degrades into verbose single-turn monologues, characterized by monotonic length explosion and a simultaneous erosion of tool-use frequency.\nWe characterize how this collapse, alongside distillation instability, stems from the misalignment of sparse terminal rewards with sequential clinical trajectories.\nWe find that vanilla GRPO achieves strong final accuracy on some benchmarks but suffers from training instability, evidenced by significant oscillations in response length and prolonged convergence periods.\nTo improve training efficiency and stability, we propose Turn-level Truncated On-Policy Distillation (TT-OPD), a self-distillation framework where a gradient-free EMA teacher leverages outcome-privileged information to provide dense, outcome-aware KL regularization at every conversation turn.\nTT-OPD achieves the best performance on 10 of 18 benchmarks with an average +3.9 pp improvement over the non-RL baseline with faster early convergence, controlled response length, and sustained multi-turn tool use.\nOur analysis further reveals a fundamental agentic-textual transfer gap: RL improves procedural competence but does not transfer to text-based QA benchmarks due to format-reward dilution.\nThe environment, training pipeline, and all experimental artifacts are publicly available.",
+    "authors": [
+      {
+        "name": "Minbyul Jeong",
+        "affiliations": [
+          "Affiliation: Upstage AI"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Minbyul Jeong Affiliation: Upstage AI Email: minstar@upstage.ai",
+    "arxiv_version": "2605.02943v1",
+    "arxiv_version_date": "2026-05-01"
+  },
+  "text": "Healthcare AI GYM for Medical Agents Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: CC BY-NC-ND 4.0 arXiv:2605.02943v1 [cs.LG] 01 May 2026 Healthcare AI GYM for Medical Agents Minbyul Jeong Affiliation: Upstage AI Email: minstar@upstage.ai Abstract Clinical reasoning demands multi-step interactions—gathering patient history, ordering tests, interpreting results, and making safe treatment decisions—yet a unified training environment provides the breadth of clinical domains and specialized tools to train generalizable medical AI agents through reinforcement learning remains elusive. We present a comprehensive empirical study of multi-turn agentic RL for medical AI, built on Healthcare AI GYM , a gymnasium-compatible environment spanning 10 clinical domains with 3.6K+ tasks, 135 domain-specific tools, and a knowledge base of 828K medical passages. Our analysis reveals that agentic multi-turn structure degrades into verbose single-turn monologues, characterized by monotonic length explosion and a simultaneous erosion of tool-use frequency. We characterize how this collapse, alongside distillation instability, stems from the misalignment of sparse terminal rewards with sequential clinical trajectories. We find that vanilla GRPO achieves strong final accuracy on some benchmarks but suffers from training instability, evidenced by significant oscillations in response length and prolonged convergence periods. To improve training efficiency and stability, we propose Turn-level Truncated On-Policy Distillation (TT-OPD), a self-distillation framework where a gradient-free EMA teacher leverages outcome-privileged information to provide dense, outcome-aware KL regularization at every conversation turn. TT-OPD achieves the best performance on 10 of 18 benchmarks with an average +3.9 pp improvement over the non-RL baseline with faster early convergence, controlled response length, and sustained multi-turn tool use. Our analysis further reveals a fundamental agentic-textual transfer gap: RL improves procedural competence but does not transfer to text-based QA benchmarks due to format-reward dilution. The environment, training pipeline, and all experimental artifacts are publicly available. GitHub: Healthcare AI GYM Repository 1 Introduction Recent advancements in medical LLMs have shifted the frontier from static knowledge retrieval to complex clinical reasoning ( Nori et al., 2023 ; Singhal et al., 2023 ; Chen et al., 2024 ) . While frontier models increasingly master medical board exams, their performance remains largely confined to passive, single-turn benchmarks ( Jin et al., 2021 ; Hendrycks et al., 2021 ; Pal et al., 2022 ) . However, authentic clinical practice is inherently agentic and multi-turn: it demands an iterative cycle of gathering patient history, selecting diagnostic tools, and recalibrating treatment plans based on evolving clinical contexts ( Thirunavukarasu et al., 2023 ; Yao et al., 2023 ) . Despite the emergence of reasoning-optimized models ( Wei et al., 2022 ; Wang et al., 2023 ) , a critical “action gap” persists—current frameworks excel at verbalizing medical logic but struggle to maintain stable, tool-augmented trajectories in open-ended clinical environments ( Shen et al., 2026 ; Schick et al., 2023 ) . Bridging this gap requires a transition from question-answering to agentic reinforcement learning, where models learn to navigate the high-stakes uncertainty of multi-step medical decision-making ( Schulman et al., 2017 ; Shao et al., 2024 ; Ouyang et al., 2022 ) . Existing medical agent environments address only fragments of the clinical reasoning challenge. AgentClinic ( Schmidgall et al., 2025 ) simulates diagnostic dialogues but lacks both tool-use integration and an RL-based training framework. Agent Hospital ( Li et al., 2024 ) focuses on multi-agent workflow experiences rather than explicit policy optimization via RL. While MedAgentGym ( Xu et al., 2026 ) offers a Gymnasium interface, its tool system is primarily code-centric (e.g., Python sandboxes) rather than clinically grounded (e.g., ordering labs, severity scoring), limiting its ecological validity. Furthermore, MedOpenClaw ( Shen et al., 2026 ) reveals a “tool-use paradox” where raw prompting with professional tools degrades performance, underscoring that competence in tool-mediated reasoning must be learned through RL rather than merely prompted. Although frameworks like ReAct ( Yao et al., 2023 ) provide reasoning templates, no existing environment simultaneously offers: (1) broad multi-domain clinical coverage, (2) an authentic tool ecosystem, (3) safety-critical evaluation, and (4) seamless compatibility with modern RL frameworks. This motivates Healthcare AI GYM , a unified environment addressing these requirements. Training agents in Healthcare AI GYM through multi-turn RL reveals three compounding pathologies absent in single-turn settings: (1) Response Explosion : Outputs grow monotonically to the limit. In the absence of intermediate feedback ( Lightman et al., 2024 ; Uesato et al., 2022 ) , the model adopts token-level coverage as a proxy for task completion, bloating responses to “capture” the correct answer within a sea of incoherence; (2) Multi-turn Collapse : The agentic structure degrades from coordinated tool-use dialogues into verbose single-turn monologues. This collapse suggests that the model finds single-turn verbosity a lower-energy optimization path than the complex turn-taking policy required for sequential reasoning ( Shi et al., 2024 ; Jung et al., 2025 ) . Critically, these two pathologies are causally linked: as the model shifts toward single-turn monologues, responses grow longer to compensate for abandoned tool calls, and the resulting length explosion further discourages multi-turn interaction—creating a self-reinforcing collapse loop; (3) Distillation Instability : On-policy distillation (OPD), while effective for single-turn reasoning ( Zhao et al., 2026 ; Yang et al., 2026 ) , fails in agentic settings. The combinatorial complexity of trajectory space causes teacher policies to become stale far more rapidly than in constrained QA tasks ( Song and Zheng, 2026 ) . These failures share a common root: the structural misalignment between sparse terminal rewards and the sequential nature of agentic trajectories. Standard GRPO ( Shao et al., 2024 ) assigns a uniform advantage estimate to all tokens in a multi-turn sequence, failing to credit specific turns and resulting in unstable convergence. This paper presents a comprehensive empirical study of multi-turn agentic RL for medical AI. We evaluate across 18 benchmarks spanning MC QA, visual QA, EHR reasoning, and long-form QA, demonstrating that TT-OPD achieves the best performance on 10 of 18 benchmarks with an average +3.9 pp improvement over the non-RL baseline, including MedQA 87.1% (+16.4 pp over base), MedMCQA 66.2%, and MIMIC-III 62.7%. Vanilla GRPO achieves strong training accuracy (+9.4 pp) but suffers from the training instabilities described above. To improve training efficiency and stability, we propose Turn-Level Truncated On-Policy Distillation (TT-OPD), a self-distillation framework that stabilizes training via: (1) a gradient-free EMA teacher ( Tarvainen & Valpola, 2017 ) , (2) outcome-conditioned privileged hints providing dense turn-level KL regularization, and (3) length-controlled reward shaping ( Yeo et al., 2025 ) . Our contributions: Our contributions are as follows. Healthcare AI GYM , a Gymnasium-compatible environment spanning 10 clinical domains with 3.6K+ tasks, 135 domain-specific tools, a knowledge base of 828K medical passages, and a safety-aware 5D reward function (Appendix A ). Our novelty lies in outcome-aware regularization: by injecting correctness signals into the teacher’s context (but withholding them from the student), the KL gradient provides dense, turn-by-turn guidance, sustaining tool-use frequency (7.0–7.4 turns) and controlled response lengths (5.7–9.3K tokens). Four ablation variants trace the failure progression from KL collapse (periodic reset) through response explosion (no length control), identifying multi-turn collapse as an agentic-specific failure mode absent from single-turn OPD ( Yang et al., 2026 ; Zhao et al., 2026 ) . 2 Related Work Medical AI Agents Recent medical agent environments each address fragments of clinical reasoning. AgentClinic ( Schmidgall et al., 2025 ) simulates diagnostic dialogues but lacks tool-use and RL training; Agent Hospital ( Li et al., 2024 ) models multi-agent workflows without policy optimization; MedAgentGym ( Xu et al., 2026 ) provides a Gymnasium interface with code-centric tools rather than clinically grounded ones; and MedOpenClaw ( Shen et al., 2026 ) reveals that naively adding professional tools degrades performance without RL training. On the reasoning side, MediX-R1 ( Mullappilly et al., 2026 ) applies GRPO to medical reasoning but is limited to single-turn generation, and HuatuoGPT-o1 ( Chen et al., 2024 ) explores complex medical reasoning without multi-turn tool use. Tool-augmented LLMs ( Schick et al., 2023 ; Qin et al., 2024 ) learn to invoke external APIs, and retrieval-augmented generation ( Lewis et al., 2020 ) from medical knowledge bases improves factual grounding ( Jin et al., 2023 ) . While these works advance single-turn medical knowledge retrieval, none address the behavioral collapse that occurs in long-horizon clinical trajectories. Our work fills this gap by providing a unified multi-domain training environment with a 135-tool clinical ecosystem and a 5D reward function specifically designed to stabilize agentic policy learning. RL for LLMs and On-Policy Distillation Policy gradient methods ( Schulman et al., 2017 ) underpin modern LLM alignment ( Ouyang et al., 2022 ) , with alternatives like DPO ( Rafailov et al., 2023 ) bypassing reward models. GRPO ( Shao et al., 2024 ) uses group relative rewards; DAPO ( Yu et al., 2025 ) introduces dynamic sampling and asymmetric clipping; Dr. GRPO ( Liu et al., 2025 ) removes length normalization bias. However, in online single-iteration GRPO, the importance ratio π θ / π old ≡ 1.0 \\pi_{\\theta}/\\pi_{\\text{old}}\\equiv 1.0 , so DAPO’s clipping and GSPO’s ( Zheng et al., 2025 ) importance sampling—designed for multi-iteration training—have no effect. Knowledge distillation ( Hinton et al., 2015 ) has been extended to on-policy settings: OPSD ( Zhao et al., 2026 ) introduces privileged teacher conditioning; Self-Distilled RLVR ( Yang et al., 2026 ) decouples update direction and magnitude; SRPO ( Li et al., 2026 ) unifies group-relative and self-distillation; CRISP ( Sang et al., 2026 ) applies OPD for reasoning compression. Song and Zheng (2026) identify agent-level OPD as an open problem. HiLL ( Xia et al., 2026 ) co-trains an adaptive hint policy, while Complementary RL ( Muhtar et al., 2026 ) co-evolves an experience extractor. However, existing OPD methods primarily stabilize single-turn reasoning and under-explore when applied to the high-dimensional combinatorial space of medical tool-use trajectories. TT-OPD addresses this by introducing an outcome-conditioned EMA teacher that provides dense, turn-level regularization, preventing the KL collapse and length explosion inherent in vanilla on-policy agentic RL. Multi-Turn Agent Optimization Extending RL beyond single-turn requires credit assignment across turns. Process reward models ( Lightman et al., 2024 ; Uesato et al., 2022 ) provide step-level feedback for reasoning but assume linear chains. Self-RAG ( Asai et al., 2023 ) trains models to adaptively retrieve and self-reflect; Self-BioRAG ( Jeong et al., 2024 ) extends this to the biomedical domain by combining retrieval-augmented generation with self-reflection to improve medical reasoning; and STaR ( Zelikman et al., 2022 ) bootstraps reaso",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: CC BY-NC-ND 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "Healthcare AI GYM Repository",
+      "url": "https://github.com/minstar/Healthcare_GYM"
+    },
+    {
+      "text": "Nori et al., 2023",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib1"
+    },
+    {
+      "text": "Singhal et al., 2023",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib2"
+    },
+    {
+      "text": "Chen et al., 2024",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib3"
+    },
+    {
+      "text": "Jin et al., 2021",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib4"
+    },
+    {
+      "text": "Hendrycks et al., 2021",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib5"
+    },
+    {
+      "text": "Pal et al., 2022",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib6"
+    },
+    {
+      "text": "Thirunavukarasu et al., 2023",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib7"
+    },
+    {
+      "text": "Yao et al., 2023",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib8"
+    },
+    {
+      "text": "Wei et al., 2022",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib9"
+    },
+    {
+      "text": "Wang et al., 2023",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib10"
+    },
+    {
+      "text": "Shen et al., 2026",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib11"
+    },
+    {
+      "text": "Schick et al., 2023",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib12"
+    },
+    {
+      "text": "Schulman et al., 2017",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib13"
+    },
+    {
+      "text": "Shao et al., 2024",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib14"
+    },
+    {
+      "text": "Ouyang et al., 2022",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib15"
+    },
+    {
+      "text": "Schmidgall et al., 2025",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib16"
+    },
+    {
+      "text": "Li et al., 2024",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib17"
+    },
+    {
+      "text": "Xu et al., 2026",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib18"
+    },
+    {
+      "text": "Lightman et al., 2024",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib19"
+    },
+    {
+      "text": "Uesato et al., 2022",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib20"
+    },
+    {
+      "text": "Shi et al., 2024",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib21"
+    },
+    {
+      "text": "Jung et al., 2025",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib22"
+    },
+    {
+      "text": "Zhao et al., 2026",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib23"
+    },
+    {
+      "text": "Yang et al., 2026",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib24"
+    },
+    {
+      "text": "Song and Zheng, 2026",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib25"
+    },
+    {
+      "text": "Tarvainen & Valpola, 2017",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib26"
+    },
+    {
+      "text": "Yeo et al., 2025",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib27"
+    },
+    {
+      "text": "A",
+      "url": "https://arxiv.org/html/2605.02943v1#A1"
+    },
+    {
+      "text": "Mullappilly et al., 2026",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib31"
+    },
+    {
+      "text": "Qin et al., 2024",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib32"
+    },
+    {
+      "text": "Lewis et al., 2020",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib33"
+    },
+    {
+      "text": "Jin et al., 2023",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib34"
+    },
+    {
+      "text": "Rafailov et al., 2023",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib35"
+    },
+    {
+      "text": "Yu et al., 2025",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib28"
+    },
+    {
+      "text": "Liu et al., 2025",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib29"
+    },
+    {
+      "text": "Zheng et al., 2025",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib30"
+    },
+    {
+      "text": "Hinton et al., 2015",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib36"
+    },
+    {
+      "text": "Li et al., 2026",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib37"
+    },
+    {
+      "text": "Sang et al., 2026",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib38"
+    },
+    {
+      "text": "Xia et al., 2026",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib39"
+    },
+    {
+      "text": "Muhtar et al., 2026",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib40"
+    },
+    {
+      "text": "Asai et al., 2023",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib41"
+    },
+    {
+      "text": "Jeong et al., 2024",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib42"
+    },
+    {
+      "text": "Zelikman et al., 2022",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib43"
+    },
+    {
+      "text": "Yuan et al., 2025",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib44"
+    },
+    {
+      "text": "Li et al., 2025",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib45"
+    },
+    {
+      "text": "Cao et al., 2025",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib46"
+    },
+    {
+      "text": "Chen et al., 2025",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib47"
+    },
+    {
+      "text": "Sheng et al., 2024",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib48"
+    },
+    {
+      "text": "Towers et al., 2024",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib49"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2605.02943v1#S3.F1"
+    },
+    {
+      "text": "Johnson et al., 2016",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib50"
+    },
+    {
+      "text": "C",
+      "url": "https://arxiv.org/html/2605.02943v1#A3"
+    },
+    {
+      "text": "E.2",
+      "url": "https://arxiv.org/html/2605.02943v1#A5.Thmproposition2"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2605.02943v1#S1"
+    },
+    {
+      "text": "Qwen Team, 2025",
+      "url": "https://arxiv.org/html/2605.02943v1#bib.bib51"
+    }
+  ],
+  "matching_link_count": 90,
+  "links_truncated": true,
+  "invalid_links": []
+}

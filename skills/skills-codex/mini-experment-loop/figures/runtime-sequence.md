@@ -1,0 +1,38 @@
+# Mini Experiment 运行时序
+
+这张图说明测试、smoke 和 full 共用的 Python 调用主链，以及资源缺失和执行失败如何留下记录。
+
+```mermaid
+%%{init: {"theme":"base","themeVariables":{"background":"#FFFFFF","primaryColor":"#EFF6FF","primaryTextColor":"#111827","primaryBorderColor":"#2563EB","lineColor":"#374151","actorBkg":"#EFF6FF","actorBorder":"#2563EB","actorTextColor":"#111827","signalColor":"#374151","signalTextColor":"#111827","labelBoxBkgColor":"#F9FAFB","labelBoxBorderColor":"#9CA3AF","labelTextColor":"#111827"}}}%%
+sequenceDiagram
+    actor user as 运行者
+    participant cli as cli.py::main()
+    participant ledger as state.py / run_record.py
+    participant data as data/loader.py::load_samples()
+    participant method as methods/protocol.py::run()
+    participant evaluator as evaluation/evaluator.py::evaluate()
+    participant artifacts as evidence/artifacts.py::write_artifacts()
+
+    user->>cli: 启动 test、smoke 或 full 命令
+    cli->>cli: 读取契约和配置，检查环境与资源
+    alt 资源或配置不满足
+        cli->>ledger: 记录 awaiting_resources 和缺失项
+        cli-->>user: 返回具体补齐动作与检查命令
+    else 预检通过
+        cli->>ledger: 先登记 active job
+        cli->>data: 传入配置、资源路径和 seed
+        data-->>cli: 返回规范化数据与数据版本
+        cli->>method: 执行真实训练或推理路径
+        method-->>cli: 返回原始预测、轨迹或 checkpoint
+        cli->>evaluator: 提交原始输出和评测协议
+        evaluator-->>cli: 返回可重算指标与 gate 判断
+        cli->>artifacts: 写入 stdout、stderr、raw 和 metrics
+        alt 执行失败
+            cli->>ledger: 追加失败 run，保留错误证据
+        else 执行完成
+            cli->>ledger: 追加成功 run、哈希和范围说明
+        end
+        cli->>ledger: 清除 active job，更新当前状态
+        cli-->>user: 返回 run_id、结果摘要和证据路径
+    end
+```

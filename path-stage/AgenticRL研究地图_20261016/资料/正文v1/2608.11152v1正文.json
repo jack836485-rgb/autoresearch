@@ -1,0 +1,249 @@
+{
+  "url": "https://arxiv.org/html/2608.11152v1",
+  "final_url": "https://arxiv.org/html/2608.11152v1",
+  "status": 200,
+  "title": "Scheduling Mixed RL Rollouts Beyond Prefix Locality",
+  "metadata": {},
+  "paper": {
+    "title": "Scheduling Mixed RL Rollouts Beyond Prefix Locality",
+    "title_warning": null,
+    "abstract": "",
+    "authors": [
+      {
+        "name": "Zetao Hong",
+        "affiliations": [
+          "Affiliation: State Key Laboratory of Novel Software Technology, Nanjing University"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Song Yuan",
+        "affiliations": [
+          "Affiliation: StepFun"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Yuanhao Ding",
+        "affiliations": [
+          "Affiliation: StepFun"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Yibo Zhu",
+        "affiliations": [
+          "Affiliation: StepFun"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Daxin Jiang",
+        "affiliations": [
+          "Affiliation: StepFun"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Zhibin Wang",
+        "affiliations": [
+          "Affiliation: State Key Laboratory of Novel Software Technology, Nanjing University"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Chen Tian",
+        "affiliations": [
+          "Affiliation: State Key Laboratory of Novel Software Technology, Nanjing University"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Zetao Hong Affiliation: State Key Laboratory of Novel Software Technology, Nanjing University Song Yuan Affiliation: StepFun Yuanhao Ding Affiliation: StepFun Yibo Zhu Affiliation: StepFun Daxin Jiang Affiliation: StepFun Zhibin Wang Affiliation: State Key Laboratory of Novel Software Technology, Nanjing University Chen Tian Affiliation: State Key Laboratory of Novel Software Technology, Nanjing University",
+    "arxiv_version": "2608.11152v1",
+    "arxiv_version_date": "2026-08-11"
+  },
+  "text": "Scheduling Mixed RL Rollouts Beyond Prefix Locality Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: arXiv.org perpetual non-exclusive license arXiv:2608.11152v1 [cs.DC] 11 Aug 2026 Scheduling Mixed RL Rollouts Beyond Prefix Locality Zetao Hong Affiliation: State Key Laboratory of Novel Software Technology, Nanjing University Song Yuan Affiliation: StepFun Yuanhao Ding Affiliation: StepFun Yibo Zhu Affiliation: StepFun Daxin Jiang Affiliation: StepFun Zhibin Wang Affiliation: State Key Laboratory of Novel Software Technology, Nanjing University Chen Tian Affiliation: State Key Laboratory of Novel Software Technology, Nanjing University 1 1 footnotetext: Corresponding to wzbwangzhibin@gmail.com Modern reinforcement learning (RL) post-training pipelines for large language models (LLMs) increasingly combine rollout workloads across multiple domains and feedback paradigms. Prefix-aware routing improves inference efficiency through cache reuse and load balancing, but it does not control how heterogeneous rollout sessions compete for KV-cache capacity. When reinforcement learning with verifiable rewards (RLVR), reinforcement learning from human feedback (RLHF), and agentic rollouts share an asynchronous inference service, their distinct sequence structures, interaction patterns, and KV-residency times create substantially different serving demands. Rollout scheduling must account for this heterogeneity without distorting the workload mixture specified by the trainer. We present MISA-T , a routing-layer admission policy for mixed rollout serving. MISA-T combines adaptive session admission, workload-aware KV-capacity allocation, and residency-time-aware KV accounting. In rollout-only ablations on Step3.7 and Qwen3.6-35B-A3B, MISA-T improves rollout throughput over a sweep-tuned cache-aware vLLM Router by 53.3 % 53.3\\% and 43.6 % 43.6\\% , respectively, while maintaining high prefix-cache hit rates. In a matched 50-iteration Step3.7 experiment, it increases rollout throughput by 35.6 % 35.6\\% and reduces mean iteration time by 22.8 % 22.8\\% , while keeping the consumed workload mixture close to the trainer target and achieving comparable task scores. 1 Introduction Modern RL post-training for large language models increasingly treats rollout generation as a distributed serving workload. A trainer releases prompts or agent tasks, the rollout layer translates them into model-generation requests, and a router assigns those requests to inference instances that reuse cached KV state when possible. Existing LLM serving systems therefore treat prefix reuse as a central efficiency objective through PagedAttention-based KV memory management ( Kwon et al., 2023 ) , RadixAttention-based reuse ( Zheng et al., 2024 ) , and distributed prefix-aware routing ( Srivatsa et al., 2025 ; Cao et al., 2025 ; Dexter et al., 2025 ) . Reusing cached prefixes reduces redundant prefill whenever requests share prompt or session context. The scheduling problem becomes more complex when a rollout stream contains heterogeneous workloads. Such streams arise in multi-domain RL ( Yang et al., 2025 ; Liang et al., 2025 ) and in multi-teacher on-policy distillation stages that integrate domain specialists ( Ma et al., 2026 ; Yang et al., 2026 ; Li et al., 2026 ; Kimi Team, 2026 ; Yang et al., 2026 ) . When served by a common inference pool, these workloads stress different resources. Rollout pipelines commonly fan out multiple samples per prompt, creating group-completion dependencies across workload classes ( Yu et al., 2026 ) . Within this shared structure, RLVR requests often have short prompts and long decode tails; RLHF requests have more balanced prompt and response lengths; and agentic trajectories depend on session continuity across repeated long-prefix calls and intervening tool execution. For agentic rollouts in particular, a cache miss on a later turn requires prefill of the accumulated interaction history ( Kang et al., 2026 ; Zhu et al., 2026 ) . The trainer releases rollout tasks subject to staleness and maximum-concurrency limits, whereas the router controls serving-side admission and instance selection. Prefix reuse remains important, but selecting the instance with the largest cached prefix alone does not control how many sessions compete for limited KV-cache capacity or how that capacity should be shared across workloads. The router must therefore account for workload-specific serving characteristics without altering the workload composition defined by the trainer. We formulate this setting as mixed-rollout routing under trainer-side mixture constraints and propose MISA-T ( M ix-aware S ession A dmission with a T ime factor). MISA-T separates the trainer’s mixture contract from the router’s resource controller: the trainer determines the target distribution, while the router performs session-aware admission control, partitions protected KV capacity by workload class, and accounts for class-specific KV residency time. The contributions are: 1. Overload-aware session admission. We derive an adaptive admission cap for new sessions from observed KV demand and overload pressure. Requests beyond the cap are held and periodically re-evaluated, while existing continuations remain protected, limiting KV-cache churn and reducing the need to retune static concurrency limits. 2. Workload-aware capacity allocation. We partition protected admission capacity across RLVR, RLHF, and agentic workloads according to their demand and KV footprints. This allows resource control to reflect heterogeneous sequence structures while leaving the target workload composition under trainer control. 3. Residency-time-aware KV accounting. We weight each workload’s KV demand by its observed session residency time, capturing both inference time and tool-interaction intervals during which reusable KV remains resident. This extends footprint-based allocation to account for KV block-time demand. Across two rollout-only model families, MISA-T improves rollout throughput by up to 53.3 % 53.3\\% over a sweep-tuned vLLM Router baseline. In matched end-to-end training, it improves rollout throughput by 35.6 % 35.6\\% and reduces mean iteration time by 22.8 % 22.8\\% . 2 Background and Motivation 2.1 Rollout serving architecture Figure 1 illustrates a common architecture for distributed RL rollout generation. A trainer releases rollout tasks and bounds in-flight work through maximum-concurrency and policy-version staleness limits. In fully asynchronous systems, rollout generation proceeds concurrently with model training ( Fu et al., 2025 ; Yan et al., 2025 ; Hu et al., 2026 ) . Rollout workers translate these tasks into model requests, while a routing layer performs request admission and selects an inference instance. For agentic workloads, an agent server additionally maintains the interaction loop and executes tool actions in an isolated sandbox. This paper focuses exclusively on the routing layer. Although the router and request scheduler are separate services in our deployment, they form one logical component and can also be implemented as a gateway plugin. MISA-T relies on request metadata, runtime metrics, and lightweight session-cache snapshots exposed by the serving layer. It therefore composes with existing rollout controllers and inference engines while leaving model execution, physical KV-cache allocation, and the agent runtime unchanged. Figure 1: System overview. MISA-T is a routing-layer policy. It can be deployed with the router and scheduler as separate services or as a gateway plugin, and depends only on request metadata, runtime metrics, and session-cache snapshots from the serving layer. 2.2 Mixed rollout generation We study mixed-workload rollout generation, rather than a specific RL algorithm. A mixed rollout stream can arise from different training organizations. Joint multi-domain RL samples heterogeneous prompts within one on-policy process ( Yang et al., 2025 ; Liang et al., 2025 ) . Staged pipelines train domain specialists separately, but their integration stage can again mix domains: MOPD samples prompts from a multi-domain dataset, generates student rollouts, and routes each trajectory to its matching teacher ( Ma et al., 2026 ) . This capability-integration pattern is used in MiMo-V2-Flash ( Xiaomi LLM-Core Team, 2026 ) , Kimi K3 across domain and reasoning-effort specialists ( Kimi Team, 2026 ) , Nemotron 3 Ultra ( NVIDIA, 2026 ) , and Nemotron-Cascade 2 ( Yang et al., 2026 ) . These deployments indicate that mixed-domain on-policy rollout generation is becoming a recurring post-training workload. These training organizations do not prescribe how rollout generation is executed. Across these settings, the trainer defines the sampling distribution and rollout-group semantics. The serving layer observes cache state and queueing pressure that change at request time scale. Its policy should improve serving efficiency without redefining the workload composition specified by the trainer. 2.3 Prefix-aware routing Prefix-cache-aware routing is well established in LLM serving. vLLM improves KV memory management with PagedAttention ( Kwon et al., 2023 ) ; SGLang introduces RadixAttention for reusable KV prefixes across structured generation calls ( Zheng et al., 2024 ) ; Preble balances distributed prefix reuse against load ( Srivatsa et al., 2025 ) ; DLPM/D 2 LPM combines prefix reuse with fairness constraints ( Cao et al., 2025 ) ; and k-LPM incorporates latency constraints ( Dexter et al., 2025 ) . Collectively, these systems establish prefix-aware load balancing as a common routing design for distributed rollout serving. The cache-aware policy in vLLM Router belongs to this family ( vLLM Project, 2026 ) . vLLM Router controls placement but not admission: it chooses an inference instance for each request but does not limit how many new sessions enter that instance. Under high concurrency, these sessions can compete for KV capacity and evict reusable prefixes. More broadly, the routing systems discussed above primarily optimize placement, load balancing, or prefix reuse; they do not allocate admission capacity according to workload-class KV block-time demand. This gap becomes important when heterogeneous rollout workloads share an inference pool. Prefix-cache hit rate remains a useful indicator of avoided prefill work, but it cannot by itself characterize rollout-serving efficiency. We therefore evaluate it together with request throughput, iteration time, and consumed workload mixture. 2.4 Workload asymmetry Mixed rollout streams can place workloads with substantially different serving behavior on the same inference pool. Table 1 summarizes the profiles observed in our trace. These profiles characterize this deployment rather than define RLVR, RLHF, or agentic training: turn structure and token lengths vary with the model, dataset, and environment. Table 1: Serving characteristics of mixed rollout workloads. Characteristic RLVR RLHF Agentic Observed turns Single-turn Single-turn Multi-turn Token lengths Short input; long output Medium input and output Long input; short output KV behavior Decode-time growth Moderate residency Retained between turns Dominant cost Long decode Prefill and decode Prefix reuse; residency In our trace, RLVR is decode-dominated, RLHF has intermediate prompt and response lengths, and agentic rollouts retain long accumulated prefixes across tool-interleaved turns. These patterns are consistent with prior studies of long-output reasoning, conventional RLHF, and agentic serving ( Du et al., 2025 ; Ouyang et al., 2022 ; Kang et al., 2026 ; Zhu et al., 2026 ) . Table 2 quantifies these differences in the online mixed-rollout trace with a 128K-token context limit. Table 2: Request-level token statistics under a 128K context limit. Workload Requests Sessions Input p50 Input p95 Input p",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: arXiv.org perpetual non-exclusive license",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "Kwon et al., 2023",
+      "url": "https://arxiv.org/html/2608.11152v1#bib.bib1"
+    },
+    {
+      "text": "Zheng et al., 2024",
+      "url": "https://arxiv.org/html/2608.11152v1#bib.bib2"
+    },
+    {
+      "text": "Srivatsa et al., 2025",
+      "url": "https://arxiv.org/html/2608.11152v1#bib.bib23"
+    },
+    {
+      "text": "Cao et al., 2025",
+      "url": "https://arxiv.org/html/2608.11152v1#bib.bib24"
+    },
+    {
+      "text": "Dexter et al., 2025",
+      "url": "https://arxiv.org/html/2608.11152v1#bib.bib25"
+    },
+    {
+      "text": "Yang et al., 2025",
+      "url": "https://arxiv.org/html/2608.11152v1#bib.bib18"
+    },
+    {
+      "text": "Liang et al., 2025",
+      "url": "https://arxiv.org/html/2608.11152v1#bib.bib12"
+    },
+    {
+      "text": "Ma et al., 2026",
+      "url": "https://arxiv.org/html/2608.11152v1#bib.bib13"
+    },
+    {
+      "text": "Yang et al., 2026",
+      "url": "https://arxiv.org/html/2608.11152v1#bib.bib14"
+    },
+    {
+      "text": "Li et al., 2026",
+      "url": "https://arxiv.org/html/2608.11152v1#bib.bib15"
+    },
+    {
+      "text": "Kimi Team, 2026",
+      "url": "https://arxiv.org/html/2608.11152v1#bib.bib17"
+    },
+    {
+      "text": "Yang et al., 2026",
+      "url": "https://arxiv.org/html/2608.11152v1#bib.bib20"
+    },
+    {
+      "text": "Yu et al., 2026",
+      "url": "https://arxiv.org/html/2608.11152v1#bib.bib21"
+    },
+    {
+      "text": "Kang et al., 2026",
+      "url": "https://arxiv.org/html/2608.11152v1#bib.bib22"
+    },
+    {
+      "text": "Zhu et al., 2026",
+      "url": "https://arxiv.org/html/2608.11152v1#bib.bib11"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2608.11152v1#S2.F1"
+    },
+    {
+      "text": "Fu et al., 2025",
+      "url": "https://arxiv.org/html/2608.11152v1#bib.bib6"
+    },
+    {
+      "text": "Yan et al., 2025",
+      "url": "https://arxiv.org/html/2608.11152v1#bib.bib7"
+    },
+    {
+      "text": "Hu et al., 2026",
+      "url": "https://arxiv.org/html/2608.11152v1#bib.bib8"
+    },
+    {
+      "text": "Xiaomi LLM-Core Team, 2026",
+      "url": "https://arxiv.org/html/2608.11152v1#bib.bib16"
+    },
+    {
+      "text": "NVIDIA, 2026",
+      "url": "https://arxiv.org/html/2608.11152v1#bib.bib19"
+    },
+    {
+      "text": "vLLM Project, 2026",
+      "url": "https://arxiv.org/html/2608.11152v1#bib.bib5"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2608.11152v1#S2.T1"
+    },
+    {
+      "text": "Du et al., 2025",
+      "url": "https://arxiv.org/html/2608.11152v1#bib.bib9"
+    },
+    {
+      "text": "Ouyang et al., 2022",
+      "url": "https://arxiv.org/html/2608.11152v1#bib.bib10"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2608.11152v1#S2.T2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2608.11152v1#S2.T3"
+    },
+    {
+      "text": "2.4",
+      "url": "https://arxiv.org/html/2608.11152v1#S2.SS4"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2608.11152v1#S5"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2608.11152v1#S3.E3"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2608.11152v1#S4.F2"
+    },
+    {
+      "text": "10",
+      "url": "https://arxiv.org/html/2608.11152v1#S4.E10"
+    },
+    {
+      "text": "13",
+      "url": "https://arxiv.org/html/2608.11152v1#S4.E13"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2608.11152v1#S5.T4"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2608.11152v1#S5.F3"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2608.11152v1#S5.T5"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2608.11152v1#S5.F4"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2608.11152v1#S5.F5"
+    },
+    {
+      "text": "Lee et al., 2024",
+      "url": "https://arxiv.org/html/2608.11152v1#bib.bib3"
+    },
+    {
+      "text": "Sun et al., 2025",
+      "url": "https://arxiv.org/html/2608.11152v1#bib.bib4"
+    },
+    {
+      "text": "https://github.com/vllm-project/router",
+      "url": "https://github.com/vllm-project/router"
+    }
+  ],
+  "matching_link_count": 44,
+  "links_truncated": false,
+  "invalid_links": []
+}

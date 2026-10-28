@@ -1,0 +1,299 @@
+{
+  "url": "https://arxiv.org/html/2605.17877v1",
+  "final_url": "https://arxiv.org/html/2605.17877v1",
+  "status": 200,
+  "title": "PAIR: Prefix-Aware Internal Reward Model for Multi-Turn Agent Optimization",
+  "metadata": {},
+  "paper": {
+    "title": "PAIR: Prefix-Aware Internal Reward Model for Multi-Turn Agent Optimization",
+    "title_warning": null,
+    "abstract": "Abstract A significant hurdle for current LLMs is the execution of complex, multi-stage tasks.\nGroup Relative Policy Optimization (GRPO) has been emerging as a leading choice, but its reliance on sparse outcome rewards severely limits credit assignment across intermediate steps. Existing remedies—running full rollouts to assign step-level advantages, calling external LLM judges at each step, or computing intrinsic rewards that require ground-truth answers at every evaluation—introduce significant costs or practical constraints.\nWe hypothesize that internal correctness probing over LLM hidden states can be repurposed as a step-level reward signal, potentially addressing all of these limitations at once.\nHowever, existing probing research assumes clean inputs, and we first show that this assumption breaks down in multi-step settings: hidden-state probes degrade severely under prefix contamination—tracking coherence with the (possibly corrupted) prefix rather than grounded correctness—while attention-based features remain robust to contamination but underperform on clean prefixes.\nBuilding on this complementary relationship, we propose the Prefix-Aware Internal Reward ( PAIR )—a two-stage model with a frozen hidden-state probe estimating belief-consistency and a lightweight attention-based head correcting it toward grounded correctness. Experimental results show that PAIR achieves the highest AUROC on contaminated trajectories while operating at negligible inference cost, enabling dense step-level reward signals for GRPO training without external model calls, ground-truth dependencies, or full-trajectory rollouts 1 1 1 Our source code is available at https://github.com/wonjoong-kim/PAIR . .",
+    "authors": [
+      {
+        "name": "Wonjoong Kim",
+        "affiliations": [
+          "Affiliation: KAIST"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Yeonjun In",
+        "affiliations": [
+          "Affiliation: KAIST"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Sangwu Park",
+        "affiliations": [
+          "Affiliation: KAIST"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Dongha Lee",
+        "affiliations": [
+          "Affiliation: Yonsei University"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Chanyoung Park",
+        "affiliations": [
+          "Affiliation: KAIST"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Wonjoong Kim Affiliation: KAIST Email: wjkim@kaist.ac.kr Yeonjun In Affiliation: KAIST Email: yeonjun.in@kaist.ac.kr Sangwu Park Affiliation: KAIST Email: sangwu.park@kaist.ac.kr Dongha Lee Affiliation: Yonsei University Email: cy.park@kaist.ac.kr Chanyoung Park † † thanks: Corresponding Author Affiliation: KAIST Email: donalee@yonsei.ac.kr",
+    "arxiv_version": "2605.17877v1",
+    "arxiv_version_date": "2026-05-18"
+  },
+  "text": "PAIR: Prefix-Aware Internal Reward Model for Multi-Turn Agent Optimization Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: CC BY 4.0 arXiv:2605.17877v1 [cs.AI] 18 May 2026 PAIR: Prefix-Aware Internal Reward Model for Multi-Turn Agent Optimization Wonjoong Kim Affiliation: KAIST Email: wjkim@kaist.ac.kr Yeonjun In Affiliation: KAIST Email: yeonjun.in@kaist.ac.kr Sangwu Park Affiliation: KAIST Email: sangwu.park@kaist.ac.kr Dongha Lee Affiliation: Yonsei University Email: cy.park@kaist.ac.kr Chanyoung Park † † thanks: Corresponding Author Affiliation: KAIST Email: donalee@yonsei.ac.kr Abstract A significant hurdle for current LLMs is the execution of complex, multi-stage tasks. Group Relative Policy Optimization (GRPO) has been emerging as a leading choice, but its reliance on sparse outcome rewards severely limits credit assignment across intermediate steps. Existing remedies—running full rollouts to assign step-level advantages, calling external LLM judges at each step, or computing intrinsic rewards that require ground-truth answers at every evaluation—introduce significant costs or practical constraints. We hypothesize that internal correctness probing over LLM hidden states can be repurposed as a step-level reward signal, potentially addressing all of these limitations at once. However, existing probing research assumes clean inputs, and we first show that this assumption breaks down in multi-step settings: hidden-state probes degrade severely under prefix contamination—tracking coherence with the (possibly corrupted) prefix rather than grounded correctness—while attention-based features remain robust to contamination but underperform on clean prefixes. Building on this complementary relationship, we propose the Prefix-Aware Internal Reward ( PAIR )—a two-stage model with a frozen hidden-state probe estimating belief-consistency and a lightweight attention-based head correcting it toward grounded correctness. Experimental results show that PAIR achieves the highest AUROC on contaminated trajectories while operating at negligible inference cost, enabling dense step-level reward signals for GRPO training without external model calls, ground-truth dependencies, or full-trajectory rollouts 1 1 1 Our source code is available at https://github.com/wonjoong-kim/PAIR . . 1 Introduction Multi-step reasoning tasks—where an agent must handle a sequence of actions (e.g., API calls, tool invocations) and interpret environmental feedback before producing a final answer—have emerged as a central challenge for large language models (LLMs). Training LLMs in such settings increasingly relies on reinforcement learning, and Group Relative Policy Optimization (GRPO) ( Guo et al., 2025 ; Shao et al., 2024 ) is widely adopted due to its simplicity and strong empirical performance. When applied to multi-step agent tasks, however, GRPO operates with only a sparse outcome reward —a single scalar indicating whether the final answer is correct. This sparsity makes credit assignment across intermediate steps extremely difficult: the training signal cannot distinguish which steps contributed to success or failure, leading to slow convergence and poor sample efficiency. To mitigate this issue, several lines of work have attempted to introduce denser, step-level reward signals for multi-step agent training, but each comes with notable limitations. One natural approach for step-level reward signals is to run the model to completion and then propagate the outcome reward backward to assign per-step advantages ( Ji et al., 2025 ; Zong et al., 2026 ) . However, even when early steps are clearly erroneous, the agent cannot know this at generation time and must complete the full trajectory before any signal is available. This produces a large volume of wasteful rollouts from already-failed trajectories, resulting in significant computational inefficiency. An alternative is to query a strong external LLM at every step to evaluate that step’s quality. However, judging intermediate steps is inherently difficult, leading to naïve reward criteria (e.g., format validity) and the per-step API cost and latency make this approach impractical for online RL training at scale. Other research leverage the model’s own log-probabilities as a reward signal, but these approaches require the ground-truth answer at every reward computation: they calculate teacher-forced log-probabilities of the gold response conditioned on the current trajectory prefix ( Wang et al., 2025a ; Xie et al., 2026 ) . While training datasets may provide ground-truth answers, the key limitation is that this computation must occur at runtime for every rollout—an operational dependency that restricts applicability and adds non-trivial forward-pass cost. Recent multi-turn RL studies ( Wang et al., 2025b ; Xi et al., 2025 ; Zhou et al., 2025 ) address step-level credit assignment but universally rely on external reward models —separately trained networks or LLM judges—rather than leveraging the agent’s own internal representations, incurring significant overhead in training and maintaining these external components. As illustrated by the comparison in Table 1 , there remains a significant gap in achieving a reward signal that is both dense and entirely independent from external models. These limitations raise a natural question: can we provide dense step-level rewards at every step, without full-trajectory rollouts, without external LLM calls, without ground-truth dependencies at runtime, and without a separate reward model—using only the agent’s own internal states? We propose extracting inherently encoded correctness information from an LLM’s internal signals to serve as a dense, step-level reward for GRPO training. This approach is motivated by recent probing research showing that two complementary types of internal signals during generation— hidden states ( Wang et al., 2024c ) and attention patterns ( Chuang et al., 2024 ; Ostmeier et al., 2026 ) —implicitly carry information about model’s own correctness. It resolves all four limitations above simultaneously: no full rollouts needed (rewards are computed per step), no external LLM calls (probes run on the agent’s own representations), no runtime ground-truth dependency (probes are trained offline and applied to new trajectories), and near-zero marginal cost. However, applying this idea to multi-step agent settings introduces a fundamental challenge: prefix contamination . That is, during RL exploration, the agent inevitably generates erroneous intermediate steps, corrupting the prefix on which subsequent steps are conditioned. To assess whether internal probes remain reliable under such contamination, we conduct a systematic analysis of internal probe behavior under prefix contamination and uncover three findings: Table 1: Comparison between reward mechanisms for GRPO based on their functional requirements. Outcome LLM-based ( Wei et al., 2025 ) Tree-based ( Ji et al., 2025 ; Zong et al., 2026 ) Intrinsic ( Wang et al., 2025a ; Xie et al., 2026 ) PRM ( Wang et al., 2025b ; Xi et al., 2025 ; Zhou et al., 2025 ) Ours Dense reward ✗ ✓ ✓ ✓ ✓ ✓ w.o. LLM ✓ ✗ ✓ ✓ ✓ ✓ w.o. full rollout ✗ ✓ ✗ ✓ ✓ ✓ w.o. external func. ✓ ✓ ✓ ✓ ✗ ✓ w.o. ground-truth ✗ ✗ ✗ ✗ ✗ ✓ • Hidden-state probes degrade severely under contamination. Hidden-state probes degrade severely under contamination because they encode coherence with the (possibly corrupted) prefix rather than grounded correctness, inverting the reward signal at repair turns. • Attention features are comparatively robust. Attention features capture structural behavior and exhibit smaller drops under contamination. • The two signals are complementary. The two signals are complementary: hidden-state dominates on clean prefixes, attention on contaminated ones, neither suffices alone. Building on these findings, we propose the P refix- A ware I nternal R eward Model for Multi-Turn Agent Optimization ( PAIR ), a two-stage architecture that preserves the strength of hidden-state probes under clean conditions while correcting their failures under contamination. We get a belief-consistency score s b ​ c s_{bc} from a pre-trained hidden-state probe. An attention-based correction head then takes the attention features together with s b ​ c s_{bc} and predicts a final score s f ​ i ​ n ​ a ​ l s_{final} that adjusts s b ​ c s_{bc} toward grounded correctness, which serves as the step-level reward. By this design, the model learns s f ​ i ​ n ​ a ​ l ≈ s b ​ c s_{final}\\approx s_{bc} under clean prefixes, where belief-consistency already aligns with grounded correctness, automatically preserving baseline performance. Under contaminated prefixes, on the other hand, the attention-based head activates to correct the divergence. It is worth noting that supervision is required only once, offline ; at inference time, the model operates at probe-level cost, making it directly usable as a dense step-level reward in GRPO training. In summary, our main contributions are as follows: • Empirical: We provide the first systematic study of internal correctness probe failure under prefix contamination in multi-step agent settings. • Mechanistic: We demonstrate that hidden states track belief-consistency while attention tracks structural patterns, and that these two signals are complementary—a finding that explains why naïve probes fail and guides the design of robust alternatives. • Methodological: We propose PAIR , which adaptively combines hidden-state and attention signals via a correction architecture, preserving clean-prefix performance while restoring robustness under contamination. • Practical: PAIR operates without external LLM calls, without runtime ground-truth access, and at probe-level inference cost, enabling dense step-level rewards for GRPO training of multi-step reasoning agents. 2 Related Work 2.1 Reinforcement learning for LLM agents Reinforcement Learning from Human Feedback (RLHF) has become the dominant paradigm for aligning large language models with human preferences. InstructGPT ( Ouyang et al., 2022 ) , trains a reward model on human preference data and then optimizes the policy against this reward using Proximal Policy Optimization (PPO) ( Schulman et al., 2017 ; Stiennon et al., 2020 ) . While effective, PPO requires maintaining a value (critic) network of comparable size to the policy network, which substantially increases memory consumption and training cost, and introduces additional instability from value function estimation. Building on this line, Group Relative Policy Optimization (GRPO) ( Guo et al., 2025 ; Liu et al., 2025 ; Shao et al., 2024 ; Zhang et al., 2025a ; Zhou et al., 2026 ) removes the value network entirely and instead estimates the baseline from a group of responses to the same prompt, normalizing rewards within each group. This design retains PPO’s clipped surrogate objective while dramatically reducing memory footprint, and has been shown to scale effectively to large reasoning models. However, in multi-turn agentic environments, GRPO faces the sparse outcome reward problem, where the signal is only provided at the completion of a trajectory. This sparsity leads to significant credit assignment challenges, particularly in identifying which intermediate steps contributed to the final success or failure. 2.2 Step-level and process reward models To mitigate the limitations of sparse rewards, several studies have proposed dense, step-level feedback mechanisms. Process Reward Models (PRMs) provide supervision for intermediate reasoning steps rather than just the final answer ( Lightman et al., 2023 ; Ma et al., 2023 ; Wang et al., 2024b ; Wang et al., 2025c ; Yin et al., 2025 ; Zhang et al., 2024 ; Zhang et al., 2025b ) . However, extending PRMs to agentic settings—where step correctness is context-dependent and not easily veri",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: CC BY 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "https://github.com/wonjoong-kim/PAIR",
+      "url": "https://github.com/wonjoong-kim/PAIR"
+    },
+    {
+      "text": "Guo et al., 2025",
+      "url": "https://arxiv.org/html/2605.17877v1#bib.bib2"
+    },
+    {
+      "text": "Shao et al., 2024",
+      "url": "https://arxiv.org/html/2605.17877v1#bib.bib3"
+    },
+    {
+      "text": "Ji et al., 2025",
+      "url": "https://arxiv.org/html/2605.17877v1#bib.bib8"
+    },
+    {
+      "text": "Zong et al., 2026",
+      "url": "https://arxiv.org/html/2605.17877v1#bib.bib7"
+    },
+    {
+      "text": "Wang et al., 2025a",
+      "url": "https://arxiv.org/html/2605.17877v1#bib.bib12"
+    },
+    {
+      "text": "Xie et al., 2026",
+      "url": "https://arxiv.org/html/2605.17877v1#bib.bib13"
+    },
+    {
+      "text": "Wang et al., 2025b",
+      "url": "https://arxiv.org/html/2605.17877v1#bib.bib16"
+    },
+    {
+      "text": "Xi et al., 2025",
+      "url": "https://arxiv.org/html/2605.17877v1#bib.bib10"
+    },
+    {
+      "text": "Zhou et al., 2025",
+      "url": "https://arxiv.org/html/2605.17877v1#bib.bib11"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2605.17877v1#S1.T1"
+    },
+    {
+      "text": "Wang et al., 2024c",
+      "url": "https://arxiv.org/html/2605.17877v1#bib.bib20"
+    },
+    {
+      "text": "Chuang et al., 2024",
+      "url": "https://arxiv.org/html/2605.17877v1#bib.bib19"
+    },
+    {
+      "text": "Ostmeier et al., 2026",
+      "url": "https://arxiv.org/html/2605.17877v1#bib.bib18"
+    },
+    {
+      "text": "Wei et al., 2025",
+      "url": "https://arxiv.org/html/2605.17877v1#bib.bib9"
+    },
+    {
+      "text": "Ouyang et al., 2022",
+      "url": "https://arxiv.org/html/2605.17877v1#bib.bib21"
+    },
+    {
+      "text": "Schulman et al., 2017",
+      "url": "https://arxiv.org/html/2605.17877v1#bib.bib22"
+    },
+    {
+      "text": "Stiennon et al., 2020",
+      "url": "https://arxiv.org/html/2605.17877v1#bib.bib23"
+    },
+    {
+      "text": "Liu et al., 2025",
+      "url": "https://arxiv.org/html/2605.17877v1#bib.bib4"
+    },
+    {
+      "text": "Zhang et al., 2025a",
+      "url": "https://arxiv.org/html/2605.17877v1#bib.bib5"
+    },
+    {
+      "text": "Zhou et al., 2026",
+      "url": "https://arxiv.org/html/2605.17877v1#bib.bib6"
+    },
+    {
+      "text": "Lightman et al., 2023",
+      "url": "https://arxiv.org/html/2605.17877v1#bib.bib15"
+    },
+    {
+      "text": "Ma et al., 2023",
+      "url": "https://arxiv.org/html/2605.17877v1#bib.bib26"
+    },
+    {
+      "text": "Wang et al., 2024b",
+      "url": "https://arxiv.org/html/2605.17877v1#bib.bib14"
+    },
+    {
+      "text": "Wang et al., 2025c",
+      "url": "https://arxiv.org/html/2605.17877v1#bib.bib27"
+    },
+    {
+      "text": "Yin et al., 2025",
+      "url": "https://arxiv.org/html/2605.17877v1#bib.bib24"
+    },
+    {
+      "text": "Zhang et al., 2024",
+      "url": "https://arxiv.org/html/2605.17877v1#bib.bib28"
+    },
+    {
+      "text": "Zhang et al., 2025b",
+      "url": "https://arxiv.org/html/2605.17877v1#bib.bib25"
+    },
+    {
+      "text": "Gu et al., 2024",
+      "url": "https://arxiv.org/html/2605.17877v1#bib.bib17"
+    },
+    {
+      "text": "Kim et al., 2025",
+      "url": "https://arxiv.org/html/2605.17877v1#bib.bib1"
+    },
+    {
+      "text": "Yang et al., 2024",
+      "url": "https://arxiv.org/html/2605.17877v1#bib.bib29"
+    },
+    {
+      "text": "A",
+      "url": "https://arxiv.org/html/2605.17877v1#A1"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2605.17877v1#S3.F1"
+    },
+    {
+      "text": "Burns et al., 2022",
+      "url": "https://arxiv.org/html/2605.17877v1#bib.bib33"
+    },
+    {
+      "text": "Kadavath et al., 2022",
+      "url": "https://arxiv.org/html/2605.17877v1#bib.bib32"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2605.17877v1#S3.F2"
+    },
+    {
+      "text": "B",
+      "url": "https://arxiv.org/html/2605.17877v1#A2"
+    },
+    {
+      "text": "D",
+      "url": "https://arxiv.org/html/2605.17877v1#A4"
+    },
+    {
+      "text": "C",
+      "url": "https://arxiv.org/html/2605.17877v1#A3"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2605.17877v1#S3.T2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2605.17877v1#S3"
+    },
+    {
+      "text": "Wang et al., 2024a",
+      "url": "https://arxiv.org/html/2605.17877v1#bib.bib30"
+    },
+    {
+      "text": "Qin et al., 2023",
+      "url": "https://arxiv.org/html/2605.17877v1#bib.bib31"
+    },
+    {
+      "text": "H",
+      "url": "https://arxiv.org/html/2605.17877v1#A8"
+    },
+    {
+      "text": "G",
+      "url": "https://arxiv.org/html/2605.17877v1#A7"
+    },
+    {
+      "text": "10",
+      "url": "https://arxiv.org/html/2605.17877v1#A11.F10"
+    },
+    {
+      "text": "3.3",
+      "url": "https://arxiv.org/html/2605.17877v1#S3.SS3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2605.17877v1#S3.E4"
+    },
+    {
+      "text": "E",
+      "url": "https://arxiv.org/html/2605.17877v1#A5"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2605.17877v1#S4.T3"
+    },
+    {
+      "text": "F",
+      "url": "https://arxiv.org/html/2605.17877v1#A6"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2605.17877v1#S4.F3"
+    },
+    {
+      "text": "I",
+      "url": "https://arxiv.org/html/2605.17877v1#A9"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2605.17877v1#S4.F4"
+    },
+    {
+      "text": "3.1.2",
+      "url": "https://arxiv.org/html/2605.17877v1#S3.SS1.SSS2"
+    },
+    {
+      "text": "§3.1.2",
+      "url": "https://arxiv.org/html/2605.17877v1#S3.SS1.SSS2.p2.1"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2605.17877v1#S1.p4.1"
+    }
+  ],
+  "matching_link_count": 109,
+  "links_truncated": true,
+  "invalid_links": []
+}

@@ -1,0 +1,269 @@
+{
+  "url": "https://arxiv.org/html/2610.16352v1",
+  "final_url": "https://arxiv.org/html/2610.16352v1",
+  "status": 200,
+  "title": "A Production-Grade, High-Efficiency Agentic RL Framework for Frontier LLMs with Validated Recipes",
+  "metadata": {},
+  "paper": {
+    "title": "A Production-Grade, High-Efficiency Agentic RL Framework for Frontier LLMs with Validated Recipes",
+    "title_warning": null,
+    "abstract": "Abstract Reinforcement learning (RL) has emerged as a critical phase in the post-training pipeline of large language models (LLMs). As the frontier of LLM capabilities shifts from static reasoning to agentic tasks—characterized by external tool invocation, multi-turn interactions, and long-horizon decision-making—existing mainstream RL frameworks have grown increasingly unwieldy, raising the overhead of adoption, usage, and debugging.\nTo address these challenges, we present LoongSage, an agent-native, fully asynchronous RL framework with a lightweight core of roughly 14K lines of code. Built upon Megatron for distributed training and SGLang for high-throughput inference, LoongSage centralizes orchestration within a single controller process and encapsulates all GPU-resident components as Ray actors. It introduces AgentFlow, a unified execution paradigm that orchestrates both white-box and black-box agents. For asynchronous execution, it integrates sliding-window strategies that bound trajectory staleness, and employs TransferMesh, a topology-aware synchronization mechanism that routes weights after each step over the fastest transport available to each receiver.\nBeyond agentic RL, LoongSage incorporates a memory-efficient Teacher Manager that decouples the scaling of teacher models from GPU memory constraints, natively supporting Multi-Teacher On-Policy Distillation. Extensive evaluations across four complete training runs, spanning complex reinforcement learning and multi-teacher distillation, demonstrate that task rewards improve steadily while the train–inference gap is kept under continuous control, and the fully asynchronous pipeline removes synchronous idle bubbles, sustaining hardware utilization.",
+    "authors": [
+      {
+        "name": "Team",
+        "affiliations": [],
+        "notes": []
+      }
+    ],
+    "author_block": "Team",
+    "arxiv_version": "2610.16352v1",
+    "arxiv_version_date": "2026-10-12"
+  },
+  "text": "A Production-Grade, High-Efficiency Agentic RL Framework for Frontier LLMs with Validated Recipes Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: CC BY 4.0 arXiv:2610.16352v1 [cs.LG] 12 Oct 2026 A Production-Grade, High-Efficiency Agentic RL Framework for Frontier LLMs with Validated Recipes Team Abstract Reinforcement learning (RL) has emerged as a critical phase in the post-training pipeline of large language models (LLMs). As the frontier of LLM capabilities shifts from static reasoning to agentic tasks—characterized by external tool invocation, multi-turn interactions, and long-horizon decision-making—existing mainstream RL frameworks have grown increasingly unwieldy, raising the overhead of adoption, usage, and debugging. To address these challenges, we present LoongSage, an agent-native, fully asynchronous RL framework with a lightweight core of roughly 14K lines of code. Built upon Megatron for distributed training and SGLang for high-throughput inference, LoongSage centralizes orchestration within a single controller process and encapsulates all GPU-resident components as Ray actors. It introduces AgentFlow, a unified execution paradigm that orchestrates both white-box and black-box agents. For asynchronous execution, it integrates sliding-window strategies that bound trajectory staleness, and employs TransferMesh, a topology-aware synchronization mechanism that routes weights after each step over the fastest transport available to each receiver. Beyond agentic RL, LoongSage incorporates a memory-efficient Teacher Manager that decouples the scaling of teacher models from GPU memory constraints, natively supporting Multi-Teacher On-Policy Distillation. Extensive evaluations across four complete training runs, spanning complex reinforcement learning and multi-teacher distillation, demonstrate that task rewards improve steadily while the train–inference gap is kept under continuous control, and the fully asynchronous pipeline removes synchronous idle bubbles, sustaining hardware utilization. https://github.com/baidu-baige/LoongSage 1 Introduction Reinforcement learning (RL) has emerged as a pivotal post-training mechanism driving recent capability gains in large language models (LLMs). Historically, the GPT series leveraged Reinforcement Learning from Human Feedback (RLHF) to translate human preferences into optimizable objectives, establishing the viability of instruction-following assistants ( Ouyang et al., 2022 ) . More recently, models like DeepSeek-R1 have demonstrated that, given verifiable rewards, complex behaviors such as extended chain-of-thought reasoning, self-correction, and backtracking can emerge through RL optimization ( Guo et al., 2025 ; Wei et al., 2022 ) . As the focus transitions from instruction following to complex reasoning, RL has shifted from a secondary fine-tuning step to a central phase for instilling core model capabilities. Despite these reasoning advancements, text generation alone is insufficient for executing complex, real-world projects. This limitation has catalyzed exploration into tool-calling capabilities ( Yao et al., 2023 ; Schick et al., 2023 ) , driving the paradigm shift towards agentic RL. In this context, reward signals are no longer confined to the correctness of single-turn responses. Instead, they evaluate an agent’s holistic ability to complete tasks by invoking tools, manipulating files, executing tests, and refining actions iteratively based on environmental feedback. Consequently, coding, research, and computer-use agents have established end-to-end task completion as a new capability frontier ( Yang et al., 2024 ; Zhou et al., 2024 ; Xie et al., 2024 ) . Compared to single-turn tasks, agentic RL unfolds over extended horizons with persistent multi-turn states, necessitates sandboxed execution for external side effects, and produces heavy-tailed episode distributions ( Fu et al., 2026 ; Luo et al., 2025 ) . This fundamental shift redefines the role of an RL framework from merely generating and scoring text to continuously driving and recording a system operating within dynamic environments. However, many existing RL frameworks are rooted in assumptions inherited from single-turn RLHF or verifiable-reward workloads ( Hu et al., 2025 ) , rendering them suboptimal for agentic training. While some systems introduce controller-centered abstractions ( Sheng et al., 2025 ) or deliberately narrow the pairing of backend engines ( Zhu et al., 2025 ) , none are architected natively for the complexities of agentic training, which directly translate into production overheads. For instance, memory constraints typically bottleneck the number of teachers in multi-teacher distillation, and synchronous train-inference loops suffer severe utilization drops due to long-tailed trajectory rollouts. Furthermore, several systemic discrepancies manifest as implicit off-policy drift: mismatches in tokenization, numerical precision, and Mixture-of-Experts (MoE) routing between the training and inference engines. These are compounded by loose trajectory reconstruction—a subtle but accumulating divergence between the inference-generated sequences and the training-consumed data. Because algorithmic hyperparameters cannot tune away these systemic issues, a modern framework must elevate resource management, train-inference decoupling, numerical consistency, and trajectory fidelity to first-class design primitives. To address these critical gaps, we present LoongSage , a lightweight agentic RL training framework engineered for production-grade workloads. Built specifically upon Megatron ( Shoeybi et al., 2019 ) for distributed training and SGLang ( Zheng et al., 2024 ) for high-throughput inference, LoongSage encapsulates the most demanding and error-prone complexities of agentic RL within its architecture while maintaining a lightweight, extensible, and user-friendly core. Notably, we open-source not only the framework but also the validated training recipes, enabling researchers to initialize runs from configurations proven on frontier models rather than starting from scratch. Its key features include: • Seamless Integration of Any Agent: LoongSage accommodates any white-box or black-box agent via a standard chat-completions interface with zero intrusion into agent logic. Its AgentFlow paradigm maintains strict token-level alignment (Token-In, Token-Out; TITO), feeding the training engine the exact token streams generated during inference, thereby decoupling the framework core from domain-specific agent implementations. • Staleness-Bounded Fully Asynchronous Training: By decoupling the sampling and optimization phases via a train-rollout buffer, the fully asynchronous pipeline substantially improves hardware utilization. To strictly bound the resulting trajectory staleness, it employs sliding-window strategies, bringing off-policy drift under explicit control. • Topology-Aware Weight Synchronization: Through TransferMesh, LoongSage transfers weights from training to inference as a continuous named tensor stream. The system automatically selects the optimal transport layer—such as a CUDA IPC handle for colocated GPUs or an NCCL broadcast for distributed nodes—based on the physical device topology, keeping the synchronization process completely transparent to both backend engines. • Full-Vocabulary Multi-Teacher On-Policy Distillation: An independent Teacher Manager treats teacher models as dynamically managed compute resources, decoupling the permissible number of teachers from the student model’s GPU memory constraints to enable scalable multi-teacher distillation. Furthermore, it natively supports a composable, multi-paradigm objective function—spanning PG-style, GKD-style, and hybrid distillation modes—equipped with built-in estimators including sampled-token, Top- K K , full-vocabulary, and Jensen–Shannon Divergence (JSD) KL strategies. • Systemic Train–Inference Consistency: To prevent off-policy drift, LoongSage treats train–inference consistency as a systematically enforced property. It deploys a defense-in-depth architecture combining Deterministic Source Alignment (e.g., MoE routing replay), selective precision pinning for critical layers, and algorithmic residual corrections (including TIS, M2PO, and OPSM; detailed in Section 4.5 ) to guarantee the optimization plane reliably tracks the sampling distribution. • Lightweight, Usable, and Highly Extensible: By maintaining a strict zero-fork dependency on its backend engines, the lightweight core transparently inherits upstream optimizations and auto-expands its model library without tedious framework adaptations. Additionally, a highly extensible plugin system exposes ten core extension points—spanning agents, reward models, and scheduling strategies. This enables configuration-driven hot-plugging of new algorithms, allowing rapid iteration without modifying the framework’s main trunk. 2 Related Work 2.1 The Evolution of LLM Post-Training Compositional Paradigms. Modern LLM post-training is converging toward a compositional pipeline rather than a single optimization objective. Supervised fine-tuning establishes base capabilities and response formats, after which reinforcement learning optimizes the policy against a reward signal. Building on knowledge distillation ( Hinton et al., 2015 ) , on-policy distillation then adds a denser supervision channel, transferring the output distributions of one or more teachers onto the student’s own rollouts ( Gu et al., 2024 ; Agarwal et al., 2024 ) . These stages differ in where supervision originates and in whether generation happens inside the training loop, yet they increasingly share the same training and inference infrastructure. Frameworks therefore need to compose objectives and data flows without forcing every new method into a separate execution stack. From RLHF to RLVR. Reinforcement learning entered LLM post-training as RLHF, which fits a reward model to preference comparisons and optimizes the policy with PPO ( Schulman et al., 2017 ; Ouyang et al., 2022 ) . Later work then moved in two directions, one of which removes online RL altogether by reparameterizing the preference objective, as DPO does ( Rafailov et al., 2023 ) . The other retains online RL but replaces the learned reward model with a programmatic checker, which in turn simplifies the algorithms themselves. GRPO drops the value network in favor of group-relative advantages ( Shao et al., 2024 ) , and DAPO combines decoupled clipping, dynamic sampling, and token-level loss aggregation for large-scale RLVR ( Yu et al., 2026 ) . The transition also moves the systems cost from reward-model and reference-policy management toward rollout generation, program execution, sample filtering, and reliable aggregation of completed outcomes. Agentic RL. As models are deployed in more complex settings, RL is shifting toward agentic tasks with multi-turn interaction and external environments, building on early evidence that LLMs can be taught to invoke tools and APIs, whether by in-context prompting or by fine-tuning ( Yao et al., 2023 ; Schick et al., 2023 ; Qin et al., 2024 ) . An agentic reward evaluates whether a task was completed rather than whether a single response was correct, so producing it depends on tool use and sandboxed execution against a live environment ( Yang et al., 2024 ; Jimenez et al., 2024 ; Xie et al., 2024 ) . Unlike single-turn generation, the resulting trajectory contains intermediate observations, actions, and tool results whose contribution to the final outcome may be delayed. A practical training system must therefore preserve the generated sequence and its metadata across multiple turns, tolerate heavy-tailed episode lengths and external-environment failures, and manage the sandbox lifecycle ( Luo et al., 2025 ) . 2.2 Distributed Training and I",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: CC BY 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "https://github.com/baidu-baige/LoongSage",
+      "url": "https://github.com/baidu-baige/LoongSage/"
+    },
+    {
+      "text": "Ouyang et al., 2022",
+      "url": "https://arxiv.org/html/2610.16352v1#bib.bib13"
+    },
+    {
+      "text": "Guo et al., 2025",
+      "url": "https://arxiv.org/html/2610.16352v1#bib.bib16"
+    },
+    {
+      "text": "Wei et al., 2022",
+      "url": "https://arxiv.org/html/2610.16352v1#bib.bib37"
+    },
+    {
+      "text": "Yao et al., 2023",
+      "url": "https://arxiv.org/html/2610.16352v1#bib.bib21"
+    },
+    {
+      "text": "Schick et al., 2023",
+      "url": "https://arxiv.org/html/2610.16352v1#bib.bib22"
+    },
+    {
+      "text": "Yang et al., 2024",
+      "url": "https://arxiv.org/html/2610.16352v1#bib.bib25"
+    },
+    {
+      "text": "Zhou et al., 2024",
+      "url": "https://arxiv.org/html/2610.16352v1#bib.bib27"
+    },
+    {
+      "text": "Xie et al., 2024",
+      "url": "https://arxiv.org/html/2610.16352v1#bib.bib28"
+    },
+    {
+      "text": "Fu et al., 2026",
+      "url": "https://arxiv.org/html/2610.16352v1#bib.bib7"
+    },
+    {
+      "text": "Luo et al., 2025",
+      "url": "https://arxiv.org/html/2610.16352v1#bib.bib6"
+    },
+    {
+      "text": "Hu et al., 2025",
+      "url": "https://arxiv.org/html/2610.16352v1#bib.bib3"
+    },
+    {
+      "text": "Sheng et al., 2025",
+      "url": "https://arxiv.org/html/2610.16352v1#bib.bib1"
+    },
+    {
+      "text": "Zhu et al., 2025",
+      "url": "https://arxiv.org/html/2610.16352v1#bib.bib2"
+    },
+    {
+      "text": "Shoeybi et al., 2019",
+      "url": "https://arxiv.org/html/2610.16352v1#bib.bib8"
+    },
+    {
+      "text": "Zheng et al., 2024",
+      "url": "https://arxiv.org/html/2610.16352v1#bib.bib9"
+    },
+    {
+      "text": "4.5",
+      "url": "https://arxiv.org/html/2610.16352v1#S4.SS5"
+    },
+    {
+      "text": "Hinton et al., 2015",
+      "url": "https://arxiv.org/html/2610.16352v1#bib.bib18"
+    },
+    {
+      "text": "Gu et al., 2024",
+      "url": "https://arxiv.org/html/2610.16352v1#bib.bib19"
+    },
+    {
+      "text": "Agarwal et al., 2024",
+      "url": "https://arxiv.org/html/2610.16352v1#bib.bib20"
+    },
+    {
+      "text": "Schulman et al., 2017",
+      "url": "https://arxiv.org/html/2610.16352v1#bib.bib14"
+    },
+    {
+      "text": "Rafailov et al., 2023",
+      "url": "https://arxiv.org/html/2610.16352v1#bib.bib15"
+    },
+    {
+      "text": "Shao et al., 2024",
+      "url": "https://arxiv.org/html/2610.16352v1#bib.bib17"
+    },
+    {
+      "text": "Yu et al., 2026",
+      "url": "https://arxiv.org/html/2610.16352v1#bib.bib12"
+    },
+    {
+      "text": "Qin et al., 2024",
+      "url": "https://arxiv.org/html/2610.16352v1#bib.bib23"
+    },
+    {
+      "text": "Jimenez et al., 2024",
+      "url": "https://arxiv.org/html/2610.16352v1#bib.bib24"
+    },
+    {
+      "text": "Rasley et al., 2020",
+      "url": "https://arxiv.org/html/2610.16352v1#bib.bib29"
+    },
+    {
+      "text": "Rajbhandari et al., 2020",
+      "url": "https://arxiv.org/html/2610.16352v1#bib.bib30"
+    },
+    {
+      "text": "Moritz et al., 2018",
+      "url": "https://arxiv.org/html/2610.16352v1#bib.bib11"
+    },
+    {
+      "text": "Kwon et al., 2023",
+      "url": "https://arxiv.org/html/2610.16352v1#bib.bib10"
+    },
+    {
+      "text": "Shen et al., 2024",
+      "url": "https://arxiv.org/html/2610.16352v1#bib.bib4"
+    },
+    {
+      "text": "von Werra et al., 2020",
+      "url": "https://arxiv.org/html/2610.16352v1#bib.bib5"
+    },
+    {
+      "text": "Wang et al., 2025",
+      "url": "https://arxiv.org/html/2610.16352v1#bib.bib26"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2610.16352v1#S3.F1"
+    },
+    {
+      "text": "4.1",
+      "url": "https://arxiv.org/html/2610.16352v1#S4.SS1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2610.16352v1#S3.F2"
+    },
+    {
+      "text": "Schulman et al., 2015",
+      "url": "https://arxiv.org/html/2610.16352v1#bib.bib35"
+    },
+    {
+      "text": "Zheng et al., 2025",
+      "url": "https://arxiv.org/html/2610.16352v1#bib.bib33"
+    },
+    {
+      "text": "DeepSeek-AI, 2025",
+      "url": "https://arxiv.org/html/2610.16352v1#bib.bib50"
+    },
+    {
+      "text": "4.3",
+      "url": "https://arxiv.org/html/2610.16352v1#S4.SS3"
+    },
+    {
+      "text": "4.2",
+      "url": "https://arxiv.org/html/2610.16352v1#S4.SS2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2610.16352v1#S3.F3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2610.16352v1#S4.F4"
+    },
+    {
+      "text": "Cobbe et al., 2021",
+      "url": "https://arxiv.org/html/2610.16352v1#bib.bib45"
+    },
+    {
+      "text": "Chen et al., 2025",
+      "url": "https://arxiv.org/html/2610.16352v1#bib.bib46"
+    },
+    {
+      "text": "OpenCode Contributors, 2025",
+      "url": "https://arxiv.org/html/2610.16352v1#bib.bib48"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2610.16352v1#S4.F5"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2610.16352v1#S4.F6"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2610.16352v1#S4.F7"
+    },
+    {
+      "text": "B",
+      "url": "https://arxiv.org/html/2610.16352v1#A2"
+    },
+    {
+      "text": "8",
+      "url": "https://arxiv.org/html/2610.16352v1#S4.F8"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2610.16352v1#S4.T1"
+    },
+    {
+      "text": "MiniMax, 2026",
+      "url": "https://arxiv.org/html/2610.16352v1#bib.bib40"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2610.16352v1#S4.F9"
+    },
+    {
+      "text": "5.3",
+      "url": "https://arxiv.org/html/2610.16352v1#S5.SS3"
+    },
+    {
+      "text": "10",
+      "url": "https://arxiv.org/html/2610.16352v1#S4.F10"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2610.16352v1#S3"
+    }
+  ],
+  "matching_link_count": 112,
+  "links_truncated": true,
+  "invalid_links": []
+}

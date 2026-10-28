@@ -1,0 +1,274 @@
+{
+  "url": "https://arxiv.org/html/2606.29476v1",
+  "final_url": "https://arxiv.org/html/2606.29476v1",
+  "status": 200,
+  "title": "CRAFT: Counterfactual Credit Assignment from Free SiblingRollouts for Self-Distilled Agentic Reinforcement Learning",
+  "metadata": {},
+  "paper": {
+    "title": "CRAFT: Counterfactual Credit Assignment from Free Sibling Rollouts for Self-Distilled Agentic Reinforcement Learning",
+    "title_warning": null,
+    "abstract": "Abstract Self-distilled agentic reinforcement learning augments\ntrajectory-level reward with a token-level distillation loss, using as\nits teacher the same policy conditioned on privileged context. The\nprevailing recipe gates this loss by a single scalar, the\nteacher–student log-probability gap Δ t \\Delta_{t} . We observe that this signal\nis doubly limited: it is retrospective , scoring only the\nrealised rollout and never the counterfactual ones, and it is sign-blind , never signalling when a teacher-preferred action\nwould have harmed the trajectory.\nWe introduce CRAFT, a three-pillar credit-assignment scheme that\naddresses both limitations. Pillar 1 , Counterfactual Token\nImportance, reuses the G − 1 G-1 sibling rollouts that GRPO already samples\nand importance-weights them by Δ t \\Delta_{t} to form a self-normalised estimate\nof the group-level counterfactual change in advantage from up-weighting\nteacher-preferred actions at each step; this yields a signed per-token\ncredit at essentially no extra compute. Pillar 2 is an\nasymmetric controller that raises the distillation weight as it lowers\nthe reference-KL weight along an exponential moving average of gate\nactivity, and conversely. Pillar 3 polarises the KL penalty\ntoken by token, switching between a mode-seeking and a mode-covering\nupdate according to the sign of the credit.\nEach pillar is governed by an independent switch that, when disabled,\nrenders the loss and gradient byte-identical to the baseline in\nIEEE-754 arithmetic, so any measured gain is attributable to\nalgorithmic change rather than implementation drift. We establish the\nestimator’s consistency and a variance bound, give structural and\nbit-exact reproducibility guarantees, and evaluate CRAFT across\nthree agentic environments, four model scales, and five end-to-end\nmethods, plus two tabulated prior-work baselines. Among these is Adaptive-CRINGE , a comparator that shares Pillar 2\nwith CRAFT and thereby isolates the counterfactual contribution.",
+    "authors": [
+      {
+        "name": "Zibin Meng",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Kani Chen *",
+        "affiliations": [],
+        "notes": []
+      }
+    ],
+    "author_block": "Zibin Meng Kani Chen *",
+    "arxiv_version": "2606.29476v1",
+    "arxiv_version_date": "2026-06-28"
+  },
+  "text": "CRAFT: Counterfactual Credit Assignment from Free SiblingRollouts for Self-Distilled Agentic Reinforcement Learning Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: arXiv.org perpetual non-exclusive license arXiv:2606.29476v1 [cs.LG] 28 Jun 2026 CRAFT: Counterfactual Credit Assignment from Free Sibling Rollouts for Self-Distilled Agentic Reinforcement Learning Zibin Meng Kani Chen * Abstract Self-distilled agentic reinforcement learning augments trajectory-level reward with a token-level distillation loss, using as its teacher the same policy conditioned on privileged context. The prevailing recipe gates this loss by a single scalar, the teacher–student log-probability gap Δ t \\Delta_{t} . We observe that this signal is doubly limited: it is retrospective , scoring only the realised rollout and never the counterfactual ones, and it is sign-blind , never signalling when a teacher-preferred action would have harmed the trajectory. We introduce CRAFT, a three-pillar credit-assignment scheme that addresses both limitations. Pillar 1 , Counterfactual Token Importance, reuses the G − 1 G-1 sibling rollouts that GRPO already samples and importance-weights them by Δ t \\Delta_{t} to form a self-normalised estimate of the group-level counterfactual change in advantage from up-weighting teacher-preferred actions at each step; this yields a signed per-token credit at essentially no extra compute. Pillar 2 is an asymmetric controller that raises the distillation weight as it lowers the reference-KL weight along an exponential moving average of gate activity, and conversely. Pillar 3 polarises the KL penalty token by token, switching between a mode-seeking and a mode-covering update according to the sign of the credit. Each pillar is governed by an independent switch that, when disabled, renders the loss and gradient byte-identical to the baseline in IEEE-754 arithmetic, so any measured gain is attributable to algorithmic change rather than implementation drift. We establish the estimator’s consistency and a variance bound, give structural and bit-exact reproducibility guarantees, and evaluate CRAFT across three agentic environments, four model scales, and five end-to-end methods, plus two tabulated prior-work baselines. Among these is Adaptive-CRINGE , a comparator that shares Pillar 2 with CRAFT and thereby isolates the counterfactual contribution. The Hong Kong University of Science and Technology zmengal@connect.ust.hk, makchen@ust.hk * Corresponding author. 1 Introduction Agentic reinforcement learning trains a language-model policy π θ \\pi_{\\theta} to interact with a tool-using or web-acting environment over many turns ( Shridhar et al. 2021 ; Yao et al. 2022 ; Jin et al. 2025 ) , building on a recent line of LLM-as-agent methods that compose reasoning, tool use, and self-critique ( Yao et al. 2023 ; Schick et al. 2023 ; Shinn et al. 2023 ) . Two ingredients dominate the field. (1) The policy is updated with a group-relative advantage estimator (GRPO ( Shao et al. 2024 ) ), in which G G parallel rollouts of the same prompt produce a normalised, sequence-level advantage A ( i ) A^{(i)} . (2) On top of that surrogate, an auxiliary self-distillation loss treats the same policy, conditioned on additional privileged context s + s^{+} (a skill annotation, a verifier hint, or a retrieved trajectory trace), as a teacher π T \\pi_{T} . The teacher-student log-prob gap Δ t = log ⁡ π T ​ ( y t ∣ s t + ) − log ⁡ π θ ​ ( y t ∣ s t ) \\Delta_{t}=\\log\\pi_{T}(y_{t}\\mid s_{t}^{+})-\\log\\pi_{\\theta}(y_{t}\\mid s_{t}) is then fed to a single gated distillation term, of the form σ ⁡ ( β ​ Δ t ) ⋅ ( log ⁡ π T − log ⁡ π θ ) \\sigma(\\beta\\,\\Delta_{t})\\cdot(\\log\\pi_{T}-\\log\\pi_{\\theta}) , which the recent line of work on Self-Distilled Agentic Reinforcement Learning (SDAR ( Lu et al. 2026 ) ) has popularised. What is missing. The single-gate recipe quietly conflates two qualitatively different signals into one scalar: • Retrospective vs. counterfactual credit. Δ t \\Delta_{t} records what the teacher and student said on the realised trajectory. Two tokens with the same Δ t \\Delta_{t} but opposite impact on the trajectory’s return are weighted identically. The signal contains no forward-looking information about what would have happened had the agent followed the teacher’s preference at step t t — even though GRPO has already paid the compute to sample G G counterfactual rollouts. • Sign-blindness. The gate σ ⁡ ( β ​ Δ t ) \\sigma(\\beta\\,\\Delta_{t}) is monotone in Δ t \\Delta_{t} . Tokens where π T > π θ \\pi_{T}>\\pi_{\\theta} get up-weighted forward KL; tokens where π T < π θ \\pi_{T}<\\pi_{\\theta} get a small but still positive gate. The loss never tells the policy “this teacher action would have been worse ; do not follow it.” These weaknesses motivate a richer per-token signal, but the design space is treacherous. Pushing the policy away from the teacher whenever the gap is negative recovers unlikelihood ( Welleck et al. 2020 ) or CRINGE ( Adolphs et al. 2023 ) , both of which are well-known to over- penalise and to ignore reward signal entirely. Reweighting by the trajectory-level sign ⁡ ( A ( i ) ) ⋅ Δ t \\mathrm{sign}(A^{(i)})\\cdot\\Delta_{t} recovers the RLSD line of work ( Yang et al. 2026 ) , which is retrospective (it conditions on the realised trajectory, not on a counterfactual one). And blindly stacking an adaptive KL controller ( Schulman et al. 2017 ; Ouyang et al. 2022 ) on top of SDAR adjusts a single coefficient without changing the per-token gating discipline. Our position. We argue that the right per-token credit signal in self-distilled agentic RL is the counterfactual change in sequence advantage that the policy would have realised if, at step t t , it had sampled from the teacher. We further argue that GRPO already provides the sample budget needed to estimate that counterfactual: the G − 1 G-1 sibling rollouts in the same group, importance-weighted by the teacher-student gap at step t t , form an essentially free importance-sampling estimator of that counterfactual at the group level (made precise in Section 3.1 ). Building on this estimator we propose CRAFT , a three-pillar credit-assignment scheme detailed in Section 3 . Contributions. Each contribution is gated by an independent master switch, so ablations factor cleanly. (1) Pillar 1 (CTI): a per-token signed credit c t ∈ ( − 1 , 1 ) c_{t}\\in(-1,1) from importance-weighted sibling rollouts; the underlying estimator is consistent (Prop. 1 ), has an O ⁡ ( 1 / G ) O(1/G) variance bound (Prop. 2 ), and reduces to the single-gate baseline in the limit (P3) — at the marginal cost of one group-wise softmax. (2) Pillar 2: a bivariate controller driving λ ⁡ ( t ) \\lambda(t) (CTI) and μ ⁡ ( t ) \\mu(t) (reference-KL) in opposite directions along the gate-active EMA, with a fixed point (P4). (3) Pillar 3: a per-token KL penalty whose direction is set by sign ⁡ ( c t ) \\mathrm{sign}(c_{t}) (mode-seeking vs. mode-covering), structurally consistent with the credit (P5) and yielding a valid policy-gradient surrogate (P6). (4) Bit-exact reproducibility: with all switches off, loss and gradient are byte-identical (IEEE-754) to the baseline (P7), so gains are attributable to algorithmic change, not drift. (5) A campaign over three agentic environments, four model sizes, and four baselines — including the hard Adaptive-CRINGE comparator that shares Pillar 2 with CRAFT— plus ablations and OOD evaluation (Section 5 ). Prior single gate + + ≈ 0 \\approx\\!0 ± \\pm − - sign ​ A \\mathrm{sign}\\,A sign ​ Δ t \\mathrm{sign}\\,\\Delta_{t} − - + + + + − - baseline collapses 2 quadrants G − 1 G\\!-\\!1 siblings { A ( j ) } \\{A^{(j)}\\} ∑ j w t ( j ) ​ A ( j ) − A ( i ) \\sum_{j}w^{(j)}_{t}A^{(j)}-A^{(i)} signed credit c t c_{t} w ∝ e Δ t w\\!\\propto\\!e^{\\Delta_{t}} Pillar 1: CTI λ ↑ μ ↓ \\lambda\\!\\uparrow\\quad\\mu\\!\\downarrow along ρ gate EMA \\rho_{\\mathrm{gate}}^{\\mathrm{EMA}} Pillar 2 rev std fwd Pillar 3 c t > 0 c_{t}\\!>\\!0 c t < 0 c_{t}\\!<\\!0 Master switches P1 enable P2 phase P3 pol_kl off ⇒ \\Rightarrow byte-identical to baseline (P7) Figure 1: The three pillars of CRAFT at a glance. Left: on the ( sign ​ A ( i ) , sign ​ Δ t ) (\\mathrm{sign}\\,A^{(i)},\\mathrm{sign}\\,\\Delta_{t}) plane, the prior single-gate baseline collapses two of the four quadrants by always distilling toward the teacher (Table 5 ). Centre: Pillar 1 estimates a counterfactual credit CTI ^ t ( i ) = ∑ j ≠ i w t ( j ) ​ A ( j ) − A ( i ) \\widehat{\\mathrm{CTI}}^{(i)}_{t}=\\sum_{j\\neq i}w_{t}^{(j)}A^{(j)}-A^{(i)} from the G − 1 G-1 sibling rollouts of the same GRPO group, squashed into c t ∈ ( − 1 , 1 ) c_{t}\\in(-1,1) by centred asymmetric sigmoids; Pillar 2 drives ( λ , μ ) (\\lambda,\\mu) in opposite directions along the gate-activity EMA; Pillar 3 routes the KL penalty into a rev / fwd / standard branch according to sign ⁡ ( c t ) \\mathrm{sign}(c_{t}) . Right: each pillar has an independent master switch that, when off, restores byte-identical behaviour with the prior baseline (P7). 2 Preliminaries GRPO and group-based advantage. For each prompt we sample G G parallel rollouts under the behaviour policy π b \\pi_{b} (in on-policy GRPO, π b = π θ \\pi_{b}=\\pi_{\\theta} ). Each rollout i i receives a scalar sequence-level reward r ( i ) r^{(i)} from a verifier; the per-trajectory GRPO advantage A ( i ) ∈ ℝ A^{(i)}\\in\\mathbb{R} is the group-normalised reward, broadcast over all valid tokens in the trajectory ( Shao et al. 2024 ) ; GRPO is also the policy-update primitive in subsequent large-scale reasoning models ( DeepSeek-AI et al. 2024 ) . The policy update follows the PPO-clipped surrogate ( Schulman et al. 2017 ) : L PG ( θ ) = 𝔼 [ min ( \\displaystyle L_{\\mathrm{PG}}(\\theta)=\\mathbb{E}\\Big[\\min\\Big( r t ​ ( θ ) ​ A ( i ) , \\displaystyle r_{t}(\\theta)\\,A^{(i)}, (1) clip ( r t ( θ ) , − ϵ , + ϵ ) A ( i ) ) ] , \\displaystyle\\mathrm{clip}(r_{t}(\\theta),1\\!-\\!\\epsilon,1\\!+\\!\\epsilon)\\,A^{(i)}\\Big)\\Big], where r t ​ ( θ ) = π θ ​ ( y t ∣ s t ) / π θ old ​ ( y t ∣ s t ) r_{t}(\\theta)=\\pi_{\\theta}(y_{t}\\mid s_{t})/\\pi_{\\theta_{\\mathrm{old}}}(y_{t}\\mid s_{t}) . Self-distilled teacher. A second forward pass evaluates the same policy on the skill-augmented context s t + s_{t}^{+} — typically the prompt plus an oracle skill annotation, a verifier hint, or a retrieved successful trajectory — and yields the teacher log-prob log ⁡ π T ​ ( y t ∣ s t + ) \\log\\pi_{T}(y_{t}\\mid s_{t}^{+}) . Because the teacher is just the student under a different context, it adds a single forward pass (no extra parameters, no extra optimiser state) and is gradient-free. The teacher-student gap Δ t ( i ) = sg ⁡ [ log ⁡ π T ​ ( y t ( i ) ∣ s t + , ( i ) ) − log ⁡ π θ ​ ( y t ( i ) ∣ s t ( i ) ) ] \\Delta_{t}^{(i)}=\\mathrm{sg}\\!\\left[\\log\\pi_{T}(y_{t}^{(i)}\\mid s_{t}^{+,(i)})-\\log\\pi_{\\theta}(y_{t}^{(i)}\\mid s_{t}^{(i)})\\right] (2) is the substrate for the prior single-gate SDAR distillation loss: L SDAR = Agg ⁡ [ σ ⁡ ( β ​ Δ t ) ⏟ gate ​ g t ⋅ ( log ⁡ π T − log ⁡ π θ ) ⏟ fwd − KL ​ surrogate ] . L_{\\mathrm{SDAR}}=\\mathrm{Agg}\\!\\left[\\,\\underbrace{\\sigma(\\beta\\,\\Delta_{t})}_{\\mathrm{gate}\\;g_{t}}\\cdot\\underbrace{(\\log\\pi_{T}-\\log\\pi_{\\theta})}_{\\mathrm{fwd-KL\\ surrogate}}\\,\\right]. (3) Throughout, i , j ∈ { 1 , … , G } i,j\\in\\{1,\\dots,G\\} index siblings, sg ⁡ [ ⋅ ] \\mathrm{sg}[\\cdot] is the stop-gradient, 𝟏 ​ [ ⋅ ] \\mathbf{1}[\\cdot] the indicator, and π ref \\pi_{\\mathrm{ref}} a frozen snapshot of π θ \\pi_{\\theta} serving as the KL anchor; a full notation table is in Appendix C. Assumptions used in the propositions. (A1) Coverage: for every ( s , y ) (s,y) with π T ​ ( y ∣ s ) > 0 \\pi_{T}(y\\mid s)>0 , π b ​ ( y ∣ s ) > 0 \\pi_{b}(y\\mid s)>0 . (A2) Lipschitz log-prob: | log ⁡ π θ ​ ( y ∣ s ) − log ⁡ π θ ​ ( y ∣ s ′ ) | ≤ L ⁡ ∥ s − s ′ ∥ |\\log\\pi_{\\theta}(y\\mid s)-\\log\\pi_{\\theta}(y\\mid s^{\\prime})|\\leq L\\,\\lVert s-s^{\\prime}\\rVert . (A3",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: arXiv.org perpetual non-exclusive license",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "Shridhar et al. 2021",
+      "url": "https://arxiv.org/html/2606.29476v1#bib.bib11"
+    },
+    {
+      "text": "Yao et al. 2022",
+      "url": "https://arxiv.org/html/2606.29476v1#bib.bib12"
+    },
+    {
+      "text": "Jin et al. 2025",
+      "url": "https://arxiv.org/html/2606.29476v1#bib.bib13"
+    },
+    {
+      "text": "Yao et al. 2023",
+      "url": "https://arxiv.org/html/2606.29476v1#bib.bib30"
+    },
+    {
+      "text": "Schick et al. 2023",
+      "url": "https://arxiv.org/html/2606.29476v1#bib.bib32"
+    },
+    {
+      "text": "Shinn et al. 2023",
+      "url": "https://arxiv.org/html/2606.29476v1#bib.bib31"
+    },
+    {
+      "text": "Shao et al. 2024",
+      "url": "https://arxiv.org/html/2606.29476v1#bib.bib3"
+    },
+    {
+      "text": "Lu et al. 2026",
+      "url": "https://arxiv.org/html/2606.29476v1#bib.bib9"
+    },
+    {
+      "text": "Welleck et al. 2020",
+      "url": "https://arxiv.org/html/2606.29476v1#bib.bib4"
+    },
+    {
+      "text": "Adolphs et al. 2023",
+      "url": "https://arxiv.org/html/2606.29476v1#bib.bib5"
+    },
+    {
+      "text": "Yang et al. 2026",
+      "url": "https://arxiv.org/html/2606.29476v1#bib.bib10"
+    },
+    {
+      "text": "Schulman et al. 2017",
+      "url": "https://arxiv.org/html/2606.29476v1#bib.bib1"
+    },
+    {
+      "text": "Ouyang et al. 2022",
+      "url": "https://arxiv.org/html/2606.29476v1#bib.bib2"
+    },
+    {
+      "text": "3.1",
+      "url": "https://arxiv.org/html/2606.29476v1#S3.SS1"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2606.29476v1#S3"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2606.29476v1#Thmproposition1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2606.29476v1#Thmproposition2"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2606.29476v1#S5"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2606.29476v1#A2.T5"
+    },
+    {
+      "text": "DeepSeek-AI et al. 2024",
+      "url": "https://arxiv.org/html/2606.29476v1#bib.bib39"
+    },
+    {
+      "text": "3.2",
+      "url": "https://arxiv.org/html/2606.29476v1#S3.SS2"
+    },
+    {
+      "text": "3.3",
+      "url": "https://arxiv.org/html/2606.29476v1#S3.SS3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2606.29476v1#S4"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2606.29476v1#S3.E5"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2606.29476v1#S3.E6"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2606.29476v1#S3.E7"
+    },
+    {
+      "text": "Williams 1992",
+      "url": "https://arxiv.org/html/2606.29476v1#bib.bib20"
+    },
+    {
+      "text": "Sutton et al. 1999",
+      "url": "https://arxiv.org/html/2606.29476v1#bib.bib21"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2606.29476v1#S3.T1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2606.29476v1#alg2"
+    },
+    {
+      "text": "Schulman 2020",
+      "url": "https://arxiv.org/html/2606.29476v1#bib.bib23"
+    },
+    {
+      "text": "Horvitz and Thompson 1952",
+      "url": "https://arxiv.org/html/2606.29476v1#bib.bib16"
+    },
+    {
+      "text": "Qwen Team 2024",
+      "url": "https://arxiv.org/html/2606.29476v1#bib.bib14"
+    },
+    {
+      "text": "Qwen Team 2025",
+      "url": "https://arxiv.org/html/2606.29476v1#bib.bib15"
+    },
+    {
+      "text": "Wang et al. 2026",
+      "url": "https://arxiv.org/html/2606.29476v1#bib.bib25"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2606.29476v1#S5.T2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2606.29476v1#S5.T3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2606.29476v1#S5.T4"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2606.29476v1#S7"
+    },
+    {
+      "text": "Hinton et al. 2015",
+      "url": "https://arxiv.org/html/2606.29476v1#bib.bib7"
+    },
+    {
+      "text": "Zelikman et al. 2022",
+      "url": "https://arxiv.org/html/2606.29476v1#bib.bib27"
+    },
+    {
+      "text": "Zelikman et al. 2024",
+      "url": "https://arxiv.org/html/2606.29476v1#bib.bib33"
+    },
+    {
+      "text": "Xu et al. 2024",
+      "url": "https://arxiv.org/html/2606.29476v1#bib.bib24"
+    },
+    {
+      "text": "Gulcehre et al. 2023",
+      "url": "https://arxiv.org/html/2606.29476v1#bib.bib34"
+    },
+    {
+      "text": "Chen et al. 2024",
+      "url": "https://arxiv.org/html/2606.29476v1#bib.bib35"
+    },
+    {
+      "text": "Yuan et al. 2024",
+      "url": "https://arxiv.org/html/2606.29476v1#bib.bib36"
+    },
+    {
+      "text": "Agarwal et al. 2024",
+      "url": "https://arxiv.org/html/2606.29476v1#bib.bib37"
+    },
+    {
+      "text": "Rafailov et al. 2023",
+      "url": "https://arxiv.org/html/2606.29476v1#bib.bib6"
+    },
+    {
+      "text": "Pang et al. 2024",
+      "url": "https://arxiv.org/html/2606.29476v1#bib.bib43"
+    },
+    {
+      "text": "Ahmadian et al. 2024",
+      "url": "https://arxiv.org/html/2606.29476v1#bib.bib44"
+    },
+    {
+      "text": "Kazemnejad et al. 2024",
+      "url": "https://arxiv.org/html/2606.29476v1#bib.bib45"
+    },
+    {
+      "text": "Lightman et al. 2024",
+      "url": "https://arxiv.org/html/2606.29476v1#bib.bib46"
+    },
+    {
+      "text": "Wang et al. 2024",
+      "url": "https://arxiv.org/html/2606.29476v1#bib.bib47"
+    },
+    {
+      "text": "Precup et al. 2000",
+      "url": "https://arxiv.org/html/2606.29476v1#bib.bib17"
+    },
+    {
+      "text": "Pearl 2009",
+      "url": "https://arxiv.org/html/2606.29476v1#bib.bib18"
+    },
+    {
+      "text": "Buesing et al. 2019",
+      "url": "https://arxiv.org/html/2606.29476v1#bib.bib19"
+    },
+    {
+      "text": "Swaminathan and Joachims 2015",
+      "url": "https://arxiv.org/html/2606.29476v1#bib.bib40"
+    }
+  ],
+  "matching_link_count": 95,
+  "links_truncated": true,
+  "invalid_links": []
+}

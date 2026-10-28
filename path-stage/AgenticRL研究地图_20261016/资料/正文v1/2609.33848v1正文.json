@@ -1,0 +1,269 @@
+{
+  "url": "https://arxiv.org/html/2609.33848v1",
+  "final_url": "https://arxiv.org/html/2609.33848v1",
+  "status": 200,
+  "title": "QwenGyre: An Elastic Reinforcement Learning Framework forTraining xLong-Horizon Agents",
+  "metadata": {},
+  "paper": {
+    "title": "QwenGyre : An Elastic Reinforcement Learning Framework for Training x Long-Horizon Agents",
+    "title_warning": null,
+    "abstract": "Abstract Large language model (LLM) agents increasingly undertake e x treme-long ( x Long) horizon tasks, where a single execution can span hours, hundreds of model–environment interactions, and nearly 1M tokens per rollout.\nApplying online reinforcement learning (RL) to such executions poses two fundamental challenges:\n(1) severe execution variance and prolonged rollout delays cause massive GPU idling;\nand (2) complex non-linear branching generates massive trajectory redundancy, crippling training efficiency. To address these, we presents QwenGyre , an end-to-end framework for x Long-horizon online RL. QwenGyre elastically reallocates GPUs between rollout and training without interrupting live executions, while its trajectory processor reconstructs branching histories, scores partial progress, and deduplicates redundant paths to bound training costs.\nScaled to our flagship model, Qwen 3.8 2.4T, with 700K tokens per rollout, QwenGyre yields a 6.0% absolute gain on NL2RepoBench (52.5% → \\to 58.5%) in 48 steps. Across our evaluations on diverse domains of training datasets, QwenGyre delivers up to 1.85 × 1.85\\times and 1.78 × 1.78\\times speedups over Colocate\nand Async, respectively.",
+    "authors": [
+      {
+        "name": "Weiqi Wang 1,2,* Yuxin Zhou 1,* Mouxiang Chen 1,* Siyuan Zhang 1,3 Yi Zhang 1 Yuyan Luo 1 Zhiyu Yin 1 Chencan Wu 1 Jiemin Jiang 1 Wentao Yao 1 Chujie Zheng 1 JianWei Zhang 1,† 1 Alibaba Token Hub, Alibaba Group 2 University of Science and Technology of China 3 Tsinghua University",
+        "affiliations": [],
+        "notes": []
+      }
+    ],
+    "author_block": "Weiqi Wang 1,2,* Yuxin Zhou 1,* Mouxiang Chen 1,* Siyuan Zhang 1,3 Yi Zhang 1 Yuyan Luo 1 Zhiyu Yin 1 Chencan Wu 1 Jiemin Jiang 1 Wentao Yao 1 Chujie Zheng 1 JianWei Zhang 1,† 1 Alibaba Token Hub, Alibaba Group 2 University of Science and Technology of China 3 Tsinghua University",
+    "arxiv_version": "2609.33848v1",
+    "arxiv_version_date": "2026-09-27"
+  },
+  "text": "QwenGyre: An Elastic Reinforcement Learning Framework forTraining xLong-Horizon Agents Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: arXiv.org perpetual non-exclusive license arXiv:2609.33848v1 [cs.LG] 27 Sep 2026 QwenGyre : An Elastic Reinforcement Learning Framework for Training x Long-Horizon Agents Weiqi Wang 1,2,* Yuxin Zhou 1,* Mouxiang Chen 1,* Siyuan Zhang 1,3 Yi Zhang 1 Yuyan Luo 1 Zhiyu Yin 1 Chencan Wu 1 Jiemin Jiang 1 Wentao Yao 1 Chujie Zheng 1 JianWei Zhang 1,† 1 Alibaba Token Hub, Alibaba Group 2 University of Science and Technology of China 3 Tsinghua University Abstract Large language model (LLM) agents increasingly undertake e x treme-long ( x Long) horizon tasks, where a single execution can span hours, hundreds of model–environment interactions, and nearly 1M tokens per rollout. Applying online reinforcement learning (RL) to such executions poses two fundamental challenges: (1) severe execution variance and prolonged rollout delays cause massive GPU idling; and (2) complex non-linear branching generates massive trajectory redundancy, crippling training efficiency. To address these, we presents QwenGyre , an end-to-end framework for x Long-horizon online RL. QwenGyre elastically reallocates GPUs between rollout and training without interrupting live executions, while its trajectory processor reconstructs branching histories, scores partial progress, and deduplicates redundant paths to bound training costs. Scaled to our flagship model, Qwen 3.8 2.4T, with 700K tokens per rollout, QwenGyre yields a 6.0% absolute gain on NL2RepoBench (52.5% → \\to 58.5%) in 48 steps. Across our evaluations on diverse domains of training datasets, QwenGyre delivers up to 1.85 × 1.85\\times and 1.78 × 1.78\\times speedups over Colocate and Async, respectively. Figure 1: QwenGyre addresses two challenges of x Long-horizon agentic RL. (a) The Elastic Scheduler reallocates idle rollout capacity to training while continuing to serve ongoing executions. (b) The Trajectory Processor converts branching executions into bounded training samples while masking repeated targets in shared prefixes. 1 1 footnotetext: Equal contribution. 2 2 footnotetext: Corresponding author. 1 Introduction Large language model (LLM) agents increasingly solve software engineering tasks that are long-horizon : completing one task requires an extended sequence of interdependent decisions and environment interactions over a persistent workspace. A representative class of such tasks is issue resolution (e.g., SWE-bench ( Jimenez et al., 2024 ; Deng et al., 2026 ) ), which localizes a single fix within an existing repository and spans tens of interactions. On these workloads, online reinforcement learning (RL) has demonstrated promising gains by iteratively refining policies through environment interactions ( Luo et al., 2025a ; Golubev et al., 2025 ; Song et al., 2026b ; Du et al., 2026b ) . As foundation models rapidly advance in reasoning and context capabilities, the paradigm is shifting toward fully autonomous, end-to-end software development, such as repository generation ( Ding et al., 2026 ) , system reimplementation ( Yang et al., 2026 ) , and codebase-wide refactoring ( Hong et al., 2026 ) . These workloads extend long-horizon execution to multi-hour, project-scale runs. A single stateful rollout spans hundreds of dependent model–environment interactions and processes around 1M tokens across its context. We refer to this regime as x Long-horizon . Scaling RL to x Long-horizons introduces fundamental challenges on both system scheduling and trajectory modeling. Challenge 1: Extreme rollout variance and severe GPU underutilization at x Long-horizons. Online RL conventionally adopts a colocate design that alternates the GPU pool between rollout and training ( Sheng et al., 2025 ; Mei et al., 2025 ) . At x Long-horizons, however, rollouts exhibit severe long-tail variance; without general support for checkpointing workspace state, training remains blocked until all live executions end, leaving GPUs idle on a few trailing tasks. Alternative async deployments statically partition GPUs into dedicated pools ( Fu et al., 2025 ) . Nevertheless, at x Long-horizons, the wait for a ready batch can far exceed the duration of a training step, leaving training GPUs idle while rigid partitions prevent either stage from utilizing the other’s spare capacity. The challenge is therefore to reallocate GPUs dynamically as demand changes, using idle capacity for training while maintaining inference service for ongoing rollouts. Challenge 2: Complex trajectory branching and prohibitive training overhead at x Long-horizons. The linear agent loop used in simple agent designs ( Yao et al., 2023 ; Yang et al., 2024 ) does not survive at x Long-horizons: sustaining hours of execution typically relies on black-box harnesses that routinely compact saturated histories, delegate sub-tasks to sub-agents with isolated contexts, and retry failed execution paths ( He et al., 2026b ; Song et al., 2026a ) . As a result, a single task execution no longer yields a sequential trajectory, but an intricate, non-linear graph of divergent context paths. This non-linearity leads to an explosion in sample and token volume: expanding all these paths into individual training samples introduces severe redundancy across shared prefixes and incurs prohibitive training overhead. The challenge is thus to reconstruct valid training representations from such complex, branching executions while preventing the sheer volume of paths and tokens from overwhelming the training pipeline. In this paper, we present QwenGyre , an end-to-end framework for online RL through black-box agent harnesses at x Long-horizons. Its design separates the lifetimes of harness executions, GPU roles, and training samples. Harness state persists across GPU role changes, while recorded model calls are materialized into training samples on demand. To address Challenge 1, QwenGyre introduces an elastic scheduler , which adjusts GPU allocation between rollout and training according to the amount of unfinished rollout work while ensuring that model calls from ongoing harness executions continue to be served. Centralized data-parallel training allows newly available nodes to join an ongoing batch as the training pool grows. Streaming training distributes work according to each participating data-parallel group’s progress, helping the groups finish the same batch at similar times to minimize idle gaps. To address Challenge 2, QwenGyre introduces a trajectory processor , which organizes each execution’s recorded model calls into a trajectory tree with shared prefixes, preserving each output’s original conditioning context. Task-specific evaluation scores preserved work after termination, including assessable partial progress after timeout. Once valid rewards are available, QwenGyre selects a bounded set of trajectories per execution by role priority to control training cost. Training uses only policy-generated targets ( Gallouédec & Rasul, 2026 ) , counts shared targets once, and averages token losses within each execution to avoid overweighting executions with more paths. We evaluate QwenGyre on NL2RepoBench ( Ding et al., 2026 ) , DeepSWE ( Huang et al., 2026 ) , and TerminalBench ( Merrill et al., 2026 ) using Qwen 3.6 122B. We also apply QwenGyre to x Long RL training of our flagship model, Qwen 3.8 2.4T, on NL2RepoBench. We compare against Colocate and Async baselines using equal GPU budgets under the same staleness constraints. Across the reported configurations, QwenGyre achieves end-to-end speedups of 1.38 to 1.78 times over Async and 1.21 to 1.85 times over Colocate while matching baseline training scores. On NL2RepoBench, QwenGyre improves Qwen 3.8 2.4T’s score from approximately 52.5 % to 58.5 % over 48 training steps. In summary, this paper makes the following contributions: • We identify the scheduling and trajectory-processing challenges of online RL for x Long agent executions. • We design an elastic scheduler that reallocates GPUs between rollout and training as demand changes, lets newly available GPUs join an ongoing training batch, and balances training work across them to reduce idle time. • We develop a trajectory processor that preserves each model output’s original context and evaluates partial work after timeouts. It selects a limited number of trajectories per execution, counts shared outputs once, and averages token losses within each execution. • We demonstrate QwenGyre on Qwen 3.8 2.4T, improving NL2RepoBench passrate from 52.5% to 58.5% in 48 training steps. Across evaluated workloads, QwenGyre achieves up to 1.85 × 1.85\\times and 1.78 × 1.78\\times end-to-end speedups over Colocate and Async, respectively. 2 Background and Motivation 2.1 x Long Agentic RL Workloads We first describe the group-relative RL pipeline and the execution characteristics of x Long agentic workloads. We then examine their implications for rollout–training scheduling and training data construction. Figure 2: Hierarchy of training bursts, rollout groups, and trajectories. (a) Each burst performs μ \\mu consecutive training steps, then publishes the policy; each step consumes B B query groups. (b) Each query produces N N independent rollouts, and rollout i i yields J i J_{i} training trajectories. (c) A rollout includes main-agent and sub-agent trajectories, with compaction producing summary branches. Dashed links reinsert summaries into post-compaction contexts. Group-relative RL pipeline. For each query , N N independent rollouts sampled from the policy form a rollout group (Figure 2 (b)). Advantages are computed from the group’s scalar rewards, avoiding a learned value function ( Shao et al., 2024 ) . In our pipeline, each training step consumes a batch of B B distinct rollout groups and advances the policy version by one. To amortize the cost of weight publication, the RL framework may perform μ \\mu consecutive training steps between publications; we call this interval a burst . Each burst consumes μ ​ B \\mu B rollout groups and publishes the weights at its final step, as shown in Figure 2 (a). Harness-driven agentic RL An agentic rollout is an end-to-end task execution in which a model interacts with an environment through a harness. The harness maintains task state, invokes tools according to model outputs, and constructs context for subsequent model calls. We call each model call–response interaction a model calls , each tool invocation a tool call , and the full task lifecycle, including retries, a rollout execution . Figure 2 (c) shows an execution that branches at tool calls and the trajectories selected from it for training. In our black-box setting, the harness accesses the model through a proxy provided by the RL framework. The framework records model calls and receives task-level evaluation results without changing the harness’s execution logic ( He et al., 2026b ; Song et al., 2026a ) . This interface provides no general mechanism to checkpoint and resume a live execution. If a model call cannot be served, the harness may stall or time out, changing the task outcome for reasons unrelated to the policy’s decisions. Scheduling must therefore preserve inference access throughout the execution. Requests can be routed to different rollout instances while the harness continues running. The x Long execution profile. Recent software engineering benchmarks evaluate agents on repository construction, program reimplementation, and migration across entire codebases ( Ding et al., 2026 ; Yang et al., 2026 ; Desai et al., 2026 ; Hong et al., 2026 ) . We focus on x Long executions that last hours, span hundreds of dependent model–environment interactions, and process around 1M input and output tokens across model calls. This lifecycle volume counts repeated contexts at eac",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: arXiv.org perpetual non-exclusive license",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "Jimenez et al., 2024",
+      "url": "https://arxiv.org/html/2609.33848v1#bib.bib24"
+    },
+    {
+      "text": "Deng et al., 2026",
+      "url": "https://arxiv.org/html/2609.33848v1#bib.bib5"
+    },
+    {
+      "text": "Luo et al., 2025a",
+      "url": "https://arxiv.org/html/2609.33848v1#bib.bib28"
+    },
+    {
+      "text": "Golubev et al., 2025",
+      "url": "https://arxiv.org/html/2609.33848v1#bib.bib14"
+    },
+    {
+      "text": "Song et al., 2026b",
+      "url": "https://arxiv.org/html/2609.33848v1#bib.bib42"
+    },
+    {
+      "text": "Du et al., 2026b",
+      "url": "https://arxiv.org/html/2609.33848v1#bib.bib9"
+    },
+    {
+      "text": "Ding et al., 2026",
+      "url": "https://arxiv.org/html/2609.33848v1#bib.bib7"
+    },
+    {
+      "text": "Yang et al., 2026",
+      "url": "https://arxiv.org/html/2609.33848v1#bib.bib52"
+    },
+    {
+      "text": "Hong et al., 2026",
+      "url": "https://arxiv.org/html/2609.33848v1#bib.bib18"
+    },
+    {
+      "text": "Sheng et al., 2025",
+      "url": "https://arxiv.org/html/2609.33848v1#bib.bib39"
+    },
+    {
+      "text": "Mei et al., 2025",
+      "url": "https://arxiv.org/html/2609.33848v1#bib.bib30"
+    },
+    {
+      "text": "Fu et al., 2025",
+      "url": "https://arxiv.org/html/2609.33848v1#bib.bib10"
+    },
+    {
+      "text": "Yao et al., 2023",
+      "url": "https://arxiv.org/html/2609.33848v1#bib.bib53"
+    },
+    {
+      "text": "Yang et al., 2024",
+      "url": "https://arxiv.org/html/2609.33848v1#bib.bib51"
+    },
+    {
+      "text": "He et al., 2026b",
+      "url": "https://arxiv.org/html/2609.33848v1#bib.bib17"
+    },
+    {
+      "text": "Song et al., 2026a",
+      "url": "https://arxiv.org/html/2609.33848v1#bib.bib41"
+    },
+    {
+      "text": "Gallouédec & Rasul, 2026",
+      "url": "https://arxiv.org/html/2609.33848v1#bib.bib11"
+    },
+    {
+      "text": "Huang et al., 2026",
+      "url": "https://arxiv.org/html/2609.33848v1#bib.bib22"
+    },
+    {
+      "text": "Merrill et al., 2026",
+      "url": "https://arxiv.org/html/2609.33848v1#bib.bib31"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2609.33848v1#S2.F2"
+    },
+    {
+      "text": "Shao et al., 2024",
+      "url": "https://arxiv.org/html/2609.33848v1#bib.bib38"
+    },
+    {
+      "text": "Desai et al., 2026",
+      "url": "https://arxiv.org/html/2609.33848v1#bib.bib6"
+    },
+    {
+      "text": "Zhang et al., 2026b",
+      "url": "https://arxiv.org/html/2609.33848v1#bib.bib57"
+    },
+    {
+      "text": "Zhong et al., 2025",
+      "url": "https://arxiv.org/html/2609.33848v1#bib.bib60"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2609.33848v1#S2.E2"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.33848v1#S0.F1"
+    },
+    {
+      "text": "2.1",
+      "url": "https://arxiv.org/html/2609.33848v1#S2.SS1"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2609.33848v1#S3.F3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2609.33848v1#S4"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2609.33848v1#S5"
+    },
+    {
+      "text": "Shoeybi et al., 2019",
+      "url": "https://arxiv.org/html/2609.33848v1#bib.bib40"
+    },
+    {
+      "text": "Zheng et al., 2024",
+      "url": "https://arxiv.org/html/2609.33848v1#bib.bib59"
+    },
+    {
+      "text": "2.2",
+      "url": "https://arxiv.org/html/2609.33848v1#S2.SS2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2609.33848v1#S4.E3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2609.33848v1#S4.E4"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2609.33848v1#S4.E5"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2609.33848v1#S4.E6"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2609.33848v1#S4.F4"
+    },
+    {
+      "text": "5.1",
+      "url": "https://arxiv.org/html/2609.33848v1#S5.SS1"
+    },
+    {
+      "text": "5.2",
+      "url": "https://arxiv.org/html/2609.33848v1#S5.SS2"
+    },
+    {
+      "text": "5.3",
+      "url": "https://arxiv.org/html/2609.33848v1#S5.SS3"
+    },
+    {
+      "text": "4.3",
+      "url": "https://arxiv.org/html/2609.33848v1#S4.SS3"
+    },
+    {
+      "text": "Zhuge et al., 2024",
+      "url": "https://arxiv.org/html/2609.33848v1#bib.bib62"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2609.33848v1#S5.E7"
+    },
+    {
+      "text": "Anthropic, 2026",
+      "url": "https://arxiv.org/html/2609.33848v1#bib.bib1"
+    },
+    {
+      "text": "Zheng et al., 2025",
+      "url": "https://arxiv.org/html/2609.33848v1#bib.bib58"
+    },
+    {
+      "text": "Kingma & Ba, 2015",
+      "url": "https://arxiv.org/html/2609.33848v1#bib.bib25"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2609.33848v1#S6.F5"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2609.33848v1#S6.F7"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2609.33848v1#S6.F6"
+    },
+    {
+      "text": "8",
+      "url": "https://arxiv.org/html/2609.33848v1#S6.F8"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2609.33848v1#S6.T2"
+    },
+    {
+      "text": "6.2",
+      "url": "https://arxiv.org/html/2609.33848v1#S6.SS2"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.33848v1#S6.T1"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2609.33848v1#S6.F9"
+    },
+    {
+      "text": "Hu et al., 2025",
+      "url": "https://arxiv.org/html/2609.33848v1#bib.bib20"
+    },
+    {
+      "text": "Wang et al., 2025b",
+      "url": "https://arxiv.org/html/2609.33848v1#bib.bib45"
+    }
+  ],
+  "matching_link_count": 175,
+  "links_truncated": true,
+  "invalid_links": []
+}

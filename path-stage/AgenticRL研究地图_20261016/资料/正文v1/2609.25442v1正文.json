@@ -1,0 +1,309 @@
+{
+  "url": "https://arxiv.org/html/2609.25442v1",
+  "final_url": "https://arxiv.org/html/2609.25442v1",
+  "status": 200,
+  "title": "WeightBridge: An Efficient Weight Transfer Library for Reinforcement Learning",
+  "metadata": {},
+  "paper": {
+    "title": "WeightBridge: An Efficient Weight Transfer Library for Reinforcement Learning",
+    "title_warning": null,
+    "abstract": "Abstract Weight transfer — the propagation of updated parameters from trainers to rollout generators — is becoming an important performance bottleneck in reinforcement learning (RL) systems for LLMs.\nThe central challenge is supporting the diverse trainer and rollout layouts and synchronization requirements of modern RL workloads without sacrificing efficiency.\nExisting solutions are efficient under some configurations but perform poorly or lack support under others.\nWe present WeightBridge, a flexible, efficient weight-transfer library designed to deliver high performance across diverse RL configurations.\nWeightBridge first automatically extracts the correspondence between trainer and rollout weight layouts, then plans and executes redundancy-free and load-balanced weight transfer.\nIt exposes a small, general API while coordinating workers across diverse synchronization modes.\nAcross configurations spanning different models, parallelization layouts, and synchronization modes, WeightBridge reduces average GPU stall time by up to 42 × 42\\times over the state-of-the-art open-source RL framework and achieves high\nperformance in all settings.\nA coding agent was able to integrate WeightBridge into two different RL frameworks without manual guidance, demonstrating the generality and ease of use of its APIs.",
+    "authors": [
+      {
+        "name": "Xuanlin Jiang",
+        "affiliations": [
+          "Affiliation: FAIR at Meta",
+          "Affiliation: Harvard University"
+        ],
+        "notes": [
+          "Work carried out at Meta"
+        ]
+      },
+      {
+        "name": "Samuel Hsia",
+        "affiliations": [
+          "Affiliation: FAIR at Meta"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Michael Kuchnik",
+        "affiliations": [
+          "Affiliation: FAIR at Meta"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Zachary DeVito",
+        "affiliations": [
+          "Affiliation: FAIR at Meta"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Minlan Yu",
+        "affiliations": [
+          "Affiliation: Harvard University"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Carole-Jean Wu",
+        "affiliations": [
+          "Affiliation: FAIR at Meta"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Xuanlin Jiang Affiliation: FAIR at Meta Affiliation: Harvard University Work carried out at Meta Samuel Hsia Affiliation: FAIR at Meta Michael Kuchnik Affiliation: FAIR at Meta Zachary DeVito Affiliation: FAIR at Meta Minlan Yu Affiliation: Harvard University Carole-Jean Wu Affiliation: FAIR at Meta",
+    "arxiv_version": "2609.25442v1",
+    "arxiv_version_date": "2026-09-21"
+  },
+  "text": "WeightBridge: An Efficient Weight Transfer Library for Reinforcement Learning Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: arXiv.org perpetual non-exclusive license arXiv:2609.25442v1 [cs.DC] 21 Sep 2026 WeightBridge: An Efficient Weight Transfer Library for Reinforcement Learning Xuanlin Jiang Affiliation: FAIR at Meta Affiliation: Harvard University Work carried out at Meta Samuel Hsia Affiliation: FAIR at Meta Michael Kuchnik Affiliation: FAIR at Meta Zachary DeVito Affiliation: FAIR at Meta Minlan Yu Affiliation: Harvard University Carole-Jean Wu Affiliation: FAIR at Meta Abstract Weight transfer — the propagation of updated parameters from trainers to rollout generators — is becoming an important performance bottleneck in reinforcement learning (RL) systems for LLMs. The central challenge is supporting the diverse trainer and rollout layouts and synchronization requirements of modern RL workloads without sacrificing efficiency. Existing solutions are efficient under some configurations but perform poorly or lack support under others. We present WeightBridge, a flexible, efficient weight-transfer library designed to deliver high performance across diverse RL configurations. WeightBridge first automatically extracts the correspondence between trainer and rollout weight layouts, then plans and executes redundancy-free and load-balanced weight transfer. It exposes a small, general API while coordinating workers across diverse synchronization modes. Across configurations spanning different models, parallelization layouts, and synchronization modes, WeightBridge reduces average GPU stall time by up to 42 × 42\\times over the state-of-the-art open-source RL framework and achieves high performance in all settings. A coding agent was able to integrate WeightBridge into two different RL frameworks without manual guidance, demonstrating the generality and ease of use of its APIs. † † correspondence: Xuanlin Jiang at xjiang@g.harvard.edu , Minlan Yu at minlanyu@g.harvard.edu , Carole-Jean Wu at carolejeanwu@meta.com 1 Introduction Reinforcement learning (RL) post-training enhances LLMs with capabilities such as mathematical reasoning ( Shao et al., 2024 ; Liu et al., 2025a ; Setlur et al., 2024 ) and software engineering ( Liu et al., 2024 ; Wei et al., 2026 ) and is becoming an increasingly important workload in modern data centers. RL alternates between rollout workers that generate trajectories and trainer workers that use those trajectories to update the model. Weight transfer propagates the resulting model weights from the trainers back to the rollout workers. In RL frameworks, weight transfer has become critical due to two scaling trends. First, sparse MoE models increase the number of parameters transferred relative to the computation performed per token. Second, GPU compute throughput is improving faster than inter-node RDMA bandwidth. These trends shift the RL bottleneck toward communication; in a deployed production workload, we observe GPUs stalled on weight transfer for up to 27% of total execution time. This bottleneck prompted recent optimization efforts from Perplexity, ByteDance, Anyscale, and others ( Licker et al., 2026 ; Ye et al., 2026 ; Wang et al., 2026 ; Sirovatka, 2026 ; Ant Ling, 2025 ) . Achieving efficient weight transfer is non-trivial because modern RL workloads span a rapidly expanding configuration space ( Sheng et al., 2025 ; Fu et al., 2025 ; RadixArk, 2026 ; Han et al., 2025 ; Sheng et al., 2026 ; Zhong et al., 2025a ) . Training and inference engines are optimized independently and may use different GPU allocations, parallelization strategies, and runtime kernel tensor formats. As a result, the same logical weight may be partitioned, replicated, reordered, packed, transposed, or quantized differently on the two sides ( Narayanan et al., 2021 ; Zheng et al., 2022 ; Li et al., 2023 ) . RL applications also differ in their tolerance for stale trajectories, requiring different trainer–rollout synchronization modes to balance policy freshness and execution efficiency ( Zheng et al., 2026 ; Li et al., 2025 ; Wu et al., 2026 ) . Therefore, weight transfer must efficiently redistribute and transform weights while coordinating workers across arbitrary combinations of model layouts and synchronization requirements. Existing weight-transfer mechanisms cover only slices of this configuration space. TensorHub ( Ye et al., 2026 ) reaches near-ideal RDMA throughput only when trainer and rollout layouts are identical and asynchronous execution is acceptable. Miles ( RadixArk, 2026 ) supports synchronous mode RL but loses efficiency as rollout replication grows. At 16 rollout replicas, its optimized P2P path takes 34 × 34\\times as long as our solution for end-to-end weight transfer. Supporting diverse configurations at near-hardware performance requires solving the following three challenges. First, the system must automatically recover the element-wise correspondence between heterogeneous trainer and rollout layouts without model- or backend-specific rules. Second, it must globally plan the resulting many-to-many transfer so that replicated weights do not cause redundant traffic or load imbalance, and then execute the plan while saturating the underlying network. Third, it must coordinate workers correctly under different synchronization modes without interfering with the control flows of either the training or inference backend. We present WeightBridge, a flexible and efficient weight-transfer library that automatically discovers weight correspondence, plans and executes non-redundant transfers, and coordinates workers across different synchronization modes. WeightBridge is easy to integrate: in an agentic development experiment, a coding agent added it to Miles in under 30 minutes and achieved a 20 × 20\\times weight-transfer speedup. WeightBridge supports every evaluated Miles configuration, covering models from 16 16 B to more than 1 1 T parameters, deployments from 2 2 to 64 64 H100 nodes, varied trainer/rollout allocations and parallel layouts, and all four synchronization modes. Across these configurations, WeightBridge reduces average GPU stall time by up to 42 × 42\\times over Miles’ optimized native mechanisms. We also integrate WeightBridge into an internal RL framework with a different backend stack, where it improves end-to-end weight-transfer time by up to 11 × 11\\times . In summary, this paper makes the following contributions: • We design WeightBridge, a generic and efficient weight-transfer library that supports diverse RL configurations while driving performance towards the theoretical lower-bound. • We demonstrate WeightBridge’s performance across diverse RL configurations, reducing average GPU stall time by up to 42 × 42\\times . • We demonstrate WeightBridge’s generality through agentic integration into Miles and deployment in an internal RL framework. The rest of the paper is organized as follows: § 2 describes weight transfer and the diversity of modern RL configurations. § 3 introduces the design of WeightBridge. § 4 evaluates WeightBridge, § 5 outlines extensions, and finally related work and conclusion are covered in § 6 and § 7 . 2 The Weight Transfer Design Space This section introduces the what , where , when , and how of efficient weight transfer (§ 2.1 ), the large and diverse configuration space. (§ 2.2 ), and why it is difficult for existing systems to match all needs (§ 2.3 ). This design space motivates our system (§ 3 ), which aims to cover the gaps. Figure 1: RL workflow. Modern RL frameworks typically use only one training engine but multiple inference engines. Training requires strict synchronization between the workers, while inference engines can run independently. Figure 2: Complex correspondence between weight elements. T0–T3 are trainer workers, and R0–R3 are rollout workers. “l” and “r” denote parts of the original tensor. {subfigure} [t]0.53 {subfigure} [t]0.46 Figure 3: Redundant transfer Figure 4: Imbalanced channels Figure 5: Two dimensions of efficient weight transfer. Inefficient transfers send redundant weights or poorly balance load across channels. 2.1 Weight transfer in RL A reinforcement learning workflow (Figure 1 ) involves rollout workers that generate response trajectories using an LLM inference engine. Trainer workers post-process the trajectories, compute rewards and losses, then update the model weights. In the RL workflow, weight transfer propagates updated model weights from trainer workers to rollout workers. Its performance is becoming increasingly critical. The increasing sparsity in MoE models makes the volume of transferred weights grow faster than per-token computation, and GPU compute throughput improves faster than RDMA bandwidth. These trends shift the RL bottleneck toward communication, motivating many companies to work on weight-transfer optimizations. These companies include Perplexity ( Licker et al., 2026 ) , ByteDance ( Ye et al., 2026 ) , Anyscale ( Wang et al., 2026 ) , PrimeIntellect ( Sirovatka, 2026 ) and Ant Group ( Ant Ling, 2025 ) . Weight transfer involves three key steps, corresponding to what weights are transferred where , how the weight transfer happens, and when the weights become available: 1 weight layout discovery, 2 weight transfer planning, and 3 worker synchronization and weight transfer scheduling. Today’s frameworks often make rigid assumptions about one or more of these steps, resulting in lost flexibility or performance. 1 Weight layout discovery obtains information about which weight elements each trainer worker holds and which elements each rollout worker requires, and how these elements correspond with each other. With the layouts of both trainers and rollouts, the system can determine the correspondence between them, mapping trainer weights to rollout weights. 2 Weight transfer planning uses layout information ( 1 ) to guide how data is routed between workers through the network. It also decides what data plane operations need to be performed, including RDMA transfers and GPU kernels that transform tensors from training to inference format. 3 Worker synchronization and weight transfer scheduling determines how weight transfer ( 2 ) interacts with the rest of the RL execution loop: when computation should pause or continue, how workers should synchronize for communication, and how the system should preserve the intended RL semantics across different synchronization modes. 2.2 Diverse RL configurations Diverse model-layout configurations for training and inference. Reinforcement learning frameworks include two key components: training backend engines such as Megatron-LM ( Narayanan et al., 2021 ) and PyTorch FSDP ( Zhao et al., 2023 ) ; rollout inference engines such as vLLM ( Kwon et al., 2023 ) and SGLang ( Zheng et al., 2024 ) . To build an RL framework for a model, developers need to make many model layout decisions. These decisions include how to allocate GPUs to the trainer and rollout workers, and then the configurations within each training and rollout framework. The choice of configurations depends on the models and the hardware. For training, the model layout configurations include five-dimensional parallelism (data, tensor, pipeline, sequence, and expert parallelisms) ( Narayanan et al., 2021 ; Shazeer et al., 2017 ) and state sharding (e.g., ZeRO ( Rajbhandari et al., 2020 ) ). The best configuration is jointly determined by model architecture and size, batch and sequence lengths, GPU memory and compute specifications, and interconnect bandwidth and topology ( Rajbhandari et al., 2020 ; Zheng et al., 2022 ) . Model weights need to be sharded and replicated in different ways across GPUs and nodes under different configurations. Weight transfer needs to determine the data layout correctly ( 1 ) and move the weights efficiently ",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: arXiv.org perpetual non-exclusive license",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "Shao et al., 2024",
+      "url": "https://arxiv.org/html/2609.25442v1#bib.bib42"
+    },
+    {
+      "text": "Liu et al., 2025a",
+      "url": "https://arxiv.org/html/2609.25442v1#bib.bib41"
+    },
+    {
+      "text": "Setlur et al., 2024",
+      "url": "https://arxiv.org/html/2609.25442v1#bib.bib40"
+    },
+    {
+      "text": "Liu et al., 2024",
+      "url": "https://arxiv.org/html/2609.25442v1#bib.bib39"
+    },
+    {
+      "text": "Wei et al., 2026",
+      "url": "https://arxiv.org/html/2609.25442v1#bib.bib38"
+    },
+    {
+      "text": "Licker et al., 2026",
+      "url": "https://arxiv.org/html/2609.25442v1#bib.bib11"
+    },
+    {
+      "text": "Ye et al., 2026",
+      "url": "https://arxiv.org/html/2609.25442v1#bib.bib10"
+    },
+    {
+      "text": "Wang et al., 2026",
+      "url": "https://arxiv.org/html/2609.25442v1#bib.bib43"
+    },
+    {
+      "text": "Sirovatka, 2026",
+      "url": "https://arxiv.org/html/2609.25442v1#bib.bib45"
+    },
+    {
+      "text": "Ant Ling, 2025",
+      "url": "https://arxiv.org/html/2609.25442v1#bib.bib54"
+    },
+    {
+      "text": "Sheng et al., 2025",
+      "url": "https://arxiv.org/html/2609.25442v1#bib.bib1"
+    },
+    {
+      "text": "Fu et al., 2025",
+      "url": "https://arxiv.org/html/2609.25442v1#bib.bib5"
+    },
+    {
+      "text": "RadixArk, 2026",
+      "url": "https://arxiv.org/html/2609.25442v1#bib.bib17"
+    },
+    {
+      "text": "Han et al., 2025",
+      "url": "https://arxiv.org/html/2609.25442v1#bib.bib16"
+    },
+    {
+      "text": "Sheng et al., 2026",
+      "url": "https://arxiv.org/html/2609.25442v1#bib.bib9"
+    },
+    {
+      "text": "Zhong et al., 2025a",
+      "url": "https://arxiv.org/html/2609.25442v1#bib.bib7"
+    },
+    {
+      "text": "Narayanan et al., 2021",
+      "url": "https://arxiv.org/html/2609.25442v1#bib.bib49"
+    },
+    {
+      "text": "Zheng et al., 2022",
+      "url": "https://arxiv.org/html/2609.25442v1#bib.bib50"
+    },
+    {
+      "text": "Li et al., 2023",
+      "url": "https://arxiv.org/html/2609.25442v1#bib.bib51"
+    },
+    {
+      "text": "Zheng et al., 2026",
+      "url": "https://arxiv.org/html/2609.25442v1#bib.bib35"
+    },
+    {
+      "text": "Li et al., 2025",
+      "url": "https://arxiv.org/html/2609.25442v1#bib.bib36"
+    },
+    {
+      "text": "Wu et al., 2026",
+      "url": "https://arxiv.org/html/2609.25442v1#bib.bib37"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2609.25442v1#S2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2609.25442v1#S3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2609.25442v1#S4"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2609.25442v1#S5"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2609.25442v1#S6"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2609.25442v1#S7"
+    },
+    {
+      "text": "2.1",
+      "url": "https://arxiv.org/html/2609.25442v1#S2.SS1"
+    },
+    {
+      "text": "2.2",
+      "url": "https://arxiv.org/html/2609.25442v1#S2.SS2"
+    },
+    {
+      "text": "2.3",
+      "url": "https://arxiv.org/html/2609.25442v1#S2.SS3"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.25442v1#S2.F1"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.25442v1#S2.I1.i1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2609.25442v1#S2.I1.i2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2609.25442v1#S2.I1.i3"
+    },
+    {
+      "text": "Zhao et al., 2023",
+      "url": "https://arxiv.org/html/2609.25442v1#bib.bib46"
+    },
+    {
+      "text": "Kwon et al., 2023",
+      "url": "https://arxiv.org/html/2609.25442v1#bib.bib47"
+    },
+    {
+      "text": "Zheng et al., 2024",
+      "url": "https://arxiv.org/html/2609.25442v1#bib.bib44"
+    },
+    {
+      "text": "Shazeer et al., 2017",
+      "url": "https://arxiv.org/html/2609.25442v1#bib.bib31"
+    },
+    {
+      "text": "Rajbhandari et al., 2020",
+      "url": "https://arxiv.org/html/2609.25442v1#bib.bib48"
+    },
+    {
+      "text": "Zhong et al., 2024",
+      "url": "https://arxiv.org/html/2609.25442v1#bib.bib52"
+    },
+    {
+      "text": "Sheng et al., 2023",
+      "url": "https://arxiv.org/html/2609.25442v1#bib.bib53"
+    },
+    {
+      "text": "Pope et al., 2023",
+      "url": "https://arxiv.org/html/2609.25442v1#bib.bib55"
+    },
+    {
+      "text": "Aminabadi et al., 2022",
+      "url": "https://arxiv.org/html/2609.25442v1#bib.bib56"
+    },
+    {
+      "text": "Kim et al., 2024",
+      "url": "https://arxiv.org/html/2609.25442v1#bib.bib57"
+    },
+    {
+      "text": "NVIDIA TensorRT-LLM Team, 2026",
+      "url": "https://arxiv.org/html/2609.25442v1#bib.bib58"
+    },
+    {
+      "text": "Hu et al., 2021",
+      "url": "https://arxiv.org/html/2609.25442v1#bib.bib32"
+    },
+    {
+      "text": "Gloeckle et al., 2024",
+      "url": "https://arxiv.org/html/2609.25442v1#bib.bib34"
+    },
+    {
+      "text": "Xu et al., 2026",
+      "url": "https://arxiv.org/html/2609.25442v1#bib.bib29"
+    },
+    {
+      "text": "Team et al., 2025b",
+      "url": "https://arxiv.org/html/2609.25442v1#bib.bib33"
+    },
+    {
+      "text": "Schulman et al., 2017",
+      "url": "https://arxiv.org/html/2609.25442v1#bib.bib59"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.25442v1#S2.T1"
+    },
+    {
+      "text": "Intellect, 2025",
+      "url": "https://arxiv.org/html/2609.25442v1#bib.bib19"
+    },
+    {
+      "text": "LMSYS Org, 2026",
+      "url": "https://arxiv.org/html/2609.25442v1#bib.bib18"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2609.25442v1#S2.F2"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2609.25442v1#S3.F6"
+    },
+    {
+      "text": "3.1",
+      "url": "https://arxiv.org/html/2609.25442v1#S3.SS1"
+    }
+  ],
+  "matching_link_count": 175,
+  "links_truncated": true,
+  "invalid_links": []
+}

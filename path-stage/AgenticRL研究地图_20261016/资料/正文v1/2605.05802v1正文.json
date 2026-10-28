@@ -1,0 +1,258 @@
+{
+  "url": "https://arxiv.org/html/2605.05802v1",
+  "final_url": "https://arxiv.org/html/2605.05802v1",
+  "status": 200,
+  "title": "Selective Rollout: Mid-Trajectory Termination for Multi-Sample Agent RL",
+  "metadata": {},
+  "paper": {
+    "title": "Selective Rollout: Mid-Trajectory Termination for\nMulti-Sample Agent RL",
+    "title_warning": null,
+    "abstract": "Abstract Group-relative RL training (GRPO) samples a small group of\nparallel rollouts for every training prompt and uses their\nwithin-group reward spread to compute per-trajectory advantages.\nIn agentic environments each rollout is a long multi-turn\ndialogue with one LLM call per step, so this multi-sample\nmultiplier dominates the total training cost. When every rollout\nof a prompt ends with the same reward, the group has zero reward\nvariance and contributes no gradient, so the extra rollouts add\nno information; such groups are common in practice (typically\naround 40 % 40\\% of all groups), so the wasted-compute fraction is\nsubstantial rather than marginal. Existing methods filter such groups at the prompt\nlevel, either after their rollouts are paid for or before any\nrollout begins, but both decide without using information that\nbecomes available during the rollout itself. We instead ask\nwhether the in-group divergence between the partial trajectories\nat an intermediate step can already predict that the group will\nbe zero-variance: when the parallel rollouts have already\nconverged on the same action prefix, the group is on track to\nproduce a single reward, and we can stop early. We propose a\none-parameter gate that stops a group when the mean pairwise\nprefix edit distance between its partial action sequences falls\nbelow a threshold. On a 60 60 -iteration on-policy GRPO run on\nALFWorld with Qwen2.5-7B, averaged over four random seeds, the\ngated arm finishes 10.7 % \\mathbf{10.7\\%} faster in wall-clock\n(bootstrap 95 % 95\\% CI excludes 0 0 ) and shifts held-out success\nrate on 50 50 unseen tasks by + 2.5 \\mathbf{+2.5} pp, with the\nheld-out gain tracing to a measurable reduction in zero-advantage\ngradient-batch dilution.\nCode: https://github.com/zhiyuanZhai20/selective-rollout .",
+    "authors": [
+      {
+        "name": "Zhiyuan Zhai",
+        "affiliations": [
+          "Affiliation: Fudan University"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Xin Wang",
+        "affiliations": [
+          "Affiliation: Fudan University"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Zhiyuan Zhai Affiliation: Fudan University Email: 22110720067@m.fudan.edu.cn Xin Wang Affiliation: Fudan University Email: xwang11@fudan.edu.cn",
+    "arxiv_version": "2605.05802v1",
+    "arxiv_version_date": "2026-05-07"
+  },
+  "text": "Selective Rollout: Mid-Trajectory Termination for Multi-Sample Agent RL Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: arXiv.org perpetual non-exclusive license arXiv:2605.05802v1 [cs.LG] 07 May 2026 Selective Rollout: Mid-Trajectory Termination for Multi-Sample Agent RL Zhiyuan Zhai Affiliation: Fudan University Email: 22110720067@m.fudan.edu.cn Xin Wang Affiliation: Fudan University Email: xwang11@fudan.edu.cn Abstract Group-relative RL training (GRPO) samples a small group of parallel rollouts for every training prompt and uses their within-group reward spread to compute per-trajectory advantages. In agentic environments each rollout is a long multi-turn dialogue with one LLM call per step, so this multi-sample multiplier dominates the total training cost. When every rollout of a prompt ends with the same reward, the group has zero reward variance and contributes no gradient, so the extra rollouts add no information; such groups are common in practice (typically around 40 % 40\\% of all groups), so the wasted-compute fraction is substantial rather than marginal. Existing methods filter such groups at the prompt level, either after their rollouts are paid for or before any rollout begins, but both decide without using information that becomes available during the rollout itself. We instead ask whether the in-group divergence between the partial trajectories at an intermediate step can already predict that the group will be zero-variance: when the parallel rollouts have already converged on the same action prefix, the group is on track to produce a single reward, and we can stop early. We propose a one-parameter gate that stops a group when the mean pairwise prefix edit distance between its partial action sequences falls below a threshold. On a 60 60 -iteration on-policy GRPO run on ALFWorld with Qwen2.5-7B, averaged over four random seeds, the gated arm finishes 10.7 % \\mathbf{10.7\\%} faster in wall-clock (bootstrap 95 % 95\\% CI excludes 0 0 ) and shifts held-out success rate on 50 50 unseen tasks by + 2.5 \\mathbf{+2.5} pp, with the held-out gain tracing to a measurable reduction in zero-advantage gradient-batch dilution. Code: https://github.com/zhiyuanZhai20/selective-rollout . 1 Introduction Figure 1: Selective rollout. Standard GRPO pays the full cost of converged groups ( left ); our gate stops them mid-rollout ( right ). Group-Relative Policy Optimization (GRPO [1, 2]) has become the dominant family of RL methods for fine-tuning language models on preference and outcome rewards [3], replacing the learned value baseline of PPO [4] with the empirical mean reward of a small group of parallel rollouts of the same prompt. The per-prompt cost of a GRPO iteration grows linearly with the number of rollouts in the group. In agentic environments such as ALFWorld [5], WebShop [6], or AgentBench [7] this multiplier matters more than usual: each rollout is a multi-turn dialogue, often 20 20 – 30 30 environment steps long with one LLM call per step, so a single rollout already takes minutes of wall-clock. Multiplying that by eight or sixteen rollouts per prompt makes the rollout phase the dominant cost in the entire training pipeline ( ∼ 95 % {\\sim}95\\% of wall-clock in our setup). Not all of this compute is paying for new information. When every trajectory in a group ends with the same reward, the group has zero reward variance: the within-group normalisation sets every trajectory’s advantage to exactly zero, so the group contributes nothing to the policy gradient. Such groups are common in practice: with Qwen2.5-7B on ALFWorld, 39 % 39\\% of the offline groups we collect are zero-variance, and the rate hovers around 40 % 40\\% averaged across the 60 60 iterations of the on-policy training run in § 4.3 . Existing approaches recover this cost at the prompt level: DAPO [8] filters zero-variance groups out of the gradient batch after the rollouts have been paid for, while GRESO [9] predicts uninformative prompts before any rollout begins, using cross-epoch reward consistency on mathematical reasoning benchmarks. Both decide at the prompt level and leave the within-rollout compute untouched. This paper asks: can we predict, partway through a group’s rollout, that the group is going to be zero-variance? If yes, we can stop the rollout early and recover the rest. The question makes sense only in an agentic setting. In a single-turn math problem there is no “partway through” to look at: the rollout is a single forward pass that either finishes or does not. In an agent rollout, by contrast, the group’s trajectories interact with the environment over many steps, and at any intermediate step we can compare the partial trajectories produced so far. Our hypothesis is that when these partial trajectories have already converged on a single action sequence at the chosen intermediate step, the group is on track to be zero-variance: the policy has effectively committed to one behaviour, and the remaining steps will only confirm that commitment. Conversely, divergent prefixes signal a group that is still meaningfully exploring and worth letting run. We test this hypothesis on 100 100 ALFWorld groups with group size eight and find that a single threshold on the mean pairwise prefix-edit distance suffices. The same gate then drops into a 60 60 -iteration on-policy GRPO training loop, where it produces a measurable wall-clock saving with no degradation (and a small directional improvement) on held-out evaluation. We also give a quantitative account of why the gated policy learns at least as well: removing zero-variance groups raises the effective per-step gradient signal-to-noise by exactly the amount predicted by a simple dilution argument on the GRPO loss. Contributions. • A one-parameter mid-rollout gate based on in-group prefix-edit divergence at step K K . On N = 100 N\\!=\\!100 ALFWorld groups with G = 8 G\\!=\\!8 , the gate recovers 14.0 % \\mathbf{14.0\\%} of rollout step-tokens at offline precision 0.81 0.81 ( 11.3 % \\mathbf{11.3\\%} losslessly) while preserving 96.7 % \\mathbf{96.7\\%} of the GRPO advantage L 2 L^{2} -norm. • End-to-end on-policy validation. Across n = 4 n\\!=\\!4 seeds of a 60 60 -iteration on-policy GRPO training run, the gated arm finishes 10.7 % \\mathbf{10.7\\%} faster (bootstrap 95 % 95\\% CI excludes 0 0 ) and shifts held-out success on 50 50 unseen tasks by + 2.5 \\mathbf{+2.5} pp. • Mechanistic explanation of the held-out gain. The gate lowers the gradient-batch zero-advantage fraction from ∼ 40 % \\sim\\!40\\% to ∼ 28 % \\sim\\!28\\% , raising the measured gradient L 2 L^{2} -norm by × \\mathbf{1.16\\!\\times} , in quantitative agreement with the predicted dilution effect. We defer the full related-work discussion to App. A . 2 Preliminaries 2.1 GRPO Let π θ \\pi_{\\theta} be a language-model policy and 𝒟 \\mathcal{D} a distribution over agent prompts. For prompt x ∼ 𝒟 x\\!\\sim\\!\\mathcal{D} , GRPO [1] samples a group of G G rollouts { 𝝉 1 , … , 𝝉 G } \\{\\boldsymbol{\\tau}_{1},\\dots,\\boldsymbol{\\tau}_{G}\\} from π θ \\pi_{\\theta} , each a sequence of (observation, action, reward) triples up to horizon T max T_{\\max} . Let r i = R ⁡ ( 𝝉 i ) r_{i}\\!=\\!R(\\boldsymbol{\\tau}_{i}) be the terminal reward. The group-relative advantage is A i = r i − r ¯ σ r + ε , r ¯ = 1 G ​ ∑ j r j , σ r = 1 G ​ ∑ j ( r j − r ¯ ) 2 . A_{i}=\\frac{r_{i}-\\bar{r}}{\\sigma_{r}+\\varepsilon},\\quad\\bar{r}=\\tfrac{1}{G}\\!\\sum_{j}r_{j},\\quad\\sigma_{r}=\\sqrt{\\tfrac{1}{G}\\!\\sum_{j}(r_{j}-\\bar{r})^{2}}. (1) Intuitively, A i A_{i} is the within-group z z -score of r i r_{i} : it is positive when trajectory i i scored above the group mean and the policy should be pushed toward reproducing it, negative when below the mean (push away), and zero when r i = r ¯ r_{i}\\!=\\!\\bar{r} . The REINFORCE-style [10] policy-gradient loss is ℒ ( θ ) = − 1 N ∑ i A i log p θ ( 𝝉 i ) \\mathcal{L}(\\theta)=-\\tfrac{1}{N}\\!\\sum_{i}A_{i}\\log p_{\\theta}(\\boldsymbol{\\tau}_{i}) , averaged over all N N trajectories in the gradient batch (agent-specific teacher-forcing in App. C.2 ). A group is zero-variance when σ r \\sigma_{r} is zero, that is, when all G G trajectories in the group end with the same reward. For such a group the advantage A i A_{i} is zero for every i i , so the group contributes nothing to the policy gradient. This zero contribution causes a second, more subtle effect that will be important later. The policy-gradient loss above is the mean over all N N trajectories in the batch, so it divides by N N . A trajectory whose advantage is zero does not add to the numerator of this mean, but it still occupies one of the N N slots in the denominator. The result is that the gradient contributed by the trajectories with non-zero advantage is shrunk by a factor equal to the fraction of non-zero-advantage trajectories in the batch. If half the trajectories in a batch have advantage zero, the effective gradient is half what it would be on a batch of only non-zero-advantage trajectories. We return to this effect in § 4.4 . 2.2 Compute decomposition in agent RL We measure compute in two ways throughout the paper. Wall-clock is real elapsed seconds on the GPU, and step-tokens is the total number of action tokens the policy emits across all rollouts; an implementation-independent measure of generation cost. Each GRPO iteration in our setting consists of three phases: • Rollout (sampling) . The policy generates the G G trajectories one token at a time. For ALFWorld with T max = 30 T_{\\max}\\!=\\!30 and G = 8 G\\!=\\!8 this is on the order of 240 240 generation calls per prompt, with no gradient computation. In our on-policy training runs this phase consumes ∼ 95 % {\\sim}95\\% of total wall-clock. • Advantage computation : Eq. 1 . Negligible cost. • Training (gradient update) . For each sampled trajectory the trainer evaluates the policy on the full token sequence to recover the per-action log-probabilities log ⁡ p θ ​ ( a t ∣ prefix ) \\log p_{\\theta}(a_{t}\\mid\\text{prefix}) , then computes the policy-gradient loss and backpropagates it to update the LoRA parameters. The cost per token is roughly 50 × 50\\times larger than during sampling (because gradients require activation memory and quadratic-in-length attention), but it operates only on the trajectories in the batch, not on every rollout that was sampled. A zero-variance group wastes all three phases: it pays the full rollout cost, computes a zero advantage, and (unless filtered) contributes a zero loss with the full gradient-update cost. The gate we develop next eliminates the post- K K tail of the rollout cost in addition to the training cost. 3 Selective-rollout gate 3.1 Setup For the predictive analysis in this section we use a fixed corpus of N = 100 N\\!=\\!100 rollouts. Prompts are drawn uniformly at random from the ALFWorld [5] valid_seen split and cover all six task types in proportions { \\{ pick_and_place_simple, pick_two_obj, pick_clean, pick_heat, pick_cool, look_at_obj } \\} = = { 24 , 20 , 18 , 11 , 19 , 8 } \\{24,20,18,11,19,8\\} . The policy is Qwen2.5-7B-Instruct [11], sampled at temperature T = 0.7 T\\!=\\!0.7 with group size G = 8 G\\!=\\!8 and rollout horizon T max = 30 T_{\\max}\\!=\\!30 . Across the 100 100 groups we observe 25 25 all-fail, 61 61 mixed, and 14 14 all-succeed groups (a 39 % 39\\% zero-variance rate). All code, raw rollouts, divergence metrics, gate-sweep results, and training logs are released as supplementary material. 3.2 Mid-rollout signals and the gate Let a i , t a_{i,t} be the action emitted by trajectory i i at environment step t t . At an intermediate step K ≤ T max K\\!\\leq\\!T_{\\max} we want a scalar measure of how much the G G partial trajectories disagree with each other so far. The signal we use throughout the paper is the mean pairwise prefix edit distance d K ∈ [ 0 , 1 ] d_{K}\\in[0,1] : for each pair ( i , j ) (i,j) we take the Levenshtein [12] edit distance be",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: arXiv.org perpetual non-exclusive license",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "https://github.com/zhiyuanZhai20/selective-rollout",
+      "url": "https://github.com/zhiyuanZhai20/selective-rollout"
+    },
+    {
+      "text": "4.3",
+      "url": "https://arxiv.org/html/2605.05802v1#S4.SS3"
+    },
+    {
+      "text": "A",
+      "url": "https://arxiv.org/html/2605.05802v1#A1"
+    },
+    {
+      "text": "C.2",
+      "url": "https://arxiv.org/html/2605.05802v1#A3.SS2"
+    },
+    {
+      "text": "4.4",
+      "url": "https://arxiv.org/html/2605.05802v1#S4.SS4"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2605.05802v1#S2.E1"
+    },
+    {
+      "text": "3.3",
+      "url": "https://arxiv.org/html/2605.05802v1#S3.SS3"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2605.05802v1#S3.F2"
+    },
+    {
+      "text": "B",
+      "url": "https://arxiv.org/html/2605.05802v1#A2"
+    },
+    {
+      "text": "C.1",
+      "url": "https://arxiv.org/html/2605.05802v1#A3.SS1"
+    },
+    {
+      "text": "3.2",
+      "url": "https://arxiv.org/html/2605.05802v1#S3.SS2"
+    },
+    {
+      "text": "E.3",
+      "url": "https://arxiv.org/html/2605.05802v1#A5.SS3"
+    },
+    {
+      "text": "E.5",
+      "url": "https://arxiv.org/html/2605.05802v1#A5.SS5"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2605.05802v1#S5"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2605.05802v1#S3.F3"
+    },
+    {
+      "text": "C.5",
+      "url": "https://arxiv.org/html/2605.05802v1#A3.SS5"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2605.05802v1#S3.T1"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2605.05802v1#S4"
+    },
+    {
+      "text": "4.1",
+      "url": "https://arxiv.org/html/2605.05802v1#S4.SS1"
+    },
+    {
+      "text": "E.4",
+      "url": "https://arxiv.org/html/2605.05802v1#A5.SS4"
+    },
+    {
+      "text": "E.2",
+      "url": "https://arxiv.org/html/2605.05802v1#A5.SS2"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2605.05802v1#S4.T2"
+    },
+    {
+      "text": "C.4",
+      "url": "https://arxiv.org/html/2605.05802v1#A3.SS4"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2605.05802v1#A3.T6"
+    },
+    {
+      "text": "3.1",
+      "url": "https://arxiv.org/html/2605.05802v1#S3.SS1"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2605.05802v1#S4.T3"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2605.05802v1#S4.T5"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2605.05802v1#S4.T4"
+    },
+    {
+      "text": "E.7",
+      "url": "https://arxiv.org/html/2605.05802v1#A5.SS7"
+    },
+    {
+      "text": "C.3",
+      "url": "https://arxiv.org/html/2605.05802v1#A3.SS3"
+    },
+    {
+      "text": "E.8",
+      "url": "https://arxiv.org/html/2605.05802v1#A5.SS8"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2605.05802v1#S4.F4"
+    },
+    {
+      "text": "D.1",
+      "url": "https://arxiv.org/html/2605.05802v1#A4.SS1"
+    },
+    {
+      "text": "E.12",
+      "url": "https://arxiv.org/html/2605.05802v1#A5.SS12"
+    },
+    {
+      "text": "E.13",
+      "url": "https://arxiv.org/html/2605.05802v1#A5.SS13"
+    },
+    {
+      "text": "E.6",
+      "url": "https://arxiv.org/html/2605.05802v1#A5.SS6"
+    },
+    {
+      "text": "E.1",
+      "url": "https://arxiv.org/html/2605.05802v1#A5.SS1"
+    },
+    {
+      "text": "E.11",
+      "url": "https://arxiv.org/html/2605.05802v1#A5.SS11"
+    },
+    {
+      "text": "C.6",
+      "url": "https://arxiv.org/html/2605.05802v1#A3.SS6"
+    },
+    {
+      "text": "F",
+      "url": "https://arxiv.org/html/2605.05802v1#A6"
+    },
+    {
+      "text": "3.5",
+      "url": "https://arxiv.org/html/2605.05802v1#S3.SS5"
+    },
+    {
+      "text": "E.9",
+      "url": "https://arxiv.org/html/2605.05802v1#A5.SS9"
+    },
+    {
+      "text": "E.10",
+      "url": "https://arxiv.org/html/2605.05802v1#A5.SS10"
+    },
+    {
+      "text": "3.2",
+      "url": "https://arxiv.org/html/2605.05802v1#S3.SS2.SSS0.Px1"
+    },
+    {
+      "text": "3.4",
+      "url": "https://arxiv.org/html/2605.05802v1#S3.SS4"
+    },
+    {
+      "text": "8",
+      "url": "https://arxiv.org/html/2605.05802v1#A5.T8"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2605.05802v1#A5.F5"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2605.05802v1#A5.T9"
+    },
+    {
+      "text": "10",
+      "url": "https://arxiv.org/html/2605.05802v1#A5.T10"
+    },
+    {
+      "text": "12",
+      "url": "https://arxiv.org/html/2605.05802v1#A5.T12"
+    },
+    {
+      "text": "4.2",
+      "url": "https://arxiv.org/html/2605.05802v1#S4.SS2"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2605.05802v1#A5.F7"
+    }
+  ],
+  "matching_link_count": 55,
+  "links_truncated": false,
+  "invalid_links": []
+}

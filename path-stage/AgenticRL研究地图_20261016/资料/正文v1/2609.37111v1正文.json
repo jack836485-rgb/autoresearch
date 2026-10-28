@@ -1,0 +1,283 @@
+{
+  "url": "https://arxiv.org/html/2609.37111v1",
+  "final_url": "https://arxiv.org/html/2609.37111v1",
+  "status": 200,
+  "title": "Learning from Viable Failure Prefixes: Milestone Viability Potential Policy Optimization for Long-Horizon LLM Agents",
+  "metadata": {},
+  "paper": {
+    "title": "Learning from Viable Failure Prefixes: M ilestone V iability Potential P olicy O ptimization for Long-Horizon LLM Agents",
+    "title_warning": null,
+    "abstract": "Abstract Long-horizon LLM agents require reinforcement learning methods that can assign credit to intermediate decisions under sparse and delayed rewards. Existing group-based methods such as GRPO and GiGPO alleviate this issue by comparing rollout returns or repeated anchor states, but they still fail when the compared returns have no variation. We identify this failure mode as zero-credit failure : during early training, many failed rollouts contain useful prefixes, yet existing methods assign them no task-discriminative advantage. To address this issue, we propose M ilestone V iability Potential P olicy O ptimization ( Mvpo ), a potential-routed policy optimization algorithm that learns from viable failure prefixes. Mvpo estimates prefix potential over Union-Find viability regions, repairs zero-credit groups with potential-difference advantages, and attenuates the potential branch according to relative performance progress. Experiments with Qwen2.5-1.5B-Instruct show that Mvpo outperforms eight strong baselines, including GRPO and GiGPO. Under the same training length, Mvpo improves over the GiGPO baseline by +4.4 success points on ALFWorld and +5.3 on WebShop, while adding only 0.16%–0.20% advantage-construction overhead.",
+    "authors": [
+      {
+        "name": "Qi Zhou",
+        "affiliations": [
+          "Affiliation: Equal contribution"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Yuanfan LiXi’an Jiaotong University",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "",
+        "affiliations": [
+          "Affiliation: Correspondence to: liyuan7716@gmail.com"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Qi Zhou Affiliation: Equal contribution Yuanfan LiXi’an Jiaotong University Affiliation: Correspondence to: liyuan7716@gmail.com",
+    "arxiv_version": "2609.37111v1",
+    "arxiv_version_date": "2026-09-29"
+  },
+  "text": "Learning from Viable Failure Prefixes: Milestone Viability Potential Policy Optimization for Long-Horizon LLM Agents Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: CC BY 4.0 arXiv:2609.37111v1 [cs.AI] 29 Sep 2026 Learning from Viable Failure Prefixes: M ilestone V iability Potential P olicy O ptimization for Long-Horizon LLM Agents Qi Zhou Affiliation: Equal contribution Yuanfan LiXi’an Jiaotong University Affiliation: Correspondence to: liyuan7716@gmail.com Abstract Long-horizon LLM agents require reinforcement learning methods that can assign credit to intermediate decisions under sparse and delayed rewards. Existing group-based methods such as GRPO and GiGPO alleviate this issue by comparing rollout returns or repeated anchor states, but they still fail when the compared returns have no variation. We identify this failure mode as zero-credit failure : during early training, many failed rollouts contain useful prefixes, yet existing methods assign them no task-discriminative advantage. To address this issue, we propose M ilestone V iability Potential P olicy O ptimization ( Mvpo ), a potential-routed policy optimization algorithm that learns from viable failure prefixes. Mvpo estimates prefix potential over Union-Find viability regions, repairs zero-credit groups with potential-difference advantages, and attenuates the potential branch according to relative performance progress. Experiments with Qwen2.5-1.5B-Instruct show that Mvpo outperforms eight strong baselines, including GRPO and GiGPO. Under the same training length, Mvpo improves over the GiGPO baseline by +4.4 success points on ALFWorld and +5.3 on WebShop, while adding only 0.16%–0.20% advantage-construction overhead. 1 Introduction Figure 1: Motivation and overview of Mvpo . Top : an ALFWorld case of zero-credit failure : all rollouts fail, making GRPO/GiGPO assign no task-discriminative advantage, while Mvpo identifies viable prefixes using prefix potential. Bottom (a) : zero-advantage steps affect over 90% of GRPO steps and about 65% of GiGPO steps in early WebShop training. Bottom (b) : higher prefix potential predicts higher future success on ALFWorld. Bottom (c) : Mvpo reaches 40% success earlier during training. Bottom (d) : Mvpo improves final success over GiGPO on both benchmarks. Large language models (LLMs) have achieved remarkable progress across language understanding, reasoning, and generation tasks Vaswani et al. (2017) ; Brown et al. (2020) ; Singh et al. (2025) , and are increasingly being developed as autonomous agents that interact with external environments, execute multi-step plans, and solve long-horizon decision-making problems Bai et al. (2022) ; Shao et al. (2024) ; Feng et al. (2025) . Such agentic LLMs have been studied in embodied environments, web navigation, tool-use tasks, and application-centered workflows, where success requires a sequence of environment-dependent actions rather than a single response Shridhar et al. (2020) ; Yao et al. (2022a) ; Trivedi et al. (2024) ; Wei et al. (2025) . Training these agents with reinforcement learning (RL) is challenging because rewards are often sparse and delayed: most early rollouts fail before reaching the goal, and non-zero feedback is observed only after completing the task. Recent critic-free policy optimization algorithms attempt to mitigate this issue by comparing multiple rollouts under the same prompt. GRPO Shao et al. (2024) computes group-relative advantages from trajectory-level returns, but its credit signal remains tied to final episode outcomes. GiGPO Feng et al. (2025) further adapts group-based optimization to agentic tasks by constructing step-level advantages at repeated anchor states , comparing subsequent returns of rollouts that visit the same state. Although this provides denser supervision than trajectory-level GRPO, we find that it still fails to eliminate sparse-reward failure in long-horizon agentic training. The key issue is that both rollout-level and anchor-level comparisons require return variation, which is especially scarce at the beginning of training. When most sampled rollouts fail, GRPO receives nearly identical trajectory returns and therefore assigns no task-discriminative relative advantage. GiGPO alleviates this issue by comparing continuations from repeated anchor states, but its step-level advantage still collapses whenever all continuations from an anchor have identical returns. We call these cases zero-credit groups : groups in which existing credit estimators cannot distinguish useful decisions from useless ones because the observed returns contain no variation. As shown in Figure 1 (a), zero-credit groups dominate the early training stage: over 90% of GRPO steps and more than 60% of GiGPO steps have zero advantage. This means that a large fraction of early interactions provides no task-discriminative policy-gradient signal, slowing down the initial rise of the training curve. Thus, early agent training is sparse not only at the trajectory level, but also at the prefix level. To understand the cause of this prefix-level sparsity, we examine what is hidden inside failed rollouts. Figure 1 (top) shows an ALFWorld task, “put a cooled mug on the countertop,” where three rollouts all fail with zero returns. Yet their prefixes differ substantially: one rollout reaches the kitchen, takes the mug, and approaches the fridge, while the others pick up a wrong object or explore irrelevant locations. GRPO and GiGPO treat these rollouts as equally uninformative once their returns are all zero. This motivates our view that failed trajectories should not be uniformly discarded; their viable prefixes should be identified and reinforced. Motivated by this diagnosis, we propose M ilestone V iability Potential P olicy O ptimization ( Mvpo ), a potential-routed LLM agent training algorithm that learns from viable failure prefixes. Instead of assigning credit only from final trajectory outcomes, Mvpo estimates a prefix potential , which measures whether an intermediate state remains on a promising path toward task completion. For example, finding the apple or reaching the fridge should have higher potential than entering a shelf loop or holding an irrelevant object. To estimate this signal robustly, Mvpo uses a Union-Find structure to merge semantically equivalent prefixes across rollouts into viability regions , where each region aggregates future success, loop frequency, and adaptive milestone progress. During optimization, Mvpo routes the step-level signal according to credit availability: it preserves comparative anchor advantages when they are informative, and repairs zero-credit groups with potential-difference advantages that reward transitions toward higher-potential regions and suppress regressions or dead ends. Finally, Mvpo learns milestone weights from rollout statistics and attenuates the potential branch according to relative performance progress, so that potential-based credit dominates early sparse-reward training but gradually gives way to anchor-based credit later. Figure 1 (b–d) validates both the mechanism and effectiveness of Mvpo . On ALFWorld, future success increases from 34.6% in the lowest-potential bucket to 94.5% in the highest-potential bucket, showing that prefix potential captures meaningful task progress. Using this signal to repair zero-credit steps, Mvpo reaches 40% ALFWorld success at step 52, earlier than GiGPO at step 62 and GRPO at step 73. Across ALFWorld Shridhar et al. (2020) and WebShop Yao et al. (2022a) , Mvpo outperforms eight strong baselines, including prompt-based agents, actor-critic RL, GRPO Shao et al. (2024) , and GiGPO Feng et al. (2025) . Under the same training length, it improves ALFWorld/WebShop success over GiGPO by +4.4 / +5.3 points with Qwen2.5-1.5B-Instruct and +1.1 / +2.7 points with Qwen2.5-7B-Instruct, while adding only 0.16%–0.20% advantage-construction overhead. Our contributions are as follows: • Zero-Credit Prefix Failure Diagnosis. We identify a key limitation of existing group-based policy optimization methods in long-horizon agent training: when rollout or anchor groups contain identical returns, their advantages collapse to zero. This prevents GRPO and GiGPO from distinguishing viable failure prefixes from completely unproductive trajectories during early sparse-reward training. • Potential-Routed Prefix Credit Repair. We propose Mvpo , a new potential-routed policy optimization algorithm that learns from viable failure prefixes. Mvpo estimates prefix potential via Union-Find viability regions and repairs zero-credit groups with potential-difference advantages, while preserving anchor-based comparative credit when it is available. • Strong Long-Horizon Agent Performance. We evaluate Mvpo on ALFWorld and WebShop, where it outperforms eight strong baselines, including prompt-based agents, actor-critic RL methods, GRPO, and GiGPO. Under the same training length, Mvpo improves ALFWorld/WebShop success over GiGPO by +4.4 / +5.3 points with Qwen2.5-1.5B-Instruct and +1.1 / +2.7 points with Qwen2.5-7B-Instruct, with only 0.16%–0.20% additional advantage-construction overhead. 2 Related Work LLMs as autonomous agents. LLMs are increasingly used as autonomous agents that interact with environments, invoke tools, and solve multi-step tasks. Early systems mainly relied on frozen LLMs with prompting, reasoning-action interleaving, memory, reflection, retrieval, and tool use, such as ReAct Yao et al. (2022b) , Reflexion Shinn et al. (2023) , WebGPT Nakano et al. (2021) , and Toolformer Schick et al. (2023) . Agent benchmarks have expanded from embodied and text-based tasks to web navigation, shopping, mobile-device control, and application-centered workflows Shridhar et al. (2020) ; Yao et al. (2022a) ; Deng et al. (2023) ; Zhou et al. (2024a) ; Trivedi et al. (2024) ; Wen et al. (2024) . These environments require long sequences of environment-dependent actions under delayed rewards, making policy learning harder than single-turn reasoning. Prompting-based agents exploit pretrained knowledge, but provide limited mechanisms for improving policies from failed interactions, motivating supervised and reinforcement learning for LLM agents. Policy optimization for LLMs and agents. RL has been widely used to align and improve LLMs, from RLHF with PPO Ziegler et al. (2019) ; Stiennon et al. (2020) ; Ouyang et al. (2022) ; Schulman et al. (2017) to critic-free estimators such as REINFORCE, RLOO, and GRPO Williams (1992) ; Ahmadian et al. (2024) ; Shao et al. (2024) . Group-based algorithms such as Dr.GRPO, DAPO, CPPO, and GSPO Liu et al. (2025) ; Yu et al. (2025) ; Lin et al. (2026) ; Zheng et al. (2025) further improve scalable LLM RL and have been applied to reasoning, search, and tool use Dong et al. (2025a) ; Dong et al. (2025b) . For multi-turn agents, ArCHer Zhou et al. (2024b) uses hierarchical RL, Agent Q Putta et al. (2024) combines MCTS with iterative fine-tuning, RAGEN/StarPO Wang et al. (2025a) studies trajectory-level agent optimization, Tree-GRPO Ji et al. (2025) derives process signals from tree-structured rollouts, and GiGPO Feng et al. (2025) constructs step-level advantages from repeated anchor states. These methods improve trajectory collection or densify credit from sparse outcomes, but still rely on return variation within rollout or anchor groups. When all rollouts fail or all anchor continuations have identical returns, their advantages collapse to zero, leaving viable prefixes inside failed trajectories unlearned. In contrast, Mvpo targets this zero-credit regime by routing such steps to prefix-potential advantages estimated over Union-Find viability regions, enabling agents to learn from viable failure prefixes while preserving comparative credit when available. 3 Preliminaries Problem setup. We consider a long-horizon",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: CC BY 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "Vaswani et al. (2017)",
+      "url": "https://arxiv.org/html/2609.37111v1#bib.bib31"
+    },
+    {
+      "text": "Brown et al. (2020)",
+      "url": "https://arxiv.org/html/2609.37111v1#bib.bib3"
+    },
+    {
+      "text": "Singh et al. (2025)",
+      "url": "https://arxiv.org/html/2609.37111v1#bib.bib27"
+    },
+    {
+      "text": "Bai et al. (2022)",
+      "url": "https://arxiv.org/html/2609.37111v1#bib.bib2"
+    },
+    {
+      "text": "Shao et al. (2024)",
+      "url": "https://arxiv.org/html/2609.37111v1#bib.bib24"
+    },
+    {
+      "text": "Feng et al. (2025)",
+      "url": "https://arxiv.org/html/2609.37111v1#bib.bib7"
+    },
+    {
+      "text": "Shridhar et al. (2020)",
+      "url": "https://arxiv.org/html/2609.37111v1#bib.bib26"
+    },
+    {
+      "text": "Yao et al. (2022a)",
+      "url": "https://arxiv.org/html/2609.37111v1#bib.bib38"
+    },
+    {
+      "text": "Trivedi et al. (2024)",
+      "url": "https://arxiv.org/html/2609.37111v1#bib.bib30"
+    },
+    {
+      "text": "Wei et al. (2025)",
+      "url": "https://arxiv.org/html/2609.37111v1#bib.bib34"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.37111v1#S1.F1"
+    },
+    {
+      "text": "Yao et al. (2022b)",
+      "url": "https://arxiv.org/html/2609.37111v1#bib.bib39"
+    },
+    {
+      "text": "Shinn et al. (2023)",
+      "url": "https://arxiv.org/html/2609.37111v1#bib.bib25"
+    },
+    {
+      "text": "Nakano et al. (2021)",
+      "url": "https://arxiv.org/html/2609.37111v1#bib.bib18"
+    },
+    {
+      "text": "Schick et al. (2023)",
+      "url": "https://arxiv.org/html/2609.37111v1#bib.bib22"
+    },
+    {
+      "text": "Deng et al. (2023)",
+      "url": "https://arxiv.org/html/2609.37111v1#bib.bib4"
+    },
+    {
+      "text": "Zhou et al. (2024a)",
+      "url": "https://arxiv.org/html/2609.37111v1#bib.bib42"
+    },
+    {
+      "text": "Wen et al. (2024)",
+      "url": "https://arxiv.org/html/2609.37111v1#bib.bib35"
+    },
+    {
+      "text": "Ziegler et al. (2019)",
+      "url": "https://arxiv.org/html/2609.37111v1#bib.bib44"
+    },
+    {
+      "text": "Stiennon et al. (2020)",
+      "url": "https://arxiv.org/html/2609.37111v1#bib.bib28"
+    },
+    {
+      "text": "Ouyang et al. (2022)",
+      "url": "https://arxiv.org/html/2609.37111v1#bib.bib19"
+    },
+    {
+      "text": "Schulman et al. (2017)",
+      "url": "https://arxiv.org/html/2609.37111v1#bib.bib23"
+    },
+    {
+      "text": "Williams (1992)",
+      "url": "https://arxiv.org/html/2609.37111v1#bib.bib36"
+    },
+    {
+      "text": "Ahmadian et al. (2024)",
+      "url": "https://arxiv.org/html/2609.37111v1#bib.bib1"
+    },
+    {
+      "text": "Liu et al. (2025)",
+      "url": "https://arxiv.org/html/2609.37111v1#bib.bib16"
+    },
+    {
+      "text": "Yu et al. (2025)",
+      "url": "https://arxiv.org/html/2609.37111v1#bib.bib40"
+    },
+    {
+      "text": "Lin et al. (2026)",
+      "url": "https://arxiv.org/html/2609.37111v1#bib.bib15"
+    },
+    {
+      "text": "Zheng et al. (2025)",
+      "url": "https://arxiv.org/html/2609.37111v1#bib.bib41"
+    },
+    {
+      "text": "Dong et al. (2025a)",
+      "url": "https://arxiv.org/html/2609.37111v1#bib.bib5"
+    },
+    {
+      "text": "Dong et al. (2025b)",
+      "url": "https://arxiv.org/html/2609.37111v1#bib.bib6"
+    },
+    {
+      "text": "Zhou et al. (2024b)",
+      "url": "https://arxiv.org/html/2609.37111v1#bib.bib43"
+    },
+    {
+      "text": "Putta et al. (2024)",
+      "url": "https://arxiv.org/html/2609.37111v1#bib.bib21"
+    },
+    {
+      "text": "Wang et al. (2025a)",
+      "url": "https://arxiv.org/html/2609.37111v1#bib.bib32"
+    },
+    {
+      "text": "Ji et al. (2025)",
+      "url": "https://arxiv.org/html/2609.37111v1#bib.bib11"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2609.37111v1#S4"
+    },
+    {
+      "text": "4.1",
+      "url": "https://arxiv.org/html/2609.37111v1#S4.SS1"
+    },
+    {
+      "text": "4.2",
+      "url": "https://arxiv.org/html/2609.37111v1#S4.SS2"
+    },
+    {
+      "text": "4.3",
+      "url": "https://arxiv.org/html/2609.37111v1#S4.SS3"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2609.37111v1#S3"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2609.37111v1#S3.F2"
+    },
+    {
+      "text": "C",
+      "url": "https://arxiv.org/html/2609.37111v1#A3"
+    },
+    {
+      "text": "A.3",
+      "url": "https://arxiv.org/html/2609.37111v1#A1.SS3"
+    },
+    {
+      "text": "B.2",
+      "url": "https://arxiv.org/html/2609.37111v1#A2.SS2"
+    },
+    {
+      "text": "Hui et al. (2024)",
+      "url": "https://arxiv.org/html/2609.37111v1#bib.bib10"
+    },
+    {
+      "text": "A",
+      "url": "https://arxiv.org/html/2609.37111v1#A1"
+    },
+    {
+      "text": "B.1",
+      "url": "https://arxiv.org/html/2609.37111v1#A2.SS1"
+    },
+    {
+      "text": "5.3",
+      "url": "https://arxiv.org/html/2609.37111v1#S5.SS3"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.37111v1#S4.T1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2609.37111v1#S5.T2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2609.37111v1#S5.T3"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2609.37111v1#A2.F3"
+    },
+    {
+      "text": "3(a)",
+      "url": "https://arxiv.org/html/2609.37111v1#A2.F3.sf1"
+    },
+    {
+      "text": "3(b)",
+      "url": "https://arxiv.org/html/2609.37111v1#A2.F3.sf2"
+    },
+    {
+      "text": "Kwiatkowski et al. (2019)",
+      "url": "https://arxiv.org/html/2609.37111v1#bib.bib14"
+    },
+    {
+      "text": "Yang et al. (2018)",
+      "url": "https://arxiv.org/html/2609.37111v1#bib.bib37"
+    },
+    {
+      "text": "Joshi et al. (2017)",
+      "url": "https://arxiv.org/html/2609.37111v1#bib.bib13"
+    },
+    {
+      "text": "Mallen et al. (2023)",
+      "url": "https://arxiv.org/html/2609.37111v1#bib.bib17"
+    }
+  ],
+  "matching_link_count": 89,
+  "links_truncated": true,
+  "invalid_links": []
+}

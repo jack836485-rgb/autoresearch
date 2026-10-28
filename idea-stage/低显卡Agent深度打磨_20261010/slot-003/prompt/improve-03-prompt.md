@@ -1,0 +1,7 @@
+Brain最终预算决定：slot-003 Q004=10/10有效独立审查与10次真实调用已完成，追加0轮，诚实收束为no_viable_candidate。新增ReadAgent/MemReread真实实现、mode utility以及第9/10轮等效强对照已经排除了当前可申报独立方法；自然经验一致性误校准与正文/cue效用分化可留为待验证问题，不能用改名、抬分或包装普通算法继续凑审。
+
+恢复状态写命令前重新加载REVIEW_STATE，所有输入、RAW、候选内容、评分、发现时序和原始Review保留；不重置预算或计数。按技能和slot_state.py真实stop，状态no_viable_candidate，并写json/SLOT_RESULT.json。没有Gate通过，不生成FINAL IDEA.md或EXPERIMENT_HANDOFF.md，不将最高7.2或最后6.6升格为实验就绪。允许在现有CURRENT_IDEA/候选发现记录里简短写最佳暂定关系、真正阻断与未覆盖部分，不另建新报告。
+
+终结理由要准确：本次完整满足十轮最低预算，失败原因是独立机制被最高近邻/等效强对照覆盖或尚未具备证据，不是输入/工具失败或预算不足。PDF/原作者实现受限的查新边界照实保留，不冒称全部排除；但实际已核实原作足以否定当前几条方法，不能据‘某全文未读’伪称没有近邻。所有自然现象/频率/净收益都未实测；no_viable_candidate仅为本Slot当前候选结果，不表示该领域没有研究价值。
+
+只做必要的终态/计数/文件一致性核实；只写本Slot，不改Group、原地图、旧Slot、其他项目或skill。不运行正式实验、不生成实验代码、不调用用户付费端点或发送外部通知。完成后返回真实完整SLOT_RESULT对象、每Problem有效计数与当前预算、真实Reviewer调用数，说明FINAL/Handoff确实没有生成。Brain将只读收集并与其他真实通过方向比较。

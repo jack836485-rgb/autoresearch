@@ -1,0 +1,269 @@
+{
+  "url": "https://arxiv.org/html/2605.22781v1",
+  "final_url": "https://arxiv.org/html/2605.22781v1",
+  "status": 200,
+  "title": "DeltaBox: Scaling Stateful AI Agents with Millisecond-Level Sandbox Checkpoint/Rollback",
+  "metadata": {},
+  "paper": {
+    "title": "DeltaBox: Scaling Stateful AI Agents with Millisecond-Level Sandbox Checkpoint/Rollback",
+    "title_warning": null,
+    "abstract": "Abstract. LLM-powered AI agents require high-frequency state exploration (e.g., test-time tree search and reinforcement learning), relying on rapid checkpoint and rollback (C/R) of the complete sandbox state, including files and process state (e.g., memory, contexts, etc.).\nExisting mechanisms duplicate the entire state, causing hundreds of milliseconds to seconds of latency per C/R, which severely bottlenecks deep search and large-scale fan-outs. This paper observes that subsequent checkpoints in AI agents are highly similar.\nTherefore, instead of full duplication, a sandbox should only duplicate the changes between consecutive checkpoints ( Key Insight ).\nHowever, it is non-trivial to realize the idea, mainly due to the lack of OS support.\nThis paper proposes a new OS-level abstraction, DeltaState , to enable the change-based transactional C/R for AI agents with two co-designed OS mechanisms.\nFirst, DeltaFS enables change-based filesystem C/R by organizing the file states into layers and dynamically freezing the writable layer and inserting a new one during checkpoint, reducing file updates to copy-on-write, and making rollback a simple layer switch.\nSecond, DeltaCR enables change-based process state C/R using incremental dumps, and accelerates rollback by bypassing traditional pipelines to directly fork() from a frozen template process.\nWe then present DeltaBox, a novel agent sandbox achieving millisecond-level C/R through the two new mechanisms.\nEvaluations on SWE-bench and RL micro-benchmarks show DeltaBox completes checkpoint and rollback in millisecond-level latency (14 ms and 5 ms, respectively), empowering agents to explore substantially more nodes under fixed time budgets.",
+    "authors": [
+      {
+        "name": "Yunpeng Dong 1 ,  Jingkai He 1,2 ,  Yuze Hou 1 ,  Dong Du 1,2 ✉,  Zhonghu Xu 3 ,  Si Yu 3 ,  Yubin Xia 1,2 ,  Haibo Chen 1,2 1 Institute of Parallel and Distributed Systems, Shanghai Jiao Tong University 2 Engineering Research Center for Domain-specific Operating Systems, Ministry of Education, China 3 Huawei Technologies Co., Ltd",
+        "affiliations": [],
+        "notes": []
+      }
+    ],
+    "author_block": "Yunpeng Dong 1 ,  Jingkai He 1,2 ,  Yuze Hou 1 ,  Dong Du 1,2 ✉,  Zhonghu Xu 3 ,  Si Yu 3 ,  Yubin Xia 1,2 ,  Haibo Chen 1,2 1 Institute of Parallel and Distributed Systems, Shanghai Jiao Tong University 2 Engineering Research Center for Domain-specific Operating Systems, Ministry of Education, China 3 Huawei Technologies Co., Ltd",
+    "arxiv_version": "2605.22781v1",
+    "arxiv_version_date": "2026-05-21"
+  },
+  "text": "DeltaBox: Scaling Stateful AI Agents with Millisecond-Level Sandbox Checkpoint/Rollback Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: CC BY 4.0 arXiv:2605.22781v1 [cs.OS] 21 May 2026 DeltaBox: Scaling Stateful AI Agents with Millisecond-Level Sandbox Checkpoint/Rollback Yunpeng Dong 1 , Jingkai He 1,2 , Yuze Hou 1 , Dong Du 1,2 ✉, Zhonghu Xu 3 , Si Yu 3 , Yubin Xia 1,2 , Haibo Chen 1,2 1 Institute of Parallel and Distributed Systems, Shanghai Jiao Tong University 2 Engineering Research Center for Domain-specific Operating Systems, Ministry of Education, China 3 Huawei Technologies Co., Ltd Abstract. LLM-powered AI agents require high-frequency state exploration (e.g., test-time tree search and reinforcement learning), relying on rapid checkpoint and rollback (C/R) of the complete sandbox state, including files and process state (e.g., memory, contexts, etc.). Existing mechanisms duplicate the entire state, causing hundreds of milliseconds to seconds of latency per C/R, which severely bottlenecks deep search and large-scale fan-outs. This paper observes that subsequent checkpoints in AI agents are highly similar. Therefore, instead of full duplication, a sandbox should only duplicate the changes between consecutive checkpoints ( Key Insight ). However, it is non-trivial to realize the idea, mainly due to the lack of OS support. This paper proposes a new OS-level abstraction, DeltaState , to enable the change-based transactional C/R for AI agents with two co-designed OS mechanisms. First, DeltaFS enables change-based filesystem C/R by organizing the file states into layers and dynamically freezing the writable layer and inserting a new one during checkpoint, reducing file updates to copy-on-write, and making rollback a simple layer switch. Second, DeltaCR enables change-based process state C/R using incremental dumps, and accelerates rollback by bypassing traditional pipelines to directly fork() from a frozen template process. We then present DeltaBox, a novel agent sandbox achieving millisecond-level C/R through the two new mechanisms. Evaluations on SWE-bench and RL micro-benchmarks show DeltaBox completes checkpoint and rollback in millisecond-level latency (14 ms and 5 ms, respectively), empowering agents to explore substantially more nodes under fixed time budgets. Keywords: AI Agent, Sandbox, Checkpoint/Restore, Overlayfs, CRIU, Copy-on-Write, State Management 1 1 footnotetext: Corresponding author: Dong Du ( dd_nirvana@sjtu.edu.cn ). 1. Introduction LLM-powered AI agents have emerged as a primary approach to automating complex software engineering tasks. From automated code repair ( Jimenez et al., 2024 ) to web navigation ( Zhou et al., 2024 ) , these agents operate by iteratively generating actions ( Yao et al., 2023 ) , executing them within a secure sandboxed environment ( E2B, 2024 ) , observing outcomes, and refining strategies. A recent trend to enhance agent capabilities is test-time compute scaling ( Snell et al., 2025 ) . State-of-the-art agents invest additional inference compute through systematic tree search (e.g., Monte Carlo Tree Search ( Zhou et al., 2024 ) or Best-of-N sampling), exploring multiple candidate paths, verifying them against real execution feedback, and backtracking from failures. However, applying tree search to stateful OS-level environments creates a severe infrastructure bottleneck. In early text-based tasks (e.g., HotPotQA), rollback was (almost) cost-free, achieved by simply truncating prompt history. Conversely, for more complex agent tasks ( Zhang et al., 2025 ; The OpenClaw Project, 2026 ) , agent actions may produce irreversible side effects. E.g., for a coding agent: rm deletes files, pip install mutates the package tree, and sed rewrites source code. Both rollback and fork therefore require rapid checkpoint and rollback 1 1 1 We use rollback and restore interchangeably in the paper. Although synonymous, rollback implies the agent’s viewpoint, whereas restore refers to the underlying sandbox mechanism. of the complete sandbox state. The sandbox state encompasses two tightly coupled dimensions: durable filesystem state (e.g., working directories, installed packages) and ephemeral process state (e.g., process memory, python interpreter heap, open file descriptors, etc.). These dimensions must be captured and restored jointly to prevent state divergence or context loss. Fast C/R becomes even more pressing with modern reasoning models (o1-class ( OpenAI, 2024 ) , DeepSeek-R1 ( DeepSeek-AI, 2025 ) ), which internalize search within extended chains of thought but still execute code at each reasoning step via tool-use variants, trying alternative dependency installations, running test suites, and reverting failing patches. Execution-guided sampling allocates inference budget across many parallel candidate trajectories ( Brown et al., 2024 ; Snell et al., 2025 ) , each often requiring an isolated sandbox clone. Within each trajectory, iterative debug-test loops (generate patch → \\to run tests → \\to analyze failure → \\to revise → \\to repeat) demand fine-grained intermediate checkpoints. This creates a two-dimensional scaling challenge: horizontal scaling (many parallel trajectories, each needing a fast initial clone) and vertical depth (each trajectory’s internal search tree, requiring checkpoint/restore of intermediate states). Beyond test-time inference, training agent policies with reinforcement learning (RL) ( He et al., 2026 ; Shao et al., 2024 ; Yu et al., 2025 ) has emerged as a parallel infrastructure pressure point. Each RL training step issues a batch of k k rollouts against a sandbox, scores them with a reward model, and updates the policy; production systems must repeatedly tear down and re-create k k independent sandboxes per training step, each at a known-good warm starting state (the same testbed snapshot, with the same toolchain pre-loaded). Today’s deployed approaches rebuild this warm state by either committing a Docker layer per starting state and running a fresh container per rollout (latency dominated by container start and image pull), or by snapshotting and resuming a microVM per rollout (latency dominated by guest memory pre-touch and device re-attach). Both sit in the hundreds-of-milliseconds to seconds regime per fork; with k k in the tens to low hundreds, fork latency directly bounds training throughput. Existing systems manage the filesystem and process memory in isolation, typically achieving C/R by duplicating the entire state into a checkpoint image. While full duplication works well for scenarios like serverless computing that prioritize cold-start restores ( Ao et al., 2022 ; Du et al., 2020 ; Ustiugov et al., 2021 ; Chai et al., 2025 ) , it is prohibitively slow for AI agents requiring high-frequency checkpoints on the critical path. Prior efforts face two main challenges: Challenge-1: High latency of agent checkpointing. Prior sandboxes usually focus on optimizations for restore but not checkpoint, e.g., in serverless computing ( Cvetković et al., 2024 ; Chai et al., 2025 ; Du et al., 2020 ; Du et al., 2022 ; Li et al., 2022 ; Yu et al., 2024 ; Huang et al., 2024 ; Szekely et al., 2024 ; Cvetković et al., 2024 ) , checkpointing happens offline which is usually a one-time cost, while restore directly impacts the cold start latency. As a result, current agent sandbox systems suffer high latency of checkpointing. E.g., E2B takes ∼ 4 {\\sim}4 seconds to pause a sandbox per 1 GiB of RAM ( E2B, 2026 ) . Other approaches, e.g., CRIU ( The CRIU Project, 2011 ) take seconds for multi-GiB process footprints. Docker commits take several seconds for non-trivial layer changes, and VM-level snapshots (e.g., Firecracker ( Agache et al., 2020 ) ) incur hundreds of milliseconds to seconds of latency ( Ao et al., 2022 ) . These latencies severely bottleneck deep search and large-scale RL fan-outs. Challenge-2: Lack of efficient C/R for durable file states. A significant challenge is how to efficiently checkpoint and restore the filesystem state of an agent sandbox. Current systems usually adopt file copying, which incurs high latency. Methods like docker commits, git stash/branch, and VM-level snapshots ( Agache et al., 2020 ) are all slow in such cases. This paper observes that subsequent checkpoints in AI agent workloads are highly similar, with only minor incremental changes between steps (e.g., a few new files or modified memory pages). Therefore, we argue that instead of duplicating the entire state, a sandbox should only duplicate the changes between consecutive checkpoints ( Key Insight ). To this end, we present DeltaBox, an efficient, OS-level rollbackable sandbox tailored for stateful AI agents. DeltaBox achieves millisecond-level checkpoint/rollback through a new OS abstraction, DeltaState, which treats the filesystem and process memory as a transactional, change-based state pair. To support DeltaState, we introduce two co-designed OS mechanisms in DeltaBox: • DeltaFS (filesystem state management, §​ 4.1 ): DeltaFS enables change-based filesystem C/R. Inspired by OverlayFS, DeltaFS organizes file states into different layers, in which higher layers will overwrite lower layers. It introduces a new feature over OverlayFS, runtime hot layer switching, dynamically freezing the current writable layer to preserve historical states and inserting a new writable layer without unmounting. A lazy switch mechanism based on per-inode generation counters transparently redirects active file descriptors across checkpoint boundaries. File updates are reduced to file-level CoW, and restore becomes a simple layer switch. • DeltaCR (process state management, §​ 4.2 ): DeltaCR enables change-based memory C/R coupled to each DeltaFS transition. At every checkpoint it performs both an incremental CRIU dump (for durability) and a template-creating fork() (for low-millisecond restore), with both costs hidden inside the LLM I/O window. A bounded template pool with LRU eviction keeps memory usage capped; evicted templates fall back transparently to the CRIU slow path, affecting only restore latency, never correctness. A background async-warm thread runs concurrently with the resumed agent, absorbing post-restore CoW faults on the agent’s writable memory regions (e.g., Python heap) off the critical path. We implement DeltaFS as a standalone Linux filesystem and DeltaCR as an extension to CRIU, and incorporate the two key components in DeltaBox, an agent sandbox based on a Firecracker microVM. End-to-end evaluations show that a coupled checkpoint completes in approximately 14 ms (mean), while repeated restores via template fork complete in ≤ \\leq 6 ms (P95 across SWE-bench workloads). On SWE-bench MCTS workloads, DeltaBox reduces state-management overhead from 47–77% of trajectory time on coupled-FS baselines to 3–6%, enabling agents to explore more search nodes. This paper makes the following contributions: • We articulate the AI-agent sandbox C/R bottleneck, identifying that full state duplication is prohibitively slow for tree search and RL workloads. We propose the key insight of change-based DeltaState management. • We design DeltaFS, a runtime-reconfigurable overlayfs extension enabling unmount-free layer switching and lazy file descriptor redirection. • We design DeltaCR, a process C/R system that couples incremental dumps with warm-template fork() restores and asynchronous hot-page warm-up (async-warm). • We extensively evaluate DeltaBox on SWE-bench and on RL fan-out micro-benchmarks, demonstrating an order-of-magnitude reduction in C/R latency. 2. Background and Motivation Table 1 . Comparison of sandbox state management approaches for AI agents. DeltaBox provides coupled checkpoint/restore of both filesystem and process state by only duplicating the changes between consecutive checkpoints for efficiency. ",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: CC BY 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "Jimenez et al., 2024",
+      "url": "https://arxiv.org/html/2605.22781v1#bib.bib2"
+    },
+    {
+      "text": "Zhou et al., 2024",
+      "url": "https://arxiv.org/html/2605.22781v1#bib.bib3"
+    },
+    {
+      "text": "Yao et al., 2023",
+      "url": "https://arxiv.org/html/2605.22781v1#bib.bib4"
+    },
+    {
+      "text": "E2B, 2024",
+      "url": "https://arxiv.org/html/2605.22781v1#bib.bib5"
+    },
+    {
+      "text": "Snell et al., 2025",
+      "url": "https://arxiv.org/html/2605.22781v1#bib.bib6"
+    },
+    {
+      "text": "Zhou et al., 2024",
+      "url": "https://arxiv.org/html/2605.22781v1#bib.bib7"
+    },
+    {
+      "text": "Zhang et al., 2025",
+      "url": "https://arxiv.org/html/2605.22781v1#bib.bib8"
+    },
+    {
+      "text": "The OpenClaw Project, 2026",
+      "url": "https://arxiv.org/html/2605.22781v1#bib.bib9"
+    },
+    {
+      "text": "OpenAI, 2024",
+      "url": "https://arxiv.org/html/2605.22781v1#bib.bib10"
+    },
+    {
+      "text": "DeepSeek-AI, 2025",
+      "url": "https://arxiv.org/html/2605.22781v1#bib.bib11"
+    },
+    {
+      "text": "Brown et al., 2024",
+      "url": "https://arxiv.org/html/2605.22781v1#bib.bib12"
+    },
+    {
+      "text": "He et al., 2026",
+      "url": "https://arxiv.org/html/2605.22781v1#bib.bib13"
+    },
+    {
+      "text": "Shao et al., 2024",
+      "url": "https://arxiv.org/html/2605.22781v1#bib.bib14"
+    },
+    {
+      "text": "Yu et al., 2025",
+      "url": "https://arxiv.org/html/2605.22781v1#bib.bib15"
+    },
+    {
+      "text": "Ao et al., 2022",
+      "url": "https://arxiv.org/html/2605.22781v1#bib.bib16"
+    },
+    {
+      "text": "Du et al., 2020",
+      "url": "https://arxiv.org/html/2605.22781v1#bib.bib17"
+    },
+    {
+      "text": "Ustiugov et al., 2021",
+      "url": "https://arxiv.org/html/2605.22781v1#bib.bib18"
+    },
+    {
+      "text": "Chai et al., 2025",
+      "url": "https://arxiv.org/html/2605.22781v1#bib.bib19"
+    },
+    {
+      "text": "Cvetković et al., 2024",
+      "url": "https://arxiv.org/html/2605.22781v1#bib.bib20"
+    },
+    {
+      "text": "Du et al., 2022",
+      "url": "https://arxiv.org/html/2605.22781v1#bib.bib21"
+    },
+    {
+      "text": "Li et al., 2022",
+      "url": "https://arxiv.org/html/2605.22781v1#bib.bib22"
+    },
+    {
+      "text": "Yu et al., 2024",
+      "url": "https://arxiv.org/html/2605.22781v1#bib.bib23"
+    },
+    {
+      "text": "Huang et al., 2024",
+      "url": "https://arxiv.org/html/2605.22781v1#bib.bib24"
+    },
+    {
+      "text": "Szekely et al., 2024",
+      "url": "https://arxiv.org/html/2605.22781v1#bib.bib25"
+    },
+    {
+      "text": "E2B, 2026",
+      "url": "https://arxiv.org/html/2605.22781v1#bib.bib26"
+    },
+    {
+      "text": "The CRIU Project, 2011",
+      "url": "https://arxiv.org/html/2605.22781v1#bib.bib27"
+    },
+    {
+      "text": "Agache et al., 2020",
+      "url": "https://arxiv.org/html/2605.22781v1#bib.bib28"
+    },
+    {
+      "text": "§​ 4.1",
+      "url": "https://arxiv.org/html/2605.22781v1#S4.SS1"
+    },
+    {
+      "text": "§​ 4.2",
+      "url": "https://arxiv.org/html/2605.22781v1#S4.SS2"
+    },
+    {
+      "text": "DeepSeek-AI, 2026",
+      "url": "https://arxiv.org/html/2605.22781v1#bib.bib29"
+    },
+    {
+      "text": "Tencent Cloud, 2026",
+      "url": "https://arxiv.org/html/2605.22781v1#bib.bib30"
+    },
+    {
+      "text": "§​ 6.2.1",
+      "url": "https://arxiv.org/html/2605.22781v1#S6.SS2.SSS1"
+    },
+    {
+      "text": "Table.​ 4",
+      "url": "https://arxiv.org/html/2605.22781v1#S6.T4"
+    },
+    {
+      "text": "Xie et al., 2024",
+      "url": "https://arxiv.org/html/2605.22781v1#bib.bib31"
+    },
+    {
+      "text": "Liu et al., 2024",
+      "url": "https://arxiv.org/html/2605.22781v1#bib.bib32"
+    },
+    {
+      "text": "Fig.​ 1",
+      "url": "https://arxiv.org/html/2605.22781v1#S2.F1"
+    },
+    {
+      "text": "Yang et al., 2024",
+      "url": "https://arxiv.org/html/2605.22781v1#bib.bib33"
+    },
+    {
+      "text": "Wang et al., 2025",
+      "url": "https://arxiv.org/html/2605.22781v1#bib.bib34"
+    },
+    {
+      "text": "Gauthier, 2023",
+      "url": "https://arxiv.org/html/2605.22781v1#bib.bib35"
+    },
+    {
+      "text": "Oakes et al., 2018",
+      "url": "https://arxiv.org/html/2605.22781v1#bib.bib36"
+    },
+    {
+      "text": "Cadden et al., 2020",
+      "url": "https://arxiv.org/html/2605.22781v1#bib.bib37"
+    },
+    {
+      "text": "Lazarev et al., 2024",
+      "url": "https://arxiv.org/html/2605.22781v1#bib.bib38"
+    },
+    {
+      "text": "§​ 6",
+      "url": "https://arxiv.org/html/2605.22781v1#S6"
+    },
+    {
+      "text": "Table.​ 1",
+      "url": "https://arxiv.org/html/2605.22781v1#S2.T1"
+    },
+    {
+      "text": "Table.​ 2",
+      "url": "https://arxiv.org/html/2605.22781v1#S6.T2"
+    },
+    {
+      "text": "LangChain, Inc., 2024",
+      "url": "https://arxiv.org/html/2605.22781v1#bib.bib39"
+    },
+    {
+      "text": "§​ 4.4",
+      "url": "https://arxiv.org/html/2605.22781v1#S4.SS4"
+    },
+    {
+      "text": "Fig.​ 2",
+      "url": "https://arxiv.org/html/2605.22781v1#S2.F2"
+    },
+    {
+      "text": "Fig.​ 3",
+      "url": "https://arxiv.org/html/2605.22781v1#S3.F3"
+    },
+    {
+      "text": "Luo et al., 2025",
+      "url": "https://arxiv.org/html/2605.22781v1#bib.bib40"
+    },
+    {
+      "text": "Fig.​ 4",
+      "url": "https://arxiv.org/html/2605.22781v1#S4.F4"
+    },
+    {
+      "text": "§​ 6.3.2",
+      "url": "https://arxiv.org/html/2605.22781v1#S6.SS3.SSS2"
+    },
+    {
+      "text": "§​ 4.2.2",
+      "url": "https://arxiv.org/html/2605.22781v1#S4.SS2.SSS2"
+    },
+    {
+      "text": "§​ 4.2.3",
+      "url": "https://arxiv.org/html/2605.22781v1#S4.SS2.SSS3"
+    },
+    {
+      "text": "Fig.​ 5",
+      "url": "https://arxiv.org/html/2605.22781v1#acmlabel1"
+    },
+    {
+      "text": "§​ 3.3",
+      "url": "https://arxiv.org/html/2605.22781v1#S3.SS3"
+    },
+    {
+      "text": "§​ 6.3.1",
+      "url": "https://arxiv.org/html/2605.22781v1#S6.SS3.SSS1"
+    }
+  ],
+  "matching_link_count": 143,
+  "links_truncated": true,
+  "invalid_links": []
+}

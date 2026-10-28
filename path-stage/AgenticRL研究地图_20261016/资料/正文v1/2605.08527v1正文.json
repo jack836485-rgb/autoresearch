@@ -1,0 +1,306 @@
+{
+  "url": "https://arxiv.org/html/2605.08527v1",
+  "final_url": "https://arxiv.org/html/2605.08527v1",
+  "status": 200,
+  "title": "MARLaaS: Multi-Tenant Asynchronous Reinforcement Learning as a Service",
+  "metadata": {},
+  "paper": {
+    "title": "MARLaaS : Multi-Tenant Asynchronous Reinforcement Learning as a Service",
+    "title_warning": null,
+    "abstract": "Abstract Reinforcement Learning from Verifiable Rewards (RLVR) has significantly improved the reasoning capabilities of large language models (LLMs), particularly in multi-turn agentic settings involving environment interaction like tool use. However, fine-tuning such models remains prohibitively expensive due to high computational requirements, limiting accessibility.\nWe propose MARLaaS (Multi-tenant Asynchronous RL as a Service), a system for concurrent RL fine-tuning across multiple users and tasks. Our approach is based on two key ideas: (1) sharing a base model across tenants using lightweight LoRA adapters, and (2) a disaggregated asynchronous architecture that decouples rollout generation, environment interaction, and policy training into independently scheduled stages. This design enables tasks to progress through the RL pipeline at their own pace in an event-driven manner, reducing cross-task interference, idle time, and end-to-end latency.\nIn multi-task settings (we report up to 32 concurrent tasks), MARLaaS achieves single-task state-of-the-art performance while improving accelerator utilization by up to 4.3× and reducing end-to-end training time by 85%.",
+    "authors": [
+      {
+        "name": "Timothy Tin Long Yu",
+        "affiliations": [
+          "Affiliation: Huawei Technologies Canada"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Gursimran Singh 1 1 footnotemark: 1",
+        "affiliations": [
+          "Affiliation: Huawei Technologies Canada"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Ge Shi",
+        "affiliations": [
+          "Affiliation: Huawei Technologies Canada"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Hanieh Sadri",
+        "affiliations": [
+          "Affiliation: Huawei Technologies Canada"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Yong Zhang",
+        "affiliations": [
+          "Affiliation: Huawei Technologies Canada"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Zhenan Fan",
+        "affiliations": [
+          "Affiliation: Huawei Technologies Canada"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Timothy Tin Long Yu † † thanks: Equal contribution. Affiliation: Huawei Technologies Canada Gursimran Singh 1 1 footnotemark: 1 Affiliation: Huawei Technologies Canada Ge Shi Affiliation: Huawei Technologies Canada Hanieh Sadri Affiliation: Huawei Technologies Canada Yong Zhang Affiliation: Huawei Technologies Canada Zhenan Fan † † thanks: Correspondence: zhenan.fan1@huawei.com Affiliation: Huawei Technologies Canada",
+    "arxiv_version": "2605.08527v1",
+    "arxiv_version_date": "2026-05-08"
+  },
+  "text": "MARLaaS: Multi-Tenant Asynchronous Reinforcement Learning as a Service Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: CC BY 4.0 arXiv:2605.08527v1 [cs.DC] 08 May 2026 MARLaaS : Multi-Tenant Asynchronous Reinforcement Learning as a Service Timothy Tin Long Yu † † thanks: Equal contribution. Affiliation: Huawei Technologies Canada Gursimran Singh 1 1 footnotemark: 1 Affiliation: Huawei Technologies Canada Ge Shi Affiliation: Huawei Technologies Canada Hanieh Sadri Affiliation: Huawei Technologies Canada Yong Zhang Affiliation: Huawei Technologies Canada Zhenan Fan † † thanks: Correspondence: zhenan.fan1@huawei.com Affiliation: Huawei Technologies Canada Abstract Reinforcement Learning from Verifiable Rewards (RLVR) has significantly improved the reasoning capabilities of large language models (LLMs), particularly in multi-turn agentic settings involving environment interaction like tool use. However, fine-tuning such models remains prohibitively expensive due to high computational requirements, limiting accessibility. We propose MARLaaS (Multi-tenant Asynchronous RL as a Service), a system for concurrent RL fine-tuning across multiple users and tasks. Our approach is based on two key ideas: (1) sharing a base model across tenants using lightweight LoRA adapters, and (2) a disaggregated asynchronous architecture that decouples rollout generation, environment interaction, and policy training into independently scheduled stages. This design enables tasks to progress through the RL pipeline at their own pace in an event-driven manner, reducing cross-task interference, idle time, and end-to-end latency. In multi-task settings (we report up to 32 concurrent tasks), MARLaaS achieves single-task state-of-the-art performance while improving accelerator utilization by up to 4.3× and reducing end-to-end training time by 85%. 1 Introduction Figure 1: Scaling RLVR to 10 concurrent LoRA tasks. MARLaaS maintains stable reward improvements under high multi-tenant load, demonstrating superior scalability to single-disaggregated baselines over one epoch. Large language models (LLMs) have demonstrated strong reasoning capabilities, particularly when fine-tuned using reinforcement learning with verifiable rewards (RLVR), which trains models using objective reward signals from verifiable outcomes such as correctness of solutions, passing unit tests, or successful tool execution Kaufmann et al. (2024) . RLVR training alternates between three tightly coupled phases: (1) rollout generation , where the current policy produces candidate responses; (2) environment interaction , including tool calls, external API invocations, and reward computation; and (3) policy training , where gradient updates are applied based on collected trajectories. In agentic settings, these phases may be invoked multiple times per episode as the model learns to decompose complex problems into manageable sub-tasks Wang et al. (2023) . In practice, the three distinct phases happen sequentially and block other phases from proceeding. Specifically, during training, rollout workers sit idle waiting for the new policy; when tool calls are dispatched, accelerators wait for external responses; when rollouts generate tokens, training resources remain unused. These idle periods waste valuable compute and drive up costs. A second dimension arises from per-tenant resource allocation where each task must instantiate its model and take up substantial memory. As task concurrency increases, this overhead becomes prohibitive, limiting scalability and increasing per-user costs. Consequently, RLVR training pipelines are computationally and memory expensive, often requiring large clusters of accelerators for extended training runs. This makes RLVR inaccessible to many researchers and practitioners, motivating the need for a cost-efficient RL Training-as-a-Service (RLTaaS) platform. One line of work in the literature tackles these inefficiencies by overlapping different phases of the RL pipeline. Existing RL fine-tuning systems address pipeline inefficiencies through two main approaches. AReaL Fu et al. (2025) introduces staleness —allowing off-policy updates using rollouts from previous policy versions—enabling overlap between rollout and training phases. While this increases throughput, recent findings Li et al. (2026a) show that excessive staleness degrades convergence quality. SkyRL Agent Cao et al. (2025) enables rollout generation to overlap with tool calls, reducing accelerator idling during environment interactions. However, both approaches are designed for single-task training and naive extensions to multi-tenant settings either replicate resources per task, reintroducing prohibitive overhead, or execute tasks sequentially, leading to underutilization. End users prioritize stable training and high-quality final models over marginal reductions in training time. In contrast, cloud providers are incentivized to maximize hardware utilization, as resource inefficiencies directly translate into higher operational costs that must be reflected in user pricing. An competitive RLTaaS design must therefore improve resource utilization while preserving training quality, avoiding mechanisms that introduce harmful distribution shift or destabilize policy optimization. We present MARLaaS , a multi-task asynchronous RL fine-tuning system designed to maximize hardware accelerator utilization by co-training multiple tasks on the same hardware and overlapping their RLVR phases—training, rollout, and environment interactions—across various tasks. Specifically, our approach builds on two key principles: (1) sharing a base model across tenants via lightweight LoRA adapters to minimize per-task memory overhead and support cross-task batching of rollouts; and (2) a disaggregated asynchronous architecture that decouples rollout generation, environment interaction, and policy training, allowing each task to progress with minimal cross-task interference. Unlike prior asynchronous RL systems, MARLaaS preserves strict per-task policy consistency by ensuring that each task trains only on trajectories generated from its latest committed policy version, without relying on stale rollouts or off-policy updates. Rather than introducing intra-task policy staleness, MARLaaS achieves asynchrony through cross-task phase overlap, where rollout, environment interaction, and training from different tasks execute concurrently without global synchronization. Further, our design is motivated by a key insight: RLVR workflow is typically rollout-bound, with rollout generation and environment interactions dominating computation time (10-100× longer than training updates), especially in agentic scenarios with tool calls. We design MARLaaS to counter this asymmetry by allocating resources such that rollout throughput can be maximized. Specifically, it uses multi-LoRA batching during rollout generation to maximize throughput at the bottleneck through multi-task concurrency, while policy training across tasks are intentionally performed sequentially to minimize per-task training latency and enable rapid phase transitions. This asymmetric design keeps hardware continuously utilized through natural task interleaving rather than staleness. 1.1 Contributions Our key contributions are as follows: (1) We study multi-tenant RLVR training and introduce a system for RL Training-as-a-Service that enables efficient training of multiple tasks using shared resources. (2) We identify a rollout-training asymmetry in RLVR workloads, where rollout generation and environment interaction dominate execution time, creating a rollout-bound bottleneck. We show that this bottleneck can be alleviated through cross-task rollout concurrency, which is orthogonal to staleness-based approaches and provides an additional dimension for improving utilization. (3) We design a phase-aware asynchronous scheduling system that decouples rollout generation, environment interaction, and training, enabling independent progression of concurrent tasks with minimal cross-task interference. (4) We empirically demonstrate that MARLaaS improves accelerator utilization by up to 4.3 x and increasing total training throughput by up to 5.7 x while maintaining reward performance across multi-task settings, achieving comparable rewards to single-task baselines in up to 85% less time. 2 Related Work 2.1 Reinforcement Fine-Tuning RLVR has become a key approach to improving LLM reasoning and alignment Ouyang et al. (2022) ; Schulman et al. (2017) ; Rafailov et al. (2024) ; OpenAI et al. (2024) ; Guo et al. (2025) ; Bai et al. (2022) . Prior works focus on improving optimization stability and sample efficiency through algorithmic advances in policy optimization and reward modeling. These approaches are complementary to our work, which addresses system-level challenges in scaling RLVR to multi-tenant settings. 2.2 RLVR Training Systems RLVR training systems differ in system designs. Synchronous systems (e.g., VERL Sheng et al. (2025b) ) enforce strictly sequential phase separation leading to resource bubbles and underutilization. Asynchronous systems (e.g., Fu et al. (2025) ) overlap the phases by introducing policy staleness and off-policy bias that may negatively impact final model convergence Li et al. (2026a) . Other systems overlap rollout generation with environment interactions (e.g., Cao et al. (2025) ) or optimizing pipeline scheduling, workload balancing, and rollout latency Sheng et al. (2025a) ; Noukhovitch et al. (2025) ; Wu et al. (2025) ; Gao et al. (2025) . While these systems target the efficiency of RLVR, they primarily target single-task training. Extending them to multi-tenant settings either leads to sequential execution and poor utilization or requires duplicating infrastructure per task, incurring high memory and compute costs. Conversely, we leverage LoRAs to efficiently perform multi-task shared execution across concurrent RL workloads. On the other hand, Tinker Griggs et al. (2026) and SkyRL-Train define a minimal post-training API that decouples algorithmic logic from infrastructure, enabling portability for multi-task RLVR execution and supporting multi-LoRA workflows. However, these efforts remain largely at the API level and do not provide concrete system designs or implementations. In particular, they do not address scheduling, resource sharing, or pipeline orchestration required to efficiently support multi-tenant RLVR workloads. 2.3 Multi-LoRA Systems LoRA enables parameter-efficient fine-tuning via low-rank updates to shared model weights Hu et al. (2021) . Prior work has explored multi-tenant LoRA serving for both inference Sheng et al. (2024) ; Chen et al. (2023) and training Ye et al. (2024) ; Li et al. (2026b) ; Zuo et al. (2026) ; Lin et al. (2025) , primarily focusing on improving throughput by batching multiple adapters. In contrast, MARLaaS adopts an asymmetric design tailored to RLVR workloads. We leverage multi-LoRA batching during rollout generation to improve throughput in the dominant phase, while keeping training updates lightweight to maintain low latency and enable efficient phase interleaving across tasks. 2.4 Summary of Gaps Prior work addresses either (i) single-task RL scaling through asynchronous execution and staleness, (ii) multi-LoRA efficiency for inference or supervised training, or (iii) agent training frameworks for individual tasks. None jointly consider multi-tenant RLVR training, where rollout generation dominates compute (10-100× more than training), and multiple on-policy tasks sharing resources. MARLaaS fills this gap by exploiting rollout-training asymmetry through asymmetric multi-LoRA application and phase-aware multi-task scheduling. Figure 2: Accelerator utilization under naive multi-tenant RL training-as-a-service strategies across traditional (AMC12",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: CC BY 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "Kaufmann et al. (2024)",
+      "url": "https://arxiv.org/html/2605.08527v1#bib.bib1"
+    },
+    {
+      "text": "Wang et al. (2023)",
+      "url": "https://arxiv.org/html/2605.08527v1#bib.bib29"
+    },
+    {
+      "text": "Fu et al. (2025)",
+      "url": "https://arxiv.org/html/2605.08527v1#bib.bib21"
+    },
+    {
+      "text": "Li et al. (2026a)",
+      "url": "https://arxiv.org/html/2605.08527v1#bib.bib10"
+    },
+    {
+      "text": "Cao et al. (2025)",
+      "url": "https://arxiv.org/html/2605.08527v1#bib.bib28"
+    },
+    {
+      "text": "Ouyang et al. (2022)",
+      "url": "https://arxiv.org/html/2605.08527v1#bib.bib20"
+    },
+    {
+      "text": "Schulman et al. (2017)",
+      "url": "https://arxiv.org/html/2605.08527v1#bib.bib15"
+    },
+    {
+      "text": "Rafailov et al. (2024)",
+      "url": "https://arxiv.org/html/2605.08527v1#bib.bib14"
+    },
+    {
+      "text": "OpenAI et al. (2024)",
+      "url": "https://arxiv.org/html/2605.08527v1#bib.bib17"
+    },
+    {
+      "text": "Guo et al. (2025)",
+      "url": "https://arxiv.org/html/2605.08527v1#bib.bib19"
+    },
+    {
+      "text": "Bai et al. (2022)",
+      "url": "https://arxiv.org/html/2605.08527v1#bib.bib16"
+    },
+    {
+      "text": "Sheng et al. (2025b)",
+      "url": "https://arxiv.org/html/2605.08527v1#bib.bib5"
+    },
+    {
+      "text": "Sheng et al. (2025a)",
+      "url": "https://arxiv.org/html/2605.08527v1#bib.bib23"
+    },
+    {
+      "text": "Noukhovitch et al. (2025)",
+      "url": "https://arxiv.org/html/2605.08527v1#bib.bib13"
+    },
+    {
+      "text": "Wu et al. (2025)",
+      "url": "https://arxiv.org/html/2605.08527v1#bib.bib22"
+    },
+    {
+      "text": "Gao et al. (2025)",
+      "url": "https://arxiv.org/html/2605.08527v1#bib.bib12"
+    },
+    {
+      "text": "Griggs et al. (2026)",
+      "url": "https://arxiv.org/html/2605.08527v1#bib.bib11"
+    },
+    {
+      "text": "Hu et al. (2021)",
+      "url": "https://arxiv.org/html/2605.08527v1#bib.bib8"
+    },
+    {
+      "text": "Sheng et al. (2024)",
+      "url": "https://arxiv.org/html/2605.08527v1#bib.bib25"
+    },
+    {
+      "text": "Chen et al. (2023)",
+      "url": "https://arxiv.org/html/2605.08527v1#bib.bib24"
+    },
+    {
+      "text": "Ye et al. (2024)",
+      "url": "https://arxiv.org/html/2605.08527v1#bib.bib26"
+    },
+    {
+      "text": "Li et al. (2026b)",
+      "url": "https://arxiv.org/html/2605.08527v1#bib.bib3"
+    },
+    {
+      "text": "Zuo et al. (2026)",
+      "url": "https://arxiv.org/html/2605.08527v1#bib.bib2"
+    },
+    {
+      "text": "Lin et al. (2025)",
+      "url": "https://arxiv.org/html/2605.08527v1#bib.bib27"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2605.08527v1#S3.F4"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2605.08527v1#S2.F3"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2605.08527v1#S3.T1"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2605.08527v1#S4.F5"
+    },
+    {
+      "text": "Kwon et al. (2023)",
+      "url": "https://arxiv.org/html/2605.08527v1#bib.bib18"
+    },
+    {
+      "text": "Zhao et al. (2023)",
+      "url": "https://arxiv.org/html/2605.08527v1#bib.bib6"
+    },
+    {
+      "text": "Cobbe et al. (2021)",
+      "url": "https://arxiv.org/html/2605.08527v1#bib.bib9"
+    },
+    {
+      "text": "edev2000 (2026)",
+      "url": "https://arxiv.org/html/2605.08527v1#bib.bib7"
+    },
+    {
+      "text": "Yang et al. (2018)",
+      "url": "https://arxiv.org/html/2605.08527v1#bib.bib4"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2605.08527v1#S5.T2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2605.08527v1#S5.T3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2605.08527v1#S6.T4"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2605.08527v1#S6.F6"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2605.08527v1#S6.F7"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/2204.05862"
+    },
+    {
+      "text": "§2.1",
+      "url": "https://arxiv.org/html/2605.08527v1#S2.SS1.p1.1"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/2511.16108"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2605.08527v1#S1.p5.1"
+    },
+    {
+      "text": "§2.2",
+      "url": "https://arxiv.org/html/2605.08527v1#S2.SS2.p1.1"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/2310.18547"
+    },
+    {
+      "text": "§2.3",
+      "url": "https://arxiv.org/html/2605.08527v1#S2.SS3.p1.1"
+    },
+    {
+      "text": "1st item",
+      "url": "https://arxiv.org/html/2605.08527v1#S5.I1.i1.p1.1"
+    },
+    {
+      "text": "https://huggingface.co/datasets/edev2000/amc12-full",
+      "url": "https://huggingface.co/datasets/edev2000/amc12-full"
+    },
+    {
+      "text": "2nd item",
+      "url": "https://arxiv.org/html/2605.08527v1#S5.I1.i2.p1.1"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/2505.24298"
+    },
+    {
+      "text": "§5",
+      "url": "https://arxiv.org/html/2605.08527v1#S5.SS0.SSS0.Px1.p1.1"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/2509.21009"
+    },
+    {
+      "text": "https://novasky-ai.notion.site/skyrl-tinker",
+      "url": "https://novasky-ai.notion.site/skyrl-tinker"
+    },
+    {
+      "text": "§2.2",
+      "url": "https://arxiv.org/html/2605.08527v1#S2.SS2.p3.1"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/2106.09685"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/2312.14925"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2605.08527v1#S1.p1.1"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/2309.06180"
+    }
+  ],
+  "matching_link_count": 82,
+  "links_truncated": true,
+  "invalid_links": []
+}

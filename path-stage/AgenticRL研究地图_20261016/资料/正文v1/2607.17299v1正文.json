@@ -1,0 +1,284 @@
+{
+  "url": "https://arxiv.org/html/2607.17299v1",
+  "final_url": "https://arxiv.org/html/2607.17299v1",
+  "status": 200,
+  "title": "WAR: Workload-Aware Rollouts for Synchronous Agentic Reinforcement Learning",
+  "metadata": {},
+  "paper": {
+    "title": "WAR: Workload-Aware Rollouts for Synchronous Agentic Reinforcement Learning",
+    "title_warning": null,
+    "abstract": "Abstract Long-horizon rollout generation has become the dominant\nsystems bottleneck in agentic reinforcement learning (RL). As agents\ninteract with environments over many turns, trajectories rapidly\ngrow to tens of thousands of tokens, making synchronous RL training\nincreasingly constrained by rollout. We propose WAR, a\nworkload-aware rollout system that substantially accelerates\nsynchronous agentic RL by jointly optimizing decoding and scheduling. WAR is built on a key observation: the optimal rollout\noptimization strategy depends on runtime load: (1) Under low load, WAR enables model-free\nspeculative decoding with SuffixDecoding, which reuses suffix\npatterns from previously completed trajectories as speculative\ndrafts for future rollouts. Unlike model-based drafters,\nSuffixDecoding introduces no additional draft model and avoids GPU\ncontention with rollout generation. (2) Under high load, where saturated batched decoding leaves\nlimited room for speculative speedup, WAR shifts the\noptimization focus to cache-aware scheduling. A global scheduler\nplaces requests across rollout replicas based on cache locality,\ntrajectory progress and server load, reducing redundant KV-cache\nrecomputation and mitigating load imbalance. By combining decoding-level suffix reuse with system-level rollout\nscheduling, WAR delivers robust throughput improvements\nacross workload regimes without changing the underlying RL algorithm.\nWAR improves long-context agentic rollout throughput by 1.4 × 1.4\\times under low load and up to 1.6 × 1.6\\times under high load. These results\nshow that WAR removes a major rollout bottleneck in\nsynchronous agentic RL and provides a practical path toward scalable\nlong-context agent training.",
+    "authors": [
+      {
+        "name": "Ryan Xu",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Atlas Zhao",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "David Bao",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Frank Du",
+        "affiliations": [],
+        "notes": []
+      }
+    ],
+    "author_block": "Ryan Xu Atlas Zhao David Bao Frank Du",
+    "arxiv_version": "2607.17299v1",
+    "arxiv_version_date": "2026-07-19"
+  },
+  "text": "WAR: Workload-Aware Rollouts for Synchronous Agentic Reinforcement Learning Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: arXiv.org perpetual non-exclusive license arXiv:2607.17299v1 [cs.LG] 19 Jul 2026 WAR: Workload-Aware Rollouts for Synchronous Agentic Reinforcement Learning Ryan Xu Atlas Zhao David Bao Frank Du Abstract Long-horizon rollout generation has become the dominant systems bottleneck in agentic reinforcement learning (RL). As agents interact with environments over many turns, trajectories rapidly grow to tens of thousands of tokens, making synchronous RL training increasingly constrained by rollout. We propose WAR, a workload-aware rollout system that substantially accelerates synchronous agentic RL by jointly optimizing decoding and scheduling. WAR is built on a key observation: the optimal rollout optimization strategy depends on runtime load: (1) Under low load, WAR enables model-free speculative decoding with SuffixDecoding, which reuses suffix patterns from previously completed trajectories as speculative drafts for future rollouts. Unlike model-based drafters, SuffixDecoding introduces no additional draft model and avoids GPU contention with rollout generation. (2) Under high load, where saturated batched decoding leaves limited room for speculative speedup, WAR shifts the optimization focus to cache-aware scheduling. A global scheduler places requests across rollout replicas based on cache locality, trajectory progress and server load, reducing redundant KV-cache recomputation and mitigating load imbalance. By combining decoding-level suffix reuse with system-level rollout scheduling, WAR delivers robust throughput improvements across workload regimes without changing the underlying RL algorithm. WAR improves long-context agentic rollout throughput by 1.4 × 1.4\\times under low load and up to 1.6 × 1.6\\times under high load. These results show that WAR removes a major rollout bottleneck in synchronous agentic RL and provides a practical path toward scalable long-context agent training. {cutelemon6, 547588521, 892404627, 1093782566}@qq.com Introduction Large language models (LLMs) have demonstrated remarkable capabilities across a wide range of domains, including coding ( Claude 2026 ) , mathematics ( Yan et al. 2025 ) and agent ( Cheng et al. 2025 ) . Reinforcement learning (RL) has become an effective approach for eliciting and enhancing these capabilities ( Guo et al. 2025 ) . A typical RL training step consists of three stages: rollout generation, reward computation, and model update. Among them, rollout generation is increasingly becoming the dominant systems bottleneck for agentic RL. This bottleneck is particularly severe in long-horizon agentic tasks. Unlike single-turn generation, agentic rollouts require the model to interact with external environments over multiple turns. As tasks become more complex, agents need more rounds of interaction to gather observations, execute tools, inspect feedback and refine their responses. As a result, the context length of a trajectory can quickly grow to tens of thousands of tokens. Prior work has observed that rollout generation can dominate the end-to-end RL training time, contributing a large fraction of the total runtime ( Qin et al. 2026 ) . The problem is further amplified by the long-tail nature of agentic rollouts: while most requests finish early, a small number of trajectories require substantially more computation due to longer reasoning chains or more environment interactions. In synchronous RL training, these stragglers force other workers to wait, leading to poor resource utilization and reduced rollout throughput. One way to alleviate this issue is asynchronous rollout, which overlaps rollout generation with training ( Fu et al. 2026 ) . While asynchronous execution can improve hardware utilization, it introduces new challenges. The most important one is policy staleness: trajectories may be generated using outdated policy parameters, making the collected data less consistent with the current model. Asynchronous rollout also requires more complex coordination among rollout workers, reward computation, and model updates. Therefore, improving the efficiency of synchronous rollout remains an important and practical direction. Existing synchronous RL framework, such as veRL ( Sheng et al. 2025b ) , typically relies on simple request scheduling policies, such as least-request scheduling combined with sticky sessions. Such policies work reasonably well under light workloads, where GPU resources are not fully saturated and request placement has limited impact. However, under heavy workloads, many concurrent long-context requests compete for limited GPU memory and computation. In this regime, simple load-based scheduling becomes insufficient: request placement must also account for KV-cache locality, trajectory progress, and server load. Otherwise, trajectories may be repeatedly scheduled to suboptimal replicas, causing redundant KV-cache recomputation and exacerbating load imbalance. Rollout generation is essentially batched LLM inference, and can potentially benefit from inference acceleration techniques. Speculative decoding is a widely used lossless acceleration method, where a drafter proposes multiple tokens and the target model verifies them in parallel ( Li et al. 2025 ) . The drafter can be model-based ( Cai et al. 2024 ) or model-free ( Fu et al. 2024 ) . However, directly applying model-based speculative decoding to RL rollouts is challenging. A model-based drafter may compete with the target model for GPU computation and memory, reducing overall rollout throughput. In addition, RL training continuously updates the target model. If the drafter is kept fixed, the mismatch between the drafter and the updated target model may reduce the acceptance length, wasting GPU computation during verification. If the drafter is updated together with the target model, the RL training framework must maintain and synchronize an additional model, introducing extra complexity and GPU overhead. Speculative decoding is most effective when GPU resources are underutilized, as it increases parallelism by verifying multiple draft tokens in a single forward pass. Under heavy workloads, however, standard batched decoding already saturates GPU resources, and the additional overhead of multi-token verification can outweigh the reduction in decoding steps, leading to degraded inference performance. These observations suggest that rollout optimization should be workload-aware. Under low load, normal decoding often underutilizes the GPU, leaving room for speculative decoding to improve hardware utilization and reduce decoding steps. Under high load, however, batched decoding already saturates GPU resources, leaving limited room for speculative speedup. Instead, system-level scheduling becomes more important under heavy workloads. As many long-context trajectories concurrently compete for limited GPU memory and computation, poor request placement can cause redundant KV-cache recomputation, uneven server utilization, and long-tail stragglers. Motivated by this insight, we propose WAR, a workload-aware rollout system for synchronous agentic RL training. WAR jointly optimizes decoding and scheduling, and adapts its optimization strategy according to runtime load. Under low load, WAR enables model-free speculative decoding with SuffixDecoding ( Oliaro et al. 2025 ) . SuffixDecoding reuses suffix patterns from previously generated trajectories as speculative drafts for future rollouts. Since it is model-free, it introduces no additional draft model and avoids GPU contention with rollout generation. This makes it particularly suitable for agentic rollouts, where recurring code patterns may appear both across different prompts and among multiple rollouts of the same prompt. Under high load, WAR shifts the optimization focus to cache-aware scheduling. A global scheduler assigns requests to rollout replicas based on cache locality, trajectory progress, and server load. By favoring placements with higher KV-cache reuse and by prioritizing shorter trajectories when appropriate, the scheduler reduces redundant KV-cache recomputation, mitigates load imbalance, and preserves cache capacity for long-running trajectories. To keep the design simple and practical, WAR uses runtime effective batch size as a lightweight workload indicator and determines the switching thresholds empirically for different workloads and hardware settings. WAR is designed to be lightweight and compatible with existing synchronous RL training pipelines. Built on top of veRL, it introduces a simple workload-aware control path that combines decoding-level suffix reuse with system-level rollout scheduling, without changing the underlying RL algorithm. We make the following contributions: • We identify workload as a first-class factor in rollout optimization. We show that the effectiveness of rollout optimization techniques is workload-dependent: an optimization that improves throughput under one workload regime may provide limited benefit, or even introduce overhead, under another. • We design WAR, a workload-aware rollout system for synchronous agentic RL. WAR combines model-free SuffixDecoding with cache-aware scheduling, enabling decoding-level reuse under low load and reducing KV-cache recomputation and load imbalance under high load. • We demonstrate substantial rollout throughput improvements. We implement WAR on top of veRL with approximately 7K lines of Python code and evaluate it using Qwen3-32B on production agent task datasets with 16 H100 GPUs. Compared with the veRL baseline, WAR improves long-context agentic rollout throughput by 1.4 × 1.4\\times under low load and up to 1.6 × 1.6\\times under high load. Background Synchronous Agentic RL Rollout Reinforcement learning (RL) has become an important post-training technique for improving the reasoning and problem-solving capabilities of large language models. A typical RL iteration consists of three major stages ( Shao et al. 2024 ) : rollout, reward computation, and training. During rollout, the actor model generates trajectories for a batch of prompts; during reward computation, the generated trajectories are evaluated by rule-based checkers, sandbox execution, reward models, or LLM-as-a-Judge ( Son et al. 2024 ) ; finally, the actor model is updated using the collected training signals. Many RL training systems perform rollout synchronously to preserve on-policy semantics. In this setting, the rollout stage must finish before the training stage starts, and all trajectories are generated by the most recent actor model. This design improves training stability and makes debugging and reproducibility easier. However, the synchronization barrier also exposes rollout inefficiency: when rollout lengths are imbalanced, workers that finish short trajectories early must wait for the slowest trajectories to complete. Prior systems have observed that rollout often dominates RL training time and becomes the primary source of GPU underutilization in synchronous RL post-training ( Gao et al. 2025 ; Qin et al. 2026 ) . Asynchronous rollout systems attempt to reduce such idle time by overlapping rollout and training ( Sheng et al. 2025a ; Fu et al. 2026 ; Zhong et al. 2025a ; Hu et al. 2026b ) . However, asynchronous execution may introduce policy staleness, because trajectories generated by older model parameters can be used to update a newer policy. It can also introduce distributional skew, where faster-to-generate short samples disproportionately appear in earlier training batches. These effects may harm algorithmic fidelity and complicate debugging and reproducibility. Therefore, optimizing synchronous rollout remains an important problem for practical agentic RL training. Rollout Bottlenecks in ",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: arXiv.org perpetual non-exclusive license",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "Claude 2026",
+      "url": "https://arxiv.org/html/2607.17299v1#bib.bib1"
+    },
+    {
+      "text": "Yan et al. 2025",
+      "url": "https://arxiv.org/html/2607.17299v1#bib.bib2"
+    },
+    {
+      "text": "Cheng et al. 2025",
+      "url": "https://arxiv.org/html/2607.17299v1#bib.bib3"
+    },
+    {
+      "text": "Guo et al. 2025",
+      "url": "https://arxiv.org/html/2607.17299v1#bib.bib4"
+    },
+    {
+      "text": "Qin et al. 2026",
+      "url": "https://arxiv.org/html/2607.17299v1#bib.bib5"
+    },
+    {
+      "text": "Fu et al. 2026",
+      "url": "https://arxiv.org/html/2607.17299v1#bib.bib6"
+    },
+    {
+      "text": "Sheng et al. 2025b",
+      "url": "https://arxiv.org/html/2607.17299v1#bib.bib7"
+    },
+    {
+      "text": "Li et al. 2025",
+      "url": "https://arxiv.org/html/2607.17299v1#bib.bib8"
+    },
+    {
+      "text": "Cai et al. 2024",
+      "url": "https://arxiv.org/html/2607.17299v1#bib.bib9"
+    },
+    {
+      "text": "Fu et al. 2024",
+      "url": "https://arxiv.org/html/2607.17299v1#bib.bib10"
+    },
+    {
+      "text": "Oliaro et al. 2025",
+      "url": "https://arxiv.org/html/2607.17299v1#bib.bib11"
+    },
+    {
+      "text": "Shao et al. 2024",
+      "url": "https://arxiv.org/html/2607.17299v1#bib.bib12"
+    },
+    {
+      "text": "Son et al. 2024",
+      "url": "https://arxiv.org/html/2607.17299v1#bib.bib13"
+    },
+    {
+      "text": "Gao et al. 2025",
+      "url": "https://arxiv.org/html/2607.17299v1#bib.bib15"
+    },
+    {
+      "text": "Sheng et al. 2025a",
+      "url": "https://arxiv.org/html/2607.17299v1#bib.bib17"
+    },
+    {
+      "text": "Zhong et al. 2025a",
+      "url": "https://arxiv.org/html/2607.17299v1#bib.bib18"
+    },
+    {
+      "text": "Hu et al. 2026b",
+      "url": "https://arxiv.org/html/2607.17299v1#bib.bib19"
+    },
+    {
+      "text": "Leviathan et al. 2023",
+      "url": "https://arxiv.org/html/2607.17299v1#bib.bib22"
+    },
+    {
+      "text": "Chen et al. 2023",
+      "url": "https://arxiv.org/html/2607.17299v1#bib.bib23"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2607.17299v1#Sx2.F1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2607.17299v1#Sx3.F2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2607.17299v1#Sx3.F3"
+    },
+    {
+      "text": "Chen et al. 2026",
+      "url": "https://arxiv.org/html/2607.17299v1#bib.bib21"
+    },
+    {
+      "text": "Peng et al. 2026",
+      "url": "https://arxiv.org/html/2607.17299v1#bib.bib24"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2607.17299v1#Sx5.T1"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2607.17299v1#Sx5.F4"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2607.17299v1#Sx5.F5"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2607.17299v1#Sx5.F6"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2607.17299v1#Sx5.F7"
+    },
+    {
+      "text": "Cache-Aware Scheduling",
+      "url": "https://arxiv.org/html/2607.17299v1#Sx3.SSx2"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2607.17299v1#Sx5.T2"
+    },
+    {
+      "text": "8",
+      "url": "https://arxiv.org/html/2607.17299v1#Sx5.F8"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2607.17299v1#Sx5.F9"
+    },
+    {
+      "text": "10",
+      "url": "https://arxiv.org/html/2607.17299v1#Sx5.F10"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2607.17299v1#Sx5.T3"
+    },
+    {
+      "text": "Zhong et al. 2025b",
+      "url": "https://arxiv.org/html/2607.17299v1#bib.bib14"
+    },
+    {
+      "text": "Hu et al. 2026a",
+      "url": "https://arxiv.org/html/2607.17299v1#bib.bib16"
+    },
+    {
+      "text": "Shao et al. 2025",
+      "url": "https://arxiv.org/html/2607.17299v1#bib.bib20"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/2401.10774"
+    },
+    {
+      "text": "Introduction",
+      "url": "https://arxiv.org/html/2607.17299v1#Sx1.p5.1"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/2302.01318"
+    },
+    {
+      "text": "Why Workload Matters",
+      "url": "https://arxiv.org/html/2607.17299v1#Sx2.SSx3.p2.1"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/2601.22705"
+    },
+    {
+      "text": "Cache-Aware Scheduling",
+      "url": "https://arxiv.org/html/2607.17299v1#Sx3.SSx2.p4.1"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/2511.14460"
+    },
+    {
+      "text": "Introduction",
+      "url": "https://arxiv.org/html/2607.17299v1#Sx1.p1.1"
+    },
+    {
+      "text": "Link",
+      "url": "https://www.anthropic.com/news/claude-opus-4-7"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/2505.24298"
+    },
+    {
+      "text": "Introduction",
+      "url": "https://arxiv.org/html/2607.17299v1#Sx1.p3.1"
+    },
+    {
+      "text": "Synchronous Agentic RL Rollout",
+      "url": "https://arxiv.org/html/2607.17299v1#Sx2.SSx1.p3.1"
+    },
+    {
+      "text": "RL Training Systems",
+      "url": "https://arxiv.org/html/2607.17299v1#Sx6.SSx1.p1.1"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/2402.02057"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/2509.21009"
+    },
+    {
+      "text": "Synchronous Agentic RL Rollout",
+      "url": "https://arxiv.org/html/2607.17299v1#Sx2.SSx1.p2.1"
+    },
+    {
+      "text": "Rollout Bottlenecks in Long-Horizon Agentic RL",
+      "url": "https://arxiv.org/html/2607.17299v1#Sx2.SSx2.p3.1"
+    },
+    {
+      "text": "Rollout Scheduling for Synchronous RL",
+      "url": "https://arxiv.org/html/2607.17299v1#Sx6.SSx2.p1.1"
+    },
+    {
+      "text": "Link",
+      "url": "http://dx.doi.org/10.1038/s41586-025-09422-z"
+    }
+  ],
+  "matching_link_count": 86,
+  "links_truncated": true,
+  "invalid_links": []
+}

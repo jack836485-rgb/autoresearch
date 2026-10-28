@@ -1,0 +1,299 @@
+{
+  "url": "https://arxiv.org/html/2608.28128v1",
+  "final_url": "https://arxiv.org/html/2608.28128v1",
+  "status": 200,
+  "title": "VICT: Verifier-Instrumented Credit Tracing for Long-Horizon LLM Agent Reinforcement Learning",
+  "metadata": {},
+  "paper": {
+    "title": "VICT : Verifier-Instrumented Credit Tracing for Long-Horizon LLM Agent Reinforcement Learning",
+    "title_warning": null,
+    "abstract": "Abstract Fine-grained credit assignment is a central challenge in reinforcement learning for long-horizon LLM agents. Standard objectives often train from programmatically verifiable terminal rewards by broadcasting each sparse outcome to every action in a trajectory. Existing methods typically seek finer credit from the rollout side, constructing auxiliary trajectory signals or additional comparisons to estimate action importance. Although useful, these approaches still treat the verifier that judged success as a scalar reward, discarding its internal task structure. Our key insight is that many verifiable tasks already encode the relevant checks inside their terminal verifier. We propose VICT (Verifier-Instrumented Credit Tracing), a training-time interface that exposes executable or evidence-backed atoms and traces them back to actions through dependency-valid proof edges. VICT redistributes group-relative advantage only along those edges, shifting credit assignment from rollout-side inference to verifier-side tracing. It preserves the original terminal reward, abstains when evidence is incomplete or ambiguous, and changes only the training-time advantage tensor, requiring no learned critic, process labels, branch rollouts, or inference-time verifier access. On ALFWorld and WebShop, VICT improves substantially over outcome-only training and achieves strong performance alongside recent fine-grained credit methods; ablations rule out dense atom rewards, final-commit credit, temporal proximity, and sparsity as sufficient explanations.",
+    "authors": [
+      {
+        "name": "Pengcheng Li",
+        "affiliations": [
+          "Affiliation: Tsinghua University"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Zhengyang Zhang",
+        "affiliations": [
+          "Affiliation: Tsinghua University"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Dongxu Zhang",
+        "affiliations": [
+          "Affiliation: Xi’an Jiaotong University"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Sui Huang",
+        "affiliations": [
+          "Affiliation: Jiaxing Nanhu University * Corresponding author. Email: lipc24@mails.tsinghua.edu.cn"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Shaohua Ma",
+        "affiliations": [
+          "Affiliation: Tsinghua University"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Pengcheng Li Affiliation: Tsinghua University Zhengyang Zhang Affiliation: Tsinghua University Dongxu Zhang Affiliation: Xi’an Jiaotong University Sui Huang Affiliation: Jiaxing Nanhu University * Corresponding author. Email: lipc24@mails.tsinghua.edu.cn Shaohua Ma Affiliation: Tsinghua University",
+    "arxiv_version": "2608.28128v1",
+    "arxiv_version_date": "2026-08-28"
+  },
+  "text": "VICT: Verifier-Instrumented Credit Tracing for Long-Horizon LLM Agent Reinforcement Learning Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: arXiv.org perpetual non-exclusive license arXiv:2608.28128v1 [cs.LG] 28 Aug 2026 VICT : Verifier-Instrumented Credit Tracing for Long-Horizon LLM Agent Reinforcement Learning Pengcheng Li Affiliation: Tsinghua University Zhengyang Zhang Affiliation: Tsinghua University Dongxu Zhang Affiliation: Xi’an Jiaotong University Sui Huang Affiliation: Jiaxing Nanhu University * Corresponding author. Email: lipc24@mails.tsinghua.edu.cn Shaohua Ma Affiliation: Tsinghua University Abstract Fine-grained credit assignment is a central challenge in reinforcement learning for long-horizon LLM agents. Standard objectives often train from programmatically verifiable terminal rewards by broadcasting each sparse outcome to every action in a trajectory. Existing methods typically seek finer credit from the rollout side, constructing auxiliary trajectory signals or additional comparisons to estimate action importance. Although useful, these approaches still treat the verifier that judged success as a scalar reward, discarding its internal task structure. Our key insight is that many verifiable tasks already encode the relevant checks inside their terminal verifier. We propose VICT (Verifier-Instrumented Credit Tracing), a training-time interface that exposes executable or evidence-backed atoms and traces them back to actions through dependency-valid proof edges. VICT redistributes group-relative advantage only along those edges, shifting credit assignment from rollout-side inference to verifier-side tracing. It preserves the original terminal reward, abstains when evidence is incomplete or ambiguous, and changes only the training-time advantage tensor, requiring no learned critic, process labels, branch rollouts, or inference-time verifier access. On ALFWorld and WebShop, VICT improves substantially over outcome-only training and achieves strong performance alongside recent fine-grained credit methods; ablations rule out dense atom rewards, final-commit credit, temporal proximity, and sparsity as sufficient explanations. 1 Introduction Large language models (LLMs) are increasingly trained as agents that interact with external environments over multiple turns, where success depends on making a sequence of decisions rather than producing a single response ( Yao et al., 2023 ; Schick et al., 2023 ; Shridhar et al., 2021 ; Yao et al., 2022 ) . Reinforcement learning (RL) is a natural fit for such agents because many tasks expose verifiable outcome rewards, and group-based methods such as RLOO and GRPO make this setting practical by estimating advantages from rollout groups without a learned critic ( Ahmadian et al., 2024 ; Shao et al., 2024 ) . Yet in long-horizon interaction, a sparse terminal reward is usually assigned to every action in the trajectory, even though only a few decisions may determine success or failure. The central challenge is therefore not only that rewards are sparse, but that terminal outcomes erase the reason why a trajectory succeeded or failed ( Zhang et al., 2026a ; Zhang et al., 2026b ) . To recover finer credit, recent methods construct comparison units from repeated states, trajectory graphs, semantic proximity, hindsight or process-level feedback, and dynamic branches ( Feng et al., 2025 ; Li et al., 2026 ; Fang et al., 2026 ; Tan et al., 2026 ; Lightman et al., 2024 ; Xi et al., 2025 ; Ji et al., 2026 ; Dong et al., 2025 ; Wu et al., 2026 ) . These methods improve over uniform trajectory-level credit, but they typically recover credit from rollout-side proxy signals rather than from the verifier that defined the terminal outcome. State or trajectory similarity can miss verifier-relevant history or merge states with different task-critical facts; hindsight or process feedback can depend on auxiliary judgments; and branching buys information with extra sampling cost. In all cases, the actual rule that judged the task remains mostly outside the credit assignment mechanism. Figure 1: Overview of verifier-instrumented credit tracing. A long-horizon flight-booking trajectory is checked by verifier atoms such as booking completion, budget satisfaction, and route correctness; VICT traces evidence from concrete actions to these atoms and assigns sparse verifier-backed credit only to supported steps. This limitation suggests a different source of credit: instead of reconstructing action importance from the scalar outcome, we can inspect how the outcome was produced. In many verifiable agent tasks, the terminal reward is computed by a programmatic verifier that checks concrete facts, such as required state changes, forbidden operations, observed evidence, and final commitments. Prior work on reward shaping, reward machines, and reward decomposition shows that reward structure can provide useful learning signal ( Ng et al., 1999 ; Icarte et al., 2018 ; Juozapaitis et al., 2019 ) ; here, the structure already exists inside the terminal verifier. Standard RL interfaces discard these checks and expose only the final number. This motivates our central question: can the terminal verifier be used not merely as an outcome oracle, but as a training-time credit tracer? We propose VICT , Verifier-Instrumented Credit Tracing, which turns instrumentable terminal verifiers into sparse, auditable action-level credit. VICT instruments a programmatic verifier into executable or evidence-backed atoms, links these atoms to observable trajectory evidence, and redistributes group-relative advantage only through verified action-to-atom proof edges. In this paper, verifier-backed credit means an eligibility guarantee rather than a causal proof: a correction is emitted only when the verifier interface conforms, a dependency-valid core identifies the relevant atom, and a fixed witness relation links that atom to an action. The method keeps the original terminal reward as the outcome anchor, changes only the training-time advantage tensor, and abstains when no reliable verifier proof exists. It does not assume automatic decompilation of arbitrary black-box judges; the verifier interface is an explicit engineering object whose conformance and cost must be audited. This framing shifts the problem from inventing intermediate rewards to exposing the structure of existing verifiers. We evaluate VICT on long-horizon verifiable agent benchmarks against outcome-only and fine-grained RL baselines. On ALFWorld and WebShop, VICT improves substantially over GRPO and remains competitive with recent fine-grained methods, while τ \\tau -bench provides suggestive service-agent validation under a different backbone and protocol. We also audit the verifier interface through reconstruction, mutation conformance, eligibility, coverage, sparsity, abstention, core-size, and cost diagnostics ( Sun et al., 2026 ) . Our contributions are: • We formulate verifier instrumentation as a training-time credit interface for programmatically verifiable LLM agent RL. • We introduce dependency-core attribution and proof-edge-constrained advantage correction with an explicit eligibility invariant. • We provide experiments, ablations, and interface diagnostics showing when verifier-backed credit improves over outcome-only training and recent credit-assignment baselines. 2 Related Work 2.1 Reinforcement Learning for LLM Agents LLM agents extend language models from static generation to interactive decision making, where policies must use observations, tools, and external feedback over multiple turns. Prompting, tool-use training, and supervised agent tuning have enabled strong zero-shot and imitation-based agents ( Yao et al., 2023 ; Schick et al., 2023 ; Zeng et al., 2024 ) . Reinforcement learning further allows agents to optimize verifiable outcomes directly, and has been applied to web, embodied, search, tool-use, and application-control settings ( Yao et al., 2022 ; Shridhar et al., 2021 ; Jin et al., 2025 ; Trivedi et al., 2024 ; Yao et al., 2024 ) . Most scalable LLM RL pipelines build on policy-gradient objectives ( Li et al., 2025 ) . PPO-style training uses a value model, while RLOO and GRPO avoid a learned critic by normalizing rewards within rollout groups ( Schulman et al., 2017 ; Ahmadian et al., 2024 ; Shao et al., 2024 ) . This critic-free design is attractive for long-context agent trajectories, but it still leaves the key question of how a terminal outcome should be assigned to individual actions. VICT keeps the group-based optimization setting and changes only the training-time advantage signal. 2.2 Credit Assignment under Sparse Outcome Rewards Sparse terminal rewards make long-horizon agent training inefficient because the same trajectory-level advantage is often broadcast to every action. Recent and concurrent methods refine this signal by changing the comparison unit. GiGPO compares actions from repeated environment states, SALT uses trajectory graphs to distinguish shared and divergent steps, ProxMO replaces hard state groups with semantic proximity, and HCAPO estimates action utility through hindsight reasoning ( Feng et al., 2025 ; Li et al., 2026 ; Fang et al., 2026 ; Tan et al., 2026 ) . Several of these references are recent preprints. Hierarchical and subgoal-based methods assign credit at coarser temporal abstractions ( Peng et al., 2026 ; Wang et al., 2026 ; Xue et al., 2026 ) . Another line changes the rollout distribution rather than the credit rule. Tree- and branch-based methods sample continuations from shared prefixes or uncertain decision points to expose local preferences ( Ji et al., 2026 ; Dong et al., 2025 ; Zhao et al., 2026 ; Wu et al., 2026 ) . These approaches are effective when useful comparisons can be created from states, prefixes, branches, or prompted hindsight. VICT targets a complementary source of supervision: the structure of the terminal verifier itself. It assigns extra credit only when an action can be linked to a verifier atom through an observable proof edge. 2.3 Structured Verifier Supervision and Rubric-Based Evaluation Prior RL work has shown that structure inside the reward can be useful for learning and interpretation. Return redistribution, potential-based shaping, reward machines, and reward decomposition expose delayed or composite rewards in more informative forms ( Arjona-Medina et al., 2019 ; Ng et al., 1999 ; Icarte et al., 2018 ; Juozapaitis et al., 2019 ) . Process supervision and PRMs similarly provide step-level feedback, but they typically require labels, learned reward models, or search-generated supervision ( Uesato et al., 2022 ; Lightman et al., 2024 ; Luo et al., 2024 ; Xi et al., 2025 ) . VICT is best viewed as verifier-grounded advantage redistribution: it changes the policy-gradient update signal, but it uses the programmatic verifier that already defines the environment outcome rather than introducing a separate progress reward or reward model. Rubric and criteria-based evaluation decomposes holistic judgments into interpretable dimensions, and recent work uses such criteria as optimization signals ( Xie et al., 2026 ; Yu et al., 2025a ; Gunjal et al., 2025 ) . However, natural-language atomic decomposition can be unreliable when criteria are not executable or evidence-grounded ( Zhang, 2026 ) . VICT therefore treats verifier decomposition as a constrained instrumentation problem: atoms must be executable or evidence-backed, reconstruct the terminal verifier, and attach to actions through proof edges. This makes its advantage correction auditable and verifier-aligned without turning rubric criteria into dense rewards. 3 Method 3.1 Problem Setup and Design Goal We consider long-horizon interactive RL where a language-agent policy π θ \\pi_{\\theta} solves a task instance x x through observations and a",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: arXiv.org perpetual non-exclusive license",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "Yao et al., 2023",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib1"
+    },
+    {
+      "text": "Schick et al., 2023",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib2"
+    },
+    {
+      "text": "Shridhar et al., 2021",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib3"
+    },
+    {
+      "text": "Yao et al., 2022",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib4"
+    },
+    {
+      "text": "Ahmadian et al., 2024",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib5"
+    },
+    {
+      "text": "Shao et al., 2024",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib6"
+    },
+    {
+      "text": "Zhang et al., 2026a",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib43"
+    },
+    {
+      "text": "Zhang et al., 2026b",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib41"
+    },
+    {
+      "text": "Feng et al., 2025",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib12"
+    },
+    {
+      "text": "Li et al., 2026",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib13"
+    },
+    {
+      "text": "Fang et al., 2026",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib14"
+    },
+    {
+      "text": "Tan et al., 2026",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib15"
+    },
+    {
+      "text": "Lightman et al., 2024",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib24"
+    },
+    {
+      "text": "Xi et al., 2025",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib26"
+    },
+    {
+      "text": "Ji et al., 2026",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib19"
+    },
+    {
+      "text": "Dong et al., 2025",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib20"
+    },
+    {
+      "text": "Wu et al., 2026",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib22"
+    },
+    {
+      "text": "Ng et al., 1999",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib28"
+    },
+    {
+      "text": "Icarte et al., 2018",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib29"
+    },
+    {
+      "text": "Juozapaitis et al., 2019",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib30"
+    },
+    {
+      "text": "Sun et al., 2026",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib42"
+    },
+    {
+      "text": "Zeng et al., 2024",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib7"
+    },
+    {
+      "text": "Jin et al., 2025",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib10"
+    },
+    {
+      "text": "Trivedi et al., 2024",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib8"
+    },
+    {
+      "text": "Yao et al., 2024",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib11"
+    },
+    {
+      "text": "Li et al., 2025",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib40"
+    },
+    {
+      "text": "Schulman et al., 2017",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib9"
+    },
+    {
+      "text": "Peng et al., 2026",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib16"
+    },
+    {
+      "text": "Wang et al., 2026",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib17"
+    },
+    {
+      "text": "Xue et al., 2026",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib18"
+    },
+    {
+      "text": "Zhao et al., 2026",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib21"
+    },
+    {
+      "text": "Arjona-Medina et al., 2019",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib27"
+    },
+    {
+      "text": "Uesato et al., 2022",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib23"
+    },
+    {
+      "text": "Luo et al., 2024",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib25"
+    },
+    {
+      "text": "Xie et al., 2026",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib31"
+    },
+    {
+      "text": "Yu et al., 2025a",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib32"
+    },
+    {
+      "text": "Gunjal et al., 2025",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib33"
+    },
+    {
+      "text": "Zhang, 2026",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib34"
+    },
+    {
+      "text": "C",
+      "url": "https://arxiv.org/html/2608.28128v1#A3"
+    },
+    {
+      "text": "F",
+      "url": "https://arxiv.org/html/2608.28128v1#A6"
+    },
+    {
+      "text": "D",
+      "url": "https://arxiv.org/html/2608.28128v1#A4"
+    },
+    {
+      "text": "D",
+      "url": "https://arxiv.org/html/2608.28128v1#A4.SS0.SSS0.Px4"
+    },
+    {
+      "text": "D",
+      "url": "https://arxiv.org/html/2608.28128v1#A4.SS0.SSS0.Px6"
+    },
+    {
+      "text": "D",
+      "url": "https://arxiv.org/html/2608.28128v1#A4.SS0.SSS0.Px3"
+    },
+    {
+      "text": "D",
+      "url": "https://arxiv.org/html/2608.28128v1#A4.SS0.SSS0.Px7"
+    },
+    {
+      "text": "Shinn et al., 2023",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib35"
+    },
+    {
+      "text": "Yu et al., 2025b",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib36"
+    },
+    {
+      "text": "Liu et al., 2025",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib37"
+    },
+    {
+      "text": "Lin et al., 2025",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib38"
+    },
+    {
+      "text": "Zhang et al., 2026c",
+      "url": "https://arxiv.org/html/2608.28128v1#bib.bib39"
+    },
+    {
+      "text": "10",
+      "url": "https://arxiv.org/html/2608.28128v1#A3.T10"
+    },
+    {
+      "text": "11",
+      "url": "https://arxiv.org/html/2608.28128v1#A3.T11"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2608.28128v1#S4.T1"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2608.28128v1#S4.F3"
+    },
+    {
+      "text": "B.2",
+      "url": "https://arxiv.org/html/2608.28128v1#A2.SS2"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2608.28128v1#S4.T2"
+    },
+    {
+      "text": "10",
+      "url": "https://arxiv.org/html/2608.28128v1#S3.E10"
+    }
+  ],
+  "matching_link_count": 132,
+  "links_truncated": true,
+  "invalid_links": []
+}

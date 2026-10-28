@@ -1,0 +1,269 @@
+{
+  "url": "https://arxiv.org/html/2610.19298v1",
+  "final_url": "https://arxiv.org/html/2610.19298v1",
+  "status": 200,
+  "title": "Verifier-Grounded Agentic RL for Provably Correct Code",
+  "metadata": {},
+  "paper": {
+    "title": "Verifier-Grounded Agentic RL for Provably Correct Code",
+    "title_warning": null,
+    "abstract": "Abstract Reinforcement learning for code usually rewards passing tests, which a model can do while remaining wrong on the inputs the tests do not cover. A program verifier instead decides whether a program satisfies a formal specification for all inputs. Language models are almost always paired with verifiers at inference time only, and turning a verifier into a reward raises two difficulties. It reports only acceptance or rejection, which gives no gradient when every attempt fails, and a policy can cheat it, most simply by telling it to assume what the proof was supposed to establish. We build an agentic environment and reward that address both. The reward reads the verifier’s diagnostics rather than its verdict, scoring a candidate by the weighted fraction of proof obligations it discharges, extended with hidden probes from a reference proof’s annotations. An integrity audit outranks the verifier, rejecting any candidate that alters the specification or assumes what it was meant to prove. The model works as an agent against a live verifier over many turns, with a separately trained proof specialist as a frozen collaborator. Across Qwen3 models from 1.7 1.7 B to 14 14 B and a 35 35 B Qwen3.6 mixture-of-experts model, held-out verification on code generation rises from 66.1 % 66.1\\% to 93.5 % 93.5\\% on DafnyBench and from 56.3 % 56.3\\% to 100 % 100\\% on SWE-Proof. This reward leads every other training signal we compare, including a binary pass-or-fail reward trained under otherwise identical settings, with the widest margin on code generation. When the agent must also deliver the repository patch, graded by each project’s withheld tests, the fraction of held-out issues it resolves rises from 59.6 % 59.6\\% to 72.5 % 72.5\\% . Evaluated unchanged on three verification suites withheld from training, the checkpoints improve on all of them, including one whose language and verifier are absent from training.",
+    "authors": [
+      {
+        "name": "George Ma 1, Yuhao Zhang 2 Bing He 2 Zeren Shui 2 Ferhat Erata 2 Murali Krishna Ramanathan 2 Somayeh Sojoudi 1 Hao Zhou 2 1 UC Berkeley 2 AWS AI Labs",
+        "affiliations": [],
+        "notes": []
+      }
+    ],
+    "author_block": "George Ma 1, Yuhao Zhang 2 Bing He 2 Zeren Shui 2 Ferhat Erata 2 Murali Krishna Ramanathan 2 Somayeh Sojoudi 1 Hao Zhou 2 1 UC Berkeley 2 AWS AI Labs † † thanks: Correspondence to: george_ma@berkeley.edu .",
+    "arxiv_version": "2610.19298v1",
+    "arxiv_version_date": "2026-10-13"
+  },
+  "text": "Verifier-Grounded Agentic RL for Provably Correct Code Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: CC BY 4.0 arXiv:2610.19298v1 [cs.LG] 13 Oct 2026 Verifier-Grounded Agentic RL for Provably Correct Code George Ma 1, Yuhao Zhang 2 Bing He 2 Zeren Shui 2 Ferhat Erata 2 Murali Krishna Ramanathan 2 Somayeh Sojoudi 1 Hao Zhou 2 1 UC Berkeley 2 AWS AI Labs † † thanks: Correspondence to: george_ma@berkeley.edu . Abstract Reinforcement learning for code usually rewards passing tests, which a model can do while remaining wrong on the inputs the tests do not cover. A program verifier instead decides whether a program satisfies a formal specification for all inputs. Language models are almost always paired with verifiers at inference time only, and turning a verifier into a reward raises two difficulties. It reports only acceptance or rejection, which gives no gradient when every attempt fails, and a policy can cheat it, most simply by telling it to assume what the proof was supposed to establish. We build an agentic environment and reward that address both. The reward reads the verifier’s diagnostics rather than its verdict, scoring a candidate by the weighted fraction of proof obligations it discharges, extended with hidden probes from a reference proof’s annotations. An integrity audit outranks the verifier, rejecting any candidate that alters the specification or assumes what it was meant to prove. The model works as an agent against a live verifier over many turns, with a separately trained proof specialist as a frozen collaborator. Across Qwen3 models from 1.7 1.7 B to 14 14 B and a 35 35 B Qwen3.6 mixture-of-experts model, held-out verification on code generation rises from 66.1 % 66.1\\% to 93.5 % 93.5\\% on DafnyBench and from 56.3 % 56.3\\% to 100 % 100\\% on SWE-Proof. This reward leads every other training signal we compare, including a binary pass-or-fail reward trained under otherwise identical settings, with the widest margin on code generation. When the agent must also deliver the repository patch, graded by each project’s withheld tests, the fraction of held-out issues it resolves rises from 59.6 % 59.6\\% to 72.5 % 72.5\\% . Evaluated unchanged on three verification suites withheld from training, the checkpoints improve on all of them, including one whose language and verifier are absent from training. 1 Introduction Post-training with reinforcement learning depends on rewards that can be checked automatically rather than judged by people ( Lambert et al., 2025 ; Guo et al., 2025 ) . In code the usual signal is execution: a candidate runs against unit tests and is rewarded when they pass ( Le et al., 2022 ; Liu et al., 2023 ; Gehring et al., 2025 ) . But a test suite covers only a fraction of the input domain, so a policy can pass it while remaining wrong on the inputs it omits. A learned reward model removes the coverage limit but only approximates correctness, and optimizing against it drifts toward outputs that score well without being correct ( Skalse et al., 2022 ; Cai et al., 2025 ) . Program verification certifies correctness for every input, not just the sampled cases a test suite runs. Given a program together with a specification , a formal statement of what the program must guarantee, an automatic verifier reduces the pair to logical proof obligations and discharges them with an SMT solver ( Leino, 2010 ; Lattuada et al., 2023 ; Eilers and Müller, 2018 ) . Code and specification alone are rarely enough. The verifier also needs proof annotations : loop invariants, intermediate assertions, termination measures, and lemma applications. Supplying them is the bottleneck in practice, which is why a large body of work asks language models to write them ( Yao et al., 2023a ; Yang et al., 2025b ; Mugnier et al., 2025 ; Poesia et al., 2024 ) , and why verified code generation, writing the implementation and its proof together, is the harder open problem the field’s benchmarks target ( Misu et al., 2024 ; Loughridge et al., 2025 ; Ye et al., 2026 ) . Almost all of these systems call the verifier at inference time only, as an acceptance test, a search oracle, or a filter in a self-improvement loop ( Sun et al., 2024 ; Brandfonbrener et al., 2024 ; Aggarwal et al., 2025 ) , and leave the model’s weights untouched. Appendix A surveys this literature in full. Figure 1: The method. (a) In an episode, the policy takes one action per turn against a live verifier and revises based on its diagnostics. (b) Scoring a submission: the failed obligations and the hidden probes give the obligation ratio Ω \\Omega (Equation 1 ), while the integrity audit checks that the specification is intact and that no obligation was assumed instead of proved. (c) The ordering the score (Equation 2 ) induces: a verified candidate with an intact specification ranks highest, one that verifies only by weakening the specification ranks below an honest partial proof, and one that fails the proof check ranks below not submitting at all. Training against the verifier instead raises two challenges. The first is density. A verifier returns only pass or fail, and when a base model must produce an implementation together with its proof, nearly every attempt fails and receives the same reward, which cannot separate a proof one step short from a program that does not compile. Such rewards are known to induce advantage and entropy collapse when successes are rare ( He et al., 2026 ; Xu et al., 2026a ) . The second is integrity. A verifier answers the question it is given, so a policy can raise its reward by changing the question: weaken a postcondition until it is trivially true, strengthen a precondition until difficult inputs are excluded, or insert an assumption the solver simply believes. Each yields a program the verifier certifies but no engineer would accept, and work that asks models to write specifications as well as code finds these weakened specifications in practice ( Zeng et al., 2026a ; Fan et al., 2026 ) . Our reward comes from the verifier’s diagnostics instead of its verdict. A failed attempt reports which obligations went unproved, of what kind, and where, so scoring a candidate by the weighted fraction of the instance’s proof obligations it discharges turns a mostly-zero signal into a graded one. We take that set of obligations from the instance, not from the program the model submits, and fix it before the episode starts. Otherwise a model could shrink what it has to prove, and a loop invariant that says only true would count as one it had proved. When a reference proof is available, we also convert its proof annotations into hidden probes : withheld from the model and re-inserted as checked assertions, they test whether the candidate’s own annotations prove the intermediate steps a specification says nothing about. We handle integrity with an audit whose verdict outranks the verifier’s. A specification check re-derives the specification from the submitted program and requires it to match the given one exactly, so any clause weakened, strengthened, dropped or added is caught. A proof check looks for constructs that tell the verifier to accept an obligation instead of discharging it, such as unchecked assumptions and admitted lemmas. A candidate that verifies only because it changed the question therefore scores below an honest partial attempt. Both the reward and the audit are computed by an environment in which the model works as an agent over many turns, verifying, reading diagnostics, executing code and revising ( Yao et al., 2023b ; Gehring et al., 2025 ) . A verified program has two parts, the implementation and the proof annotations, and our two tasks differ in which of them the model must supply. Annotation repair gives a correct implementation with its specification and removes every proof annotation, so the model only has to write the proof. Code generation freezes the specification, replaces the implementation with a placeholder, and asks for the code and the proof together. Code generation is the setting we ultimately care about, and it is hard because it demands both skills at once, while base models are far weaker at proofs than at code. Annotation repair separates them. We train a policy on it, freeze it, and place this proof specialist inside the code generation loop, where every submission is scored as the agent wrote it and again after the specialist replaces the annotations with its own, and the episode keeps the better score. If the agent writes correct code but cannot finish the proof, the specialist can finish it. Taking the better of the two scores also means a bad suggestion never costs the agent anything. We freeze the specialist rather than co-train two policies ( Zeng et al., 2026b ) . Our contributions are as follows. First, we introduce a verifier-grounded dense reward for RL on formally verified code, an agentic environment that computes it against a live verifier, and an integrity audit that outranks the verifier. Second, it works at scale: held-out verification on code generation rises from 66.1 % 66.1\\% to 93.5 % 93.5\\% on DafnyBench ( Loughridge et al., 2025 ) and from 56.3 % 56.3\\% to 100 % 100\\% on SWE-Proof ( Ma et al., 2026 ) , with gains on both tasks at every size from 1.7 1.7 B to 35 35 B on DafnyBench. Third, our reward beats the other training signals we compare: on DafnyBench code generation, supervised fine-tuning on reference proofs reaches 53.2 % 53.2\\% and a binary outcome reward trained under otherwise identical settings 71.0 % 71.0\\% , against 93.5 % 93.5\\% for ours. Fourth, the frozen proof specialist adds 4.8 4.8 points on DafnyBench code generation, 93.5 % 93.5\\% against 88.7 % 88.7\\% without it, and 12.5 12.5 points on SWE-Proof, 100 % 100\\% against 87.5 % 87.5\\% . Fifth, the gains carry over to resolving real issues: when the agent must also submit a repository patch, the fraction of held-out SWE-Proof issues whose patch passes the project’s own withheld tests rises from 59.6 % 59.6\\% to 72.5 % 72.5\\% . Finally, evaluated unchanged on three held-out verification suites, the trained checkpoints improve on all of them, including Verus programs in Rust, whose verifier and language are absent from training. 2 Tasks and Environment A verified program ⬇ method Find(a: array < int > , x: int ) returns (i: int ) // specification: given, and returned unchanged ensures 0 <= i <= a.Length ensures i < a.Length ==> a [ i ] == x ensures forall k :: 0 <= k < i ==> a [ k ] != x { // implementation i := 0 ; while i < a.Length // proof annotations: what the verifier needs invariant 0 <= i <= a.Length invariant forall k :: 0 <= k < i ==> a [ k ] != x { if a [ i ] == x { return; } i := i + 1 ; } } What the model is given Annotation repair: write the proof annotations ⬇ method Find(a: array < int > , x: int ) returns (i: int ) ensures 0 <= i <= a.Length ensures i < a.Length ==> a [ i ] == x ensures forall k :: 0 <= k < i ==> a [ k ] != x { i := 0 ; while i < a.Length { if a [ i ] == x { return; } i := i + 1 ; } } Code generation: write the code and the proof ⬇ method Find(a: array < int > , x: int ) returns (i: int ) // the same three ensures clauses { /* TODO: implement */ } Figure 2: An instance and the two tasks built from it. Each task removes a different part of a verified program and asks the model to restore it, leaving the specification given and unchanged. Problem setting. We consider programs in a language whose toolchain contains a static verifier, such as Dafny, Verus or Nagini. An instance has three parts, shown in Figure 2 . The specification states what the program must guarantee, through preconditions, postconditions, datatype invariants and lemma statements. The implementation is the executable code. The proof annotations are the auxiliary invariants, assertions, termination measures and lemma applications the verifier need",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: CC BY 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "Lambert et al., 2025",
+      "url": "https://arxiv.org/html/2610.19298v1#bib.bib46"
+    },
+    {
+      "text": "Guo et al., 2025",
+      "url": "https://arxiv.org/html/2610.19298v1#bib.bib45"
+    },
+    {
+      "text": "Le et al., 2022",
+      "url": "https://arxiv.org/html/2610.19298v1#bib.bib10"
+    },
+    {
+      "text": "Liu et al., 2023",
+      "url": "https://arxiv.org/html/2610.19298v1#bib.bib59"
+    },
+    {
+      "text": "Gehring et al., 2025",
+      "url": "https://arxiv.org/html/2610.19298v1#bib.bib61"
+    },
+    {
+      "text": "Skalse et al., 2022",
+      "url": "https://arxiv.org/html/2610.19298v1#bib.bib79"
+    },
+    {
+      "text": "Cai et al., 2025",
+      "url": "https://arxiv.org/html/2610.19298v1#bib.bib82"
+    },
+    {
+      "text": "Leino, 2010",
+      "url": "https://arxiv.org/html/2610.19298v1#bib.bib17"
+    },
+    {
+      "text": "Lattuada et al., 2023",
+      "url": "https://arxiv.org/html/2610.19298v1#bib.bib20"
+    },
+    {
+      "text": "Eilers and Müller, 2018",
+      "url": "https://arxiv.org/html/2610.19298v1#bib.bib18"
+    },
+    {
+      "text": "Yao et al., 2023a",
+      "url": "https://arxiv.org/html/2610.19298v1#bib.bib24"
+    },
+    {
+      "text": "Yang et al., 2025b",
+      "url": "https://arxiv.org/html/2610.19298v1#bib.bib21"
+    },
+    {
+      "text": "Mugnier et al., 2025",
+      "url": "https://arxiv.org/html/2610.19298v1#bib.bib22"
+    },
+    {
+      "text": "Poesia et al., 2024",
+      "url": "https://arxiv.org/html/2610.19298v1#bib.bib25"
+    },
+    {
+      "text": "Misu et al., 2024",
+      "url": "https://arxiv.org/html/2610.19298v1#bib.bib23"
+    },
+    {
+      "text": "Loughridge et al., 2025",
+      "url": "https://arxiv.org/html/2610.19298v1#bib.bib2"
+    },
+    {
+      "text": "Ye et al., 2026",
+      "url": "https://arxiv.org/html/2610.19298v1#bib.bib3"
+    },
+    {
+      "text": "Sun et al., 2024",
+      "url": "https://arxiv.org/html/2610.19298v1#bib.bib26"
+    },
+    {
+      "text": "Brandfonbrener et al., 2024",
+      "url": "https://arxiv.org/html/2610.19298v1#bib.bib27"
+    },
+    {
+      "text": "Aggarwal et al., 2025",
+      "url": "https://arxiv.org/html/2610.19298v1#bib.bib28"
+    },
+    {
+      "text": "A",
+      "url": "https://arxiv.org/html/2610.19298v1#A1"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2610.19298v1#S3.E1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2610.19298v1#S3.E2"
+    },
+    {
+      "text": "He et al., 2026",
+      "url": "https://arxiv.org/html/2610.19298v1#bib.bib50"
+    },
+    {
+      "text": "Xu et al., 2026a",
+      "url": "https://arxiv.org/html/2610.19298v1#bib.bib51"
+    },
+    {
+      "text": "Zeng et al., 2026a",
+      "url": "https://arxiv.org/html/2610.19298v1#bib.bib34"
+    },
+    {
+      "text": "Fan et al., 2026",
+      "url": "https://arxiv.org/html/2610.19298v1#bib.bib43"
+    },
+    {
+      "text": "Yao et al., 2023b",
+      "url": "https://arxiv.org/html/2610.19298v1#bib.bib86"
+    },
+    {
+      "text": "Zeng et al., 2026b",
+      "url": "https://arxiv.org/html/2610.19298v1#bib.bib114"
+    },
+    {
+      "text": "Ma et al., 2026",
+      "url": "https://arxiv.org/html/2610.19298v1#bib.bib1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2610.19298v1#S2.F2"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2610.19298v1#S1.F1"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2610.19298v1#S3.SS0.SSS0.Px4"
+    },
+    {
+      "text": "B",
+      "url": "https://arxiv.org/html/2610.19298v1#A2"
+    },
+    {
+      "text": "C.3",
+      "url": "https://arxiv.org/html/2610.19298v1#A3.SS3"
+    },
+    {
+      "text": "Jimenez et al., 2024",
+      "url": "https://arxiv.org/html/2610.19298v1#bib.bib88"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2610.19298v1#S2.T1"
+    },
+    {
+      "text": "Chen et al., 2021",
+      "url": "https://arxiv.org/html/2610.19298v1#bib.bib57"
+    },
+    {
+      "text": "E",
+      "url": "https://arxiv.org/html/2610.19298v1#A5"
+    },
+    {
+      "text": "C.1",
+      "url": "https://arxiv.org/html/2610.19298v1#A3.SS1"
+    },
+    {
+      "text": "C.2",
+      "url": "https://arxiv.org/html/2610.19298v1#A3.SS2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2610.19298v1#S3.F3"
+    },
+    {
+      "text": "Shao et al., 2024",
+      "url": "https://arxiv.org/html/2610.19298v1#bib.bib16"
+    },
+    {
+      "text": "Yang et al., 2025a",
+      "url": "https://arxiv.org/html/2610.19298v1#bib.bib9"
+    },
+    {
+      "text": "Qwen Team, 2026",
+      "url": "https://arxiv.org/html/2610.19298v1#bib.bib8"
+    },
+    {
+      "text": "F.2",
+      "url": "https://arxiv.org/html/2610.19298v1#A6.SS2"
+    },
+    {
+      "text": "D",
+      "url": "https://arxiv.org/html/2610.19298v1#A4"
+    },
+    {
+      "text": "F.4",
+      "url": "https://arxiv.org/html/2610.19298v1#A6.SS4"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2610.19298v1#S2.SS0.SSS0.Px3"
+    },
+    {
+      "text": "F",
+      "url": "https://arxiv.org/html/2610.19298v1#A6"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2610.19298v1#S4.F4"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2610.19298v1#S4.T2"
+    },
+    {
+      "text": "G.3",
+      "url": "https://arxiv.org/html/2610.19298v1#A7.SS3"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2610.19298v1#S4.F5"
+    },
+    {
+      "text": "G.1",
+      "url": "https://arxiv.org/html/2610.19298v1#A7.SS1"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2610.19298v1#S4.T3"
+    },
+    {
+      "text": "G.2",
+      "url": "https://arxiv.org/html/2610.19298v1#A7.SS2"
+    }
+  ],
+  "matching_link_count": 188,
+  "links_truncated": true,
+  "invalid_links": []
+}

@@ -1,0 +1,296 @@
+{
+  "url": "https://arxiv.org/html/2605.16727v1",
+  "final_url": "https://arxiv.org/html/2605.16727v1",
+  "status": 200,
+  "title": "PopuLoRA: Co-Evolving LLM Populations for Reasoning Self-Play",
+  "metadata": {},
+  "paper": {
+    "title": "PopuLoRA: Co-Evolving LLM Populations for Reasoning Self-Play",
+    "title_warning": null,
+    "abstract": "Abstract We introduce PopuLoRA , a population-based asymmetric self-play\nframework for reinforcement learning with verifiable rewards (RLVR)\npost-training of LLMs. Teachers and students are specialised LoRA\nadapters on a shared frozen base: teachers propose problems, matched\nstudents solve them under a programmatic verifier, and cross-evaluation\nbetween sub-populations replaces the self-calibration that limits\nsingle-agent self-play. A family of LoRA weight-space evolution\noperators (mutations and crossovers that produce same-rank population\nmembers in seconds) serves as the replacement step of a\npopulation-based training loop at 7B scale. We instantiate PopuLoRA on\ntop of Absolute Zero Reasoner and compare it against a per-adapter compute-matched\nsingle-agent baseline. Where the single agent self-calibrates to\ngenerating easy problems it can reliably solve, the population enters a\nco-evolutionary arms race: teachers produce increasingly complex\nproblems, student solve rates oscillate, and problem-space coverage\nkeeps expanding throughout training. Despite lower training-time\nreward, the population mean outperforms the baseline on three\ncode benchmarks (HumanEval+, MBPP+, LiveCodeBench) and seven math\nbenchmarks (AIME 24/25, AMC 23, MATH-500, Minerva, GSM8K,\nOlympiadBench), and even the weakest member of the population beats\nthe baseline on aggregate.",
+    "authors": [
+      {
+        "name": "Roger Creus Castanyer",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Geoffrey Bradway",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Lorenz Wolf",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Maxwill Lin",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Augustine N. Mavor-Parker",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Matthew James Sargent",
+        "affiliations": [
+          "Affiliation: Vmax"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Roger Creus Castanyer Geoffrey Bradway Lorenz Wolf Maxwill Lin Augustine N. Mavor-Parker Matthew James Sargent Affiliation: Vmax",
+    "arxiv_version": "2605.16727v1",
+    "arxiv_version_date": "2026-05-16"
+  },
+  "text": "PopuLoRA: Co-Evolving LLM Populations for Reasoning Self-Play Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: CC BY 4.0 arXiv:2605.16727v1 [cs.AI] 16 May 2026 \\correspondence \\emails roger, augustine, matthew PopuLoRA: Co-Evolving LLM Populations for Reasoning Self-Play Roger Creus Castanyer Geoffrey Bradway Lorenz Wolf Maxwill Lin Augustine N. Mavor-Parker Matthew James Sargent Affiliation: Vmax August 24, 2026 Abstract We introduce PopuLoRA , a population-based asymmetric self-play framework for reinforcement learning with verifiable rewards (RLVR) post-training of LLMs. Teachers and students are specialised LoRA adapters on a shared frozen base: teachers propose problems, matched students solve them under a programmatic verifier, and cross-evaluation between sub-populations replaces the self-calibration that limits single-agent self-play. A family of LoRA weight-space evolution operators (mutations and crossovers that produce same-rank population members in seconds) serves as the replacement step of a population-based training loop at 7B scale. We instantiate PopuLoRA on top of Absolute Zero Reasoner and compare it against a per-adapter compute-matched single-agent baseline. Where the single agent self-calibrates to generating easy problems it can reliably solve, the population enters a co-evolutionary arms race: teachers produce increasingly complex problems, student solve rates oscillate, and problem-space coverage keeps expanding throughout training. Despite lower training-time reward, the population mean outperforms the baseline on three code benchmarks (HumanEval+, MBPP+, LiveCodeBench) and seven math benchmarks (AIME 24/25, AMC 23, MATH-500, Minerva, GSM8K, OlympiadBench), and even the weakest member of the population beats the baseline on aggregate. 1 Introduction RL post-training has become a dominant regime for specialising large language models, from RLHF ( Ouyang et al., 2022 ) and DPO on human preference data through self-play fine-tuning ( Chen et al., 2024 ) and large-scale reinforcement learning with verifiable rewards (RLVR) ( Guo et al., 2025 ; Lambert et al., 2024 ) . The optimisation machinery has matured, but the supply of problems has not: most current systems depend on a hand-curated task distribution whose scope, difficulty, and coverage must be chosen in advance. The open question we study in this paper is how to generate the curriculum itself , the stream of problems the policy is trained on, without relying on human-authored datasets, using only a programmatic verifier as the external signal. The most direct approach lets a single model propose its own problems and grade itself through the verifier, as in Absolute Zero Reasoner ( Zhao et al., 2025 ) or, more broadly, single-model self-play ( Chen et al., 2024 ; Kuba et al., 2025 ) . The shared flaw is that the same network generates problems and (implicitly, through its solve rate or judgement) estimates their difficulty. In this paper we provide empirical evidence that such single-agent self-generation self-calibrates : the proposer converges to generating problems it can consistently produce in valid format and consistently solve, and the training distribution collapses onto a narrow band long before the base model’s capability is exhausted. The fix is structural: make the judge a different agent from the proposer. A growing line of work explores this asymmetry ( Chen et al., 2025 ; Jana et al., 2026 ; Liu et al., 2025 ; Sundaram et al., 2026 ; Duan et al., 2026 ; Tan et al., 2026 ; Ye et al., 2024 ; Huang et al., 2025 ) , but all are scalar in agent count ( ≤ \\leq 3 agents total), whether the roles share parameters or train separate networks. We take the asymmetry further, building on the teacher-proposes / student-solves structure introduced by Sukhbaatar et al. (2018) , and replace the single agent with co-evolving populations of specialised teachers and students . Teachers are rewarded for producing problems that are hard for the particular student they face, students are rewarded by the verifier, and matchmaking across the two sub-populations turns difficulty into a population-level signal rather than a self-estimate. Population dynamics add a second layer of exploration on top of gradient updates: lineages diverge, members specialise, and a population-based training (PBT) ( Jaderberg et al., 2017 ) replacement step recombines what the gradient path has already discovered. Running many independent full-parameter 7B models on a single node is expensive and memory-constrained, particularly when each member must support both rollout inference and gradient updates in a shared training loop. We therefore instantiate every population member as a LoRA adapter ( Hu et al., 2022 ) over a shared frozen base, which collapses the population’s memory footprint to the sum of its adapter weights rather than a full copy of the base per member. Classical PBT ( Jaderberg et al., 2017 ) mutates members by copying one agent’s full weights onto another and perturbing; at 7B scale that copy is itself expensive. Our second contribution is a set of LoRA weight-space evolution operators (SVD-structured, layer-selective, and component-masking mutations together with DARE ( Yu et al., 2024 ) , TIES-inspired ( Yadav et al., 2023 ) , and task-arithmetic ( Ilharco et al., 2023 ) crossovers, in the spirit of evolutionary model merging ( Akiba et al., 2025 ) ) that produce same-rank children in seconds without any retraining. They serve as the replacement step of an online PBT loop, making a population-of-adapters regime that is inaccessible to prior LoRA composition work ( Huang et al., 2023 ; Buehler and Buehler, 2024 ; Feng et al., 2025b ; Zhang et al., 2025 ) . We evaluate in the Absolute Zero code-reasoning setting, with a sandboxed Python executor as the verifier. CONTRIBUTIONS 1. Population-based asymmetric self-play for RLVR. Prior work ( Chen et al., 2025 ; Jana et al., 2026 ; Liu et al., 2025 ; Sundaram et al., 2026 ; Duan et al., 2026 ; Tan et al., 2026 ; Ye et al., 2024 ; Huang et al., 2025 ; Kuba et al., 2025 ) is scalar in agent count ( ≤ \\leq 3 agents). PopuLoRA replaces these with populations of teacher and student LoRA adapters coupled by TrueSkill-weighted cross-evaluation. 2. LoRA weight-space evolution operators as the PBT replacement step. Mutations and crossovers produce rank-matched children in seconds; closest is evolutionary model merging ( Akiba et al., 2025 ) , applied offline rather than inside an online PBT loop. 3. Empirical validation on held-out code and math benchmarks. The population outperforms a per-adapter compute-matched single-agent baseline; diagnostics confirm it avoids the mode-collapse we observe in the baseline. 2 Background and Related Work RLVR and self-generated curricula. RLVR ( Guo et al., 2025 ) replaces learned preference models with programmatic checkers. AZR ( Zhao et al., 2025 ) takes this to its logical extreme: a single code LLM both proposes and solves its own problems, rewarded only by a sandboxed executor, with no external dataset. Adjacent methods (STaR ( Zelikman et al., 2022 ) , rStar-Math ( Guan et al., 2025 ) , Self-Rewarding ( Yuan et al., 2024 ) ) also train on self-generated data but rely on fixed problem sets or learned reward signals; only AZR treats the model as both proposer and verifier-checked solver. We evaluate PopuLoRA on the three code-reasoning task types AZR defines: code_i (infer-input), code_o (infer-output), and code_f (infer-function), all verified mechanically by the executor. Self-play and asymmetric roles. Asymmetric self-play ( Sukhbaatar et al., 2018 ) , where one agent proposes tasks and another solves them, is the structural ancestor of PopuLoRA’s teacher–student loop. In the unsupervised environment design (UED) literature, PAIRED ( Dennis et al., 2020 ) formalises regret-based adversarial curriculum generation, POET ( Wang et al., 2019 ) co-evolves environments and agents, and ACCEL ( Parker-Holder et al., 2022 ) adds mutation operators on level structure; emergent autocurricula arise in multi-agent competition ( Baker et al., 2020 ) . In the LLM setting, a growing line of work separates proposer and solver: SPIN ( Chen et al., 2024 ) , Language Self-Play ( Kuba et al., 2025 ) , SOAR ( Sundaram et al., 2026 ) , R-Zero ( Huang et al., 2025 ) , ALIVE ( Duan et al., 2026 ) , TriPlay-RL ( Tan et al., 2026 ) , and others (Appendix 6 ). All are scalar in agent count ( ≤ \\leq 3 agents total). PopuLoRA differs in three ways: (i) we train populations of teachers and students rather than a single pair, (ii) updates are joint and on-policy rather than alternating, and (iii) the difficulty signal comes from cross-evaluation across the population rather than from a fixed target solve-rate band. Population-based training and LoRA evolution. Classical PBT ( Jaderberg et al., 2017 ) copies and perturbs full agent weights; at 7B scale the per-member footprint and the copy-and-perturb cost both become bottlenecks. Recent work lifts evolution into adapter space (GENOME ( Zhang et al., 2025 ) , EGGROLL ( Sarkar et al., 2025 ) , ESSA ( Korotyshova et al., 2025 ) , ES-at-Scale ( Qiu et al., 2025 ) ) but optimises against a fixed fitness function. PopuLoRA is orthogonal: evolution serves as the replacement step of an RLVR self-play loop, where the fitness signal is produced by the population itself through cross-evaluation. We embed LoRA merge operators (DARE ( Yu et al., 2024 ) , TIES-inspired ( Yadav et al., 2023 ) , task arithmetic ( Ilharco et al., 2023 ) , plus SVD-structured mutations) inside this online loop, so children re-enter gradient training immediately after recombination, unlike offline merging ( Akiba et al., 2025 ; Feng et al., 2025b ; Huang et al., 2023 ) . Further comparisons are in Appendix 6 . 3 \\vmaxkeepcase PopuLoRA Figure 1 : One PopuLoRA iteration. Matched teacher–student pairs generate and solve under a sandboxed verifier; the student’s failure rate is the teacher’s reward; every k k steps, LoRA evolution replaces the weakest members. PopuLoRA keeps AZR’s core self-play loop but replaces the single agent with a population of specialised LoRA adapters and replaces self-calibrated difficulty with cross-evaluation between matched members. Figure 1 shows the resulting training step; the rest of this section makes each component concrete. Section 3.1 fixes the RLVR objective and reward functions; Section 3.2 describes how the population is parameterised; Section 3.3 walks through one training step; and Section 3.4 specifies the LoRA weight-space evolution operators that serve as PopuLoRA’s PBT replacement step. 3.1 Objective and reward Each population member optimises its policy by RLVR: a verifier V V (a sandboxed Python executor plus a format checker) emits a scalar reward on every rollout, with no learned reward model in the loop. For a student rollout τ \\tau on a problem p p proposed by its matched teacher, R stu ​ ( τ ) = { + 1 if ​ V ​ ( τ , p ) = correct, − 0.5 if ​ V ​ ( τ , p ) = incorrect but well-formed, − 1 if the response fails format. R_{\\text{stu}}(\\tau)\\;=\\;\\begin{cases}+1&\\text{if }V(\\tau,p)=\\text{correct,}\\\\ -0.5&\\text{if }V(\\tau,p)=\\text{incorrect but well-formed,}\\\\ -1&\\text{if the response fails format.}\\end{cases} (1) For a teacher-proposed problem p p subsequently attempted by student s s , R tea ​ ( p ) = { − 1 if ​ p ​ fails to parse, execute, or is non-deterministic, 0 if ​ ρ ​ ( t , s , p ) = 0 , 1 − ρ ⁡ ( t , s , p ) otherwise, R_{\\text{tea}}(p)\\;=\\;\\begin{cases}-1&\\text{if }p\\text{ fails to parse, execute, or is non-deterministic,}\\\\ 0&\\text{if }\\rho(t,s,p)=0,\\\\ 1-\\rho(t,s,p)&\\text{otherwise,}\\end{cases} (2) where ρ ⁡ ( t , s , p ) \\rho(t,s,p) is the fraction of the student’s rollout samples that solve p p . The zero-reward case when no student solves the problem prevents teachers ",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: CC BY 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "Ouyang et al., 2022",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib7"
+    },
+    {
+      "text": "Chen et al., 2024",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib36"
+    },
+    {
+      "text": "Guo et al., 2025",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib37"
+    },
+    {
+      "text": "Lambert et al., 2024",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib38"
+    },
+    {
+      "text": "Zhao et al., 2025",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib26"
+    },
+    {
+      "text": "Kuba et al., 2025",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib44"
+    },
+    {
+      "text": "Chen et al., 2025",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib39"
+    },
+    {
+      "text": "Jana et al., 2026",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib40"
+    },
+    {
+      "text": "Liu et al., 2025",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib41"
+    },
+    {
+      "text": "Sundaram et al., 2026",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib45"
+    },
+    {
+      "text": "Duan et al., 2026",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib42"
+    },
+    {
+      "text": "Tan et al., 2026",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib43"
+    },
+    {
+      "text": "Ye et al., 2024",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib55"
+    },
+    {
+      "text": "Huang et al., 2025",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib56"
+    },
+    {
+      "text": "Sukhbaatar et al. (2018)",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib2"
+    },
+    {
+      "text": "Jaderberg et al., 2017",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib27"
+    },
+    {
+      "text": "Hu et al., 2022",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib28"
+    },
+    {
+      "text": "Yu et al., 2024",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib29"
+    },
+    {
+      "text": "Yadav et al., 2023",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib30"
+    },
+    {
+      "text": "Ilharco et al., 2023",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib31"
+    },
+    {
+      "text": "Akiba et al., 2025",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib46"
+    },
+    {
+      "text": "Huang et al., 2023",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib53"
+    },
+    {
+      "text": "Buehler and Buehler, 2024",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib54"
+    },
+    {
+      "text": "Feng et al., 2025b",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib51"
+    },
+    {
+      "text": "Zhang et al., 2025",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib47"
+    },
+    {
+      "text": "Zelikman et al., 2022",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib60"
+    },
+    {
+      "text": "Guan et al., 2025",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib59"
+    },
+    {
+      "text": "Yuan et al., 2024",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib58"
+    },
+    {
+      "text": "Dennis et al., 2020",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib9"
+    },
+    {
+      "text": "Wang et al., 2019",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib10"
+    },
+    {
+      "text": "Parker-Holder et al., 2022",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib11"
+    },
+    {
+      "text": "Baker et al., 2020",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib12"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2605.16727v1#S6"
+    },
+    {
+      "text": "Sarkar et al., 2025",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib48"
+    },
+    {
+      "text": "Korotyshova et al., 2025",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib49"
+    },
+    {
+      "text": "Qiu et al., 2025",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib50"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2605.16727v1#S3.F1"
+    },
+    {
+      "text": "3.1",
+      "url": "https://arxiv.org/html/2605.16727v1#S3.SS1"
+    },
+    {
+      "text": "3.2",
+      "url": "https://arxiv.org/html/2605.16727v1#S3.SS2"
+    },
+    {
+      "text": "3.3",
+      "url": "https://arxiv.org/html/2605.16727v1#S3.SS3"
+    },
+    {
+      "text": "3.4",
+      "url": "https://arxiv.org/html/2605.16727v1#S3.SS4"
+    },
+    {
+      "text": "Hu et al., 2025",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib6"
+    },
+    {
+      "text": "Williams, 1992",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib5"
+    },
+    {
+      "text": "Shao et al., 2024",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib3"
+    },
+    {
+      "text": "Schulman et al., 2017",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib4"
+    },
+    {
+      "text": "Kwon et al., 2023",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib15"
+    },
+    {
+      "text": "Sheng et al., 2024",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib16"
+    },
+    {
+      "text": "4.1",
+      "url": "https://arxiv.org/html/2605.16727v1#S4.SS1"
+    },
+    {
+      "text": "Vinyals et al., 2019",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib1"
+    },
+    {
+      "text": "Herbrich et al., 2006",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib62"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2605.16727v1#S3.E2"
+    },
+    {
+      "text": "8",
+      "url": "https://arxiv.org/html/2605.16727v1#S8"
+    },
+    {
+      "text": "4.6",
+      "url": "https://arxiv.org/html/2605.16727v1#S4.SS6"
+    },
+    {
+      "text": "Hui et al., 2024",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib14"
+    },
+    {
+      "text": "4.7",
+      "url": "https://arxiv.org/html/2605.16727v1#S4.SS7"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2605.16727v1#S7"
+    },
+    {
+      "text": "Chen et al., 2021",
+      "url": "https://arxiv.org/html/2605.16727v1#bib.bib17"
+    }
+  ],
+  "matching_link_count": 232,
+  "links_truncated": true,
+  "invalid_links": []
+}

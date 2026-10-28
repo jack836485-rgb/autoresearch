@@ -1,0 +1,276 @@
+{
+  "url": "https://arxiv.org/html/2605.08468v1",
+  "final_url": "https://arxiv.org/html/2605.08468v1",
+  "status": 200,
+  "title": "PYTHALAB-MERA: Validation-Grounded Memory, Retrieval, and Acceptance Control for Frozen-LLM Coding Agents",
+  "metadata": {},
+  "paper": {
+    "title": "PYTHALAB-MERA: Validation-Grounded Memory, Retrieval, and Acceptance Control for Frozen-LLM Coding Agents",
+    "title_warning": null,
+    "abstract": "Abstract Local LLM-based coding agents increasingly work in settings where correctness is earned through execution feedback, persistent state, and bounded repair, not through a single fluent answer. Static retrieval, long-context prompting, self-refinement, execution-feedback repair, and reinforcement learning over model weights each address part of this setting, but they do not jointly provide validation-grounded episodic memory, adaptive retrieval-action selection, delayed credit assignment, and structural skill reuse around a frozen local model. We introduce PYTHALAB - MERA , a lightweight external controller for local validation-conditioned code generation. The frozen language model proposes complete source files; the controller decides which memory records and AST-derived skills should enter the next prompt, validates each candidate through a fail-fast pipeline, converts validation outcomes into bounded shaped rewards, and propagates delayed credit through TD( λ \\lambda )-style eligibility traces. We evaluate the implementation as a local CLI artifact on reinforcement-learning coding tasks with strict validation gates. In the measured hard RL setting with three tasks, three repetitions, and a three-attempt budget, PYTHALAB - MERA passed 8/9 strict validations; the self-refinement baseline and the investigated GRACE extension each passed 0/9. These results support a deliberately bounded claim: in this recorded setting, the external memory-and-retrieval controller improved validation success. They do not establish general-purpose code synthesis, state-of-the-art performance, formal program correctness, or formal safety.",
+    "authors": [
+      {
+        "name": "Mehmet Iscan",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "",
+        "affiliations": [
+          "Affiliation: PythaLab, Yildiz Technical University"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Mehmet Iscan Affiliation: PythaLab, Yildiz Technical University E-mail miscan@yildiz.edu.tr",
+    "arxiv_version": "2605.08468v1",
+    "arxiv_version_date": "2026-05-08"
+  },
+  "text": "PYTHALAB-MERA: Validation-Grounded Memory, Retrieval, and Acceptance Control for Frozen-LLM Coding Agents Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: arXiv.org perpetual non-exclusive license arXiv:2605.08468v1 [cs.CL] 08 May 2026 PYTHALAB-MERA: Validation-Grounded Memory, Retrieval, and Acceptance Control for Frozen-LLM Coding Agents Mehmet Iscan Affiliation: PythaLab, Yildiz Technical University E-mail miscan@yildiz.edu.tr Abstract Local LLM-based coding agents increasingly work in settings where correctness is earned through execution feedback, persistent state, and bounded repair, not through a single fluent answer. Static retrieval, long-context prompting, self-refinement, execution-feedback repair, and reinforcement learning over model weights each address part of this setting, but they do not jointly provide validation-grounded episodic memory, adaptive retrieval-action selection, delayed credit assignment, and structural skill reuse around a frozen local model. We introduce PYTHALAB - MERA , a lightweight external controller for local validation-conditioned code generation. The frozen language model proposes complete source files; the controller decides which memory records and AST-derived skills should enter the next prompt, validates each candidate through a fail-fast pipeline, converts validation outcomes into bounded shaped rewards, and propagates delayed credit through TD( λ \\lambda )-style eligibility traces. We evaluate the implementation as a local CLI artifact on reinforcement-learning coding tasks with strict validation gates. In the measured hard RL setting with three tasks, three repetitions, and a three-attempt budget, PYTHALAB - MERA passed 8/9 strict validations; the self-refinement baseline and the investigated GRACE extension each passed 0/9. These results support a deliberately bounded claim: in this recorded setting, the external memory-and-retrieval controller improved validation success. They do not establish general-purpose code synthesis, state-of-the-art performance, formal program correctness, or formal safety. 1 Introduction LLM-based coding agents are increasingly used in long-horizon, tool-mediated software workflows in which a plausible single output is not sufficient. A generated program must satisfy interface contracts, import constraints, runtime behavior, and task-specific tests; failures at one step influence the context required at later steps. Recent work on stateful code-agent benchmarks, software-engineering agents, and terminal-native coding systems shows that agent performance depends strongly on maintaining task state, execution evidence, and structured context rather than merely extending the prompt with more text [ 29 , 6 , 38 , 39 ] . In this setting, the central problem is not only code generation but also control: the agent must decide which evidence to preserve, which error signals to trust, which prior attempts to recall, and when a candidate has reached an externally defined acceptance condition. The limitations of single-shot generation are now well documented. Iterative self-repair can improve pass rates over one-pass generation, but unguided self-correction remains vulnerable to model-internal hallucination and weak feedback grounding [ 30 , 14 ] . Execution-feedback methods provide a stronger signal by returning compiler diagnostics, runtime failures, unit-test outcomes, or behavioral feedback to the model [ 31 , 5 ] . However, many execution-feedback systems still use static prompt rules or manually designed repair loops. Conversely, reinforcement-learning approaches for code generation often update the generator itself using execution-derived rewards [ 15 , 47 ] , which can be computationally expensive, unstable for small local traces, and difficult to deploy in privacy-preserving local settings. This creates a gap for architectures that use validation feedback adaptively while keeping the language model frozen. Memory and retrieval add a second dimension to the problem. Retrieval-augmented program repair, AST-guided repair, repository-level RAG, and experiential memory systems show that prior code, failure traces, and structural context can improve repair or maintenance workflows [ 35 , 36 , 37 , 1 , 3 ] . Yet passive nearest-neighbor retrieval is not enough when usefulness depends on the current failure mode, attempt index, validation progress, and downstream outcome. Agentic RAG has therefore been framed as a sequential decision process in which retrieval is a state-dependent action rather than a preprocessing step [ 2 ] . PYTHALAB - MERA follows this interpretation, but specializes it to local code repair: retrieval actions select failure-matched examples, AST-structural matches, skills, or no context, and these actions are updated using validation-derived rewards. The same persistence that enables memory reuse also introduces risks. Memory poisoning, stale records, prompt injection through recalled evidence, and leakage from private retrieval stores are documented concerns for long-lived LLM agents [ 32 , 33 , 34 , 11 ] . Therefore, a memory-augmented coding agent should not treat recalled snippets as authoritative. In PYTHALAB - MERA , recalled episodes and extracted skills are inserted only as untrusted prompt evidence; correctness is externalized through a fail-fast validation pipeline. This does not provide formal safety, but it prevents memory similarity or model confidence from serving as the acceptance criterion. This paper presents a local validation-conditioned coding-agent architecture, PYTHALAB - MERA , centered on a lightweight external controller for a frozen LLM. The method is built around four principles. First, generated code is accepted only if it reaches a validator-defined zero-cost terminal set. Second, memory retrieval is a contextual action selected by a LinUCB controller, not a fixed nearest-neighbor lookup. Third, validation outcomes are converted into bounded shaped rewards and propagated backward through the repair trajectory using TD( λ \\lambda )-style delayed credit. Fourth, successful programs are mined into an AST-derived skill library, but skills remain untrusted until a future generated candidate passes validation. The contributions are as follows. (i) We formalize local code repair with a frozen LLM as a finite-horizon validation-conditioned control problem over prompt evidence, memory retrieval, reward, and acceptance. (ii) We implement a controller that combines deterministic episodic fingerprints, LinUCB retrieval-action selection, validation-shaped rewards, eligibility-weighted delayed credit, and AST-derived skill reuse. (iii) We state a narrow zero-cost acceptance property that ties acceptance to the implemented validator-defined terminal set. (iv) We report local benchmark evidence against a self-refinement baseline and an investigated GRACE extension. (v) We keep the empirical claim deliberately bounded, separating the supported local result from unsupported claims about general-purpose synthesis, formal correctness, formal safety, or state-of-the-art performance. We use the project-qualified name PYTHALAB - MERA rather than the generic MERA shorthand to make the proposed artifact easier to distinguish from unrelated uses of the acronym. The name emphasizes the actual contribution: a PythaLab implementation of memory-enhanced retrieval and validator-defined acceptance control around a frozen local generator. We use GRACE to denote an investigated additive extension, the Gap-aware Repair And Consolidation Engine. In this implementation, GRACE adds intent–execution-gap repair guidance, AST-diff repair suggestions, and score-thresholded transition consolidation on top of the PYTHALAB - MERA controller. It is not the proposed final method; it is retained as a negative-result comparison arm. 2 Method 2.1 Methodological framing PYTHALAB - MERA is a reinforcement-learning-inspired side controller for local validation-conditioned code generation. The frozen language model is denoted by G ω G_{\\omega} , where ω \\omega are fixed parameters. Unlike model-tuning approaches for execution-grounded code generation [ 47 , 15 , 4 ] , PYTHALAB - MERA does not update the generator: ω t + 1 = ω t = ω . \\omega_{t+1}=\\omega_{t}=\\omega. (1) The adaptive object is an external controller state, Θ t = ( B t ret , M t , L t , 𝒯 t , B t dec ) , \\Theta_{t}=\\left(B_{t}^{\\mathrm{ret}},M_{t},L_{t},\\mathcal{T}_{t},B_{t}^{\\mathrm{dec}}\\right), (2) where B t ret B_{t}^{\\mathrm{ret}} is the LinUCB retrieval-action controller, M t M_{t} is episodic memory, L t L_{t} is the AST-derived skill library, 𝒯 t \\mathcal{T}_{t} is the delayed-credit trace state, and B t dec B_{t}^{\\mathrm{dec}} is an optional decoding-profile bandit. The main learning problem is therefore not token-level language modeling but controller-level adaptation over prompt conditioning, memory, and validation feedback. This separation is aligned with agent architectures that externalize memory and control rather than embedding all adaptation into the LLM [ 40 , 51 , 65 ] . Figure 1: PYTHALAB - MERA validation-grounded control loop. The frozen generator proposes a candidate program, while the external controller selects retrieval evidence, validates the candidate, and converts validation feedback into memory and credit updates. Figure 1 separates generation from control. The task description and current target file are first compressed into a state fingerprint. A LinUCB retrieval controller then chooses the prompt-evidence action: no retrieval, failure-matched episodes, AST-structural matches, reusable skills, or a small mixture of these sources. Retrieved episodes and skills are treated as untrusted context, not as correctness evidence. The frozen LLM receives the composed prompt and emits a candidate implementation. Acceptance is decided only by the fail-fast validation pipeline. The resulting success, partial progress, failure type, and runtime cost are converted into bounded reward/cost signals; these signals update the retrieval controller, episodic memory, AST-skill store, and TD( λ \\lambda )-style delayed-credit trace. Thus, PYTHALAB - MERA learns how to condition future prompts without changing the LLM weights. 2.2 Task, state, and action A task instance consists of a natural-language request q q , a local workspace W W , and a target implementation file x t x_{t} . In the implemented artifact, the target file is a single Python file named algorithm.py . The agent has an attempt budget T T . At attempt t t , the controller observes s t = ( q , x t , H t , F t − 1 , M t , L t , c t ) , s_{t}=\\left(q,x_{t},H_{t},F_{t-1},M_{t},L_{t},c_{t}\\right), (3) where H t H_{t} is retained interaction history, F t − 1 F_{t-1} is the previous validation report, M t M_{t} is episodic memory, L t L_{t} is the skill library, and c t c_{t} is a compact context key encoding task family, model identity, edit mode, previous failure type, previous validation progress, and a coarse duration bucket. The action is decomposed into optional decoding control, retrieval control, and generated code: a t = ( a t dec , a t ret , a t gen ) . a_{t}=\\left(a_{t}^{\\mathrm{dec}},a_{t}^{\\mathrm{ret}},a_{t}^{\\mathrm{gen}}\\right). (4) The core PYTHALAB - MERA decision is a t ret a_{t}^{\\mathrm{ret}} , which determines whether to condition the next prompt on failure-matched memories, AST-structural matches, skills, a mixture of these, or no retrieved context. The prompt composer is deterministic: P t = Γ ⁡ ( q , x t , H t , F t − 1 , R t , S t ) , P_{t}=\\Gamma(q,x_{t},H_{t},F_{t-1},R_{t},S_{t}), (5) where R t R_{t} denotes selected episodic records and S t S_{t} selected skills. The frozen model then produces text and the controller extracts a Python candidate: y t = G ω ​ ( P t ) , x ^ t = ℰ ⁡ ( y t ) , y_{t}=G_{\\omega}(P_{t}),\\qquad\\hat{x}_{t}=\\",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: arXiv.org perpetual non-exclusive license",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "29",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib29"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib6"
+    },
+    {
+      "text": "38",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib38"
+    },
+    {
+      "text": "39",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib39"
+    },
+    {
+      "text": "30",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib30"
+    },
+    {
+      "text": "14",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib14"
+    },
+    {
+      "text": "31",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib31"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib5"
+    },
+    {
+      "text": "15",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib15"
+    },
+    {
+      "text": "47",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib47"
+    },
+    {
+      "text": "35",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib35"
+    },
+    {
+      "text": "36",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib36"
+    },
+    {
+      "text": "37",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib37"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib1"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib3"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib2"
+    },
+    {
+      "text": "32",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib32"
+    },
+    {
+      "text": "33",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib33"
+    },
+    {
+      "text": "34",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib34"
+    },
+    {
+      "text": "11",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib11"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib4"
+    },
+    {
+      "text": "40",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib40"
+    },
+    {
+      "text": "51",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib51"
+    },
+    {
+      "text": "65",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib65"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2605.08468v1#S2.F1"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2605.08468v1#S2.E9"
+    },
+    {
+      "text": "15",
+      "url": "https://arxiv.org/html/2605.08468v1#S2.E15"
+    },
+    {
+      "text": "14",
+      "url": "https://arxiv.org/html/2605.08468v1#S2.E14"
+    },
+    {
+      "text": "48",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib48"
+    },
+    {
+      "text": "53",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib53"
+    },
+    {
+      "text": "54",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib54"
+    },
+    {
+      "text": "55",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib55"
+    },
+    {
+      "text": "52",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib52"
+    },
+    {
+      "text": "44",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib44"
+    },
+    {
+      "text": "45",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib45"
+    },
+    {
+      "text": "46",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib46"
+    },
+    {
+      "text": "26",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib26"
+    },
+    {
+      "text": "41",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib41"
+    },
+    {
+      "text": "42",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib42"
+    },
+    {
+      "text": "43",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib43"
+    },
+    {
+      "text": "27",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib27"
+    },
+    {
+      "text": "49",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib49"
+    },
+    {
+      "text": "50",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib50"
+    },
+    {
+      "text": "35",
+      "url": "https://arxiv.org/html/2605.08468v1#S2.E35"
+    },
+    {
+      "text": "38",
+      "url": "https://arxiv.org/html/2605.08468v1#S2.E38"
+    },
+    {
+      "text": "56",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib56"
+    },
+    {
+      "text": "57",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib57"
+    },
+    {
+      "text": "58",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib58"
+    },
+    {
+      "text": "59",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib59"
+    },
+    {
+      "text": "60",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib60"
+    },
+    {
+      "text": "25",
+      "url": "https://arxiv.org/html/2605.08468v1#bib.bib25"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2605.08468v1#alg1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2605.08468v1#alg2"
+    },
+    {
+      "text": "31",
+      "url": "https://arxiv.org/html/2605.08468v1#S2.E31"
+    },
+    {
+      "text": "32",
+      "url": "https://arxiv.org/html/2605.08468v1#S2.E32"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2605.08468v1#S3.T1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2605.08468v1#S3.T2"
+    }
+  ],
+  "matching_link_count": 149,
+  "links_truncated": true,
+  "invalid_links": []
+}

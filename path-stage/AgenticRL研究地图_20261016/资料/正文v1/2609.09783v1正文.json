@@ -1,0 +1,309 @@
+{
+  "url": "https://arxiv.org/html/2609.09783v1",
+  "final_url": "https://arxiv.org/html/2609.09783v1",
+  "status": 200,
+  "title": "BRACE: Anchored Bellman-Residual Correction for Stale Critics in Asynchronous RL",
+  "metadata": {},
+  "paper": {
+    "title": "BRACE: Anchored Bellman-Residual Correction for Stale Critics in Asynchronous RL",
+    "title_warning": null,
+    "abstract": "Abstract Asynchronous reinforcement learning has become the standard way to scale training for\nlanguage models, but the resulting policy lag biases the critic toward the stale behavior\npolicy. Existing work on asynchronous LLM training corrects the actor and leaves this bias\nunaddressed, while the off-policy value correction of classical RL does not carry over to\nlong-horizon agentic tasks, since a short correction horizon leaves the regression target\nfree of the reward and a long one lets the product of importance ratios drift exponentially\nwith the trajectory length. We propose BRACE, an anchored Bellman-residual correction for\nstale value models. BRACE bounds the correction horizon to a prefix of policy tokens and\nanchors a constant-weight Monte-Carlo tail beyond it, which separates policy correction from\nreward propagation. BRACE improves mean@1 on BrowseComp-Plus by 2.4 % 2.4\\% over the strongest baseline, runs 2.46 × 2.46\\times faster per step than synchronous training, and remains stable 50 50 updates\noff-policy.",
+    "authors": [
+      {
+        "name": "Guanqun Zhao",
+        "affiliations": [
+          "Affiliation: Beijing University of Posts and Telecommunications",
+          "Affiliation: Baidu Inc."
+        ],
+        "notes": []
+      },
+      {
+        "name": "Zijun Xie",
+        "affiliations": [
+          "Affiliation: Peking University",
+          "Affiliation: Baidu Inc."
+        ],
+        "notes": []
+      },
+      {
+        "name": "Binbin Zheng",
+        "affiliations": [
+          "Affiliation: University of Science and Technology of China",
+          "Affiliation: Baidu Inc."
+        ],
+        "notes": []
+      },
+      {
+        "name": "Jiafeng Lu",
+        "affiliations": [
+          "Affiliation: Baidu Inc."
+        ],
+        "notes": []
+      },
+      {
+        "name": "Enlei Gong",
+        "affiliations": [
+          "Affiliation: Baidu Inc."
+        ],
+        "notes": []
+      },
+      {
+        "name": "Zeyu Chen",
+        "affiliations": [
+          "Affiliation: Baidu Inc."
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Guanqun Zhao Affiliation: Beijing University of Posts and Telecommunications Affiliation: Baidu Inc. Zijun Xie Affiliation: Peking University Affiliation: Baidu Inc. Binbin Zheng Affiliation: University of Science and Technology of China Affiliation: Baidu Inc. Jiafeng Lu Affiliation: Baidu Inc. Enlei Gong Affiliation: Baidu Inc. Zeyu Chen Email: {zhaoguanqun, lujiafeng, gongenlei, chenzeyu01}@baidu.com ∗ Work done during an internship at Baidu Inc. † Corresponding authors. Affiliation: Baidu Inc.",
+    "arxiv_version": "2609.09783v1",
+    "arxiv_version_date": "2026-09-09"
+  },
+  "text": "BRACE: Anchored Bellman-Residual Correction for Stale Critics in Asynchronous RL Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: CC BY 4.0 arXiv:2609.09783v1 [cs.LG] 09 Sep 2026 BRACE: Anchored Bellman-Residual Correction for Stale Critics in Asynchronous RL Guanqun Zhao Affiliation: Beijing University of Posts and Telecommunications Affiliation: Baidu Inc. Zijun Xie Affiliation: Peking University Affiliation: Baidu Inc. Binbin Zheng Affiliation: University of Science and Technology of China Affiliation: Baidu Inc. Jiafeng Lu Affiliation: Baidu Inc. Enlei Gong Affiliation: Baidu Inc. Zeyu Chen Email: {zhaoguanqun, lujiafeng, gongenlei, chenzeyu01}@baidu.com ∗ Work done during an internship at Baidu Inc. † Corresponding authors. Affiliation: Baidu Inc. Abstract Asynchronous reinforcement learning has become the standard way to scale training for language models, but the resulting policy lag biases the critic toward the stale behavior policy. Existing work on asynchronous LLM training corrects the actor and leaves this bias unaddressed, while the off-policy value correction of classical RL does not carry over to long-horizon agentic tasks, since a short correction horizon leaves the regression target free of the reward and a long one lets the product of importance ratios drift exponentially with the trajectory length. We propose BRACE, an anchored Bellman-residual correction for stale value models. BRACE bounds the correction horizon to a prefix of policy tokens and anchors a constant-weight Monte-Carlo tail beyond it, which separates policy correction from reward propagation. BRACE improves mean@1 on BrowseComp-Plus by 2.4 % 2.4\\% over the strongest baseline, runs 2.46 × 2.46\\times faster per step than synchronous training, and remains stable 50 50 updates off-policy. 1 Introduction Reinforcement learning (RL) has become the standard means of training a pretrained large language model (LLM) to plan GLM-5-Team et al. (2026) , invoke tools Qwen Team (2026) , and reason over many turns DeepSeek-AI (2026) . As task horizons lengthen, the synchronous recipe spends an increasing fraction of each step waiting for the slowest trajectory in the batch. A growing body of training systems therefore adopts asynchronous execution Sheng et al. (2025) ; Lu et al. (2025) ; Piché et al. (2025) ; Li et al. (2026b) ; Hu et al. (2026) ; Wu et al. (2025) ; Bai et al. (2026b) ; Li et al. (2026a) , decoupling rollout generation from policy optimization so that the two proceed concurrently Tan et al. (2026) ; Bai et al. (2026a) . Asynchronous execution, however, introduces an off-policy problem Yao et al. (2025) ; Qi et al. (2025) ; Ma et al. (2025) , since the behaviour policy μ \\mu that produced a trajectory lags the target policy π \\pi . The dominant recipe for language models, group-relative optimization such as GRPO Shao et al. (2024) , exposes two serious problems in the long-horizon regime. Staleness compounds, as an advantage cannot be formed until every sample in a group is complete, so the staleness of each is set by the slowest member of its group Hou et al. (2026) . Credit assignment degrades alongside it Zhang (2026) . Both motivate a return to critic-based PPO Schulman et al. (2017) , in which the value function supplies a baseline at every position. Remedies proposed for the mismatch itself act on the actor’s trust region, whether through asymmetric clipping Li et al. (2026e) ; Çağatan et al. (2026) ; Fu et al. (2026b) ; Sheng et al. (2026) ; Qi et al. (2026) , truncated or masked importance ratios Team et al. (2025) ; Guo et al. (2026) ; Zheng et al. (2025b) ; Huang et al. (2026) ; Li et al. (2026d) , or objectives that separate the behaviour from the proximal policy Fu et al. (2026a) ; Guan et al. (2026) ; Ritter et al. (2026) ; Luo et al. (2026) ; Yuan et al. (2025) . All of these remedies leave the critic’s regression target unchanged. Yet we show that the critic is precisely where the asynchronous bias accumulates. Its regression targets are built from trajectories drawn by μ \\mu , so it converges to the value function of the stale policy, and the advantage subtracts that prediction. V-trace Espeholt et al. (2018) , the standard value correction in classical RL, does not transfer to RL for LLMs. We propose BRACE, a correction to the value target of asynchronous PPO. Our contributions are as follows. • We identify an underexplored critic-side bias in asynchronous RL for LLMs and show that existing off-policy value corrections do not transfer to this setting. • We introduce a k k -capped correction horizon, which confines the importance correction to k k policy tokens after each position, and an anchored Monte-Carlo tail, which carries a single constant weight beyond the window and delivers the terminal reward to every position. • BRACE attains the best score on 13 13 of 16 16 metrics across four long-horizon agentic tasks, leading the strongest baseline by 2.4 % 2.4\\% mean@1 on BrowseComp-Plus. It runs at 2.46 × 2.46\\times the step rate of synchronous execution, and training stays stable out to a version gap of 50 50 . 2 Related Work Group-relative optimization Shao et al. (2024) ; Yu et al. (2025) ; Zheng et al. (2025a) fits no value function at all. This creates a credit assignment problem Feng et al. (2025) ; Xu and Ding (2025) ; Li et al. (2026c) . A single scalar advantage cannot separate a bad early tool call from a wrong answer Xie et al. (2026b) ; Dong et al. (2025) ; Wang et al. (2026) , and the problem compounds as trajectories lengthen Ma et al. (2026) . Asynchrony makes this worse Hou et al. (2026) , so a learned value model remains the reasonable choice in the long-horizon regime Yue et al. (2025) , and the correctness of its regression target becomes the operative question. Work on stabilizing asynchronous RL for LLMs has nonetheless concentrated on the actor. One family reshapes the trust region through asymmetric Fu et al. (2026b) ; Qi et al. (2026) ; Shen et al. (2026) ; Xie et al. (2026a) ; Yang et al. (2026) ; Li et al. (2026d) or adaptive clipping Li et al. (2026e) ; Sheng et al. (2026) ; Huang et al. (2026) ; Min et al. (2026) . A second masks the tokens on which the inference and training engines disagree Zheng et al. (2025b) ; Huang et al. (2026) ; Li et al. (2026d) ; Zhao et al. (2026) ; Liu et al. (2026) , differing only in how disagreement is measured. IcePop Team et al. (2025) drops a token when the ratio between the two engines’ probabilities leaves a prescribed interval, whereas KPop Guo et al. (2026) drops it when the Bernoulli divergence between the two token distributions exceeds a threshold in either direction. A third redefines the reference policy rather than filtering tokens. AReaL Fu et al. (2026a) centres the trust region on the parameters immediately preceding the update rather than on the sampler, and PPO-EWMA Guan et al. (2026) replaces the unavailable reference by an exponentially weighted average of actor parameters. All of these act on the gradient the actor receives. The value model supplying the baseline for that gradient is left to ordinary regression on stale trajectories. V-trace Espeholt et al. (2018) corrects the lag between the behaviour policy and the policy being updated with truncated importance weights, but it was designed for classical RL with dense rewards and short segments, neither of which agentic RL training provides. BRACE resolves this with a k k -capped trace and a Monte-Carlo tail. Figure 1: Synchronous execution idles the rollout workers. Asynchrony separates the behaviour policy μ \\mu from the target policy π \\pi , so ordinary regression fits V μ V^{\\mu} where the actor needs V π V^{\\pi} . The upper panels contrast the uncorrected GAE target with the BRACE target, which weights residuals within a correction horizon k k and leaves the tail unweighted to telescope to the terminal reward R R . 3 Motivation 3.1 The critic fits the stale policy We formulate generation as a token-level Markov decision process with deterministic transitions, s t = ( x , a < t ) s_{t}=(x,a_{<t}) and s t + 1 = ( s t , a t ) s_{t+1}=(s_{t},a_{t}) . A verifier scores the completed response, so r l = R ⁡ ( x , y ) ​ 1 l = T r_{l}=R(x,y)\\,\\bm{1}_{l=T} , and V ⁡ ( s T + 1 ) = 0 V(s_{T+1})=0 . Let μ \\mu be the behaviour policy that drew the response and π \\pi the target policy being updated, which asynchronous execution separates by the staleness budget. Figure 1 places this separation on the training timeline, where the critic is fitted on responses drawn several parameter versions earlier, and contrasts the value function that ordinary regression converges to with the one the advantage requires. The two are V γ μ ​ ( s ) = 𝔼 μ ​ [ ∑ k ≥ 0 γ k ​ r t + k | s t = s ] , V γ π ​ ( s ) = 𝔼 π ​ [ ∑ k ≥ 0 γ k ​ r t + k | s t = s ] , V^{\\mu}_{\\gamma}(s)=\\mathbb{E}_{\\,\\mu}\\left[\\sum_{k\\geq 0}\\gamma^{k}r_{t+k}\\;\\middle|\\;s_{t}=s\\right],\\qquad V^{\\pi}_{\\gamma}(s)=\\mathbb{E}_{\\,\\pi}\\left[\\sum_{k\\geq 0}\\gamma^{k}r_{t+k}\\;\\middle|\\;s_{t}=s\\right], (1) and the critic regresses, under squared loss, the target V targ ​ ( s t ) = V ⁡ ( s t ) + ∑ l = t T ( γ ​ λ ) l − t ​ δ l , δ l = r l + γ ​ V ​ ( s l + 1 ) − V ⁡ ( s l ) . V_{\\mathrm{targ}}(s_{t})=V(s_{t})+\\sum_{l=t}^{T}(\\gamma\\lambda)^{\\,l-t}\\delta_{l},\\qquad\\delta_{l}=r_{l}+\\gamma V(s_{l+1})-V(s_{l}). (2) Proposition 1 . Under exact regression on trajectories drawn by μ \\mu , the target of equation 2 drives the critic to V γ μ V^{\\mu}_{\\gamma} . Telescoping equation 2 expresses the target as a mixture of n n -step returns, whose conditional expectation under μ \\mu is the same mixture of powers of the Bellman expectation operator 𝒯 μ \\mathcal{T}_{\\mu} of μ \\mu , 𝔼 y ∼ μ ​ [ V targ ​ ( s t ) ∣ s t = s ] = ( 𝒯 μ λ ​ V ) ​ ( s ) , 𝒯 μ λ = ( 1 − λ ) ​ ∑ n ≥ 1 λ n − 1 ​ 𝒯 μ n . \\mathbb{E}_{y\\sim\\mu}\\big[V_{\\mathrm{targ}}(s_{t})\\mid s_{t}=s\\big]=(\\mathcal{T}^{\\lambda}_{\\mu}V)(s),\\qquad\\mathcal{T}^{\\lambda}_{\\mu}=(1-\\lambda)\\sum_{n\\geq 1}\\lambda^{\\,n-1}\\mathcal{T}_{\\mu}^{\\,n}. (3) The minimiser of a squared loss is the conditional expectation of the regressed quantity, so one round of training is V ↦ 𝒯 μ λ ​ V V\\mapsto\\mathcal{T}^{\\lambda}_{\\mu}V , and the iteration converges to the value function of the behaviour policy, 𝒯 μ λ ​ V γ μ = V γ μ . \\mathcal{T}^{\\lambda}_{\\mu}V^{\\mu}_{\\gamma}=V^{\\mu}_{\\gamma}. (4) As a special case, with γ = λ = 1 \\gamma=\\lambda=1 the target carries no V V at all, V targ ​ ( s t ) = R ⁡ ( x , y ) for every ​ t , 𝔼 y ∼ μ ​ [ R ∣ s t ] = V μ ​ ( s t ) , V_{\\mathrm{targ}}(s_{t})=R(x,y)\\ \\ \\text{for every }t,\\qquad\\mathbb{E}_{y\\sim\\mu}\\big[R\\mid s_{t}\\big]=V^{\\mu}(s_{t}), (5) so the critic converges to V μ V^{\\mu} . Appendices A and A.4 derive equation 3 –equation 5 . The advantage A ^ t = R − V μ ​ ( s t ) \\hat{A}_{t}=R-V^{\\mu}(s_{t}) inherits this gap, 𝔼 y ∼ π ​ [ A ^ t ] = V π ​ ( s t ) − V μ ​ ( s t ) = b ⁡ ( s t ) ≠ 0 . \\mathbb{E}_{y\\sim\\pi}\\big[\\hat{A}_{t}\\big]=V^{\\pi}(s_{t})-V^{\\mu}(s_{t})=b(s_{t})\\neq 0. (6) Neither V π V^{\\pi} nor V μ V^{\\mu} is observed, so we estimate both within one batch, b ^ = 𝔼 ^ π ​ [ R ] − 𝔼 ^ μ ​ [ R ] , g ^ π = | v ¯ − 𝔼 ^ π ​ [ R ] | , \\hat{b}=\\hat{\\mathbb{E}}_{\\pi}[R]-\\hat{\\mathbb{E}}_{\\mu}[R],\\qquad\\hat{g}_{\\pi}=\\big|\\bar{v}-\\hat{\\mathbb{E}}_{\\pi}[R]\\big|, (7) where v ¯ \\bar{v} is the critic’s prediction. Here b ^ \\hat{b} estimates the gap of equation 6 and g ^ π \\hat{g}_{\\pi} the distance from the critic to V π V^{\\pi} . Figure 2(a) shows b ⁡ ( s t ) b(s_{t}) largest near the start of a response and decreasing toward the terminal state, so the bias is position dependent rather than a batch-level offset. Advantage whitening removes its batch mean but not its variation across prompts and positions. The gap is driven by the suffix, since R R is drawn under μ \\mu beyond a t a_{t} and b ⁡ ( s t ) b(s_{t}) accumulates that mismatch over",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: CC BY 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "GLM-5-Team et al. (2026)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib2"
+    },
+    {
+      "text": "Qwen Team (2026)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib47"
+    },
+    {
+      "text": "DeepSeek-AI (2026)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib1"
+    },
+    {
+      "text": "Sheng et al. (2025)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib3"
+    },
+    {
+      "text": "Lu et al. (2025)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib5"
+    },
+    {
+      "text": "Piché et al. (2025)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib6"
+    },
+    {
+      "text": "Li et al. (2026b)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib18"
+    },
+    {
+      "text": "Hu et al. (2026)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib21"
+    },
+    {
+      "text": "Wu et al. (2025)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib29"
+    },
+    {
+      "text": "Bai et al. (2026b)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib30"
+    },
+    {
+      "text": "Li et al. (2026a)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib56"
+    },
+    {
+      "text": "Tan et al. (2026)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib58"
+    },
+    {
+      "text": "Bai et al. (2026a)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib59"
+    },
+    {
+      "text": "Yao et al. (2025)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib7"
+    },
+    {
+      "text": "Qi et al. (2025)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib55"
+    },
+    {
+      "text": "Ma et al. (2025)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib61"
+    },
+    {
+      "text": "Shao et al. (2024)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib42"
+    },
+    {
+      "text": "Hou et al. (2026)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib40"
+    },
+    {
+      "text": "Zhang (2026)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib48"
+    },
+    {
+      "text": "Schulman et al. (2017)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib46"
+    },
+    {
+      "text": "Li et al. (2026e)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib8"
+    },
+    {
+      "text": "Çağatan et al. (2026)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib12"
+    },
+    {
+      "text": "Fu et al. (2026b)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib13"
+    },
+    {
+      "text": "Sheng et al. (2026)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib19"
+    },
+    {
+      "text": "Qi et al. (2026)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib22"
+    },
+    {
+      "text": "Team et al. (2025)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib9"
+    },
+    {
+      "text": "Guo et al. (2026)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib10"
+    },
+    {
+      "text": "Zheng et al. (2025b)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib11"
+    },
+    {
+      "text": "Huang et al. (2026)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib20"
+    },
+    {
+      "text": "Li et al. (2026d)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib23"
+    },
+    {
+      "text": "Fu et al. (2026a)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib4"
+    },
+    {
+      "text": "Guan et al. (2026)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib14"
+    },
+    {
+      "text": "Ritter et al. (2026)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib15"
+    },
+    {
+      "text": "Luo et al. (2026)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib16"
+    },
+    {
+      "text": "Yuan et al. (2025)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib17"
+    },
+    {
+      "text": "Espeholt et al. (2018)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib41"
+    },
+    {
+      "text": "Yu et al. (2025)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib25"
+    },
+    {
+      "text": "Zheng et al. (2025a)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib26"
+    },
+    {
+      "text": "Feng et al. (2025)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib49"
+    },
+    {
+      "text": "Xu and Ding (2025)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib50"
+    },
+    {
+      "text": "Li et al. (2026c)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib51"
+    },
+    {
+      "text": "Xie et al. (2026b)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib38"
+    },
+    {
+      "text": "Dong et al. (2025)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib27"
+    },
+    {
+      "text": "Wang et al. (2026)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib53"
+    },
+    {
+      "text": "Ma et al. (2026)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib39"
+    },
+    {
+      "text": "Yue et al. (2025)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib52"
+    },
+    {
+      "text": "Shen et al. (2026)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib28"
+    },
+    {
+      "text": "Xie et al. (2026a)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib37"
+    },
+    {
+      "text": "Yang et al. (2026)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib44"
+    },
+    {
+      "text": "Min et al. (2026)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib57"
+    },
+    {
+      "text": "Zhao et al. (2026)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib43"
+    },
+    {
+      "text": "Liu et al. (2026)",
+      "url": "https://arxiv.org/html/2609.09783v1#bib.bib60"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.09783v1#S2.F1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2609.09783v1#S3.E2"
+    },
+    {
+      "text": "A",
+      "url": "https://arxiv.org/html/2609.09783v1#A1"
+    },
+    {
+      "text": "A.4",
+      "url": "https://arxiv.org/html/2609.09783v1#A1.SS4"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2609.09783v1#S3.E3"
+    }
+  ],
+  "matching_link_count": 203,
+  "links_truncated": true,
+  "invalid_links": []
+}

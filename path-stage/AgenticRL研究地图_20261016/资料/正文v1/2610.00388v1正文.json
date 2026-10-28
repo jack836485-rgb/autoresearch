@@ -1,0 +1,269 @@
+{
+  "url": "https://arxiv.org/html/2610.00388v1",
+  "final_url": "https://arxiv.org/html/2610.00388v1",
+  "status": 200,
+  "title": "T2SPO: Trajectory-to-Step Policy Optimization for Agentic Reinforcement Learning",
+  "metadata": {},
+  "paper": {
+    "title": "T2SPO: Trajectory-to-Step Policy Optimization for Agentic Reinforcement Learning",
+    "title_warning": null,
+    "abstract": "Abstract Reinforcement learning enables large language model (LLM) agents to learn multi-step behaviors through interaction with their environments.\nHowever, rewards in many interactive tasks reflect only the final outcome, providing limited guidance on which intermediate decisions advance the task.\nSuccessful training trajectories contain intermediate states that can provide supervision for subsequent interactions.\nWe introduce Trajectory-to-Step Policy Optimization (T2SPO) , a method that uses past interaction trajectories to provide step-level feedback for policy learning.\nT2SPO derives remaining-distance targets from successful trajectories and pairs them with representations of the states visited along the way.\nConditioned on these examples, a pretrained TabPFN regressor estimates the remaining distance to success at each state of a new rollout.\nChanges in this distance estimate across consecutive states yield auxiliary credit for agent steps alongside task-level supervision.\nAs training proceeds, newly completed trajectories refresh the estimator’s context, incorporating new experience without updating its parameters.\nExperiments with 1.5B and 7B language models on ALFWorld and WebShop show that T2SPO consistently improves overall task success over GRPO.",
+    "authors": [
+      {
+        "name": "Bo-Wen Zhang 1,2,3,* † \\dagger Junwei He 3,* Maoqi Liu 3 Feiran Li 3 Song-Lin Lv 1,2 Wentao Ma 3 Rongyi Lin 3, ‡ \\ddagger Shuhan Zhong 3 Lan-Zhe Guo 1,2,§ 1 State Key Laboratory of Novel Software Technology, Nanjing University 2 School of Intelligence Science and Technology, Nanjing University 3 ByteDance guolz@nju.edu.cn",
+        "affiliations": [],
+        "notes": []
+      }
+    ],
+    "author_block": "Bo-Wen Zhang 1,2,3,* † \\dagger Junwei He 3,* Maoqi Liu 3 Feiran Li 3 Song-Lin Lv 1,2 Wentao Ma 3 Rongyi Lin 3, ‡ \\ddagger Shuhan Zhong 3 Lan-Zhe Guo 1,2,§ 1 State Key Laboratory of Novel Software Technology, Nanjing University 2 School of Intelligence Science and Technology, Nanjing University 3 ByteDance guolz@nju.edu.cn",
+    "arxiv_version": "2610.00388v1",
+    "arxiv_version_date": "2026-09-30"
+  },
+  "text": "T2SPO: Trajectory-to-Step Policy Optimization for Agentic Reinforcement Learning Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: CC BY-SA 4.0 arXiv:2610.00388v1 [cs.LG] 30 Sep 2026 T2SPO: Trajectory-to-Step Policy Optimization for Agentic Reinforcement Learning Bo-Wen Zhang 1,2,3,* † \\dagger Junwei He 3,* Maoqi Liu 3 Feiran Li 3 Song-Lin Lv 1,2 Wentao Ma 3 Rongyi Lin 3, ‡ \\ddagger Shuhan Zhong 3 Lan-Zhe Guo 1,2,§ 1 State Key Laboratory of Novel Software Technology, Nanjing University 2 School of Intelligence Science and Technology, Nanjing University 3 ByteDance guolz@nju.edu.cn Abstract Reinforcement learning enables large language model (LLM) agents to learn multi-step behaviors through interaction with their environments. However, rewards in many interactive tasks reflect only the final outcome, providing limited guidance on which intermediate decisions advance the task. Successful training trajectories contain intermediate states that can provide supervision for subsequent interactions. We introduce Trajectory-to-Step Policy Optimization (T2SPO) , a method that uses past interaction trajectories to provide step-level feedback for policy learning. T2SPO derives remaining-distance targets from successful trajectories and pairs them with representations of the states visited along the way. Conditioned on these examples, a pretrained TabPFN regressor estimates the remaining distance to success at each state of a new rollout. Changes in this distance estimate across consecutive states yield auxiliary credit for agent steps alongside task-level supervision. As training proceeds, newly completed trajectories refresh the estimator’s context, incorporating new experience without updating its parameters. Experiments with 1.5B and 7B language models on ALFWorld and WebShop show that T2SPO consistently improves overall task success over GRPO. 0 0 footnotetext: * Equal contribution. † \\dagger Work done during internship at ByteDance. ‡ \\ddagger Project lead. § Corresponding author. Figure 1: T2SPO converts historical trajectories into step-level credit. (a) Context construction. Successful historical trajectories pair each visited state with its own observed number of turns to completion (Section 4.1 ). State representations and these targets form a labeled context. (b) Step credit for policy optimization. A frozen TabPFN predicts the remaining distance at adjacent states of a current rollout using the same historical context. Their difference is normalized, gated, and scaled into auxiliary step credit, which augments the outcome advantage in GRPO. Current trajectories refresh the context only after completion and scoring. 1 Introduction Reinforcement learning enables LLM agents to improve through environment interaction ( Zhou et al., 2024 ; Wang et al., 2025 ) . In multi-step tasks, the final outcome evaluates the whole trajectory but does not reveal how individual decisions contribute to success. Estimating task progress and its changes across steps helps connect individual decisions to task outcomes, providing fine-grained signals for credit assignment during policy optimization ( Zhou et al., 2024 ; Li et al., 2026 ) . PPO uses a learned critic to estimate expected returns from intermediate states ( Schulman et al., 2017 ) . Combined with generalized advantage estimation, these predictions provide state-dependent training signals for individual actions ( Schulman et al., 2016 ) . This requires training a value model alongside the policy. GRPO avoids training a critic by estimating its baseline from the rewards of trajectories sampled for the same task ( Shao et al., 2024 ) . Under outcome-only supervision, all steps within a trajectory share the same outcome advantage, even when some decisions advance the task and others are redundant ( Feng et al., 2025 ) . If all trajectories in a group receive the same outcome reward, these advantages are zero. This motivates our central question: Can historical experience supply fine-grained step credit without training an additional value model? Successful trajectories collected during policy training provide supervision beyond their final outcomes: each visited state can be paired with the number of turns remaining along its own successful continuation. These observed lengths serve as a proxy for task progress, providing supervision for estimating remaining distance at states encountered in later rollouts. Changes in the predicted distance across consecutive states can then supply auxiliary credit for individual agent steps. In this paper, we introduce Trajectory-to-Step Policy Optimization (T2SPO) , which implements this approach with a frozen TabPFN regressor ( Müller et al., 2022 ; Hollmann et al., 2025 ) . For each rollout batch, the regressor predicts remaining distance using a shared context of historical state representations and completion-length labels. Adjacent-state predictions define a potential difference that provides auxiliary step credit ( Ng et al., 1999 ) . Newly completed trajectories update the context after scoring, allowing subsequent estimates to incorporate new experience while the encoder and regressor remain frozen. The credit augments outcome-based advantages in our main implementation and can also enter an actor–critic optimizer as an auxiliary reward (Figure 1 ). Our contributions are: • We propose T2SPO , a framework that reuses historical successful trajectories to supply auxiliary credit for individual agent steps while retaining task-level supervision. • We develop a progress estimator with a frozen TabPFN regressor and online context updates, yielding auxiliary step credit without training an additional scoring model. • Experiments on ALFWorld and WebShop show higher overall success than the reported GRPO baselines at both scales ( Shridhar et al., 2021 ; Yao et al., 2022 ) . Offline evaluations assess distance prediction across context sizes and SVD dimensions. 2 Related Work Reinforcement learning for LLM agents. Reinforcement learning is widely used in language-model post-training, with feedback drawn from human preferences or verifiable task outcomes ( Ouyang et al., 2022 ; DeepSeek-AI et al., 2025 ; Yu et al., 2025 ) . For LLM agents, RL optimizes policies over multiple rounds of interaction, where earlier actions influence later decisions and eventual task outcomes ( Zhou et al., 2024 ; Wang et al., 2025 ; Jin et al., 2025 ) . Sparse or delayed feedback makes it difficult to determine which actions contribute to success, motivating methods that connect outcomes to individual steps ( Feng et al., 2025 ) . Step-level feedback and credit assignment. Step-level feedback can be obtained by training a model to evaluate intermediate states or actions. For mathematical reasoning, process reward models learn from human step annotations or automatically generated supervision: Let’s Verify Step by Step uses human judgments, while Math-Shepherd derives labels from sampled continuations ( Lightman et al., 2024 ; Wang et al., 2024 ) . For LLM agents, ArCHer and Turn-PPO learn critics that estimate expected returns at the turn level and support policy updates ( Zhou et al., 2024 ; Li et al., 2026 ) . Another approach compares returns following different actions from a shared state. GiGPO identifies repeated environment states in collected trajectories and groups the corresponding actions to compute relative advantages ( Feng et al., 2025 ) . ARPO instead uses entropy to guide branching during rollout collection and assigns advantages according to the shared and branched portions of the resulting trajectories ( Dong et al., 2026a ) . Neither method trains an auxiliary scoring model. Tabular in-context learning for value estimation. Prior-data fitted networks learn to make supervised predictions from labeled context examples by pretraining over synthetic tasks ( Müller et al., 2022 ) . Tabular foundation models extend this approach to classification and regression, with TabPFN emphasizing prediction from small datasets and TabICL scaling in-context classification to larger tables ( Hollmann et al., 2023 ; Hollmann et al., 2025 ; Qu et al., 2025 ) . Closely related applications are V 0 V_{0} and V 0.5 V_{0.5} , which combine semantic representations with TabPFN-based prediction conditioned on prior instruction–performance pairs ( Zhang et al., 2026b ; Zhang et al., 2026a ) . V 0 V_{0} predicts success probability at the initial prompt to allocate rollout budgets and route instructions, while V 0.5 V_{0.5} combines such predictions with sparse on-policy outcomes for baseline estimation and adaptive sampling. T2SPO instead conditions a frozen TabPFN regressor on representations of intermediate states paired with the remaining lengths of their successful source trajectories. Differences in predicted remaining distance between adjacent states supply auxiliary step credit for policy optimization. 3 Preliminaries We first define the interaction and optimization setting, then introduce the regression interface used to transfer trajectory-derived supervision to current states. 3.1 Multi-Turn Reinforcement Learning LLM agents interact with their environments by selecting actions conditioned on observations and prior context ( Yao et al., 2023 ) . We use step , or turn , to denote one complete agent–environment interaction. Given an instruction q q , let s t s_{t} denote the context available to the policy before turn t t , typically consisting of the instruction, the current observation o t o_{t} , and processed interaction history ( Dong et al., 2026b ) . The policy π θ ​ ( a t ∣ s t ) \\pi_{\\theta}(a_{t}\\mid s_{t}) generates a textual action a t a_{t} autoregressively, after which the environment returns reward r t r_{t} and observation o t + 1 o_{t+1} . A trajectory τ \\tau comprises T T such transitions, with sparse task feedback provided by the outcome at the end of the episode. Advantage estimation. Outcome-supervised GRPO samples a group of G > 1 G>1 trajectories for the same task and normalizes their final task scores R i R_{i} ( Shao et al., 2024 ) : A ^ i out = R i − R ¯ σ R + ε , \\hat{A}_{i}^{\\mathrm{out}}=\\frac{R_{i}-\\overline{R}}{\\sigma_{R}+\\varepsilon}, (1) where R ¯ \\overline{R} and σ R \\sigma_{R} denote the group mean and standard deviation, and ε > 0 \\varepsilon>0 ensures numerical stability. This estimator assigns the same advantage to all generated decisions in trajectory i i without a learned critic. For example, an above-average outcome reinforces both a redundant search and the successful purchase that follows it. When all group outcomes are equal, the outcome advantages are zero even if the trajectories differ in intermediate progress or redundant behavior. Learned critics. PPO can obtain advantages that vary across turns through a learned value function and generalized advantage estimation (GAE) ( Schulman et al., 2017 ; Schulman et al., 2016 ) . At a nonterminal turn with zero environment reward, its temporal-difference residual is δ t = γ ​ V ψ ​ ( s t + 1 ) − V ψ ​ ( s t ) \\delta_{t}=\\gamma V_{\\psi}(s_{t+1})-V_{\\psi}(s_{t}) , where γ ∈ ( 0 , 1 ] \\gamma\\in(0,1] is the discount factor. These values let task outcomes inform updates to earlier decisions. Policy updates. We use the clipped surrogate ( Schulman et al., 2017 ; Shao et al., 2024 ) ℓ clip ​ ( ρ , A ^ ) = min ⁡ { ρ ​ A ^ , clip [ 1 − ϵ , 1 + ϵ ] ⁡ ( ρ ) ​ A ^ } , \\ell_{\\mathrm{clip}}(\\rho,\\hat{A})=\\min\\bigl\\{\\rho\\hat{A},\\operatorname{clip}_{[1-\\epsilon,\\,1+\\epsilon]}(\\rho)\\hat{A}\\bigr\\}, (2) where clip [ l , u ] \\operatorname{clip}_{[l,u]} clips its argument to [ l , u ] [l,u] , ϵ > 0 \\epsilon>0 is the clipping threshold, and ρ \\rho is the likelihood ratio between the current policy and the fixed rollout policy π old \\pi_{\\mathrm{old}} . For GRPO, ratios are computed over generated tokens; environment observations only con",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: CC BY-SA 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "4.1",
+      "url": "https://arxiv.org/html/2610.00388v1#S4.SS1"
+    },
+    {
+      "text": "Zhou et al., 2024",
+      "url": "https://arxiv.org/html/2610.00388v1#bib.bib25"
+    },
+    {
+      "text": "Wang et al., 2025",
+      "url": "https://arxiv.org/html/2610.00388v1#bib.bib19"
+    },
+    {
+      "text": "Li et al., 2026",
+      "url": "https://arxiv.org/html/2610.00388v1#bib.bib8"
+    },
+    {
+      "text": "Schulman et al., 2017",
+      "url": "https://arxiv.org/html/2610.00388v1#bib.bib15"
+    },
+    {
+      "text": "Schulman et al., 2016",
+      "url": "https://arxiv.org/html/2610.00388v1#bib.bib14"
+    },
+    {
+      "text": "Shao et al., 2024",
+      "url": "https://arxiv.org/html/2610.00388v1#bib.bib16"
+    },
+    {
+      "text": "Feng et al., 2025",
+      "url": "https://arxiv.org/html/2610.00388v1#bib.bib4"
+    },
+    {
+      "text": "Müller et al., 2022",
+      "url": "https://arxiv.org/html/2610.00388v1#bib.bib10"
+    },
+    {
+      "text": "Hollmann et al., 2025",
+      "url": "https://arxiv.org/html/2610.00388v1#bib.bib6"
+    },
+    {
+      "text": "Ng et al., 1999",
+      "url": "https://arxiv.org/html/2610.00388v1#bib.bib11"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2610.00388v1#S0.F1"
+    },
+    {
+      "text": "Shridhar et al., 2021",
+      "url": "https://arxiv.org/html/2610.00388v1#bib.bib17"
+    },
+    {
+      "text": "Yao et al., 2022",
+      "url": "https://arxiv.org/html/2610.00388v1#bib.bib20"
+    },
+    {
+      "text": "Ouyang et al., 2022",
+      "url": "https://arxiv.org/html/2610.00388v1#bib.bib12"
+    },
+    {
+      "text": "DeepSeek-AI et al., 2025",
+      "url": "https://arxiv.org/html/2610.00388v1#bib.bib1"
+    },
+    {
+      "text": "Yu et al., 2025",
+      "url": "https://arxiv.org/html/2610.00388v1#bib.bib22"
+    },
+    {
+      "text": "Jin et al., 2025",
+      "url": "https://arxiv.org/html/2610.00388v1#bib.bib7"
+    },
+    {
+      "text": "Lightman et al., 2024",
+      "url": "https://arxiv.org/html/2610.00388v1#bib.bib9"
+    },
+    {
+      "text": "Wang et al., 2024",
+      "url": "https://arxiv.org/html/2610.00388v1#bib.bib18"
+    },
+    {
+      "text": "Dong et al., 2026a",
+      "url": "https://arxiv.org/html/2610.00388v1#bib.bib2"
+    },
+    {
+      "text": "Hollmann et al., 2023",
+      "url": "https://arxiv.org/html/2610.00388v1#bib.bib5"
+    },
+    {
+      "text": "Qu et al., 2025",
+      "url": "https://arxiv.org/html/2610.00388v1#bib.bib13"
+    },
+    {
+      "text": "Zhang et al., 2026b",
+      "url": "https://arxiv.org/html/2610.00388v1#bib.bib24"
+    },
+    {
+      "text": "Zhang et al., 2026a",
+      "url": "https://arxiv.org/html/2610.00388v1#bib.bib23"
+    },
+    {
+      "text": "Yao et al., 2023",
+      "url": "https://arxiv.org/html/2610.00388v1#bib.bib21"
+    },
+    {
+      "text": "Dong et al., 2026b",
+      "url": "https://arxiv.org/html/2610.00388v1#bib.bib3"
+    },
+    {
+      "text": "4.4",
+      "url": "https://arxiv.org/html/2610.00388v1#S4.SS4"
+    },
+    {
+      "text": "A.5",
+      "url": "https://arxiv.org/html/2610.00388v1#A1.SS5"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2610.00388v1#S4"
+    },
+    {
+      "text": "A.1",
+      "url": "https://arxiv.org/html/2610.00388v1#A1.SS1"
+    },
+    {
+      "text": "A.2",
+      "url": "https://arxiv.org/html/2610.00388v1#A1.SS2"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2610.00388v1#alg1"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2610.00388v1#S4.E4"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2610.00388v1#S4.E5"
+    },
+    {
+      "text": "4.3",
+      "url": "https://arxiv.org/html/2610.00388v1#S4.SS3"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2610.00388v1#S3.E2"
+    },
+    {
+      "text": "A.4",
+      "url": "https://arxiv.org/html/2610.00388v1#A1.SS4"
+    },
+    {
+      "text": "A",
+      "url": "https://arxiv.org/html/2610.00388v1#A1"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2610.00388v1#S5.T1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2610.00388v1#S5.T2"
+    },
+    {
+      "text": "A.3",
+      "url": "https://arxiv.org/html/2610.00388v1#A1.SS3"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2610.00388v1#S5.F2"
+    },
+    {
+      "text": "B",
+      "url": "https://arxiv.org/html/2610.00388v1#A2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2610.00388v1#S5.F3"
+    },
+    {
+      "text": "C",
+      "url": "https://arxiv.org/html/2610.00388v1#A3"
+    },
+    {
+      "text": "https://arxiv.org/abs/2501.12948v1",
+      "url": "https://arxiv.org/abs/2501.12948v1"
+    },
+    {
+      "text": "https://arxiv.org/abs/1707.06347",
+      "url": "https://arxiv.org/abs/1707.06347"
+    },
+    {
+      "text": "https://arxiv.org/abs/2402.03300",
+      "url": "https://arxiv.org/abs/2402.03300"
+    },
+    {
+      "text": "https://arxiv.org/abs/2504.20073",
+      "url": "https://arxiv.org/abs/2504.20073"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2610.00388v1#A1.T3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2610.00388v1#A1.T4"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2610.00388v1#A1.T5"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2610.00388v1#S3.E1"
+    },
+    {
+      "text": "D",
+      "url": "https://arxiv.org/html/2610.00388v1#A4"
+    },
+    {
+      "text": "10",
+      "url": "https://arxiv.org/html/2610.00388v1#S4.E10"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2610.00388v1#A2.T6"
+    }
+  ],
+  "matching_link_count": 64,
+  "links_truncated": true,
+  "invalid_links": []
+}

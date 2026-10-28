@@ -1,0 +1,92 @@
+## 结论
+
+实际检索日期：**2026-10-10**。**score：6.2 / 10；verdict：needs_rethink。**
+
+协议判断正确，实验定义可实现，也具有明确的证伪条件。阻断在独立机制新意：公开前后置语义已经规定何时检查 URL、何时建立本地文件，以及哪些后续操作消费文件；当前“义务迁移”在三种最小协议上就是按对象类型和动作效应执行标准控制。Brief 已定义的 typed controller 能完整表达这些行为；连续执行已确定的 materialization 又与 Agent JIT 的确定性工具组合高度重合。当前尚没有两者之外的机制差别，构成 **fatal novelty blocker**。[Agent JIT §3.1–3.2](https://arxiv.org/html/2605.21470v2)
+
+研究价值主要在于诊断 agent 是否混淆访问凭据和所得内容的生命周期。该现象尚未被当前引用的实验直接证明：ContractBench 的过期恢复结果支持“过期标签不一定产生可执行恢复”，不能推出 agent 普遍会将已下载文件误判为过期。[ContractBench §4.4、Appendix S](https://arxiv.org/html/2605.17281v1)
+
+目标演化成立：仍是软件／知识工作 agent 对工具 artifact 的不当使用及诊断后的恢复，尤其关联 Q005；不覆盖 first-touch 和一般错误数值可以接受。公开协议、离线 oracle、冻结 actor、完整成本及参数待确认等约束均保留，没有发现硬约束违规。
+
+## Claim 判断
+
+| 当前 Claim | 判断 | 最关键原文依据与可验证性 |
+|---|---|---|
+| 有效期应绑定真正消费访问 artifact 的边界，区分请求开始与完成 | **已覆盖：协议事实与已有形式语义** | AWS 明确在 HTTP 请求时检查期限，已开始的下载可越过期限继续；PDDL2.1 §5 已区分开始、结束和区间条件。三种协议可以验证实现是否正确，不能单独支持机制创新。[AWS](https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-presigned-url.html)、[PDDL2.1 §5](https://www.cs.cmu.edu/afs/cs/project/jair/pub/volume20/fox03a-html/node5.html) |
+| materialization 建立新对象，URL 过期不继续约束本地静态文件 | **部分重合；当前最小任务由标准控制器完整覆盖** | Typestate 按对象当前状态限定合法操作；ContractBench 的下载服务在请求处检查期限后返回静态内容，其 validator 检查保存文件和请求记录，未给本地文件追加 URL 期限。没有核实到原作提出完全相同的“义务迁移”术语，但当前术语没有增加决策机制。[Typestate 原作摘要](https://research.ibm.com/publications/typestate-a-programming-language-concept-for-enhancing-software-reliability)、[下载源码](https://huggingface.co/datasets/nips26-anon-author/contractbench/blob/main/tasks/presigned-url-download/environment/server.py)、[validator](https://huggingface.co/datasets/nips26-anon-author/contractbench/blob/main/tasks/presigned-url-download/tests/test_outputs.py) |
+| 已确定对象后连续取得内容，减少中间反思消耗租期 | **部分重合，主要执行机制已覆盖** | Agent JIT 将工具组成可执行代码，在确定性步骤之间移除不必要模型调用，并检查前后置状态。其原实验没有检验 URL 租期，因此租期收益仍可测，但收益场景不同不足以建立独立机制。[Agent JIT §3.1–3.2、Appendix F](https://arxiv.org/html/2605.21470v2) |
+| 比整链 stale／expired-label 更少误诊、renew 和任务失败 | **部分重合，经验 Claim 尚待验证** | 最小实验能测这些差异；但整链失效控制器主动采用错误生命周期语义，胜过它不能说明新增贡献。纳入同 actor 的 typed controller 是有效强对照；当前没有说明本方法与它在哪些输入上应产生不同结果。ContractBench 的 expired 子集只有九例，正确标签和无提示均恢复两例，未定位恢复失败由哪一层引起。[ContractBench Appendix S](https://arxiv.org/html/2605.17281v1) |
+
+标准 CPU 任务、普通／failure-aware actor 和明确的 typed controller 都有可实现入口。[ToolMaze actor](https://raw.githubusercontent.com/Zhudongsheng75/ToolMaze/main/evaluation/agents/openai_agent.py)公开了 `initialize`、`step`、结果回传、提示切换和 token 统计。各有 actor 的方法可以对齐模型、解码和完整预算；具体时钟推进、TTL、耗时及预算仍待用户确认，当前没有成本或收益实测。纯确定性控制器的较低成本应作为单独比较，不能替代同 actor 的机制对照。
+
+## 最高近邻
+
+1. **ContractBench: Can LLM Agents Preserve Observation Contracts?（2026）**
+   [原文](https://arxiv.org/html/2605.17281v1)。已核实 observation contract 定义、期限重排和标签恢复实验。重合于访问 artifact 的期限检查、确定性评估与恢复；当前差别是明确比较请求前义务和稳定副本后的消费位置。**本轮 HF 任务源码已经可读**，此前读取失败的状态需要更新；但 [Dockerfile](https://huggingface.co/datasets/nips26-anon-author/contractbench/blob/main/tasks/presigned-url-download/environment/Dockerfile)仍依赖 `shared/`，所见发布树没有该目录，未确认完整套件可直接运行。
+
+2. **Agent JIT Compilation for Latency-Optimizing Web Agent Planning and Scheduling（2026）**
+   [原文](https://arxiv.org/html/2605.21470v2)、[作者实现](https://github.com/agent-jit-compilation/agent-jit-compilation)。已核实前后置条件、类型、运行时谓词、状态传播及连续代码执行。当前差别是访问期限和副本生命周期，原作没有报告这一测试。其网页任务不是当前同任务 baseline；其机制足以削弱“连续 materialization＋公开效应传播”的独立新意。
+
+3. **PDDL2.1: An Extension to PDDL for Expressing Temporal Planning Domains（2003）**
+   [原文 §5](https://www.cs.cmu.edu/afs/cs/project/jair/pub/volume20/fox03a-html/node5.html)。已核实条件成立位置和开始／结束效应。重合于把义务限定到实际动作边界，以及动作完成后建立不同的后续状态；差别是没有冻结 LLM 的 artifact 恢复实验。属于形式机制近邻，不能冒充同任务实测 baseline。
+
+4. **Typestate: A Programming Language Concept for Enhancing Software Reliability（1986）**
+   [IBM 原作页面](https://research.ibm.com/publications/typestate-a-programming-language-concept-for-enhancing-software-reliability)。已核实作者、年份与原作摘要：合法操作由对象当前状态决定，而非仅由静态类型决定。重合于区分 URL 与所得文件的操作权限／前置要求；差别是没有工具期限及 agent 恢复评估。未据摘要宣称原作已经测过当前任务。
+
+5. **AgentSpec: Customizable Runtime Enforcement for Safe and Reliable LLM Agents（2025）**
+   [原文 §3–4](https://arxiv.org/html/2503.18666)、[作者实现](https://github.com/haoyuwang99/AgentSpec)。已核实在 proposed action 处依据轨迹和谓词检查，并提供替代调用及重新规划反馈。重合于当前检测证据与执行干预接口；差别是未提出访问 artifact 到静态内容的生命周期处理。原安全评估与当前任务不同，仅用于界定运行时控制机制，不作为同任务 baseline。
+
+```json
+{
+  "score": 6.2,
+  "verdict": "needs_rethink",
+  "fatal_blockers": [
+    "当前三种公开协议中的消费边界判断、成功materialization后的本地对象使用及必要renew，均由Brief已定义的标准typed controller完整表达；连续执行已确定工具序列又与Agent JIT高度重合。当前没有说明独立于这些既有机制的新增决策规则或可区分预测，义务迁移尚属于标准契约语义在特定任务上的应用。"
+  ],
+  "novelty_conclusion": "访问凭据与稳定副本具有不同生命周期的协议判断正确，并有诊断和评估价值；未核实到最高近邻报告完全相同的三协议实验。但当前方法机制由标准typestate/动作效应控制和连续确定性工具执行解释，新增实验场景不能单独建立独立机制创新。",
+  "search_performed": true,
+  "closest_neighbors": [
+    {
+      "title": "ContractBench: Can LLM Agents Preserve Observation Contracts?",
+      "url": "https://arxiv.org/html/2605.17281v1",
+      "overlap": "工具artifact期限检查、确定性评估、期限重排和expired-label恢复；HF下载源码在请求处检查期限并返回静态内容。",
+      "difference": "未直接比较来源链统一失效与materialization后本地消费义务；本轮部分任务源码可读，但shared依赖未确认完整发布，未宣称套件可直接运行。",
+      "verified": true
+    },
+    {
+      "title": "Agent JIT Compilation for Latency-Optimizing Web Agent Planning and Scheduling",
+      "url": "https://arxiv.org/html/2605.21470v2",
+      "overlap": "公开工具前后置条件、类型与运行时谓词，传播状态并连续执行确定性工具组合，移除不必要模型调用。",
+      "difference": "没有检验访问artifact的期限及稳定副本生命周期；原网页任务不能直接当作当前同任务baseline。",
+      "verified": true
+    },
+    {
+      "title": "PDDL2.1: An Extension to PDDL for Expressing Temporal Planning Domains",
+      "url": "https://www.cs.cmu.edu/afs/cs/project/jair/pub/volume20/fox03a-html/node5.html",
+      "overlap": "区分动作开始、结束及持续区间的条件，并以动作效应建立后续状态，覆盖消费边界有效性义务的基本表达。",
+      "difference": "没有LLM软件agent的URL恢复实验，仅是形式机制近邻。",
+      "verified": true
+    },
+    {
+      "title": "Typestate: A Programming Language Concept for Enhancing Software Reliability",
+      "url": "https://research.ibm.com/publications/typestate-a-programming-language-concept-for-enhancing-software-reliability",
+      "overlap": "按对象当前状态限定可执行操作，识别类型合法而语义不合法的执行序列。",
+      "difference": "没有工具期限或冻结LLM恢复评估；已核实原作书目和摘要，未声称全文覆盖当前具体任务。",
+      "verified": true
+    },
+    {
+      "title": "AgentSpec: Customizable Runtime Enforcement for Safe and Reliable LLM Agents",
+      "url": "https://arxiv.org/html/2503.18666",
+      "overlap": "在proposed action处根据轨迹和公开谓词检查，提供替代调用和重新规划反馈。",
+      "difference": "未提出访问artifact到静态内容的生命周期处理；原安全任务不属于当前同任务baseline。",
+      "verified": true
+    }
+  ],
+  "goal_assessment": {
+    "within_initial_scope": true,
+    "hard_constraints_satisfied": true,
+    "evolution_supported": true,
+    "reason": "当前目标聚焦软件/知识工作agent对访问artifact有效期的语义使用和诊断后的可执行恢复，仍关联Q001和Q005，尤其Q005。ContractBench的过期标签恢复结果及AWS公开协议支持这一聚焦，但没有证明本地副本误失效已是普遍实测失败。允许不覆盖first-touch及一般错误数值。在线仅使用任务、公开协议和实际调用，不使用隐藏标签或oracle；未运行实验、生成实验代码或调用付费推理API。核心模型、TTL、耗时和预算待用户确认，完整成本原则已保留。"
+  }
+}
+```

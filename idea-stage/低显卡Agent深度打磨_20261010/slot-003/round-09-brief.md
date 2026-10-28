@@ -1,0 +1,28 @@
+## 背景
+
+**定位关键词：** LLM software agents, procedural memory, hygienic macro expansion, variable binding
+
+软件agent复用经验中的代码样例时，当前任务值、程序常量和样例的局部变量承担不同作用。把实例值全部保留会复制旧任务要求，把所有值都参数化则可能改变必要常量；共享Python执行命名空间又可能使局部变量覆盖当前变量。前两类过信样例有原作支持，实际name capture在agent中的发生率仍是待验证假设。
+
+当前目标及演化依据：聚焦具备可执行Python片段的程序性经验，研究适用性究竟由实体匹配还是可保持的绑定结构决定。仅对可解析片段声明机械绑定性质，不对任意自然语言skill承诺卫生性；不是泛参数化、类型schema或包装完整skill。失败诊断和样例再解释/重试费用均计入。
+
+https://arxiv.org/html/2608.11888v1：§IV-C明确82/125功能失败为错误填充/缺项，相关skill默认值、examples、templates被过信为任务要求；比例非全任务。没有原作证据证明变量capture频率。
+https://arxiv.org/html/2409.07429：§2.3/A.1已将non-fixed input text/button strings抽象成descriptive vars，基本实例参数化与contextbias降低已有覆盖。
+https://arxiv.org/html/2605.15215：§3.1–3.3编译package、typed operators与boundary contract、runtime动态实例化已有；普通function wrapper/typed kwargs必须为强对照。
+https://prl.khoury.northeastern.edu/img/kffd-tr-1986.pdf：§1/4已有按generated/user identifier来源保持绑定、alpha conversion及卫生宏；基础scope算法是成熟迁移，不称新理论。
+
+## 核心 Claim
+
+待验证：在共享执行命名空间、只复用部分代码样例的冻结软件agent中，相同词面任务参数不等于可安全共享的绑定角色。将任务绑定、经验内部绑定与程序常量分别保留，可使同一经验的行为对当前任务无关的变量重命名稳定，降低实例复制及局部覆盖造成的错误和重试；若普通参数化函数封装或SkillSmith式typed operator已等效，则该机制新意不成立。
+
+## 方法设计的核心思想
+
+仅处理训练经验里可解析的Python代码片段。构建时以真实任务指令/已执行代码/工具输出把可由当前任务替换的输入位置与片段新引入的局部binders区分，保留已公开API名和程序常量；若来源无法判定则不作替换，不假设LLM判断有证明。片段经Python AST建立load/store及词法作用域；任务输入以显式参数传入，片段产生的局部绑定在展开时只绑定同片段引用，不捕获调用侧变量，允许更新的任务输出位置必须显式声明。不用随机nonce、hash或兼容框架。actor仍决定是否调用/填参数及其余正常代码，不让方法读hidden目标。仅在该受限代码接口内检验alpha-renaming/实例替换后绑定关系；不把字符串模板或自然语言遵守指令当形式保证。模型生成成本、解析/绑定识别与执行/验证/重试费用全计。
+
+最高近邻及差别：AWM已参数化、SkillSmith已typed compilation、CONTRAMEM明确禁止copy stored entities、BASM已有结构化contextconditions；卫生宏本身自1986已解决capture。候选剩余仅是部分经验片段复用的来源绑定条件是否与当前task语义参数适用性形成必要区别；普通functionwrapper极可能已消除核心机械问题。本版不宣称一般scoping新颖，不标合格。
+
+## 最小实验
+
+先用AppWorld train/dev真实代码轨迹和公开任务值生成冻结可解析经验库，重用common Python环境及ReAct入口；仅当开发中实际出现片段/调用变量共享和任务实例复制时纳入诊断，不构造本项目不支持的符号/并发问题。所有test保持official aggregate；另可用train/dev构造明示的变量重命名和任务实例替换对照，称派生开发诊断而非官方benchmark成绩，不改test隐藏判断。比较原样例、AWM式non-fixed值参数化、普通具名参数function封装、SkillSmith typed operator标准定义、来源绑定保持；各方法相同retrieved片段、原程序常量、taskinputs、actor/decoder、最大turn和总API+CPU预算。普通function封装得到同参数角色/输出范围，不能故意让它猜错inputslots；如果这样已等效，则新机制被推翻。诊断当前task值使用错误/所有调用、局部覆盖/所有展开、alpha重命名前后公开执行差异、实际任务成功/全部任务与全部费用。隐藏终态只offline evaluator，源代码/常量可公开读而oracle行动/DAG不能runtime读取。若自然可达问题无支持、绑定识别比直接actor更错、普通functionwrapper等效、或费用抵消节省，则否定。Python受限语法、片段库、N、模型、task子集/检索k与总预算待确认，当前不运行。
+
+基线定义/复现：[{"name": "AppWorld ReAct基础agent", "paper_url": "https://github.com/StonyBrookNLP/appworld", "code_url": "https://raw.githubusercontent.com/StonyBrookNLP/appworld/main/experiments/code/simplified/react_code_agent.py", "reproduction": "已亲读environment.py execute与save/load_state；simplified/react_code_agent.py next_execution_inputs_usage_and_status读取工具输出、调用language_model.generate、记录usage并生成代码；simplified/agent.py为执行循环。可用公开train/dev/test任务及AppWorld CPU世界，未来需安装而本阶段未执行。", "controlled_parameters": "同任务、模型和预算", "extra_costs": "应用模拟CPU耗时与API全计"}, {"name": "AWM式参数化/普通function/typed operator", "paper_url": "https://arxiv.org/html/2409.07429", "code_url": null, "reproduction": "完整标准定义：同源片段，替换来自task的实例inputs为形参、保留API常量；普通function封装局部scope并用显式return输出；typed版本加input/output规范。全部获同角色识别信息，不复现WebArena旧官方分数；SkillSmith原创新仍保留，不因源码未核就忽略。", "controlled_parameters": "同source/taskbinding/output范围/actor/预算", "extra_costs": "抽象、角色识别、解析及调用全部费用"}]

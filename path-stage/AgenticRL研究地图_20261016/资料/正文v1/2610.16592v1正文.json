@@ -1,0 +1,269 @@
+{
+  "url": "https://arxiv.org/html/2610.16592v1",
+  "final_url": "https://arxiv.org/html/2610.16592v1",
+  "status": 200,
+  "title": "Prorsa: Unleashing the Potential of Prefill-Decode Disaggregation in Agentic Reinforcement Learning",
+  "metadata": {},
+  "paper": {
+    "title": "Prorsa : Unleashing the Potential of Prefill-Decode Disaggregation in Agentic Reinforcement Learning",
+    "title_warning": null,
+    "abstract": "Abstract Agentic reinforcement learning (RL) is commonly used to enhance the capabilities of large language models (LLMs) in solving complex multi-turn tasks.\nDuring rollout, agentic RL exhibits a workload pattern distinct from that of traditional RL: multi-turn interactions repeatedly introduce prefill requests, causing prefill and decode workloads to coexist throughout rollout.\nThis workload makes prefill-decode (PD) disaggregation, a design widely used for online LLM serving, promising for speeding up agentic RL rollout.\nThis paper shows that PD disaggregation can improve rollout efficiency by (a) mitigating interference among data-parallel attention modules, (b) enabling stage-specific parallelism, and (c) reducing end-to-end trajectory completion time.\nHowever, a fixed prefill-decode allocation may fail to sustain these benefits as workload composition varies across tasks and over time.\nWe therefore present Prorsa , an agentic RL framework for prediction-guided prefill-decode resource allocation. Prorsa observes the lifecycle of every trajectory to forecast short-horizon prefill and decode demand.\nThese forecasts then guide worker allocation decisions and trigger role switching of rollout engines,\naligning prefill and decode capacity with anticipated workload demand.\nAcross synchronous and asynchronous agentic RL settings, Prorsa achieves end-to-end rollout speedups of 1.11 × \\times –4.05 × \\times over prefill-decode colocation.",
+    "authors": [
+      {
+        "name": "\\authorfont Chiheng Lou †∗ Xiangwei Deng ‡ Bangjun Xiao †∗ Xiaodong Ji ‡ \\authorfont Yikai Zhao †‡ Xin Jin † Hailin Zhang ‡⋄ \\authorfont † School of Computer Science, Peking University \\authorfont ‡ LLM-Core Xiaomi",
+        "affiliations": [],
+        "notes": []
+      }
+    ],
+    "author_block": "\\authorfont Chiheng Lou †∗ Xiangwei Deng ‡ Bangjun Xiao †∗ Xiaodong Ji ‡ \\authorfont Yikai Zhao †‡ Xin Jin † Hailin Zhang ‡⋄ \\authorfont † School of Computer Science, Peking University \\authorfont ‡ LLM-Core Xiaomi",
+    "arxiv_version": "2610.16592v1",
+    "arxiv_version_date": "2026-10-12"
+  },
+  "text": "Prorsa: Unleashing the Potential of Prefill-Decode Disaggregation in Agentic Reinforcement Learning Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: arXiv.org perpetual non-exclusive license arXiv:2610.16592v1 [cs.DC] 12 Oct 2026 Prorsa : Unleashing the Potential of Prefill-Decode Disaggregation in Agentic Reinforcement Learning \\authorfont Chiheng Lou †∗ Xiangwei Deng ‡ Bangjun Xiao †∗ Xiaodong Ji ‡ \\authorfont Yikai Zhao †‡ Xin Jin † Hailin Zhang ‡⋄ \\authorfont † School of Computer Science, Peking University \\authorfont ‡ LLM-Core Xiaomi Abstract Agentic reinforcement learning (RL) is commonly used to enhance the capabilities of large language models (LLMs) in solving complex multi-turn tasks. During rollout, agentic RL exhibits a workload pattern distinct from that of traditional RL: multi-turn interactions repeatedly introduce prefill requests, causing prefill and decode workloads to coexist throughout rollout. This workload makes prefill-decode (PD) disaggregation, a design widely used for online LLM serving, promising for speeding up agentic RL rollout. This paper shows that PD disaggregation can improve rollout efficiency by (a) mitigating interference among data-parallel attention modules, (b) enabling stage-specific parallelism, and (c) reducing end-to-end trajectory completion time. However, a fixed prefill-decode allocation may fail to sustain these benefits as workload composition varies across tasks and over time. We therefore present Prorsa , an agentic RL framework for prediction-guided prefill-decode resource allocation. Prorsa observes the lifecycle of every trajectory to forecast short-horizon prefill and decode demand. These forecasts then guide worker allocation decisions and trigger role switching of rollout engines, aligning prefill and decode capacity with anticipated workload demand. Across synchronous and asynchronous agentic RL settings, Prorsa achieves end-to-end rollout speedups of 1.11 × \\times –4.05 × \\times over prefill-decode colocation. 0 0 footnotetext: ∗ Work done during internship at Xiaomi Corporation. 0 0 footnotetext: ⋄ Corresponding author. 1 Introduction Reinforcement learning (RL) has become a core stage of post-training for large language models (LLMs) ( The Microsoft AI Team, 2026 ; DeepSeek-AI, 2025a ; Qwen Team, 2025 ; GLM-5-Team, 2026 ; DeepSeek-AI, 2026 ; Kimi Team, 2026 ) . Beyond single-turn reasoning, RL is increasingly applied to agentic scenarios—coding agents ( Pan et al., 2024 ; Wei et al., 2025 ) , computer use ( Wang et al., 2025b ; Huang et al., 2026 ; Lu et al., 2026 ) , and deep research ( Jin et al., 2025 ; Zheng et al., 2025 ) —where the model accomplishes a long-horizon task through multiple turns of interaction with the environment. During RL training, the rollout phase generates samples from prompts ( Sheng et al., 2025 ; Hu et al., 2024b ) . For agentic RL, a sample is no longer a single model response but a long-lived trajectory that interleaves LLM generation with tool execution across many turns. In this case, rollout can account for up to 70% of end-to-end iteration time, making its efficiency an important optimization target ( Zhong et al., 2024b ; Fu et al., 2025 ; Gao et al., 2025 ; Zhang et al., 2026 ; Chen et al., 2026b ) . This paper studies how to improve agentic rollout efficiency through prefill-decode (PD) disaggregation, which places the two inference stages on separate GPU groups. The benefits of PD disaggregation have been well studied in online LLM serving, where it enables independent resource allocation and reduces interference between the two stages ( Zhong et al., 2024a ; Patel et al., 2024 ; Qin et al., 2025b ; Hu et al., 2024a ; Hong et al., 2025 ; Feng et al., 2025 ; Zhu et al., 2025 ) . Its benefits in agentic RL rollout, however, have not been clearly characterized by prior works ( GLM-5-Team, 2026 ; Chen et al., 2026a ; Gao et al., 2026b ) . Our analysis shows that agentic RL exhibits distinct characteristics that make PD disaggregation particularly beneficial. Specifically, agentic RL generates a continuous stream of prefill requests during rollout. The prefill workloads come from two sources: (1) multi-turn interactions , where each trajectory repeatedly issues inference requests across interaction turns, creating prefill demand as new environment feedback is appended to its context, and (2) asynchronous rollout , where new samples are continuously injected into rollout engines rather than all at once to mitigate the long-tail problem ( Fu et al., 2025 ; Zhong et al., 2025 ; Han et al., 2025 ; Zhou et al., 2025 ) . As a result, prefill and decode requests coexist throughout the rollout phase (§ 3.1 ). For these interleaved rollout workloads, we find three key benefits of PD disaggregation: (1) reducing GPU idleness caused by prefill-decode interference across data-parallel attention modules, (2) enabling independent parallelism strategies for prefill and decode to maximize throughput, and (3) reducing decode latency for long-tail trajectories. However, applying PD disaggregation to agentic RL is not straightforward. Prefill and decode workloads vary across RL tasks, complicating the choice of a suitable prefill-to-decode instance ratio (PD ratio). Moreover, the prefill and decode demands change over time even within the same task, so a fixed PD ratio may fail to sustain a throughput advantage over colocation throughout training. To address this challenge, we propose Prorsa , an agentic RL framework that combines PD disaggregation with adaptive worker allocation to improve rollout efficiency. The key insight of Prorsa is that the RL framework’s visibility into trajectory lifecycles provides advance signals of upcoming inference demand. By monitoring sample dispatch, sandbox startup, tool execution, and reward completion, Prorsa forecasts short-horizon prefill and decode demand. Based on these forecasts, Prorsa adjusts the PD ratio by switching rollout workers between prefill and decode roles. This adjustment mechanism keeps the instance allocation aligned with changing workload demands, improving GPU utilization. Our main contributions are as follows: • We characterize the benefits and deployment challenges of PD disaggregation in agentic RL rollout through an in-depth workload and performance analysis. • We introduce a prefill-decode role switching strategy driven by short-horizon workload forecasts to adapt resource allocation to changing rollout demand. • We design and implement Prorsa , an agentic RL framework that adopts PD disaggregation to improve rollout efficiency. Experimental results across various agentic RL scenarios demonstrate that Prorsa achieves rollout speedups ranging from 1.11 × \\times to 4.05 × \\times over colocation in both synchronous and asynchronous settings. 2 Background 2.1 Agentic RL Training In RL training, each iteration includes a rollout phase that generates trajectories using inference engines ( Kwon et al., 2023 ; Zheng et al., 2024 ) , a reward phase that scores the trajectories with predefined rules or reward models, and a training phase that updates the model with an RL algorithm such as PPO ( Schulman et al., 2017 ) , GRPO ( Shao et al., 2024 ) , or DAPO ( Yu et al., 2025 ) . Training begins once enough trajectories are scored, and updated weights are synchronized to rollout engines. In agentic RL, a sample is no longer a single response but a multi-turn trajectory: in each turn the model emits an action (e.g., a tool call), the environment executes it, and the feedback is appended to the context for the next turn. For on-policy training, the rollout is synchronous : training cannot begin until all trajectories in a batch are complete, so long-tail trajectories leave GPUs idle. To mitigate this effect, large-scale systems often adopt asynchronous rollout ( The Microsoft AI Team, 2026 ; DeepSeek-AI, 2026 ; GLM-5-Team, 2026 ; Fu et al., 2025 ; Zhong et al., 2025 ; Han et al., 2025 ) , which continuously injects new samples and allows off-policy updates using trajectories generated by earlier model versions. In this case, a staleness bound limits the number of model versions a trajectory can span, and trajectories that fail to finish within this bound are dropped. 2.2 Prefill-Decode Disaggregation LLM inference consists of two stages: the prefill stage processes all prompt tokens in parallel and produces the first output token, while the decode stage generates the remaining tokens autoregressively. Prefill-decode disaggregation ( Zhong et al., 2024a ) places the two stages on separate instances: prefill instances process prompts and transfer the produced KV cache to decode instances, which carry out generation. In online serving, disaggregation prevents decode from being blocked by prefill, and enables separate configuration of parallelism, accelerator types, and instance counts for prefill and decode to meet their respective latency SLOs ( Zhong et al., 2024a ; Patel et al., 2024 ) . 3 Motivation and Challenges In this section, we first characterize agentic RL workloads (§ 3.1 ), and then show the benefits of PD disaggregation (§ 3.2 ) under continuous prefill demand. Finally, we present the challenges of adopting PD disaggregation for dynamic RL rollout workloads (§ 3.3 ). 3.1 Workload Characterization of Agentic RL Rollout Figure 1: Normalized cumulative prefill and decode tokens for different RL tasks. Figure 1 shows the cumulative prefill and decode tokens within one rollout step for three representative tasks: math, coding agent, and general agent. The details of the tasks are described in § 5.1 . We vary the maximum staleness to capture the effects of asynchronous rollout. At the start of each step, trajectories carried over from the previous step must re-prefill their existing contexts with the latest model version ( Fu et al., 2025 ; Xiaomi MiMo Team, 2026 ) . The tasks exhibit distinct workload patterns. For math, prefill is concentrated near the beginning of each step, primarily due to initial prompt processing and, in asynchronous settings, re-prefill of trajectories carried over from the previous step. In contrast, the two agentic tasks generate prefill requests throughout the step, and their prefill-token volumes substantially exceed their decode-token volumes. Under the on-policy setting, the token-processing rate drops sharply near the end of the step, revealing a long tail of straggling trajectories ( Zhong et al., 2024b ; Zhong et al., 2025 ; Gao et al., 2025 ; Zhang et al., 2026 ; Zhou et al., 2025 ) . 3.2 Motivating Experiments Stage Length EP16 EP32 EP64 Prefill 8K 3.24 2.78 2.22 64K 2.77 2.33 1.95 256K 1.76 1.36 1.37 512K 1.29 1.02 1.00 Decode 8K 1.20 1.31 1.29 64K 1.17 1.26 1.25 256K 1.10 1.14 1.13 512K 1.02 1.01 1.00 Table 1: Normalized per-server prefill and decode throughput for MiMo-V2.5-Pro. Decode uses a batch size of 16 per attention DP rank under all configurations. Figure 2: Inter-token latency of PD disaggregation versus colocation for synchronous rollout on the coding agent task. Dashed lines indicate the corresponding mean latencies. Figure 3: Prefill-to-decode token ratios across and within steps with a maximum staleness of 8. Given this continuous prefill demand in agentic RL rollout, this paper shows that PD disaggregation can improve rollout efficiency. Using MiMo-V2.5-Pro ( Xiaomi MiMo Team, 2026 ) and the experimental setup in § 5.1 , we identify three major sources of performance improvement: Mitigating interference among data-parallel attention modules. Prior work has studied how PD colocation increases decoding latency through head-of-line blocking ( Zhong et al., 2024a ; Patel et al., 2024 ) . However, we show that PD colocation can also significantly degrade throughput for mixture-of-experts (MoE) models. In MoE models, experts account for most model parameters, so their deploymen",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: arXiv.org perpetual non-exclusive license",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "The Microsoft AI Team, 2026",
+      "url": "https://arxiv.org/html/2610.16592v1#bib.bib44"
+    },
+    {
+      "text": "DeepSeek-AI, 2025a",
+      "url": "https://arxiv.org/html/2610.16592v1#bib.bib7"
+    },
+    {
+      "text": "Qwen Team, 2025",
+      "url": "https://arxiv.org/html/2610.16592v1#bib.bib40"
+    },
+    {
+      "text": "GLM-5-Team, 2026",
+      "url": "https://arxiv.org/html/2610.16592v1#bib.bib43"
+    },
+    {
+      "text": "DeepSeek-AI, 2026",
+      "url": "https://arxiv.org/html/2610.16592v1#bib.bib52"
+    },
+    {
+      "text": "Kimi Team, 2026",
+      "url": "https://arxiv.org/html/2610.16592v1#bib.bib53"
+    },
+    {
+      "text": "Pan et al., 2024",
+      "url": "https://arxiv.org/html/2610.16592v1#bib.bib14"
+    },
+    {
+      "text": "Wei et al., 2025",
+      "url": "https://arxiv.org/html/2610.16592v1#bib.bib50"
+    },
+    {
+      "text": "Wang et al., 2025b",
+      "url": "https://arxiv.org/html/2610.16592v1#bib.bib45"
+    },
+    {
+      "text": "Huang et al., 2026",
+      "url": "https://arxiv.org/html/2610.16592v1#bib.bib46"
+    },
+    {
+      "text": "Lu et al., 2026",
+      "url": "https://arxiv.org/html/2610.16592v1#bib.bib47"
+    },
+    {
+      "text": "Jin et al., 2025",
+      "url": "https://arxiv.org/html/2610.16592v1#bib.bib48"
+    },
+    {
+      "text": "Zheng et al., 2025",
+      "url": "https://arxiv.org/html/2610.16592v1#bib.bib49"
+    },
+    {
+      "text": "Sheng et al., 2025",
+      "url": "https://arxiv.org/html/2610.16592v1#bib.bib15"
+    },
+    {
+      "text": "Hu et al., 2024b",
+      "url": "https://arxiv.org/html/2610.16592v1#bib.bib16"
+    },
+    {
+      "text": "Zhong et al., 2024b",
+      "url": "https://arxiv.org/html/2610.16592v1#bib.bib23"
+    },
+    {
+      "text": "Fu et al., 2025",
+      "url": "https://arxiv.org/html/2610.16592v1#bib.bib17"
+    },
+    {
+      "text": "Gao et al., 2025",
+      "url": "https://arxiv.org/html/2610.16592v1#bib.bib24"
+    },
+    {
+      "text": "Zhang et al., 2026",
+      "url": "https://arxiv.org/html/2610.16592v1#bib.bib54"
+    },
+    {
+      "text": "Chen et al., 2026b",
+      "url": "https://arxiv.org/html/2610.16592v1#bib.bib51"
+    },
+    {
+      "text": "Zhong et al., 2024a",
+      "url": "https://arxiv.org/html/2610.16592v1#bib.bib4"
+    },
+    {
+      "text": "Patel et al., 2024",
+      "url": "https://arxiv.org/html/2610.16592v1#bib.bib8"
+    },
+    {
+      "text": "Qin et al., 2025b",
+      "url": "https://arxiv.org/html/2610.16592v1#bib.bib9"
+    },
+    {
+      "text": "Hu et al., 2024a",
+      "url": "https://arxiv.org/html/2610.16592v1#bib.bib25"
+    },
+    {
+      "text": "Hong et al., 2025",
+      "url": "https://arxiv.org/html/2610.16592v1#bib.bib26"
+    },
+    {
+      "text": "Feng et al., 2025",
+      "url": "https://arxiv.org/html/2610.16592v1#bib.bib27"
+    },
+    {
+      "text": "Zhu et al., 2025",
+      "url": "https://arxiv.org/html/2610.16592v1#bib.bib28"
+    },
+    {
+      "text": "Chen et al., 2026a",
+      "url": "https://arxiv.org/html/2610.16592v1#bib.bib55"
+    },
+    {
+      "text": "Gao et al., 2026b",
+      "url": "https://arxiv.org/html/2610.16592v1#bib.bib58"
+    },
+    {
+      "text": "Zhong et al., 2025",
+      "url": "https://arxiv.org/html/2610.16592v1#bib.bib21"
+    },
+    {
+      "text": "Han et al., 2025",
+      "url": "https://arxiv.org/html/2610.16592v1#bib.bib22"
+    },
+    {
+      "text": "Zhou et al., 2025",
+      "url": "https://arxiv.org/html/2610.16592v1#bib.bib60"
+    },
+    {
+      "text": "3.1",
+      "url": "https://arxiv.org/html/2610.16592v1#S3.SS1"
+    },
+    {
+      "text": "Kwon et al., 2023",
+      "url": "https://arxiv.org/html/2610.16592v1#bib.bib2"
+    },
+    {
+      "text": "Zheng et al., 2024",
+      "url": "https://arxiv.org/html/2610.16592v1#bib.bib1"
+    },
+    {
+      "text": "Schulman et al., 2017",
+      "url": "https://arxiv.org/html/2610.16592v1#bib.bib11"
+    },
+    {
+      "text": "Shao et al., 2024",
+      "url": "https://arxiv.org/html/2610.16592v1#bib.bib12"
+    },
+    {
+      "text": "Yu et al., 2025",
+      "url": "https://arxiv.org/html/2610.16592v1#bib.bib13"
+    },
+    {
+      "text": "3.2",
+      "url": "https://arxiv.org/html/2610.16592v1#S3.SS2"
+    },
+    {
+      "text": "3.3",
+      "url": "https://arxiv.org/html/2610.16592v1#S3.SS3"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2610.16592v1#S3.F1"
+    },
+    {
+      "text": "5.1",
+      "url": "https://arxiv.org/html/2610.16592v1#S5.SS1"
+    },
+    {
+      "text": "Xiaomi MiMo Team, 2026",
+      "url": "https://arxiv.org/html/2610.16592v1#bib.bib42"
+    },
+    {
+      "text": "DeepSeek-AI, 2025b",
+      "url": "https://arxiv.org/html/2610.16592v1#bib.bib6"
+    },
+    {
+      "text": "Agrawal et al., 2024",
+      "url": "https://arxiv.org/html/2610.16592v1#bib.bib3"
+    },
+    {
+      "text": "5.3",
+      "url": "https://arxiv.org/html/2610.16592v1#S5.SS3"
+    },
+    {
+      "text": "Forys et al., 2026",
+      "url": "https://arxiv.org/html/2610.16592v1#bib.bib76"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2610.16592v1#S3.T1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2610.16592v1#S3.F2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2610.16592v1#S3.F3"
+    },
+    {
+      "text": "A",
+      "url": "https://arxiv.org/html/2610.16592v1#A1"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2610.16592v1#S4.F4"
+    },
+    {
+      "text": "4.1",
+      "url": "https://arxiv.org/html/2610.16592v1#S4.SS1"
+    },
+    {
+      "text": "4.2",
+      "url": "https://arxiv.org/html/2610.16592v1#S4.SS2"
+    },
+    {
+      "text": "B",
+      "url": "https://arxiv.org/html/2610.16592v1#A2"
+    },
+    {
+      "text": "C",
+      "url": "https://arxiv.org/html/2610.16592v1#A3"
+    },
+    {
+      "text": "5.2",
+      "url": "https://arxiv.org/html/2610.16592v1#S5.SS2"
+    }
+  ],
+  "matching_link_count": 134,
+  "links_truncated": true,
+  "invalid_links": []
+}

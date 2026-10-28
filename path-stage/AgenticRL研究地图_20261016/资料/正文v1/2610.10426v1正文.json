@@ -1,0 +1,269 @@
+{
+  "url": "https://arxiv.org/html/2610.10426v1",
+  "final_url": "https://arxiv.org/html/2610.10426v1",
+  "status": 200,
+  "title": "CoTrace: Data Recipes for Training Terminal Agents with Harness–Model Co-Evolution",
+  "metadata": {},
+  "paper": {
+    "title": "CoTrace: Data Recipes for Training Terminal Agents with Harness–Model Co-Evolution",
+    "title_warning": null,
+    "abstract": "Abstract Terminal-agent capability depends jointly on model weights and the runtime harness that formats prompts, binds tools, and handles error recovery. Existing harness–model co-evolution approaches improve both components, yet often treat trajectories produced during harness search as an undifferentiated replay buffer. This practice overlooks that a trajectory’s value for model training depends on the harness under which it was generated. To systematically analyze this interface, we establish an alternating co-evolution framework that decouples harness search and policy training through component-wise promotion decisions. Within this framework, we introduce CoTrace, a harness-aware data recipe that explicitly governs trajectory routing, provenance matching, and curriculum refresh. Under CoTrace, recurring execution failures guide harness synthesis, while policy training is strictly conditioned on verified rollouts matched to the adopted runtime for supervised fine-tuning (SFT) or fresh online interactions for reinforcement learning (RL). On the Tmax promotion split, CoTrace advances Qwen3.5-9B from 78 to 88 solved tasks under supervised fine-tuning while an online reinforcement variant reaches 90. Specifically, a compact harness-matched corpus produces steady model gains at substantially lower compute than much larger corpora pooled across sibling harnesses. Furthermore, evaluations on Terminal-Bench 2.1 and SWE-bench Lite show that out-of-distribution transfer depends fundamentally on harness compatibility, where maintaining consistency between training and evaluation runtimes prevents procedural execution breakdowns observed under foreign scaffolds.",
+    "authors": [
+      {
+        "name": "Jixuan Chen  Jiaxin Zhang  Qinyuan Ye  Yada Pruksachatkun  Haoxiang Zhang  Jingming Zhuo  Yifan Zhang  Yutong Dai  Juntao Tan  Xiangyu Peng  Silvio Savarese  Zeyuan Chen  Lianhui Qin  Chien-Sheng Wu University of California, San Diego Salesforce AI Research University of Washington jic182@ucsd.edu {jiaxin.zhang, qinyuan.ye, ypruksachatkun, wu.jason}@salesforce.com",
+        "affiliations": [],
+        "notes": []
+      }
+    ],
+    "author_block": "Jixuan Chen  Jiaxin Zhang  Qinyuan Ye  Yada Pruksachatkun  Haoxiang Zhang  Jingming Zhuo  Yifan Zhang  Yutong Dai  Juntao Tan  Xiangyu Peng  Silvio Savarese  Zeyuan Chen  Lianhui Qin  Chien-Sheng Wu University of California, San Diego Salesforce AI Research University of Washington jic182@ucsd.edu {jiaxin.zhang, qinyuan.ye, ypruksachatkun, wu.jason}@salesforce.com",
+    "arxiv_version": "2610.10426v1",
+    "arxiv_version_date": "2026-10-07"
+  },
+  "text": "CoTrace: Data Recipes for Training Terminal Agents with Harness–Model Co-Evolution Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: CC BY 4.0 arXiv:2610.10426v1 [cs.CL] 07 Oct 2026 CoTrace: Data Recipes for Training Terminal Agents with Harness–Model Co-Evolution Jixuan Chen Jiaxin Zhang Qinyuan Ye Yada Pruksachatkun Haoxiang Zhang Jingming Zhuo Yifan Zhang Yutong Dai Juntao Tan Xiangyu Peng Silvio Savarese Zeyuan Chen Lianhui Qin Chien-Sheng Wu University of California, San Diego Salesforce AI Research University of Washington jic182@ucsd.edu {jiaxin.zhang, qinyuan.ye, ypruksachatkun, wu.jason}@salesforce.com Abstract Terminal-agent capability depends jointly on model weights and the runtime harness that formats prompts, binds tools, and handles error recovery. Existing harness–model co-evolution approaches improve both components, yet often treat trajectories produced during harness search as an undifferentiated replay buffer. This practice overlooks that a trajectory’s value for model training depends on the harness under which it was generated. To systematically analyze this interface, we establish an alternating co-evolution framework that decouples harness search and policy training through component-wise promotion decisions. Within this framework, we introduce CoTrace, a harness-aware data recipe that explicitly governs trajectory routing, provenance matching, and curriculum refresh. Under CoTrace, recurring execution failures guide harness synthesis, while policy training is strictly conditioned on verified rollouts matched to the adopted runtime for supervised fine-tuning (SFT) or fresh online interactions for reinforcement learning (RL). On the Tmax promotion split, CoTrace advances Qwen3.5-9B from 78 to 88 solved tasks under supervised fine-tuning while an online reinforcement variant reaches 90. Specifically, a compact harness-matched corpus produces steady model gains at substantially lower compute than much larger corpora pooled across sibling harnesses. Furthermore, evaluations on Terminal-Bench 2.1 and SWE-bench Lite show that out-of-distribution transfer depends fundamentally on harness compatibility, where maintaining consistency between training and evaluation runtimes prevents procedural execution breakdowns observed under foreign scaffolds. 1 Introduction Recent advances have substantially improved autonomous coding and terminal agents across complex interactive environments ( Jimenez et al., 2024 ; Merrill et al., 2026 ; Ivison et al., 2026 ) . These agents combine two inseparable components: a language model that acts as the action-selection policy and a runtime harness that formats prompts, binds tools, manages context, and recovers from execution errors ( Yang et al., 2024 ; Wang et al., 2024c ; Chen et al., 2026b ) . Prior research has largely optimized either component in isolation, improving agent performance through verifier-grounded policy post-training under a fixed runtime ( Ivison et al., 2026 ; Pan et al., 2024 ; Wei et al., 2025 ) or through automated harness search with frozen model weights ( Lin et al., 2026 ; Chen et al., 2026b ; Zhang et al., 2026 ; Lee et al., 2026 ) . Although recent systems interleave harness adaptation with policy training ( Chen et al., 2026c ; Luo et al., 2026 ; Chen et al., 2026a ) , they leave the shared data interface between the two optimizers largely implicit. Because each update changes the conditions under which subsequent trajectories are collected, alternating the two processes without an explicit data recipe creates subtle failure modes. This motivates our central question: how should execution data flow between the policy and the harness during co-evolution? Figure 1: Overview of CoTrace and the shared data interface in model–harness co-evolution. Bottom: the closed loop. A task agent with the adopted harness H ∗ H^{*} and policy weights θ \\theta solves executable terminal tasks and fills a shared history of trajectories; harness evolution reads that history to edit prompts, processors and tools and selects the next H ∗ H^{*} , while model training updates θ \\theta before the subsequent round of search. Top: the data recipes that turn the history into model-training data, from the baseline supervised fine-tuning (SFT) recipes that pool every successful search trajectory (all-evolve) or successes across sibling candidate harnesses (mixed siblings), to CoTrace-SFT, which keeps only trajectories whose provenance matches H ∗ H^{*} and tops them up with fresh rollouts under H ∗ H^{*} , and CoTrace-RL, which learns online by reinforcement learning (RL) from rewards on frontier tasks rolled out under H ∗ H^{*} . An execution trajectory has different value for the harness and the policy. Execution failures can expose missing recovery logic and thereby guide harness mutation, but they are poor targets for policy imitation. Conversely, successful executions may rely on processors specific to candidate harnesses that are later rejected; training on those trajectories can therefore mismatch the policy’s data with the deployed runtime ( Tajwar et al., 2024 ) . As the agent improves, successful rollouts also concentrate increasingly on solved tasks with diminishing learning value, while unresolved failures define a moving frontier of harder problems. Pooling all search trajectories can thus disconnect the two optimizers: in one of our experiments, harness updates add nine solved tasks, while the promotion procedure rejects every model update trained on pooled candidate successes. We introduce CoTrace, a harness-aware data recipe that explicitly governs how execution experience is filtered, matched, and refreshed across model–harness co-evolution. Operating over an alternating search and training pipeline, CoTrace coordinates data flow through three targeted mechanisms. Route directs clustered execution failures to harness synthesis while restricting policy supervision to verified successes strictly matched to the adopted runtime, supplemented with fresh rollouts under that same harness. Ratchet attributes every accepted gain to one component by evaluating candidate harnesses under fixed weights and candidate policies under the adopted harness on a frozen promotion split. Refresh drives curriculum progression by retiring tasks only after they are both solved and incorporated into the training corpus, continuously redirecting exploration toward residual frontier tasks. On the 102-task Tmax split ( Ivison et al., 2026 ) , our default supervised recipe advances Qwen3.5-9B from 78 to 88 solved tasks across alternating updates, while an online reinforcement variant reaches a peak of 90. We evaluate these data recipes through targeted control experiments and cross-harness evaluations to determine when search experience translates into model learning. Tracking component-wise promotion decisions and data-routing strategies reveals that raw trajectory volume alone cannot guarantee policy improvement, whereas runtime compatibility proves decisive. While pooling 149–308 successful trajectories per iteration from exploratory sibling harnesses yields zero accepted model updates, our harness-matched recipe utilizes merely 30–50 trajectories to deliver consistent gains, achieving superior performance at the lowest per-iteration training cost of 47 GPU-hours. Cross-harness evaluations further demonstrate that learned capabilities remain tightly coupled to the runtime environment, consistently improving performance under the data-generating harness while degrading under mismatched alternatives. Crucially, external evaluations on Terminal-Bench 2.1 and SWE-bench Lite show that out-of-distribution (OOD) transfer is fundamentally governed by the co-evolved model–harness pair rather than the policy in isolation, where deploying the learned checkpoint within its co-evolved runtime dramatically suppresses early execution faults and no-patch failures, effectively unlocking the policy’s underlying problem-solving capability across foreign domains without task-specific tuning. In summary, our primary contributions are: • An inspectable co-evolution framework that records harness and model updates separately, with trajectory provenance and component-wise promotion decisions. • A harness-aware data recipe , combining failure routing, runtime-matched supervised trajectories, fresh generation, and curriculum refresh, evaluated against pooled search trajectories. • An analysis of transfer across runtimes showing where checkpoint-only gains fail to carry over and where runtime changes alter execution outcomes on external benchmarks. 2 Method We first formulate terminal-agent learning as alternating model–harness optimization and then present CoTrace, the data recipe that coordinates the two update channels. 2.1 Problem Formulation: Model–Harness Co-Evolution An autonomous terminal agent is a pair of a parameterized policy θ \\theta and an execution harness H H . A task x = ( q x , s x , v x ) ∼ 𝒯 x=(q_{x},s_{x},v_{x})\\sim\\mathcal{T} specifies an instruction q x q_{x} , an initial sandbox state s x s_{x} , and a deterministic verifier v x v_{x} of the terminal state; the harness formats prompt context, binds tools, parses feedback, and handles error recovery, so executing the pair induces a rollout distribution τ ∼ π ( ⋅ ∣ θ , H , x ) \\tau\\sim\\pi(\\cdot\\mid\\theta,H,x) of interleaved tool calls and observations. Model–harness co-evolution maximizes max θ , H J ( θ , H ) = 𝔼 x ∼ 𝒯 , τ ∼ π ( ⋅ ∣ θ , H , x ) [ v x ( τ ) ] , \\max_{\\theta,H}\\;J(\\theta,H)=\\mathbb{E}_{x\\sim\\mathcal{T},\\,\\tau\\sim\\pi(\\cdot\\mid\\theta,H,x)}[v_{x}(\\tau)], (1) which we optimize alternately over iterations t t , H t + 1 ≈ arg ⁡ max H ⁡ J ⁡ ( θ t , H ) H_{t+1}\\approx\\arg\\max_{H}J(\\theta_{t},H) and θ t + 1 ≈ arg ⁡ max θ ⁡ J ⁡ ( θ , H t + 1 ) \\theta_{t+1}\\approx\\arg\\max_{\\theta}J(\\theta,H_{t+1}) . The two updates are coupled through the traces τ \\tau : each step produces the data the next consumes, so co-evolution hinges on the recipe that routes failure evidence to harness search and runtime-matched successes to the policy. 2.2 CoTrace: Data Recipe for Co-Evolution CoTrace governs the data interface within an alternating co-evolution loop that coordinates harness search and model training over a versioned trajectory bank ℬ 0 : t \\mathcal{B}_{0:t} . Instead of pooling all generated traces into an undifferentiated replay buffer, CoTrace synchronizes the information exchange through three coordinated operations. First, Route partitions execution traces into failure clusters that expose missing runtime recovery logic for harness synthesis, while filtering and matching verified successes to the adopted runtime for policy supervision. Second, Ratchet enforces coordinate promotion on the frozen split 𝒱 \\mathcal{V} with the complementary component fixed, guaranteeing that accepted gains are cleanly attributable and that regressions are discarded. Third, Refresh retires tasks that have provided verified training signal and replenishes the evolve set from an unvisited reservoir, ensuring that both search and training remain concentrated on the moving frontier. Algorithm 1 outlines this alternating workflow; see algorithm details in Section D.1 . Algorithm 1 CoTrace Alternating Co-Evolution Loop (Single Iteration) 1: Incumbent pair ( θ t , H t ) (\\theta_{t},H_{t}) , evolve set ℰ t \\mathcal{E}_{t} , reservoir 𝒯 pool \\mathcal{T}_{\\mathrm{pool}} , frozen split 𝒱 \\mathcal{V} , trajectory bank ℬ 0 : t \\mathcal{B}_{0:t} 2: Updated pair ( θ t + 1 , H t + 1 ) (\\theta_{t+1},H_{t+1}) , refreshed evolve set ℰ t + 1 \\mathcal{E}_{t+1} , updated bank ℬ 0 : t + 1 \\mathcal{B}_{0:t+1} 3: // Phase 1: Failure-Guided Harness Search and Attribution 4: 𝒟 t H ← RouteFailures ( ℬ 0 : t ) \\mathcal{D}^{H}_{t}\\leftarrow\\textsc{RouteFailures}(\\mathcal{B}_{0:t}) ⊳ \\triangleright Route : cluster recurrin",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: CC BY 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "Jimenez et al., 2024",
+      "url": "https://arxiv.org/html/2610.10426v1#bib.bib12"
+    },
+    {
+      "text": "Merrill et al., 2026",
+      "url": "https://arxiv.org/html/2610.10426v1#bib.bib22"
+    },
+    {
+      "text": "Ivison et al., 2026",
+      "url": "https://arxiv.org/html/2610.10426v1#bib.bib10"
+    },
+    {
+      "text": "Yang et al., 2024",
+      "url": "https://arxiv.org/html/2610.10426v1#bib.bib43"
+    },
+    {
+      "text": "Wang et al., 2024c",
+      "url": "https://arxiv.org/html/2610.10426v1#bib.bib38"
+    },
+    {
+      "text": "Chen et al., 2026b",
+      "url": "https://arxiv.org/html/2610.10426v1#bib.bib4"
+    },
+    {
+      "text": "Pan et al., 2024",
+      "url": "https://arxiv.org/html/2610.10426v1#bib.bib25"
+    },
+    {
+      "text": "Wei et al., 2025",
+      "url": "https://arxiv.org/html/2610.10426v1#bib.bib39"
+    },
+    {
+      "text": "Lin et al., 2026",
+      "url": "https://arxiv.org/html/2610.10426v1#bib.bib19"
+    },
+    {
+      "text": "Zhang et al., 2026",
+      "url": "https://arxiv.org/html/2610.10426v1#bib.bib50"
+    },
+    {
+      "text": "Lee et al., 2026",
+      "url": "https://arxiv.org/html/2610.10426v1#bib.bib16"
+    },
+    {
+      "text": "Chen et al., 2026c",
+      "url": "https://arxiv.org/html/2610.10426v1#bib.bib6"
+    },
+    {
+      "text": "Luo et al., 2026",
+      "url": "https://arxiv.org/html/2610.10426v1#bib.bib20"
+    },
+    {
+      "text": "Chen et al., 2026a",
+      "url": "https://arxiv.org/html/2610.10426v1#bib.bib3"
+    },
+    {
+      "text": "Tajwar et al., 2024",
+      "url": "https://arxiv.org/html/2610.10426v1#bib.bib34"
+    },
+    {
+      "text": "Algorithm 1",
+      "url": "https://arxiv.org/html/2610.10426v1#alg1"
+    },
+    {
+      "text": "Section D.1",
+      "url": "https://arxiv.org/html/2610.10426v1#A4.SS1"
+    },
+    {
+      "text": "Hu et al., 2022",
+      "url": "https://arxiv.org/html/2610.10426v1#bib.bib8"
+    },
+    {
+      "text": "Qi et al., 2026",
+      "url": "https://arxiv.org/html/2610.10426v1#bib.bib26"
+    },
+    {
+      "text": "Yu et al., 2025",
+      "url": "https://arxiv.org/html/2610.10426v1#bib.bib45"
+    },
+    {
+      "text": "Section 3",
+      "url": "https://arxiv.org/html/2610.10426v1#S3"
+    },
+    {
+      "text": "Appendices D",
+      "url": "https://arxiv.org/html/2610.10426v1#A4"
+    },
+    {
+      "text": "F",
+      "url": "https://arxiv.org/html/2610.10426v1#A6"
+    },
+    {
+      "text": "Section D.5",
+      "url": "https://arxiv.org/html/2610.10426v1#A4.SS5"
+    },
+    {
+      "text": "Equation 5",
+      "url": "https://arxiv.org/html/2610.10426v1#A4.E5"
+    },
+    {
+      "text": "Section D.2",
+      "url": "https://arxiv.org/html/2610.10426v1#A4.SS2"
+    },
+    {
+      "text": "Section C.2",
+      "url": "https://arxiv.org/html/2610.10426v1#A3.SS2"
+    },
+    {
+      "text": "Section 4.3",
+      "url": "https://arxiv.org/html/2610.10426v1#S4.SS3"
+    },
+    {
+      "text": "Section D.4",
+      "url": "https://arxiv.org/html/2610.10426v1#A4.SS4"
+    },
+    {
+      "text": "Sections C.6",
+      "url": "https://arxiv.org/html/2610.10426v1#A3.SS6"
+    },
+    {
+      "text": "Section D.3",
+      "url": "https://arxiv.org/html/2610.10426v1#A4.SS3"
+    },
+    {
+      "text": "Section C.5",
+      "url": "https://arxiv.org/html/2610.10426v1#A3.SS5"
+    },
+    {
+      "text": "Table 1",
+      "url": "https://arxiv.org/html/2610.10426v1#S3.T1"
+    },
+    {
+      "text": "Table 9",
+      "url": "https://arxiv.org/html/2610.10426v1#A5.T9"
+    },
+    {
+      "text": "Appendix E",
+      "url": "https://arxiv.org/html/2610.10426v1#A5"
+    },
+    {
+      "text": "Figure 2",
+      "url": "https://arxiv.org/html/2610.10426v1#S3.F2"
+    },
+    {
+      "text": "Table 11",
+      "url": "https://arxiv.org/html/2610.10426v1#A5.T11"
+    },
+    {
+      "text": "Section 4",
+      "url": "https://arxiv.org/html/2610.10426v1#S4"
+    },
+    {
+      "text": "Table 2",
+      "url": "https://arxiv.org/html/2610.10426v1#S3.T2"
+    },
+    {
+      "text": "Section 4.2",
+      "url": "https://arxiv.org/html/2610.10426v1#S4.SS2"
+    },
+    {
+      "text": "Table 10",
+      "url": "https://arxiv.org/html/2610.10426v1#A5.T10"
+    },
+    {
+      "text": "Section 2.2.1",
+      "url": "https://arxiv.org/html/2610.10426v1#S2.SS2.SSS1"
+    },
+    {
+      "text": "Figure 3",
+      "url": "https://arxiv.org/html/2610.10426v1#S4.F3"
+    },
+    {
+      "text": "Section E.7",
+      "url": "https://arxiv.org/html/2610.10426v1#A5.SS7"
+    },
+    {
+      "text": "Table 3",
+      "url": "https://arxiv.org/html/2610.10426v1#S4.T3"
+    },
+    {
+      "text": "Table 8",
+      "url": "https://arxiv.org/html/2610.10426v1#A5.T8"
+    },
+    {
+      "text": "Section E.8",
+      "url": "https://arxiv.org/html/2610.10426v1#A5.SS8"
+    },
+    {
+      "text": "Figure 4",
+      "url": "https://arxiv.org/html/2610.10426v1#S4.F4"
+    },
+    {
+      "text": "Section 3.3",
+      "url": "https://arxiv.org/html/2610.10426v1#S3.SS3"
+    },
+    {
+      "text": "Figure 5",
+      "url": "https://arxiv.org/html/2610.10426v1#S4.F5"
+    },
+    {
+      "text": "Section E.5",
+      "url": "https://arxiv.org/html/2610.10426v1#A5.SS5"
+    },
+    {
+      "text": "Zhou et al., 2022",
+      "url": "https://arxiv.org/html/2610.10426v1#bib.bib53"
+    },
+    {
+      "text": "Yang et al., 2023",
+      "url": "https://arxiv.org/html/2610.10426v1#bib.bib41"
+    },
+    {
+      "text": "Khattab et al., 2023",
+      "url": "https://arxiv.org/html/2610.10426v1#bib.bib13"
+    },
+    {
+      "text": "Yuksekgonul et al., 2024",
+      "url": "https://arxiv.org/html/2610.10426v1#bib.bib47"
+    },
+    {
+      "text": "Hu et al., 2024",
+      "url": "https://arxiv.org/html/2610.10426v1#bib.bib9"
+    },
+    {
+      "text": "Zhang et al., 2025",
+      "url": "https://arxiv.org/html/2610.10426v1#bib.bib51"
+    }
+  ],
+  "matching_link_count": 113,
+  "links_truncated": true,
+  "invalid_links": []
+}

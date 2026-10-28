@@ -1,0 +1,269 @@
+{
+  "url": "https://arxiv.org/html/2609.30766v1",
+  "final_url": "https://arxiv.org/html/2609.30766v1",
+  "status": 200,
+  "title": "WeEnv: The Environment for Agentic Reinforcement Learning at WeChat",
+  "metadata": {},
+  "paper": {
+    "title": "WeEnv : The Environment for Agentic Reinforcement Learning at WeChat",
+    "title_warning": null,
+    "abstract": "Abstract Agentic reinforcement learning (RL) differs from conventional RL in that every task executes inside a complex environment , e.g., a virtual machine or\na container.\nWe find that agentic RL pays a heavy environment tax : a large share of the iteration time goes to the environment rather than to learning.\nThe root cause is the lack of a full-lifecycle solution to environment management. We present WeEnv , which manages environments across packaging, initialization, and provisioning. WeEnv packages components as independently published layer groups and composes them at initialization, so that updating a component republishes one small group rather than every artifact containing it.\nTo speed up environment initialization, WeEnv launches environments instantly and fetches contents on demand.\nDuring task execution, WeEnv provisions CPU and memory elastically, adjusting each environment’s quota from its observed usage to fit the varying demands. WeEnv reduces the initialization by 5.6–14.2 × \\times over E2B, Docker, and AgentENV, cutting its share of the iteration time from up to 53.4% to 9.1%. WeEnv is deployed for agentic RL at WeChat.",
+    "authors": [
+      {
+        "name": "Yang Yu Jing Lei 1 1 footnotemark: 1 Shaoxun Zeng Xinyu Gao Jindi Shi Ci Lei Junjie ZhangWeChat AI, Tencent",
+        "affiliations": [],
+        "notes": []
+      }
+    ],
+    "author_block": "Yang Yu Jing Lei 1 1 footnotemark: 1 Shaoxun Zeng Xinyu Gao Jindi Shi Ci Lei Junjie ZhangWeChat AI, Tencent † † thanks: Yang Yu, Jing Lei, and Shaoxun Zeng contributed equally to this work. † † thanks: Corresponding author.",
+    "arxiv_version": "2609.30766v1",
+    "arxiv_version_date": "2026-09-25"
+  },
+  "text": "WeEnv: The Environment for Agentic Reinforcement Learning at WeChat Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: CC BY-NC-ND 4.0 arXiv:2609.30766v1 [cs.DC] 25 Sep 2026 WeEnv : The Environment for Agentic Reinforcement Learning at WeChat Yang Yu Jing Lei 1 1 footnotemark: 1 Shaoxun Zeng Xinyu Gao Jindi Shi Ci Lei Junjie ZhangWeChat AI, Tencent † † thanks: Yang Yu, Jing Lei, and Shaoxun Zeng contributed equally to this work. † † thanks: Corresponding author. Abstract Agentic reinforcement learning (RL) differs from conventional RL in that every task executes inside a complex environment , e.g., a virtual machine or a container. We find that agentic RL pays a heavy environment tax : a large share of the iteration time goes to the environment rather than to learning. The root cause is the lack of a full-lifecycle solution to environment management. We present WeEnv , which manages environments across packaging, initialization, and provisioning. WeEnv packages components as independently published layer groups and composes them at initialization, so that updating a component republishes one small group rather than every artifact containing it. To speed up environment initialization, WeEnv launches environments instantly and fetches contents on demand. During task execution, WeEnv provisions CPU and memory elastically, adjusting each environment’s quota from its observed usage to fit the varying demands. WeEnv reduces the initialization by 5.6–14.2 × \\times over E2B, Docker, and AgentENV, cutting its share of the iteration time from up to 53.4% to 9.1%. WeEnv is deployed for agentic RL at WeChat. 1 Introduction Reinforcement learning (RL) has become a key stage in training large language models (LLMs), and its frontier is moving toward long-horizon agentic tasks such as software engineering [ 25 , 51 , 5 , 24 , 12 ] and terminal operation [ 17 ] . RL trains the model in iterations. Each iteration first performs a rollout, where the current model attempts a batch of tasks and produces trajectories, and then updates the model. In agentic RL, a task is no longer solved by a single answer. Driven by a harness, the agent repeatedly calls the LLM for inference and calls tools to act on the task. Each task hence executes inside an environment , a virtual machine or a container whose root filesystem contains files the task execution requires. The environment is packaged offline into an artifact, i.e., a template for virtual machines or an image for containers, and pushed to the registry, a remote service hosting all published artifacts. At rollout, it is first initialized by fetching the artifact and launching an instance, then provisioned with resources like CPU and memory while the task executes. We find that a large share of the agentic RL iteration time is spent on the environment initialization rather than on learning. Breaking down the iteration time of a production-grade framework, Slime [ 54 ] , we observe that initialization alone accounts for 53.4% of the iteration time with virtual machines (E2B [ 16 ] ) and 39.5% with containers (Docker [ 15 ] ), 2.6 × \\times the task execution itself with E2B and roughly on par with it under Docker, while training takes merely 15.4%–24.0%. The initialization, however, is not the only deficiency. Current environment management falls short at every stage of the environment lifecycle, and we collectively term these deficiencies the environment tax . First, packaging faces a dilemma. The environment demands frequent updates, e.g., to evolve the harness [ 50 , 23 ] and to counter reward hacking [ 41 , 33 , 37 ] . Dynamic assembly accommodates these updates by installing the evolving components at every initialization, which costs about 20 seconds per environment (§ 3.2 ). Static bundling instead bakes them into the artifact, which removes the installation but suffers from a combinatorial explosion of artifacts, where a single update repackages every artifact. Second, initialization suffers from severe I/O amplification. The environment launches only after its complete artifact is fetched, yet the access of task execution is highly sparse, touching merely 0.81% of the artifact at the median (§ 3.3 ). Most of the initialization time is hence wasted on fetching contents that are never used. Third, resource provisioning allocates a fixed quota, while the peak demands are heavily long-tailed, from about one core at the median to 68 cores at the 99th percentile (§ 3.4 ), and the provisioning directly affects the latency, inflating the task execution by up to 1.5 × \\times under a limited quota. We present WeEnv , a full-lifecycle environment solution for agentic RL. WeEnv consists of three designs. ∙ \\bullet For packaging, layer composition resolves the dilemma. WeEnv packages environment components separately and composes them into a complete environment at initialization. Composition stacks the independently packaged components into the root filesystem of the environment. It is lightweight, manipulating only metadata, and hence replaces the time-consuming installation of dynamic assembly. Meanwhile, since components are no longer baked into monolithic artifacts, updating a component republishes one small piece rather than every artifact containing it, avoiding the combinatorial explosion of static bundling. Such composition is impossible with conventional tooling: only the complete artifact can be published or fetched from the registry, while a layer cannot be located on its own. WeEnv hence treats layers as first-class deployable units. Each component is packaged and published as a layer group carrying an explicit reference of its own, and an environment plan lists the group references and stacks them into the root filesystem at initialization, all on top of the unmodified registry protocol. ∙ \\bullet For initialization, on-demand fetching removes the I/O amplification. WeEnv launches an environment instantly without the complete artifact, and the contents are fetched on demand during task execution. To support this, WeEnv designs a layer format that separates the layer metadata from the layer contents, so that an environment launches with the metadata alone and any byte range is fetchable on demand. ∙ \\bullet For provisioning, elastic resource provisioning replaces the fixed quota. Every environment starts from the same small allocation, and WeEnv adjusts its CPU and memory quotas live from the cgroup signals. Drawing on the characteristics of agentic RL tasks, the scaling follows three principles: scaling up is aggressive while scaling down is conservative, as the demand of a task can surge by 47 × 47\\times within a second ( Figure 6 ), and a wrong reclaim disrupts the task execution and discards the accumulated interaction; scale-ups must not starve the admission of new environments; and a task that cannot be served fails explicitly rather than degrades silently, so that no corrupted trajectory contaminates the training. We implement WeEnv and integrate it with Slime. Across E2B, Docker, and AgentENV [ 2 ] , WeEnv reduces the median environment initialization by 5.6–14.2 × \\times , cutting its share of the iteration time from up to 53.4% to 9.1%. Layer composition reduces the artifacts to maintain by orders of magnitude. On-demand fetching launches environments 3.1 × \\times faster and shortens the end-to-end iterations by 1.35 × \\times . Elastic provisioning accelerates the resource-intensive tasks by up to 45 × \\times , shortening the iterations they gate by up to 3.7 × \\times . 2 Background Agentic RL. Figure 1 shows the architecture of agentic RL [ 54 , 48 , 32 ] , which iterates between two phases: the rollout phase generates trajectories with the current large language model (LLM), and the train phase updates the model weights with them. The rollout involves two parts. ( i ) The inference part serves the model with an LLM serving engine [ 53 , 28 ] . ( ii ) The task execution part runs each task inside an environment instance, driven by the harness , i.e., the agent that coordinates the interaction between the model and the environment. Starting from the task’s initial state, the harness repeatedly calls the model through the serving engine and invokes tools inside the environment, e.g., running commands, until the task is judged done. The interactions form a trajectory, which is sent to the train phase. Figure 1 : Agentic RL. Environment in agentic RL. The environment is initialized before task execution, and some tasks [ 9 , 51 , 8 , 6 , 7 , 10 ] require two separate environments. The first environment hosts the task execution, where the agent solves the task. After the execution, a second environment is initialized to evaluate the task execution results and get the reward, for those tasks whose reward computation itself requires environment execution. The evaluation runs in a separate, clean environment, so that rollout-side modifications cannot contaminate the reward computation, guarding against reward hacking [ 41 , 33 , 37 ] . Serving as the foundation of task execution, the environment is commonly managed as a separate cluster [ 12 , 43 , 42 ] , for two reasons. First, since environments are mutated by the agents, concurrent rollouts must be isolated from one another to avoid interference. Second, the resource profile differs. Task execution consumes CPU and memory, whereas training and inference are GPU-bound, so pooling environments separately keeps them from fragmenting the GPU capacity. Environment components. The environment is typically instantiated as a virtual machine [ 1 , 16 ] or a container [ 15 , 25 , 50 , 46 ] , which packages the dependencies required for task execution. It comprises the following components. • The base component provides the operating system, language runtimes, shared libraries, and common tools. • The task definition component (task for short) comprises a task-specific initial state, e.g., a Git checkout with a faulty patch applied, together with a task specification and an evaluator that judges completion and computes the reward. The evaluator is updated routinely during RL, as newly discovered reward-hacking behaviors demand increasingly robust evaluation [ 41 , 33 , 37 ] . • The harness component coordinates the interaction between the model and the environment, including model invocation and tool execution; popular harnesses include Claude Code [ 3 ] and Codex [ 35 ] . The harness matters to task performance, as the same model shows different capabilities under different harnesses [ 19 ] . Moreover, harnesses evolve continuously in their interfaces and tools [ 50 , 23 ] , requiring the environment to accommodate heterogeneous and evolving harnesses [ 32 , 48 ] for generalization [ 12 ] . Lifecycle of the environment. The environment goes through three stages: packaging, initialization, and provisioning . The environment is first packaged offline by the underlying environment tooling into a deployable artifact, i.e., a template for virtual machines such as E2B [ 16 ] , or an image for containers such as Docker [ 15 ] , which is then pushed to a storage service, known as the registry, that hosts all published artifacts. Notably, the offline-packaged artifact does not necessarily cover the complete environment; in that case, the tooling installs the remaining components during initialization (§ 3.2 ). During the rollout phase in agentic RL, before each task executes, an environment instance is initialized by the same environment tooling, which pulls the artifact from the registry, turns it into the root filesystem, e.g., by unpacking and mounting the artifact for containers, or by loading it as the virtual disk for virtual machines, and launches it. Multiple environment instances are managed by the envlet . The envlet provisions each instance with resources such as CPU and mem",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: CC BY-NC-ND 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "25",
+      "url": "https://arxiv.org/html/2609.30766v1#bib.bib25"
+    },
+    {
+      "text": "51",
+      "url": "https://arxiv.org/html/2609.30766v1#bib.bib51"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2609.30766v1#bib.bib5"
+    },
+    {
+      "text": "24",
+      "url": "https://arxiv.org/html/2609.30766v1#bib.bib24"
+    },
+    {
+      "text": "12",
+      "url": "https://arxiv.org/html/2609.30766v1#bib.bib12"
+    },
+    {
+      "text": "17",
+      "url": "https://arxiv.org/html/2609.30766v1#bib.bib17"
+    },
+    {
+      "text": "54",
+      "url": "https://arxiv.org/html/2609.30766v1#bib.bib54"
+    },
+    {
+      "text": "16",
+      "url": "https://arxiv.org/html/2609.30766v1#bib.bib16"
+    },
+    {
+      "text": "15",
+      "url": "https://arxiv.org/html/2609.30766v1#bib.bib15"
+    },
+    {
+      "text": "50",
+      "url": "https://arxiv.org/html/2609.30766v1#bib.bib50"
+    },
+    {
+      "text": "23",
+      "url": "https://arxiv.org/html/2609.30766v1#bib.bib23"
+    },
+    {
+      "text": "41",
+      "url": "https://arxiv.org/html/2609.30766v1#bib.bib41"
+    },
+    {
+      "text": "33",
+      "url": "https://arxiv.org/html/2609.30766v1#bib.bib33"
+    },
+    {
+      "text": "37",
+      "url": "https://arxiv.org/html/2609.30766v1#bib.bib37"
+    },
+    {
+      "text": "3.2",
+      "url": "https://arxiv.org/html/2609.30766v1#S3.SS2"
+    },
+    {
+      "text": "3.3",
+      "url": "https://arxiv.org/html/2609.30766v1#S3.SS3"
+    },
+    {
+      "text": "3.4",
+      "url": "https://arxiv.org/html/2609.30766v1#S3.SS4"
+    },
+    {
+      "text": "Figure 6",
+      "url": "https://arxiv.org/html/2609.30766v1#S4.F6"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2609.30766v1#bib.bib2"
+    },
+    {
+      "text": "Figure 1",
+      "url": "https://arxiv.org/html/2609.30766v1#S2.F1"
+    },
+    {
+      "text": "48",
+      "url": "https://arxiv.org/html/2609.30766v1#bib.bib48"
+    },
+    {
+      "text": "32",
+      "url": "https://arxiv.org/html/2609.30766v1#bib.bib32"
+    },
+    {
+      "text": "53",
+      "url": "https://arxiv.org/html/2609.30766v1#bib.bib53"
+    },
+    {
+      "text": "28",
+      "url": "https://arxiv.org/html/2609.30766v1#bib.bib28"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2609.30766v1#bib.bib9"
+    },
+    {
+      "text": "8",
+      "url": "https://arxiv.org/html/2609.30766v1#bib.bib8"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2609.30766v1#bib.bib6"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2609.30766v1#bib.bib7"
+    },
+    {
+      "text": "10",
+      "url": "https://arxiv.org/html/2609.30766v1#bib.bib10"
+    },
+    {
+      "text": "43",
+      "url": "https://arxiv.org/html/2609.30766v1#bib.bib43"
+    },
+    {
+      "text": "42",
+      "url": "https://arxiv.org/html/2609.30766v1#bib.bib42"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.30766v1#bib.bib1"
+    },
+    {
+      "text": "46",
+      "url": "https://arxiv.org/html/2609.30766v1#bib.bib46"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2609.30766v1#bib.bib3"
+    },
+    {
+      "text": "35",
+      "url": "https://arxiv.org/html/2609.30766v1#bib.bib35"
+    },
+    {
+      "text": "19",
+      "url": "https://arxiv.org/html/2609.30766v1#bib.bib19"
+    },
+    {
+      "text": "39",
+      "url": "https://arxiv.org/html/2609.30766v1#bib.bib39"
+    },
+    {
+      "text": "49",
+      "url": "https://arxiv.org/html/2609.30766v1#bib.bib49"
+    },
+    {
+      "text": "38",
+      "url": "https://arxiv.org/html/2609.30766v1#bib.bib38"
+    },
+    {
+      "text": "Figure 2",
+      "url": "https://arxiv.org/html/2609.30766v1#S3.F2"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2609.30766v1#S2"
+    },
+    {
+      "text": "11",
+      "url": "https://arxiv.org/html/2609.30766v1#bib.bib11"
+    },
+    {
+      "text": "Figure 3",
+      "url": "https://arxiv.org/html/2609.30766v1#S3.F3"
+    },
+    {
+      "text": "Figure 4",
+      "url": "https://arxiv.org/html/2609.30766v1#S3.F4"
+    },
+    {
+      "text": "Figure 5",
+      "url": "https://arxiv.org/html/2609.30766v1#S3.F5"
+    },
+    {
+      "text": "Figure 7",
+      "url": "https://arxiv.org/html/2609.30766v1#S5.F7"
+    },
+    {
+      "text": "6.1",
+      "url": "https://arxiv.org/html/2609.30766v1#S6.SS1"
+    },
+    {
+      "text": "6.2",
+      "url": "https://arxiv.org/html/2609.30766v1#S6.SS2"
+    },
+    {
+      "text": "7.1",
+      "url": "https://arxiv.org/html/2609.30766v1#S7.SS1"
+    },
+    {
+      "text": "7.2",
+      "url": "https://arxiv.org/html/2609.30766v1#S7.SS2"
+    },
+    {
+      "text": "8.1",
+      "url": "https://arxiv.org/html/2609.30766v1#S8.SS1"
+    },
+    {
+      "text": "8.2",
+      "url": "https://arxiv.org/html/2609.30766v1#S8.SS2"
+    },
+    {
+      "text": "Figure 8",
+      "url": "https://arxiv.org/html/2609.30766v1#S6.F8"
+    },
+    {
+      "text": "26",
+      "url": "https://arxiv.org/html/2609.30766v1#bib.bib26"
+    },
+    {
+      "text": "40",
+      "url": "https://arxiv.org/html/2609.30766v1#bib.bib40"
+    },
+    {
+      "text": "47",
+      "url": "https://arxiv.org/html/2609.30766v1#bib.bib47"
+    },
+    {
+      "text": "27",
+      "url": "https://arxiv.org/html/2609.30766v1#bib.bib27"
+    }
+  ],
+  "matching_link_count": 105,
+  "links_truncated": true,
+  "invalid_links": []
+}

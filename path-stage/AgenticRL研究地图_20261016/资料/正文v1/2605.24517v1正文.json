@@ -1,0 +1,263 @@
+{
+  "url": "https://arxiv.org/html/2605.24517v1",
+  "final_url": "https://arxiv.org/html/2605.24517v1",
+  "status": 200,
+  "title": "ECHO: Terminal Agents Learn World Models for Free Vaishnavi Shrivastava∗ Piero Kauffmann Ahmed Awadallah Dimitris Papailiopoulos",
+  "metadata": {},
+  "paper": {
+    "title": "ECHO: Terminal Agents Learn World Models for Free Vaishnavi Shrivastava ∗ Piero Kauffmann  Ahmed Awadallah  Dimitris Papailiopoulos",
+    "title_warning": null,
+    "abstract": "Abstract CLI agents are the closest thing language models have to an embodied setting: the model emits commands, the terminal executes them, and the returned stream—stdout, errors, files, logs, and traces—records the consequences. We argue that this stream is a supervision signal, but standard agent RL discards it: GRPO-style training updates action tokens with sparse outcome-level rewards while ignoring environment responses already in the rollout. Failed rollouts provide little policy-gradient signal despite containing rich evidence about how the environment responds. We introduce ECHO (Environment Cross-entropy Hybrid Objective), a hybrid objective that combines the standard policy-gradient loss on action tokens with an auxiliary loss that trains the policy to predict environment observation tokens resulting from its own actions. ECHO reuses the same forward pass as GRPO, requires no additional rollouts, and turns terminal feedback into dense supervision for all rollouts. ECHO doubles GRPO pass@1 on TerminalBench-2.0: Qwen3-8B improves from 2.70 % 2.70\\% to 5.17 % 5.17\\% , and Qwen3-14B from 5.17 % 5.17\\% to 10.79 % 10.79\\% . ECHO also produces policies that better predict terminal dynamics, even on trajectories they did not generate: across held-out rollouts, it sharply reduces environment-token cross-entropy while GRPO alone barely changes it. From base Qwen3-8B, ECHO matches expert-SFT-then-GRPO performance on held-out terminal tasks without expert demonstrations, and recovers roughly half of the expert-SFT initialization benefit on TerminalBench-2.0. In some settings, the environment prediction loss alone enables verifier-free self-improvement, allowing policies to improve on unseen OOD tasks by learning only from environment interactions. Together, these results suggest that environment observations are not merely context for future actions, but a dense, on-policy supervision signal already present in every rollout.",
+    "authors": [],
+    "author_block": "",
+    "arxiv_version": "2605.24517v1",
+    "arxiv_version_date": "2026-05-23"
+  },
+  "text": "ECHO: Terminal Agents Learn World Models for Free Vaishnavi Shrivastava∗ Piero Kauffmann Ahmed Awadallah Dimitris Papailiopoulos Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: arXiv.org perpetual non-exclusive license arXiv:2605.24517v1 [cs.LG] 23 May 2026 ECHO: Terminal Agents Learn World Models for Free Vaishnavi Shrivastava ∗ Piero Kauffmann Ahmed Awadallah Dimitris Papailiopoulos Microsoft Research ${}^{*}$ ${}^{*}$ footnotetext: Correspondence to: vaishnavi.shrivastava@microsoft.com Figure 1 : ECHO turns terminal feedback into supervision during agent RL. A terminal-agent rollout interleaves assistant actions, with environment observations. In standard GRPO, previous terminal outputs can inform future commands, but loss is applied only to action-token positions and is driven by sparse outcome-level rewards. ECHO adds a complementary cross-entropy loss on environment-observation tokens, training the same policy to predict the terminal responses caused by its own actions. ECHO reuses the same rollout and forward pass while making every terminal response an additional training target. Bottom: across held-out evaluations, ECHO improves task solve rate relative to matched GRPO-only runs and also reaches the peak GRPO performance substantially earlier in training. Abstract CLI agents are the closest thing language models have to an embodied setting: the model emits commands, the terminal executes them, and the returned stream—stdout, errors, files, logs, and traces—records the consequences. We argue that this stream is a supervision signal, but standard agent RL discards it: GRPO-style training updates action tokens with sparse outcome-level rewards while ignoring environment responses already in the rollout. Failed rollouts provide little policy-gradient signal despite containing rich evidence about how the environment responds. We introduce ECHO (Environment Cross-entropy Hybrid Objective), a hybrid objective that combines the standard policy-gradient loss on action tokens with an auxiliary loss that trains the policy to predict environment observation tokens resulting from its own actions. ECHO reuses the same forward pass as GRPO, requires no additional rollouts, and turns terminal feedback into dense supervision for all rollouts. ECHO doubles GRPO pass@1 on TerminalBench-2.0: Qwen3-8B improves from 2.70 % 2.70\\% to 5.17 % 5.17\\% , and Qwen3-14B from 5.17 % 5.17\\% to 10.79 % 10.79\\% . ECHO also produces policies that better predict terminal dynamics, even on trajectories they did not generate: across held-out rollouts, it sharply reduces environment-token cross-entropy while GRPO alone barely changes it. From base Qwen3-8B, ECHO matches expert-SFT-then-GRPO performance on held-out terminal tasks without expert demonstrations, and recovers roughly half of the expert-SFT initialization benefit on TerminalBench-2.0. In some settings, the environment prediction loss alone enables verifier-free self-improvement, allowing policies to improve on unseen OOD tasks by learning only from environment interactions. Together, these results suggest that environment observations are not merely context for future actions, but a dense, on-policy supervision signal already present in every rollout. 1 Introduction Language-model agents learn by acting in environments: a terminal agent edits files, runs tests, reads errors, and issues follow-up commands until a verifier declares success or failure. The terminal responds to every action with real environment feedback, but the reward signal that ultimately reaches the trainer is sparse, delayed, and binary. This sparsity is particularly pronounced in terminal-agent training. As a concrete example, in our Qwen3-8B setting, often fewer than 15% of on-policy rollouts solve the task, so under standard GRPO ( Shao et al., 2024 ) the vast majority of interaction yields little policy-gradient signal. These rollouts are far from uninformative. Even a failed trajectory contains the actual outputs of whatever the agent ran: file listings, training logs, build errors, the contents of a config file, the response from a web request, a stack trace, the result of a grep , or anything else a shell can produce. Every token from the terminal enters the model’s forward computation, yet none of it enters the loss. The transcript becomes context for the next action and nothing more — and we believe this wastes the most abundant signal in an interactive environment. We instead train on these tokens directly. Why should this help? A long-running intuition in language modeling is that good prediction implies good understanding: predicting the next token well, in Sutskever’s phrasing, “means you understand the underlying reality that led to the creation of that token” ( Patel, 2023 ) . We borrow this view for agents. More precisely, terminal output is a lossy textual projection of the container state: it reveals stdout, stderr, exit codes, file contents, traces, and test failures, but not the full filesystem, process tree, or hidden task state. Predicting these observations therefore requires the policy to track the latent consequences of its commands: which files were created, which assumptions failed, which tests broke, and what state is likely to be exposed next. A policy that predicts terminal output well is, in a small but real sense, a policy that understands terminals. We introduce ECHO (Environment Cross-entropy Hybrid Objective), a hybrid loss that adds auxiliary cross-entropy on environment-observation tokens to the usual GRPO loss on action tokens for multi-turn agent RL: ℒ ECHO ​ ( θ ) = ℒ GRPO ​ ( θ , 𝒜 ) + λ ​ ℒ Env ​ ( θ , 𝒪 ′ ) , \\mathcal{L}_{\\mathrm{ECHO}}(\\theta)=\\mathcal{L}_{\\mathrm{GRPO}}(\\theta;\\mathcal{A})+\\lambda\\,\\mathcal{L}_{\\mathrm{Env}}(\\theta;\\mathcal{O}^{\\prime}), (1) where 𝒜 \\mathcal{A} indexes assistant-action positions and 𝒪 ′ \\mathcal{O}^{\\prime} indexes terminal-output positions inside the environment observations. The objective requires no teacher model, extra rollouts, or an additional forward pass: it uses the same logits already computed for the policy update, but gathers them at a different set of token positions. Because these targets come from the current policy’s own rollouts, ECHO is on-policy: as the agent improves and visits new terminal states, the environment produces new responses to predict, creating a self-evolving curriculum. In effect, ECHO turns the environment stream into dense supervision, so even failed rollouts can teach the policy how the terminal responds. We test this hypothesis in TerminalBench-style Docker task environments with Qwen3-8B, OpenThinker-Agent-v1-SFT, and Qwen3-14B starting policies. ECHO consistently improves both internal held-out evaluations and the public TerminalBench-2.0 benchmark. On TerminalBench-2.0, ECHO nearly doubles GRPO’s pass@1 rate from 2.70 % 2.70\\% to 5.17 % 5.17\\% for Qwen3-8B and from 5.17 % 5.17\\% to 10.79 % 10.79\\% for Qwen3-14B. The same checkpoints also become substantially better predictors of terminal behavior: on held-out off-policy trajectories from Qwen3-32B, ECHO sharply lowers environment-token cross-entropy while GRPO alone barely changes it. ECHO also reduces dependence on expert demonstrations: from a base Qwen3-8B, ECHO matches OpenThinker-SFT+GRPO on internal evaluations without using any of the ∼ 15 {\\sim}15 k expert demonstrations behind the SFT model, and closes about half of the expert-SFT gap on TerminalBench-2.0. Our contributions are as follows: 1. ECHO turns terminal outputs into supervision. We introduce an on-policy hybrid objective that treats terminal outputs — stdout, errors, files, and tool traces — as dense training targets, adding environment-token cross-entropy to GRPO’s action-token loss. The two terms share one forward pass, require no teacher model, and add no extra rollouts. (§ 3 ) 2. Consistent improvements over GRPO. ECHO improves Qwen3-8B, OpenThinker-Agent-v1-SFT, and Qwen3-14B on both internal evaluations and TerminalBench-2.0, nearly doubling pass@1 at 8B and 14B. (§ 5.1 ) 3. ECHO learns terminal dynamics. On held-out trajectories from a stronger Qwen3-32B policy, ECHO sharply lowers environment-token cross-entropy across model families and evaluation slices, indicating better prediction of terminal behavior, while GRPO alone barely changes it. (§ 5.2 ) 4. Reduced reliance on expert SFT. From a base Qwen3-8B, ECHO matches SFT-bootstrapped GRPO, without using any expert demonstrations. (§ 5.3 ) 5. Verifier-free adaptation. Even without a verifier, a policy can sometimes improve just by interacting with the environment and predicting the environment’s response to its own actions. (§ 5.5 ) Taken together, these findings suggest agent training has been operating with a supervision source masked out: every policy action has a consequence in the environment, and that consequence is in the rollout already. ECHO shows that these consequences can be trained on directly, turning even failed interactions into signal for learning how the world responds. 2 Preliminaries Multi-Turn Rollout Structure. A training sequence interleaves a system prompt, the user task, and a transcript of (assistant action, environment observation) pairs: [ sys ] ​ [ task ] ⏟ prompt [ action 1 ] [ obs 1 ] [ action 2 ] [ obs 2 ] ⋯ [ action K ] [ obs K ] . \\underbrace{[\\text{sys}]\\,[\\text{task}]}_{\\text{prompt}}\\;[\\text{action}_{1}]\\,[\\text{obs}_{1}]\\,[\\text{action}_{2}]\\,[\\text{obs}_{2}]\\,\\cdots\\,[\\text{action}_{K}]\\,[\\text{obs}_{K}]. At each turn, the policy samples action tokens conditioned on the entire prior transcript; the harness parses these into a bash command, executes it in the container, and appends the resulting terminal output as the next observation. Let 𝒜 ⊆ { 1 , … , T } \\mathcal{A}\\subseteq\\{1,\\dots,T\\} index assistant-action positions and 𝒪 ⊆ { 1 , … , T } \\mathcal{O}\\subseteq\\{1,\\dots,T\\} index environment-observation positions. Trainers compute log-probabilities on the full sequence (every action depends on prior observations), but the policy-gradient loss is applied only on 𝒜 \\mathcal{A} . Observations in 𝒪 \\mathcal{O} are conditioned on, but receive no direct training signal. Group-Relative Policy Optimization. GRPO ( Shao et al., 2024 ) optimizes a clipped policy-gradient objective with group-normalized advantages and no learned value function. For prompt x x , sampled rollouts { y ( i ) } i = 1 n \\{y^{(i)}\\}_{i=1}^{n} , and binary rewards r ( i ) ∈ { 0 , 1 } r^{(i)}\\in\\{0,1\\} , each rollout receives a scalar group-normalized advantage A ^ ( i ) \\hat{A}^{(i)} , applied uniformly to its action-token positions 𝒜 \\mathcal{A} using the clipped importance ratio ρ t ( i ) \\rho_{t}^{(i)} : ℒ GRPO ( θ ; 𝒜 ) = − 1 ∑ i | 𝒜 ( i ) | ∑ i ∑ t ∈ 𝒜 ( i ) min ( ρ t ( i ) A ^ ( i ) , clip ( ρ t ( i ) , 1 − ϵ , 1 + ϵ ) A ^ ( i ) ) . \\mathcal{L}_{\\mathrm{GRPO}}(\\theta;\\mathcal{A})=-\\frac{1}{\\sum_{i}|\\mathcal{A}^{(i)}|}\\sum_{i}\\sum_{t\\in\\mathcal{A}^{(i)}}\\min\\!\\left(\\rho_{t}^{(i)}\\hat{A}^{(i)},\\mathrm{clip}(\\rho_{t}^{(i)},1-\\epsilon,1+\\epsilon)\\hat{A}^{(i)}\\right). (2) GRPO optimizes only assistant action tokens. Observation tokens remain in context and affect future actions, but are not policy-gradient targets. With sparse binary rewards, all-zero groups have no reward contrast. In mixed groups, unsuccessful trajectories receive only a trajectory-level negative signal, so learning concentrates on rare successful rollouts. 3 Method 3.1 ECHO Objective ECHO is a hybrid loss objective combining GRPO’s policy gradient loss on action tokens with a supervised next-token objective on observation tokens. Let p θ ( ⋅ ∣ x < t ) p_{\\theta}(\\cdot\\mid x_{<t}) denote the model’s next-token distribution. The ECHO loss augments GRPO with an Environment-Prediction Loss: length-normalized cross-entropy on a subset 𝒪 ′ ⊆ 𝒪 \\mathcal{O}^{\\prime}\\subseteq\\mathcal{O} o",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: arXiv.org perpetual non-exclusive license",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "Shao et al., 2024",
+      "url": "https://arxiv.org/html/2605.24517v1#bib.bib25"
+    },
+    {
+      "text": "Patel, 2023",
+      "url": "https://arxiv.org/html/2605.24517v1#bib.bib20"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2605.24517v1#S3"
+    },
+    {
+      "text": "5.1",
+      "url": "https://arxiv.org/html/2605.24517v1#S5.SS1"
+    },
+    {
+      "text": "5.2",
+      "url": "https://arxiv.org/html/2605.24517v1#S5.SS2"
+    },
+    {
+      "text": "5.3",
+      "url": "https://arxiv.org/html/2605.24517v1#S5.SS3"
+    },
+    {
+      "text": "5.5",
+      "url": "https://arxiv.org/html/2605.24517v1#S5.SS5"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2605.24517v1#S1.E1"
+    },
+    {
+      "text": "Xue et al., 2026",
+      "url": "https://arxiv.org/html/2605.24517v1#bib.bib29"
+    },
+    {
+      "text": "Yu et al., 2025",
+      "url": "https://arxiv.org/html/2605.24517v1#bib.bib33"
+    },
+    {
+      "text": "Ouyang et al., 2022",
+      "url": "https://arxiv.org/html/2605.24517v1#bib.bib19"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2605.24517v1#alg1"
+    },
+    {
+      "text": "Gandhi et al., 2026",
+      "url": "https://arxiv.org/html/2605.24517v1#bib.bib3"
+    },
+    {
+      "text": "obiwan96, 2026",
+      "url": "https://arxiv.org/html/2605.24517v1#bib.bib14"
+    },
+    {
+      "text": "OpenThoughts-Agent Team, 2025b",
+      "url": "https://arxiv.org/html/2605.24517v1#bib.bib16"
+    },
+    {
+      "text": "harbor-framework, 2025",
+      "url": "https://arxiv.org/html/2605.24517v1#bib.bib8"
+    },
+    {
+      "text": "Yang et al., 2025",
+      "url": "https://arxiv.org/html/2605.24517v1#bib.bib30"
+    },
+    {
+      "text": "OpenThoughts-Agent Team, 2025a",
+      "url": "https://arxiv.org/html/2605.24517v1#bib.bib15"
+    },
+    {
+      "text": "OpenThoughts-Agent team et al., 2026",
+      "url": "https://arxiv.org/html/2605.24517v1#bib.bib18"
+    },
+    {
+      "text": "Merrill et al., 2026",
+      "url": "https://arxiv.org/html/2605.24517v1#bib.bib13"
+    },
+    {
+      "text": "OpenThoughts-Agent Team, 2025c",
+      "url": "https://arxiv.org/html/2605.24517v1#bib.bib17"
+    },
+    {
+      "text": "Harbor Framework Team, 2025",
+      "url": "https://arxiv.org/html/2605.24517v1#bib.bib9"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2605.24517v1#S5.T1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2605.24517v1#S5.F2"
+    },
+    {
+      "text": "D",
+      "url": "https://arxiv.org/html/2605.24517v1#A4"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2605.24517v1#S5.F3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2605.24517v1#S5.F4"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2605.24517v1#S5.T2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2605.24517v1#S5.T3"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2605.24517v1#S6.F5"
+    },
+    {
+      "text": "Schmidhuber, 1990",
+      "url": "https://arxiv.org/html/2605.24517v1#bib.bib22"
+    },
+    {
+      "text": "Ha and Schmidhuber, 2018",
+      "url": "https://arxiv.org/html/2605.24517v1#bib.bib4"
+    },
+    {
+      "text": "Hafner et al., 2020",
+      "url": "https://arxiv.org/html/2605.24517v1#bib.bib5"
+    },
+    {
+      "text": "Hafner et al., 2021",
+      "url": "https://arxiv.org/html/2605.24517v1#bib.bib6"
+    },
+    {
+      "text": "Hafner et al., 2025",
+      "url": "https://arxiv.org/html/2605.24517v1#bib.bib7"
+    },
+    {
+      "text": "Schrittwieser et al., 2020",
+      "url": "https://arxiv.org/html/2605.24517v1#bib.bib23"
+    },
+    {
+      "text": "Ye et al., 2021",
+      "url": "https://arxiv.org/html/2605.24517v1#bib.bib32"
+    },
+    {
+      "text": "Wang et al., 2025",
+      "url": "https://arxiv.org/html/2605.24517v1#bib.bib27"
+    },
+    {
+      "text": "Ye et al., 2026",
+      "url": "https://arxiv.org/html/2605.24517v1#bib.bib31"
+    },
+    {
+      "text": "Jaderberg et al., 2017",
+      "url": "https://arxiv.org/html/2605.24517v1#bib.bib11"
+    },
+    {
+      "text": "Pathak et al., 2017",
+      "url": "https://arxiv.org/html/2605.24517v1#bib.bib21"
+    },
+    {
+      "text": "Schwarzer et al., 2021",
+      "url": "https://arxiv.org/html/2605.24517v1#bib.bib24"
+    },
+    {
+      "text": "Kwon et al., 2024",
+      "url": "https://arxiv.org/html/2605.24517v1#bib.bib12"
+    },
+    {
+      "text": "FAIR CodeGen team et al., 2025",
+      "url": "https://arxiv.org/html/2605.24517v1#bib.bib2"
+    },
+    {
+      "text": "Zhang et al., 2025",
+      "url": "https://arxiv.org/html/2605.24517v1#bib.bib34"
+    },
+    {
+      "text": "Song et al., 2026",
+      "url": "https://arxiv.org/html/2605.24517v1#bib.bib26"
+    },
+    {
+      "text": "Hübotter et al., 2026",
+      "url": "https://arxiv.org/html/2605.24517v1#bib.bib10"
+    },
+    {
+      "text": "Wang et al., 2026",
+      "url": "https://arxiv.org/html/2605.24517v1#bib.bib28"
+    },
+    {
+      "text": "Cao et al., 2025",
+      "url": "https://arxiv.org/html/2605.24517v1#bib.bib1"
+    },
+    {
+      "text": "Zhou et al., 2024",
+      "url": "https://arxiv.org/html/2605.24517v1#bib.bib35"
+    },
+    {
+      "text": "https://arxiv.org/abs/2511.16108",
+      "url": "https://arxiv.org/abs/2511.16108"
+    },
+    {
+      "text": "https://arxiv.org/abs/2510.02387",
+      "url": "https://arxiv.org/abs/2510.02387"
+    },
+    {
+      "text": "https://arxiv.org/abs/2601.16443",
+      "url": "https://arxiv.org/abs/2601.16443"
+    },
+    {
+      "text": "https://proceedings.neurips.cc/paper_files/paper/2018/file/2de5d16682c3c35007e4e92982f1a2ba-Paper.pdf",
+      "url": "https://proceedings.neurips.cc/paper_files/paper/2018/file/2de5d16682c3c35007e4e92982f1a2ba-Paper.pdf"
+    },
+    {
+      "text": "https://openreview.net/forum?id=S1lOTC4tDS",
+      "url": "https://openreview.net/forum?id=S1lOTC4tDS"
+    },
+    {
+      "text": "https://openreview.net/pdf?id=0oabwyZbOu",
+      "url": "https://openreview.net/pdf?id=0oabwyZbOu"
+    },
+    {
+      "text": "https://doi.org/10.1038/s41586-025-08744-2",
+      "url": "https://doi.org/10.1038/s41586-025-08744-2"
+    }
+  ],
+  "matching_link_count": 92,
+  "links_truncated": true,
+  "invalid_links": []
+}

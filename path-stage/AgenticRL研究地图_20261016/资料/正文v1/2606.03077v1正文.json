@@ -1,0 +1,269 @@
+{
+  "url": "https://arxiv.org/html/2606.03077v1",
+  "final_url": "https://arxiv.org/html/2606.03077v1",
+  "status": 200,
+  "title": "Libra: Efficient Resource Management for Agentic RL Post-Training",
+  "metadata": {},
+  "paper": {
+    "title": "Libra: Efficient Resource Management for Agentic RL Post-Training",
+    "title_warning": null,
+    "abstract": "Abstract. Reinforcement learning (RL) has become a standard post-training paradigm for large language models (LLMs), extending beyond preference alignment to complex reasoning and multi-turn agentic behaviors.\nIn agentic RL, the rollout stage generates trajectories while invoking tools, producing long-tailed and non-stationary workloads that challenge conventional resource-management assumptions.\nThree fundamental challenges arise. First, due to the long-tail distribution, a small fraction of trajectories dominates rollout makespan. Second, rollout and training exhibit strong asymmetry in compute patterns, memory demands, and sensitivity to sequence length.\nThird, as the RL policy evolves, the trajectory-length distribution drifts over time, rendering any static resource split progressively suboptimal. We present Libra, which introduces two core mechanisms.\nThe first is a periodic global resource planner that jointly optimizes GPU allocation across rollout and training clusters.\nIt leverages an elastic hybrid pool to enable lightweight, non-blocking worker reallocation between stages.\nThe second is a causality-driven multi-level feedback queue (C-MLFQ) scheduler, which routes requests to heterogeneous rollout buckets based on causal signals derived from tool-return outcomes,\nrather than relying on fragile length predictions.\nEvaluated on 48 A800 GPUs, Libra achieves up to 3.0 × \\times higher throughput and converges up to 2.5 × \\times faster in reward compared to the baselines.",
+    "authors": [
+      {
+        "name": "Kaiwen Chen 1 ,\nXin Tan 1 ,\nJingzong Li 2 ,\nHong Xu 1 1 The Chinese University of Hong Kong 2 The Hang Seng University of Hong Kong",
+        "affiliations": [],
+        "notes": []
+      }
+    ],
+    "author_block": "Kaiwen Chen 1 ,\nXin Tan 1 ,\nJingzong Li 2 ,\nHong Xu 1 1 The Chinese University of Hong Kong 2 The Hang Seng University of Hong Kong",
+    "arxiv_version": "2606.03077v1",
+    "arxiv_version_date": "2026-06-02"
+  },
+  "text": "Libra: Efficient Resource Management for Agentic RL Post-Training Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: arXiv.org perpetual non-exclusive license arXiv:2606.03077v1 [cs.LG] 02 Jun 2026 Libra: Efficient Resource Management for Agentic RL Post-Training CCS: Computer systems organization Kaiwen Chen 1 , Xin Tan 1 , Jingzong Li 2 , Hong Xu 1 1 The Chinese University of Hong Kong 2 The Hang Seng University of Hong Kong Abstract. Reinforcement learning (RL) has become a standard post-training paradigm for large language models (LLMs), extending beyond preference alignment to complex reasoning and multi-turn agentic behaviors. In agentic RL, the rollout stage generates trajectories while invoking tools, producing long-tailed and non-stationary workloads that challenge conventional resource-management assumptions. Three fundamental challenges arise. First, due to the long-tail distribution, a small fraction of trajectories dominates rollout makespan. Second, rollout and training exhibit strong asymmetry in compute patterns, memory demands, and sensitivity to sequence length. Third, as the RL policy evolves, the trajectory-length distribution drifts over time, rendering any static resource split progressively suboptimal. We present Libra, which introduces two core mechanisms. The first is a periodic global resource planner that jointly optimizes GPU allocation across rollout and training clusters. It leverages an elastic hybrid pool to enable lightweight, non-blocking worker reallocation between stages. The second is a causality-driven multi-level feedback queue (C-MLFQ) scheduler, which routes requests to heterogeneous rollout buckets based on causal signals derived from tool-return outcomes, rather than relying on fragile length predictions. Evaluated on 48 A800 GPUs, Libra achieves up to 3.0 × \\times higher throughput and converges up to 2.5 × \\times faster in reward compared to the baselines. Keywords: Agentic RL, RL post-training, Resource management 1. Introduction Figure 1 . The agentic RL post-training pipeline and the challenges it introduce. Reinforcement learning (RL) has evolved from aligning LLMs with human preferences ( Bai et al., 2022 ; Ouyang et al., 2022 ; Christiano et al., 2017 ) into a general post-training paradigm that now underpins complex reasoning ( Guo et al., 2025 ; Team et al., 2025 ; Kumar et al., 2025 ) and agentic behavior ( Shinn et al., 2023 ; Jiang et al., 2025 ; Feng et al., 2025 ; Gou et al., 2024 ; Yao et al., 2023a ; Comanici et al., 2025 ) . Algorithmically, a standard RL iteration comprises three steps: trajectory generation (rollout), trajectory evaluation, and policy update (Figure 1 ). The evaluation step assigns rewards using signals from a reward model ( Bai et al., 2022 ; Ouyang et al., 2022 ) , rule-based verifiers ( Guo et al., 2025 ) , or the environment ( Jimenez et al., 2024 ) , and may additionally involve reference-model scoring or critic computation in some algorithms ( Schulman et al., 2017 ) . However, these components are not universal: recent methods often remove the critic entirely ( Shao et al., 2024 ; Yu et al., 2025 ) , and reward or reference evaluation can be implemented in different ways without changing the system-level structure. From a systems perspective, the dominant bottlenecks concentrate in two stages regardless of algorithmic variation: rollout, where the policy model autoregressively generates trajectories and interacts with tools; and training, where the actor model consumes these trajectories to compute advantages and update parameters. The efficiency of the overall pipeline therefore depends primarily on how fast trajectories are produced and how fast they are absorbed by training. In the emerging agentic setting, the model invokes external tools, observes environmental feedback, and conditions future generation on the accumulated interaction history. This introduces three distinctive properties. First, trajectories are generated online rather than drawn from a dataset, so their lengths are determined at runtime. Second, tool invocations cause lengths to fluctuate widely: trajectory length varies substantially with tool execution outcomes, such as payload size and return status. Third, the trajectory-length distribution shifts continuously as the policy improves, making the workload non-stationary. These distinctive properties, combined with the inherent asymmetry between rollout and training, render GPU resource management a coupled cross-stage optimization problem. Optimizing either stage in isolation is therefore suboptimal; what is needed is a joint cross-stage optimization framework. Two fundamental challenges underlie this problem. The first is the cross-stage imbalance challenge. Rollout and training differ fundamentally in compute patterns, memory demands, and sensitivity to sequence length: rollout is memory- and bandwidth-bound and scales linearly with sequence length, whereas training is compute-bound and amortizes length variation through batching. Compounding this asymmetry, the trajectory-length distribution drifts continuously as the policy evolves, rendering any static resource allocation progressively suboptimal. Existing systems adopt one of two static GPU allocation strategies. Colocated execution, where training and rollout share the same GPUs and run alternately through the hybrid engine, is the default mode in most open-source RL frameworks ( Sheng et al., 2025b ; Hu et al., 2025 ; Zhu et al., 2025 ; Yao et al., 2023b ) . Static-Uniform splits the cluster evenly into two halves, one for training and one for rollout, and is used in experiments of recent disaggregated systems ( Sheng et al., 2025a ; Tan et al., 2026 ) . Both strategies, as well as any manually tuned fixed proportion, allocate GPUs statically and therefore cannot adapt to workload drift. Existing resource-management frameworks ( Zheng et al., 2022 ; Miao et al., 2022 ; Strati et al., 2025 ) target LLM pre-training, leaving the cross-stage coupling in RL post-training entirely unaddressed. The second is the long-tail distribution challenge. Although most trajectories conclude within a short reasoning process, a small fraction extends considerably longer, and these long-tail requests dominate the rollout makespan. Existing systems largely mitigate this problem through length prediction. Methods that exploit intra-group or cross-epoch response similarity ( Qin et al., 2025 ; He et al., 2025 ) assume that trajectory length is largely prompt-determined, an assumption that breaks down in agentic RL where tool-return outcomes heavily influence length. While others ( Zhang et al., 2026 ; Zhong et al., 2025a ) relies on a pre-trained language model as a predictor; as the actor model evolves through RL training, the predictor’s accuracy degrades without periodic retraining. We present Libra, a resource-management system for agentic RL post-training that addresses both challenges through two core mechanisms. The first is a periodic global resource planner with elastic execution. Under a fixed GPU budget, the planner jointly optimizes GPU allocation across the rollout and training clusters to minimize iteration makespan ( T iter = max ⁡ ( T rollout , T train ) T_{\\text{iter}}=\\max(T_{\\text{rollout}},T_{\\text{train}}) ). It employs a predictive cost model to evaluate candidate configurations and is invoked periodically to track workload evolution, triggering reallocation only when the projected gain exceeds the reconfiguration cost. To realize these reallocations efficiently, Libra keeps the core training topology fixed and allows hybrid workers to switch between rollout and training modes through a non-blocking protocol that avoids pausing ongoing training. The second mechanism is C-MLFQ, a causality-driven multi-level feedback queue scheduler for heterogeneous rollout clusters. Unlike prior work that either relies on pre-trained length predictors ( Zhang et al., 2026 ; Zhong et al., 2025a ) or assumes prompt-determined length similarity ( Qin et al., 2025 ; He et al., 2025 ) , we make a key observation: in agentic RL, tool-execution outcomes that occur mid-trajectory provide deterministic causal signals for routing. This insight fundamentally motivates our approach. Rather than predicting length upfront, C-MLFQ exploits these causal signals to dynamically migrate requests across heterogeneous rollout buckets. We evaluate Libra on a 48-GPU cluster of NVIDIA A800s across three representative agentic RL benchmarks: Search-R1 ( Jin et al., 2025 ) , R2E-Gym ( Jain et al., 2025 ) , and DAPO-Math-17K ( Yu et al., 2025 ) . Libra achieves up to 3.0 × \\times higher throughput and converges up to 2.5 × \\times faster in reward compared to the baselines. On Search-R1, Libra reaches approximately 2,700 token/s, a 63% improvement over AReaL-Static-Optimal, 80% over verl-Greedy-Heuristic, and 300% over verl-Colocated. For reward convergence, Libra requires only 17.9 hours on Search-R1, 26.7 hours on DAPO-Math-17K, and 63.2 hours on R2E-Gym, which are up to 1.6 × \\times faster than AReaL-Static-Optimal and up to 2.5 × \\times faster than the verl-based baselines. The C-MLFQ scheduler achieves 91.1% per-decision routing accuracy, nearly matching the Oracle (100%) and significantly outperforming prediction-based (65.2%) and reactive MLFQ (44.8%) approaches. We make the following contributions: • A cross-stage joint optimization framework that treats rollout and training resource allocation as a coupled problem and periodically re-plans the global configuration as the workload drifts. • A causality-aware scheduling algorithm (C-MLFQ) that exploits tool-return outcomes as fine-grained causal signals for routing requests across heterogeneous rollout buckets, avoiding the need for fragile length prediction. • A comprehensive evaluation on three agentic RL benchmarks demonstrating that Libra achieves up to 3.0 × 3.0\\times throughput improvement and up to 2.5 × 2.5\\times faster reward convergence. 2. Background and Motivation 2.1. Disaggregated and Asynchronous RL Recent advances in RL frameworks execute rollout and training in a disaggregated and asynchronous manner ( Fu et al., 2026 ; Wang et al., 2025b ; Wang et al., 2025a ; Wu et al., 2025 ) . Rollout is dominated by autoregressive decoding, making it primarily memory- and bandwidth-sensitive, whereas training is more compute-intensive and relies on tightly coordinated collective communication. To match these distinct execution characteristics, current systems provision separate GPU clusters for rollout and training and decouple the two stages in time: rollout workers continue generating trajectories with slightly stale weights, while the training cluster periodically pushes updated parameters back to the rollout side. This design improves pipeline utilization, but it also turns resource management into a coupled cross-stage optimization problem. Case Step Num Tool Tokens Failure Num Total Tokens Label django 14787 8 1,029 0 7,363 Small Payload scikit-learn 11310 9 12,461 0 21,220 Large Payload django 10999 46 3,962 3 40,960 Failure Cascade django 16560 50 7,809 8 40,960 Failure Cascade Table 1 . Trajectory divergence across tasks in R2E-Gym, generated by Qwen3-14B. Figure 2 . Tool-call count versus trajectory length in R2E-Gym, generated by Qwen3-14B. 2.2. Characteristics of Agentic RL Post-Training Long-tailed Cost of Rollout. Prior work ( Sheng et al., 2025a ; Qin et al., 2025 ; Zhong et al., 2025a ; Zhang et al., 2026 ; Zhong et al., 2025b ; Gao et al., 2025a ) has identified long-tail requests as a major source of rollout inefficiency, causing resource idleness and blocking waits. Although most trajectories conclude within a short reasoning process, a small fraction extends considerably longer. These long trajectories dominate the rollout makespan and create pronoun",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: arXiv.org perpetual non-exclusive license",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "Bai et al., 2022",
+      "url": "https://arxiv.org/html/2606.03077v1#bib.bib5"
+    },
+    {
+      "text": "Ouyang et al., 2022",
+      "url": "https://arxiv.org/html/2606.03077v1#bib.bib6"
+    },
+    {
+      "text": "Christiano et al., 2017",
+      "url": "https://arxiv.org/html/2606.03077v1#bib.bib41"
+    },
+    {
+      "text": "Guo et al., 2025",
+      "url": "https://arxiv.org/html/2606.03077v1#bib.bib25"
+    },
+    {
+      "text": "Team et al., 2025",
+      "url": "https://arxiv.org/html/2606.03077v1#bib.bib29"
+    },
+    {
+      "text": "Kumar et al., 2025",
+      "url": "https://arxiv.org/html/2606.03077v1#bib.bib37"
+    },
+    {
+      "text": "Shinn et al., 2023",
+      "url": "https://arxiv.org/html/2606.03077v1#bib.bib26"
+    },
+    {
+      "text": "Jiang et al., 2025",
+      "url": "https://arxiv.org/html/2606.03077v1#bib.bib28"
+    },
+    {
+      "text": "Feng et al., 2025",
+      "url": "https://arxiv.org/html/2606.03077v1#bib.bib27"
+    },
+    {
+      "text": "Gou et al., 2024",
+      "url": "https://arxiv.org/html/2606.03077v1#bib.bib42"
+    },
+    {
+      "text": "Yao et al., 2023a",
+      "url": "https://arxiv.org/html/2606.03077v1#bib.bib43"
+    },
+    {
+      "text": "Comanici et al., 2025",
+      "url": "https://arxiv.org/html/2606.03077v1#bib.bib46"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2606.03077v1#S1.F1"
+    },
+    {
+      "text": "Jimenez et al., 2024",
+      "url": "https://arxiv.org/html/2606.03077v1#bib.bib30"
+    },
+    {
+      "text": "Schulman et al., 2017",
+      "url": "https://arxiv.org/html/2606.03077v1#bib.bib21"
+    },
+    {
+      "text": "Shao et al., 2024",
+      "url": "https://arxiv.org/html/2606.03077v1#bib.bib31"
+    },
+    {
+      "text": "Yu et al., 2025",
+      "url": "https://arxiv.org/html/2606.03077v1#bib.bib18"
+    },
+    {
+      "text": "Sheng et al., 2025b",
+      "url": "https://arxiv.org/html/2606.03077v1#bib.bib13"
+    },
+    {
+      "text": "Hu et al., 2025",
+      "url": "https://arxiv.org/html/2606.03077v1#bib.bib16"
+    },
+    {
+      "text": "Zhu et al., 2025",
+      "url": "https://arxiv.org/html/2606.03077v1#bib.bib15"
+    },
+    {
+      "text": "Yao et al., 2023b",
+      "url": "https://arxiv.org/html/2606.03077v1#bib.bib44"
+    },
+    {
+      "text": "Sheng et al., 2025a",
+      "url": "https://arxiv.org/html/2606.03077v1#bib.bib7"
+    },
+    {
+      "text": "Tan et al., 2026",
+      "url": "https://arxiv.org/html/2606.03077v1#bib.bib10"
+    },
+    {
+      "text": "Zheng et al., 2022",
+      "url": "https://arxiv.org/html/2606.03077v1#bib.bib24"
+    },
+    {
+      "text": "Miao et al., 2022",
+      "url": "https://arxiv.org/html/2606.03077v1#bib.bib3"
+    },
+    {
+      "text": "Strati et al., 2025",
+      "url": "https://arxiv.org/html/2606.03077v1#bib.bib1"
+    },
+    {
+      "text": "Qin et al., 2025",
+      "url": "https://arxiv.org/html/2606.03077v1#bib.bib11"
+    },
+    {
+      "text": "He et al., 2025",
+      "url": "https://arxiv.org/html/2606.03077v1#bib.bib23"
+    },
+    {
+      "text": "Zhang et al., 2026",
+      "url": "https://arxiv.org/html/2606.03077v1#bib.bib12"
+    },
+    {
+      "text": "Zhong et al., 2025a",
+      "url": "https://arxiv.org/html/2606.03077v1#bib.bib9"
+    },
+    {
+      "text": "Jin et al., 2025",
+      "url": "https://arxiv.org/html/2606.03077v1#bib.bib17"
+    },
+    {
+      "text": "Jain et al., 2025",
+      "url": "https://arxiv.org/html/2606.03077v1#bib.bib8"
+    },
+    {
+      "text": "Fu et al., 2026",
+      "url": "https://arxiv.org/html/2606.03077v1#bib.bib19"
+    },
+    {
+      "text": "Wang et al., 2025b",
+      "url": "https://arxiv.org/html/2606.03077v1#bib.bib14"
+    },
+    {
+      "text": "Wang et al., 2025a",
+      "url": "https://arxiv.org/html/2606.03077v1#bib.bib38"
+    },
+    {
+      "text": "Wu et al., 2025",
+      "url": "https://arxiv.org/html/2606.03077v1#bib.bib39"
+    },
+    {
+      "text": "Zhong et al., 2025b",
+      "url": "https://arxiv.org/html/2606.03077v1#bib.bib49"
+    },
+    {
+      "text": "Gao et al., 2025a",
+      "url": "https://arxiv.org/html/2606.03077v1#bib.bib50"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2606.03077v1#S2.T1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2606.03077v1#S2.F2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2606.03077v1#S2.F3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2606.03077v1#S2.F4"
+    },
+    {
+      "text": "C",
+      "url": "https://arxiv.org/html/2606.03077v1#A3"
+    },
+    {
+      "text": "MAA, 2025",
+      "url": "https://arxiv.org/html/2606.03077v1#bib.bib22"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2606.03077v1#acmlabel1"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2606.03077v1#S4.F6"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2606.03077v1#S5.F7"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2606.03077v1#alg1"
+    },
+    {
+      "text": "4.5",
+      "url": "https://arxiv.org/html/2606.03077v1#S4.SS5"
+    },
+    {
+      "text": ", 2025",
+      "url": "https://arxiv.org/html/2606.03077v1#bib.bib32"
+    },
+    {
+      "text": "Paszke et al., 2019",
+      "url": "https://arxiv.org/html/2606.03077v1#bib.bib33"
+    },
+    {
+      "text": "Salpekar et al., 2026",
+      "url": "https://arxiv.org/html/2606.03077v1#bib.bib4"
+    },
+    {
+      "text": "B",
+      "url": "https://arxiv.org/html/2606.03077v1#A2"
+    },
+    {
+      "text": "Agrawal et al., 2024",
+      "url": "https://arxiv.org/html/2606.03077v1#bib.bib2"
+    },
+    {
+      "text": "2.3",
+      "url": "https://arxiv.org/html/2606.03077v1#S2.SS3"
+    },
+    {
+      "text": "A",
+      "url": "https://arxiv.org/html/2606.03077v1#A1"
+    },
+    {
+      "text": "A.2",
+      "url": "https://arxiv.org/html/2606.03077v1#A1.SS2"
+    }
+  ],
+  "matching_link_count": 141,
+  "links_truncated": true,
+  "invalid_links": []
+}

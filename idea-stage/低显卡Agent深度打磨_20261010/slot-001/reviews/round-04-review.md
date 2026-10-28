@@ -1,0 +1,93 @@
+## 结论
+
+实际检索日期：**2026-10-10**。**score：7.2；verdict：promising_needs_revision**。未发现 fatal blocker，但未达到严格大于 7.5 的通过阈值。
+
+当前方向具有具体研究价值：把“查询语义正确”与“目标集合完整”分开，并观察冻结 agent 能否完成互补恢复。未检索到完全相同的 codec×cap×metadata、相同行前缀及成本对齐协议。不过，独立新意目前主要在受控诊断设计；例子中“两个障碍必须同时消除”由环境构造直接决定，尚不能据此推出**两类恢复证据对 agent 的作用不可加**。
+
+目标演化成立。读集合中的语义遗漏继续对应 Q001；已经发现一种错误但修复后仍不完整，对应 Q005。ToolUniverse 的过滤／截断遗漏审计与 PROBE 的诊断到恢复落差支持这一聚焦。未处理 first-touch 和写状态不构成偏题，也未违反本阶段与运行时信息约束。[ToolUniverse audit](https://arxiv.org/html/2609.26836v1)、[PROBE](https://arxiv.org/html/2605.08717v2)
+
+## Claim 判断
+
+| 当前 Claim | 判断 | 原文依据与可验证边界 |
+|---|---|---|
+| 合法、相同初始行可以掩盖不同遗漏原因 | 部分重合 | SilentProbe §3.3 已用查询差分识别静默过滤失效；CROWN-Synth 已固定问题与观测事实改变覆盖条件。当前“截断／语义收缩”的配对仍有具体差别，可由有限表精确验证。[SilentProbe](https://arxiv.org/html/2609.00035v1)、[CROWN-QA](https://arxiv.org/html/2608.04591v1) |
+| 单独改 codec 或 cap 都无新增目标记录，联合才恢复 | 窄构造具有差别，机制新意有限 | 当前四行例子成立，但这是两个必要条件的合取结构。GetNext 已研究通过查询改写突破 top-k；尚未见其同时处理错误解析语义。[GetNext §II–IV](https://arxiv.org/html/1208.3876v1) |
+| parse 与 overflow 分别描述实际语义和实际结果覆盖，均不是正确性 oracle | 接口机制已覆盖 | Shopify 已公开返回 `parsed` 与 warnings；GetNext 明确定义匹配集合及 overflow。当前在线信息边界正确，可复现。[Shopify syntax debugging](https://shopify.dev/docs/api/usage/search-syntax)、[GetNext §II-A](https://arxiv.org/html/1208.3876v1) |
+| 两类证据对联合恢复的贡献不可加 | 新颖性尚待验证 | Outcome Monitors 已分离检测、诊断内容与恢复 affordance，并检验其实际作用。动作互补不蕴含证据效应互补；当前语义收缩例子的初始 overflow=false，第二个障碍可能只在更换 codec 后暴露。[Outcome Monitors §3、Appendix L](https://arxiv.org/html/2608.19303v1) |
+| 完整集合成功、false-complete 与诊断准确率应分开 | 已覆盖；当前交互协议部分新颖 | Partial Evidence Bench 已区分局部答案质量与完整性过度声称；AGGBench 已要求 find-all 并支持过滤回退。当前贡献只能落在特定恢复交互及其成本边界。[Partial Evidence Bench §3、7](https://arxiv.org/html/2605.05379v1)、[AGGBench §5.2](https://arxiv.org/html/2602.01355v1) |
+
+最小实验具备实现入口：[ToolMaze Function Calling actor 源码](https://raw.githubusercontent.com/Zhudongsheng75/ToolMaze/main/evaluation/agents/openai_agent.py)可移植；文档顺序穷举、公开域枚举与分区查询均有可执行定义。它们是新模拟任务中的对照，不能解释为复现了原 ToolMaze 或原 Outcome Monitors 实验。
+
+有两处直接影响解释：披露真实 parse/count 后，当前例子的两个世界不再具有相同 metadata；正确语义且高 cap 的初始输出也不能与其余三个因子格全部保持相同行。Brief 将非 paired 任务分开报告可以避免混样，但完整 factorial 与相同前缀分析不能视为同一识别条件。另外，行谓词警告在纯语义收缩中必然不触发，只能作为局部检查负对照；它的失败不能证明原 Outcome Monitors 整体无效。
+
+模型、费用权重及总预算待用户确认符合硬约束。目前可以判断成本核算原则可对齐，尚不能判断具体预算下的机制优势。
+
+## 最高近邻
+
+1. **[SilentProbe: Measuring Silent Failure in Production APIs Used as Agent Tools](https://arxiv.org/html/2609.00035v1)**
+   已核验 §3.3、§4.4–4.5，以及[差分探测源码](https://github.com/Jasper0122/silentprobe/blob/master/probe/experiment.py)。重合在合法响应、错误过滤语义、差分证据及重试失败。当前区别是相同非空前缀下的语义收缩与 cap 互补恢复；原作未给出这一 factorial 协议。
+
+2. **[Outcome Monitors: Recovery Affordances for Silent Tool Failures](https://arxiv.org/html/2608.19303v1)**
+   已核验算法 1–2、§3 和 Appendix L/N。重合在公开证据、非强制反馈及冻结 actor 自选恢复；原作已经检验诊断细节与恢复工具名单的作用。当前区别是查询完整性及两个互补动作。本轮未核验可直接运行的同任务 artifact，不因此排除其创新边界。
+
+3. **[Metamorphic Testing of RESTful Web APIs](https://javiertroyauma.github.io/publications/TSE2017_REST_prePrint.pdf)**
+   已核验 §3、§5.2：包含过滤、分页、等价查询和 Complete 关系，并实际发现过滤遗漏与分页遗漏。当前区别是 agent 在线利用证据选择联合恢复，而非 API 缺陷检测；关系查询本身不能申报新机制。
+
+4. **[Aggregation Queries over Unstructured Text: Benchmark and Agentic Method](https://arxiv.org/html/2602.01355v1)**
+   已核验 §3、§5.2–5.3。重合在 find-all、语义过滤造成不可逆遗漏，以及检测过度过滤后回退并更换策略。当前区别是整数表上的隐藏解析映射与 cap 交互。其原始文本任务不宜直接当作本模拟任务 baseline。
+
+5. **[Digging Deeper into Deep Web Databases by Breaking Through the Top-k Barrier](https://arxiv.org/html/1208.3876v1)**
+   已核验 §II–IV。重合在公开查询接口、overflow、查询预算与突破 top-k 的覆盖动作。原作假设查询匹配语义正确；当前额外处理语义收缩及 agent 的动作组合，区别成立。
+
+```json
+{
+  "score": 7.2,
+  "verdict": "promising_needs_revision",
+  "fatal_blockers": [],
+  "novelty_conclusion": "未检索到完全相同的codec×cap×metadata、相同行前缀与成本对齐协议。当前独立新意主要是狭窄的受控诊断设计；动作联合必要性由环境构造决定，不能直接推出恢复证据对冻结agent的非加效应。研究问题有价值，但尚未达到实验就绪的独立贡献阈值。",
+  "search_performed": true,
+  "closest_neighbors": [
+    {
+      "title": "SilentProbe: Measuring Silent Failure in Production APIs Used as Agent Tools",
+      "url": "https://arxiv.org/html/2609.00035v1",
+      "overlap": "合法响应中的过滤语义静默失效、差分查询取证与agent重试失败。",
+      "difference": "未发现原作包含相同非空前缀下语义收缩与cap的互补恢复factorial协议。",
+      "verified": true
+    },
+    {
+      "title": "Outcome Monitors: Recovery Affordances for Silent Tool Failures",
+      "url": "https://arxiv.org/html/2608.19303v1",
+      "overlap": "公开非oracle检测证据、非强制反馈、冻结actor自选恢复，以及诊断内容与恢复affordance的作用分解。",
+      "difference": "当前聚焦集合查询完整性和两个互补动作；原作主要检查结果契约并暴露公开替代工具。",
+      "verified": true
+    },
+    {
+      "title": "Metamorphic Testing of RESTful Web APIs",
+      "url": "https://javiertroyauma.github.io/publications/TSE2017_REST_prePrint.pdf",
+      "overlap": "过滤、分页、等价查询与Complete关系，以及由这些关系发现遗漏。",
+      "difference": "当前观察agent在线取证后的联合恢复决策；关系测试本身已被覆盖。",
+      "verified": true
+    },
+    {
+      "title": "Aggregation Queries over Unstructured Text: Benchmark and Agentic Method",
+      "url": "https://arxiv.org/html/2602.01355v1",
+      "overlap": "find-all完整性要求、过滤遗漏、检测过度过滤后回退并更换策略。",
+      "difference": "当前是有限整数表上的隐藏解析映射与cap交互，而非文本证据过滤及聚合。",
+      "verified": true
+    },
+    {
+      "title": "Digging Deeper into Deep Web Databases by Breaking Through the Top-k Barrier",
+      "url": "https://arxiv.org/html/1208.3876v1",
+      "overlap": "公开查询接口、overflow、查询预算及通过查询改写恢复top-k以外记录。",
+      "difference": "原作假设查询匹配语义正确，不处理语义收缩codec及冻结agent对互补恢复动作的选择。",
+      "verified": true
+    }
+  ],
+  "goal_assessment": {
+    "within_initial_scope": true,
+    "hard_constraints_satisfied": true,
+    "evolution_supported": true,
+    "reason": "读集合中的合法语义错误仍对应Q001，正确发现一种错误后仍需另一动作才能恢复对应Q005。ToolUniverse的过滤和截断遗漏以及PROBE的诊断到恢复落差支持此聚焦；first-touch与写状态明确未覆盖。本轮仅联网查新和审查，未运行实验、调用付费推理API或生成实验代码。运行时信息保持为公开谓词、工具文档与真实parse/count返回，隐藏真值只用于离线评估。"
+  }
+}
+```

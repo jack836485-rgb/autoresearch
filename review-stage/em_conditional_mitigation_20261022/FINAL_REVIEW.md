@@ -75,3 +75,28 @@
   - 首审认为 Claim 3 设置了"不可检验"出口，因此成立。
   - 复核认为回答层的窄域泄漏没有排除，判别不清。
   - 复核还指出 H-read 没有正向检验，只能间接推出。
+
+---
+
+## 第四次续跑（Call 15–16，用户 2026-10-28 追加 20 次预算）：Gate 通过
+
+- **状态：** `completed`。IDEA-019 首审（Call 15，effort high）8.2/10、复核（Call 16，xhigh 角色；harness 无法设置推理强度，按默认强度运行）8.2/10，两次都是 experiment_ready，且 `fatal_blockers` 为空，Gate 通过。共用 16/34 次调用，剩余 18 次未用。
+- **相对 IDEA-018 的修订：**
+  - 回答层把失配分解为窄域泄漏与广泛分量；Claim 2（TReFT 转化）只在广泛分量上判定，修掉 Call 14 的 fatal。
+  - H-read 改为正面的等价检验（r_cue 的 CI 上界 < 20%）。
+  - 原"位置分离"Claim 降为复现 Piggyback 的前提检查。
+  - 只用前置中性句；bootstrap 按 cue 句 × 原题聚类。
+  - 背景措辞改准（Su et al.、2608.29118；交织后无 cue 失配 1.9/2.9/5.6%）。
+- **Claim 判断（两次一致）：**
+  - 背景空白（无位置级因果证据、通用交织臂无回答层分解）：新颖，已核实。
+  - Claim 1（cue 句基座 KV 修补的 H-pos/H-read 判别，含回答层分解）：新颖；方法与 Piggyback 部分重合，判别设计是新的。
+  - Claim 2（TReFT 把广泛 EM 留成条件 EM）：首审判新颖，复核判部分重合（现象层与 Dubiński 相近，测量对象新）。
+- **最高近邻：** Piggyback/TReFT 2606.06667；ContextLift 2610.21633；Dubiński et al. 2604.25891；Lasnier et al. 2602.10382 与 Kulumba et al. 2605.18646（后门触发的位置级修补）；BLOCK-EM 2602.00767。
+- **剩余风险（已写入 FINAL_IDEA.md 第 5 节）：**
+  - 分析型贡献，工具来自 Piggyback。
+  - 前置中性句因因果掩码只能排除"扰动任意用户段"，且 cue 与中性句的微调偏离幅度可能不同，使 d 部分反映扰动大小。
+  - security（约 15pp）与广泛分量的统计功效偏紧。
+  - Claim 2 的"CI 含 0"原先没有区分等价与功效不足；FINAL_IDEA 已加 ±0.3 logit 的等价界细分。
+  - 修补后的连贯性过滤可能压低失配率；FINAL_IDEA 已加"连贯率下降 > 10pp 不进判定"。
+  - 训练超参的出处是 ContextLift 附录 F 表 7（brief 误写为附录 E，已在 FINAL_IDEA 更正）。
+  - 问题锚点中的"触发空间系统化搜索"不在本 Idea 范围内。

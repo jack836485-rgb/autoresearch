@@ -8,11 +8,11 @@
 
 ## 当前选择
 
-- Reviewer 调用：`1 / 20`
-- 当前选中 Idea：`IDEA-006`
-- 当前自评分：`7.7/10`
-- 选择理由：IDEA-005 首审 5.5（方向律接近同义反复；2609.20612 已有训练前 correction pressure，且 marker 抑制不区分 DR/TH 两种结局）。IDEA-006 改为在真正退化的 TH 设置中拆开 2609.20612 自述未分开的混杂（模式/监督段/教师信息），是池中自评最高的 available 候选。
-- 状态：`等待第 2 次 reviewer 调用`
+- Reviewer 调用：`2 / 20`
+- 当前选中 Idea：`IDEA-007`
+- 当前自评分：`7.8/10`
+- 选择理由：IDEA-006 首审 6.0（只定位段、不区分机制；预算强制破坏答案段含义；另一题参考有混淆；判定表有空格）。IDEA-007 保留自然 TH rollout 与相同被监督 token，用前向 KL 的精确分解只改目标，在 H-marker 与 H-content 两种机制间做判别，是池中自评最高的 available 候选。
+- 状态：`等待第 3 次 reviewer 调用`
 
 > 2026-10-28 改进者检索要点（只记来源，不送审）：
 > - 卡片之外，近期窗口内还有大量 OPSD 机制与修法工作（HJSang/awesome-OPSD 收录 60 篇）：
@@ -148,7 +148,7 @@
 
 - 来源：`领域共性不足`（2609.20612 自述未分开的混杂；2607.05184 训练开思考才有害）+ `相似领域成熟方法迁移`（非对称模仿学习中的模仿缺口）
 - 父 Idea：`无`（由 IDEA-005 的 Call 1 审查与 2609.20612 原文触发，Claim 与机制都不同）
-- 状态：`selected`
+- 状态：`needs_revision`
 - 定位关键词：on-policy self-distillation；privileged information；thinking models；budget forcing；imitation gap
 - 一句话背景：同一套 OPSD 在直接回答 rollout 上有增益、在开思考 rollout 上变成损失（2609.20612），而模式、监督段与教师信息这几个因素至今没有分开。
 - 自评分：`7.7/10`
@@ -181,5 +181,46 @@
 | TH 训练的 OPSD | 同任务的退化设置 | 同上 | 同上 | `ROLLOUTS=thinking TRAIN_MAX_NEW_TOKENS=1024 LOSS_HORIZON=1024`（原文 20764） | 是 |
 | 基座 | 参照 | — | — | `evaluation/build_eval_queue.py --mode thinking` | 是 |
 | TOPD | 不带特权信息的截断 OPD，方法启发 | https://arxiv.org/abs/2605.31490 | 未核验 | — | 否（跨设置启发） |
+
+- Reviewer 记录：`Call 2（常规，effort high）：6.0/10，promising_needs_revision，最高近邻 2609.20612、2607.05184、OP²SD 2608.09228、2603.24472、2608.25936`。fatal：R4−R3>0 同样被 fork/epistemic 抑制预测，只定位不判机制；512 预算强制截断多数思考，答案段不是事后书写，且 R3/R4 被监督 token 数未匹配；另一题参考混淆“无本题信息”与“错误答案”，OP²SD/2608.18271 已报告非思考设置下的效果；判定表未覆盖 ΔR3<0 且 ΔR4 不显著。改进者核对 2607.05184 附录 E：非特权 OPD 中只在 marker 位置与随机位置计损失无法区分；marker 边际 0.00928→0.00853（加参考）。子候选：IDEA-007。
+
+### IDEA-007：TH 训练下 OPSD 的退化由"内容引导"而非"认知类总量"承载——前向 KL 的边际/条件精确分解与只留一项的因果检验
+
+- 来源：`领域共性不足`（多篇工作都把退化归因于认知抑制，但 2609.20612 指出它区分不了结局）+ `相似领域成熟方法迁移`（非对称模仿学习中的模仿缺口）
+- 父 Idea：`IDEA-006`
+- 状态：`selected`
+- 定位关键词：on-policy self-distillation；privileged information；thinking models；epistemic tokens；forward KL
+- 一句话背景：TH 训练让 OPSD 的增益变成损失。主流解释是认知类 token 被压低，但它没有在特权、开思考的 OPSD 中被隔离检验，且有反证。
+- 自评分：`7.8/10`
+- 一段话概括：
+  - 每个位置的前向 KL 可精确拆成两项：一是认知 marker 类总量的伯努利 KL（边际项），二是类内条件分布的 KL（条件项）。
+  - 在自然 TH rollout（上限 1,024，与原文损失等价）上，用同样的 token、同样的 rollout，只改目标：T1 只留条件项，T2 只留边际项，T3 是换成频率匹配随机类的 T1，T4 是现有的 marker 位置排除。
+  - 主张 H-content：T1 复现大部分下降，T2 不造成显著下降。判定表事先固定且穷尽，挽回比例 r 是核心量。
+- Story line：
+  - 明确失败：2609.20612 中 TH 训练让 OPSD 从 82.62（DR）降到 72.79（基座 80.21）；2607.05184 也发现训练开思考才有害。
+  - 现有解释：主流把它归因于认知抑制（2607.05184、2603.24472、2607.10805），但 OPSD 中未被隔离；2609.20612 指出 marker 抑制在 DR 与 TH 中都存在，而且 DR 下的 marker 排除几乎不改变行为；加参考后 marker 类边际只从 0.00928 降到 0.00853（2607.05184 附录 E）。
+  - 被忽视的关键：前向 KL 可以把"多犹豫还是少犹豫"与"往哪走"精确分开。
+  - 本 Idea 的动作：只留其中一项分别训练，配随机类对照。
+  - 预期：T1 仍退化、T2 不退化，则支持事后引导（模仿缺口）；反之支持认知抑制。两种结果都改变该领域对修法方向的判断。
+- 打分理由：
+  - 判别直接针对 Call 2 指出的"只定位不判机制"；所有 TH 臂被监督的 token 完全相同，去掉了预算强制与另一题参考的混淆；判定表穷尽。
+  - 用的是已核验的单 GPU 代码，生成成本约为原文的 1/20。
+  - 风险：边际项本身占 KL 比例很小，T2 可能因为信号太弱而"无害"，被看成平凡结果，所以判定表要求 T1 同时复现下降；T1 的条件项权重用的是 m_S 而不是 m_T，只是近似。
+- Idea 生成依据：
+  - 2609.20612（表 11、表 2、讨论节；仓库 `train_opsd.py` 的 `apply_loss_horizon` 与 `--fork-mask-mode`，`opsd_loss.py` 的前向 KL）；
+  - 2607.05184（附录 E 的掩码与边际统计、附录 A）；
+  - 2603.24472（GRPO 认知惩罚）；2607.10805；
+  - Weihs et al. 2021、Warrington et al. 2021（模仿缺口）；2608.25936（综述的模仿缺口框架）。
+- 自评分轻量新意依据：2607.05184 只在非特权 OPD 中比较 marker 位置与随机位置的损失；2609.20612 的 marker 干预只在 DR 下做；未见按边际/条件分解目标的 OPSD 工作。需要 reviewer 检索。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：在真正退化的 TH 设置中，用前向 KL 的精确分解，把"认知类总量"与"内容引导"分开做因果检验，判别 OPSD 退化的承载机制。
+- Baseline 可复现性：
+
+| Baseline | 与定位关键词及目标任务的关系 | 论文或规范 | 开源代码与核验结果 | 具体复现方式 | 是否纳入最小实验 |
+|---|---|---|---|---|---|
+| TH 训练的 OPSD（T0） | 同任务同模型同评测的退化设置 | https://arxiv.org/abs/2609.20612 | https://github.com/xiuyuz/opsd-reference-study （2026-10-28 git show 核验 `train_opsd.py` 的 `apply_loss_horizon`、`--fork-mask-mode`，`opsd_loss.py`，`constants.CORRECTION_MARKERS`） | `CONDITION=full_trace ROLLOUTS=thinking TRAIN_MAX_NEW_TOKENS=1024 LOSS_HORIZON=1024 bash training/launch_run.sh` | 是 |
+| marker 位置损失排除（T4） | 同任务已有干预 | 同上 | 同上 | 加 `--fork-mask-mode exclude` | 是 |
+| DR 训练的 OPSD | 增益锚点 | 同上 | 同上 | `ROLLOUTS=direct` | 是 |
+| 基座 | 参照 | — | — | `evaluation/build_eval_queue.py --mode thinking` | 是 |
 
 - Reviewer 记录：`尚未送审`

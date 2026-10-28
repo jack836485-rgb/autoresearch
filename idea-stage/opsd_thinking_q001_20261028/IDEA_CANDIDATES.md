@@ -8,11 +8,11 @@
 
 ## 当前选择
 
-- Reviewer 调用：`4 / 20`
-- 当前选中 Idea：`IDEA-009`
+- Reviewer 调用：`5 / 20`
+- 当前选中 Idea：`IDEA-010`
 - 当前自评分：`8.0/10`
-- 选择理由：IDEA-008 首审 6.5（参考路径归因不可识别；L_marg 占比小使 H-content 支持近乎由构造决定）。IDEA-009 把主张改为问题卡锚点直接问的“本题信息 vs 同形上下文”，并在 TH 下用去答案、等长的两种上下文干净对照；认知通道降为次要主张，重点放在不由构造决定的充分性检验。是池中自评最高的 available 候选。
-- 状态：`等待第 5 次 reviewer 调用`
+- 选择理由：IDEA-009 首审 6.5，唯一 fatal 是"去答案"没有实现（Full Trace 正文会推出答案）。IDEA-010 改为取答案过滤后的等长轨迹开头，并给 T2 做剂量匹配，以回应充分性检验力不足的问题；其余设计不变。是池中自评最高的 available 候选。
+- 状态：`等待第 6 次 reviewer 调用`
 
 > 2026-10-28 改进者检索要点（只记来源，不送审）：
 > - 卡片之外，近期窗口内还有大量 OPSD 机制与修法工作（HJSang/awesome-OPSD 收录 60 篇）：
@@ -253,7 +253,7 @@
 
 - 来源：`领域共性不足`（问题卡锚点"语义还是偏移"在真正退化的 TH 设置下未检验）+ `最高近邻不足`（2609.20612、OP²SD 的他题对照只在 DR 下做，且带他题答案）
 - 父 Idea：`IDEA-008`
-- 状态：`selected`
+- 状态：`needs_revision`
 - 定位关键词：on-policy self-distillation；privileged information；thinking models；epistemic tokens；forward KL
 - 一句话背景：TH 训练让 OPSD 退化，但"本题信息 vs 上下文偏移"只在不退化的直接回答设置下回答过。
 - 自评分：`8.0/10`
@@ -277,4 +277,25 @@
 - 与输入论文的关系：不适用
 - 本 Idea 的独立创新点：在真正发生退化的 TH-OPSD 中，用去答案等长的同形上下文干净地分离"本题信息"与"上下文偏移"，并对认知通道做因果的必要性与充分性检验。
 - Baseline 可复现性：同 IDEA-007 表；去答案上下文用仓库 `data/controls/truncated_full_trace.py` 与 `length_matched_other_problem.py` 的规则生成，经 `--pi-override-file` 传入（2026-10-28 git show 核验）。
+- Reviewer 记录：`Call 5（常规，effort high）：6.5/10，promising_needs_revision，最高近邻 2609.20612、OP²SD 2608.09228、2607.05184、AD-OPSD 2607.10805、Purified OPSD`。fatal："去答案"未实现——`truncated_full_trace.py` 只去掉拼接的 \boxed 后缀，Full Trace 正文本身推出答案，I-own 保留本题答案、I-other 带他题答案；另有措辞：2609.20612 未明说"机制未建立"，OP²SD 原话为 remains competitive。非阻断：T2 可能检验力不足；贡献偏增量（仓库控制从 DR 挪到 TH，加 DKD 迁移）。子候选：IDEA-010。
+
+### IDEA-010：IDEA-009 的修正版——答案过滤的等长轨迹开头作上下文，T2 剂量匹配
+
+- 来源：`领域共性不足` + `最高近邻不足`
+- 父 Idea：`IDEA-009`
+- 状态：`selected`
+- 定位关键词：同 IDEA-009
+- 一句话背景：同 IDEA-009。
+- 自评分：`8.0/10`
+- 一段话概括：
+  - Claim 不变。
+  - I-own 与 I-other 改为取 Full Trace 的前 40% token（等长），并用仓库判分器过滤掉含本题或配对题答案的样本；保留率低于 60% 时降到 30%；各臂使用同一训练子集。完整含答案的轨迹作为第三个参照。
+  - T2 用权重 w∈{1,10,100} 做剂量匹配：只按训练 rollout 上 E 密度的降幅不小于 T0u 来选 w。这样检验的是"同等幅度的认知抑制是否足以造成退化"。
+  - 订正两处措辞：2609.20612 的原话；OP²SD 的 remains competitive。
+- 打分理由：修掉 Call 5 唯一的 fatal，并回应充分性检验力的问题；增量性质不变。
+- Idea 生成依据：同 IDEA-009；Call 5 审查。
+- 自评分轻量新意依据：同 IDEA-009；Call 5 reviewer 独立检索确认 TH 下的语义 vs 偏移对照与类分解消融均未见先例。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：同 IDEA-009。
+- Baseline 可复现性：同 IDEA-009。
 - Reviewer 记录：`尚未送审`

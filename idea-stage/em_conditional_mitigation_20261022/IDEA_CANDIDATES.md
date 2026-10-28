@@ -8,11 +8,11 @@
 
 ## 当前选择
 
-- Reviewer 调用：`14 / 34`（2026-10-28 用户追加 20 次）
+- Reviewer 调用：`15 / 34`（2026-10-28 用户追加 20 次）
 - 当前选中 Idea：`IDEA-019`
 - 当前自评分：`8.0/10`
 - 选择理由：池中自评最高的 available 候选；它修掉 Call 14 的 fatal（Claim 3 泄漏混淆）以及 Call 13/14 的全部非阻断意见，保留两位 reviewer 都判为新颖的问题。其余 available 候选（IDEA-007 6.6、IDEA-014 5.8 等）都已被判为增量方向。
-- 状态：`selected`
+- 状态：`待复核`（IDEA-019 首审 8.2，等待复核）
 
 ## 候选列表
 
@@ -367,7 +367,7 @@
 
 - 来源：`领域共性不足`
 - 父 Idea：`IDEA-018`
-- 状态：`selected`
+- 状态：`待复核`
 - 定位关键词：emergent misalignment；conditional misalignment；chat template tokens；activation patching；data interleaving
 - 一句话背景：训练中交织安全数据后，Qwen2.5-7B 在 broad cue 题上仍有 17.0/35.9/52.4% 的失配；这一条件失配已有行为、数据和表示层解释，但没有位置级因果证据，也没有在回答层区分窄域泄漏与广泛失配。
 - 自评分：`8.0/10`
@@ -379,4 +379,4 @@
 - 与输入论文的关系：不适用
 - 本 Idea 的独立创新点：首次对条件失配做位置级因果判别（等长中性句对照、正反两种正面判据、回答层分解），并检验一个已发表防御是否把广泛 EM 转成条件 EM。
 - Baseline 可复现性：同 IDEA-015 表；2026-10-28 用 git ls-tree 复核 contextlift `arxiv` 分支（configs 三臂、scripts 含 `classify_cued_prompts.py`、`residual_cued.py`）与 TReFT 仓库（`release/src/sft.py`、`intervention.py`、`release/scripts/extract_{prefix,postfix}_kv.sh`）。
-- Reviewer 记录：`尚未送审`
+- Reviewer 记录：`Call 15（常规，effort high）：8.2/10，experiment_ready，无 fatal blocker，最高近邻 Piggyback 2606.06667、ContextLift 2610.21633、2604.25891、Lasnier 2602.10382（及 2605.18646）、BLOCK-EM 2602.00767`。首轮通过，待 xhigh 复核。非阻断意见：Anchor 中“触发空间的系统化搜索”未覆盖；前置中性句因因果掩码不可能携带 cue 信息，只能排除“扰动任何用户段”类解释；security 约 15pp，r_cue CI 可能过宽；token 级后门修补文献（Lasnier、Kulumba）发现触发信息汇聚在触发末 token，构成 H-pos 先验，应引用。

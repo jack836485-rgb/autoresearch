@@ -8,11 +8,11 @@
 
 ## 当前选择
 
-- Reviewer 调用：`2 / 20`
-- 当前选中 Idea：`IDEA-007`
-- 当前自评分：`7.8/10`
-- 选择理由：IDEA-006 首审 6.0（只定位段、不区分机制；预算强制破坏答案段含义；另一题参考有混淆；判定表有空格）。IDEA-007 保留自然 TH rollout 与相同被监督 token，用前向 KL 的精确分解只改目标，在 H-marker 与 H-content 两种机制间做判别，是池中自评最高的 available 候选。
-- 状态：`等待第 3 次 reviewer 调用`
+- Reviewer 调用：`3 / 20`
+- 当前选中 Idea：`IDEA-008`
+- 当前自评分：`7.9/10`
+- 选择理由：IDEA-007 首审 6.0（条件项是残差桶、E 不全导致 H-content 不可识别；另被判 2603.24472 错引，改进者核对 v4 “A Causal Intervention” 一节确有 GRPO 认知惩罚，属 reviewer 读了旧版）。IDEA-008 扩大 E、加两项操纵检查与参考路径拉力正向指标、改为精确的未截断分解，是池中自评最高的 available 候选。
+- 状态：`等待第 4 次 reviewer 调用`
 
 > 2026-10-28 改进者检索要点（只记来源，不送审）：
 > - 卡片之外，近期窗口内还有大量 OPSD 机制与修法工作（HJSang/awesome-OPSD 收录 60 篇）：
@@ -188,7 +188,7 @@
 
 - 来源：`领域共性不足`（多篇工作都把退化归因于认知抑制，但 2609.20612 指出它区分不了结局）+ `相似领域成熟方法迁移`（非对称模仿学习中的模仿缺口）
 - 父 Idea：`IDEA-006`
-- 状态：`selected`
+- 状态：`needs_revision`
 - 定位关键词：on-policy self-distillation；privileged information；thinking models；epistemic tokens；forward KL
 - 一句话背景：TH 训练让 OPSD 的增益变成损失。主流解释是认知类 token 被压低，但它没有在特权、开思考的 OPSD 中被隔离检验，且有反证。
 - 自评分：`7.8/10`
@@ -223,4 +223,28 @@
 | DR 训练的 OPSD | 增益锚点 | 同上 | 同上 | `ROLLOUTS=direct` | 是 |
 | 基座 | 参照 | — | — | `evaluation/build_eval_queue.py --mode thinking` | 是 |
 
+- Reviewer 记录：`Call 3（常规，effort high）：6.0/10，promising_needs_revision，最高近邻 2609.20612、2607.05184、AD-OPSD 2607.10805、Purified OPSD 2607.02234、2608.04794（PI bias）；方法近邻 DKD 2203.08679`。fatal：条件项是残差桶，E 只含 11 个整词单 token，漏 hmm、alternatively、recall 与多 token 认知短语，H-content 不可识别；称 2603.24472 无 GRPO 认知惩罚（改进者核对 v4 “A Causal Intervention” 一节：确有，κ=0.5，复现下降与变短；reviewer 疑读旧版）。另：截断目标下分解不精确；T1 按 m_S 加权。子候选：IDEA-008。
+
+### IDEA-008：IDEA-007 的可识别版——扩大认知类、精确未截断分解、两项操纵检查与参考路径拉力
+
+- 来源：`领域共性不足` + `相似领域成熟方法迁移`（模仿缺口；分解形式来自 DKD 2203.08679）
+- 父 Idea：`IDEA-007`
+- 状态：`selected`
+- 定位关键词：on-policy self-distillation；privileged information；thinking models；epistemic tokens；forward KL
+- 一句话背景：同 IDEA-007。
+- 自评分：`7.9/10`
+- 一段话概括：
+  - Claim 不变，H-content 只在操纵检查通过后才成立。
+  - $E$ 改为三份已发表词表的并集，并加入多 token 认知词中专属的首子词。
+  - 损失直接按 $L_{\text{marg}}$、$L_{\text{cond}}$（以 $m_T$ 加权、不截断）构造，使 T0u 精确等于两项之和；官方截断目标只作复现锚点。
+  - M1：T1 的短语级广义认知密度与基座相差不超过 ±10%。M2：T2 确实移动了 $E$ 密度。
+  - 用学生对参考解答的对数概率提升（对应 2608.04794 的 PI 偏差）作为 H-content 的正向证据。
+  - 判定表新增"不可识别""T2 太弱"两格。
+  - 引用 2603.24472 时注明 v4 版本与章节；把 DKD 列为分解形式的出处。
+- 打分理由：修掉 Call 3 的两条 fatal（其中错引一条经核对属旧版误读，改为写明版本）。新意仍是诊断性因果实验，上限受限。
+- Idea 生成依据：同 IDEA-007；2608.04794（PI 偏差分数）；DKD 2203.08679；2603.24472 v4。
+- 自评分轻量新意依据：同 IDEA-007；Call 3 reviewer 独立检索也未见 TH-OPSD 中的边际/条件因果消融。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：同 IDEA-007，加上可识别性设计。
+- Baseline 可复现性：同 IDEA-007 表；另加 T0u（未截断完整 KL）作分解参照。
 - Reviewer 记录：`尚未送审`

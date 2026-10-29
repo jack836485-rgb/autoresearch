@@ -20,7 +20,11 @@ def win(w): return f" AND submittedDate:[{w[0]} TO {w[1]}]"
 out = Path(sys.argv[1]); stage = sys.argv[2]
 if stage == "count":
     res = {}
-    for name in ["__LLM全部__"] + list(TOPICS):
+    import os
+    only = [x for x in os.environ.get("TOPIC_SUBSET", "").split("|") if x]
+    prev = json.loads(out.read_text(encoding="utf-8")) if only and out.exists() else {}
+    res.update(prev)
+    for name in (only or ["__LLM全部__"] + list(TOPICS)):
         base = LLM if name == "__LLM全部__" else q(name)
         r = {"W1": call(base + win(W1))[1], "W0": call(base + win(W0))[1], "前后半": [call(base + win(m))[1] for m in MONTHS]}
         res[name] = r; print(name, r, flush=True)

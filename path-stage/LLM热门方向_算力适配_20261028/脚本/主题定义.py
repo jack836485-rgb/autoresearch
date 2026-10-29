@@ -70,6 +70,19 @@ TOPICS = {
  "智能体安全": 'abs:"agent safety" OR abs:"agentic safety" OR abs:"computer-use safety"',
  "语音/全双工LLM": 'abs:"speech language model" OR abs:"spoken dialogue" OR abs:"full-duplex"',
  "视觉语言动作VLA": 'abs:"vision-language-action" OR abs:VLA',
+ "空间智能(MLLM)": 'abs:"spatial reasoning" OR abs:"spatial intelligence"',
+ "流式/实时交互": 'abs:"streaming video" OR abs:"real-time interaction" OR abs:"full-duplex interaction"',
+ "Agentic搜索": 'abs:"agentic search" OR abs:"agentic retrieval" OR abs:"search agent" OR abs:"search agents"',
+ "RAG": 'abs:"retrieval-augmented generation" OR abs:"retrieval augmented generation"',
+ "后训练泛化与遗忘": '(abs:"post-training" OR abs:SFT OR abs:"supervised fine-tuning") AND (abs:forgetting OR abs:"side effects" OR abs:"out-of-distribution generalization")',
+ "RL训推不一致": 'abs:"training-inference mismatch" OR abs:"train-inference mismatch" OR abs:"rollout-training mismatch" OR abs:"policy staleness"',
+ "多奖励RL": 'abs:"multi-reward" OR abs:"multi-objective reinforcement learning" OR abs:"reward aggregation"',
+ "概念级/潜空间LM": 'abs:"next concept prediction" OR abs:"concept-level" OR abs:"large concept model" OR abs:"latent language model"',
+ "优化器": 'abs:Muon OR abs:optimizer OR abs:optimizers',
+ "GPU kernel生成": 'abs:"kernel generation" OR abs:"CUDA kernel" OR abs:"GPU kernel" OR abs:"GPU kernels"',
+ "Token压缩": 'abs:"token compression" OR abs:"token pruning" OR abs:"token merging"',
+ "主动/个人Agent": 'abs:"proactive agent" OR abs:"proactive agents" OR abs:"personal agent" OR abs:"personal assistant"',
+ "Agentic深度搜索强化": 'abs:"search-R1" OR abs:"deep search" OR abs:"web agent" OR abs:"web agents"',
 }
 DIAG = '(abs:limitation OR abs:limitations OR abs:fail OR abs:fails OR abs:failure OR abs:"empirical study" OR abs:"systematic study" OR abs:counterexample OR abs:collapse OR abs:degrade OR abs:degrades OR abs:survey OR abs:surprisingly OR abs:"does not" OR abs:"do not" OR abs:pitfalls OR abs:revisiting OR abs:rethinking)'
 def q(topic): return f"({TOPICS[topic]}) AND {LLM}"

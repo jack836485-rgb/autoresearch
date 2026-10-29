@@ -50,7 +50,14 @@ def gap(inp, out):
     j = json.loads(Path(inp).read_text(encoding="utf-8"))
     ps = j["papers"]
     LLMre = re.compile(r"\b(language models?|LLMs?|reasoning model|agentic|agents?)\b", re.I)
-    trs = {k: topic_regex(v) for k, v in TOPICS.items()}
+    def matcher(expr):
+        # 顶层含 AND 的检索式：每个 AND 分支都要命中
+        parts = [x.strip() for x in re.split(r"\)\s+AND\s+\(|\s+AND\s+", expr) if x.strip()] if " AND " in expr else [expr]
+        rs = [topic_regex(x) for x in parts]
+        class M:
+            def search(self, t): return all(r.search(t) for r in rs)
+        return M()
+    trs = {k: matcher(v) for k, v in TOPICS.items()}
     llm = [p for p in ps if LLMre.search(p["title"] + " " + p["summary"])]
     hit = collections.Counter(); unmatched = []
     up = collections.Counter()

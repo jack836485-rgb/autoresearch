@@ -1,59 +1,73 @@
 ## 背景
 
-**定位关键词：** agentic RL；sharpening tax；pass@k；checkpoint handoff；reach and solve；exploration；WebShop；BFCL
+**定位关键词：** agentic RL；sharpening tax；pass@k；checkpoint handoff；reach and solve；base model anchoring；WebShop；BFCL
 
-**一句话定位：** 多轮工具使用 agent 的后训练（以 RL 为主）为什么在一些基准上缩小大 k 采样下的可解任务覆盖（锐化税），在另一些基准上扩大覆盖，以及能否只保留它的好处。
+**一句话定位：** 多轮工具使用 agent 的后训练为什么在一些基准上缩小大 k 采样下的可解任务覆盖（锐化税），在另一些基准上扩大覆盖，以及能否只保留它的好处。
 
 ## 核心 Claim
 
-1. **扩展与锐化的矛盾不只来自配方，同一对检查点在不同基准上方向相反。** Sharpening Tax（arXiv 2610.01509）在 14 对发布的基座 / 后训练检查点上发现后训练普遍缩小大 k 覆盖，并报告全局调温度不能化解准确率与覆盖的矛盾；Pass@(k,T)（arXiv 2604.14877）在受控工具 RL 上看到大 k 扩展。用 Sharpening Tax 公开的逐任务结果（每任务 128 次 rollout）按 pass@k 无偏估计计算：Qwen2.5-7B 的后训练版在 BFCL v4 multi-turn 上 pass@128 比基座高 38.0 个百分点，在 WebShop 上低 14.4；Ministral-3-8B 分别为高 10.5、低 24.2。
-2. **多轮 agent 的覆盖变化应拆成“到达可解状态”与“从该状态完成”两段，锐化税付在到达段。** 后训练提高从给定状态完成任务的能力，却让早期几轮的分支选择（如 WebShop 的搜索词与翻页）塌缩，使大 k 采样走不到那些罕见但可解的路径。任务成败主要卡在早期探索时表现为锐化税，主要卡在执行时表现为扩展。Reach or Solve（arXiv 2609.19636）已用检查点交接在单次成功率上分离到达与完成，但没有在大 k 覆盖上做，也没有据此改变训练或解码。
-3. **只在到达段保留多样性，就能同时得到后训练的单次准确率和基座的覆盖。** 预期：在 WebShop 上，“前 m 轮基座、其余轮后训练模型”的按轮交接解码，pass@128 不低于基座、pass@1 接近后训练模型，而反向交接恢复不了覆盖；在 BFCL 上覆盖增益主要来自完成段。训练时只在早期 m 轮锚定起始策略，在相同 pass@1 下比 PTGS 与全局提温付更少的税。若反向交接同样恢复覆盖，或覆盖损失在各轮均匀分布，则 Claim 2 被推翻。
+1. **同一对检查点在不同基准上覆盖方向相反，问题出在任务结构而不只是配方。** 用 Sharpening Tax（arXiv 2610.01509）公开的逐任务结果（每任务 128 次 rollout）统计：
+   - Qwen2.5-7B 的后训练版在 WebShop 上让 107 个基座可解任务变成 0 次成功，只新解出 35 个；在 BFCL v4 multi-turn 上只丢 6 个，新解出 82 个。
+   - Ministral-3-8B 在 WebShop 上丢 144 个、新解出 23 个；在 BFCL 上丢 25 个、新解出 46 个。
+
+   这些数据来自该论文已发布的 cell，本 Claim 是对它的再分析，不是新测量；它只用来确定在哪里做下面的定位。
+2. **多轮 agent 的锐化税付在早期轮，而且丢的是基座在早期轮的分支分布，不只是多样性。** 后训练提高从给定状态完成任务的能力，却改变了早期几轮（如 WebShop 的搜索词与第一次点击）选择哪些分支，使大 k 采样走不到罕见但可解的路径。单轮数学上，PBA（arXiv 2607.20543）把锐化税归因于基座中稀有的正确轨迹在有限组采样里消失；在多轮 agent 中，这类稀有轨迹往往由早期几轮的选择决定。区分“丢分布”与“丢多样性”是关键：
+   - 若只是多样性下降，让后训练模型在早期轮提温到与基座相同的熵，就应恢复覆盖，修法就是 EAD（arXiv 2510.05251）/ REFT（arXiv 2605.28295）的轮级版本；
+   - 若丢的是分布，只有换回基座的早期轮分支才能恢复。
+3. **只在早期轮锚定基座的训练，比全局锚定、PTGS 与早期提温付更少的税。** 若 Claim 2 成立，训练时只对前 m 轮向冻结基座加 KL 约束，其余轮照常优化，应在相同 pass@1 下保住更多覆盖。
 
 ## 方法设计的核心思想
 
-**诊断（只需推理）**：对一对基座 B / 后训练 R 检查点，在可确定回放的环境里做四种按轮交接：B→B、B→R、R→B、R→R。前 m 轮由前一个策略生成，然后把这段历史原样回放到环境，交给后一个策略继续。对每种组合、每个 m 画 pass@k 曲线（k 至 64 或 128），并按任务统计覆盖从哪一段丢失。另记录早期轮的分支多样性（不同首轮动作与搜索词的数量），检验它与逐任务锐化税的关系。
+**诊断（只需推理）**：对基座 B 与后训练 R，在可确定回放的环境里做按轮交接：前 m 轮由一个策略生成，把这段历史回放到环境，再交给另一个策略继续。判别性比较如下：
 
-**修法 1（测试时）**：按轮交接解码。前 m 轮用基座或更高温度采样，之后切换到后训练模型；m 由诊断给出。
+- **固定完成者比较到达者**：B→R vs R→R 在大 k 下的差，衡量到达段丢失的覆盖；
+- **固定到达者比较完成者**：R→B vs B→B 的差，衡量完成段的变化；
+- **分布 vs 多样性**：B→R vs R_hot→R。R_hot 是 R 在前 m 轮把温度调到使首轮动作熵与 B 相同；另设 R 前 m 轮做首动作 top-N 均匀采样（REFT 式）。
 
-**修法 2（训练时）**：早期轮锚定 GRPO。只在每条轨迹的前 m 轮对起始策略加 KL 约束（或提高这几轮的采样温度），其余轮照常优化。
+Claim 2 预测：WebShop 上 B→R 明显高于 R→R 与 R_hot→R，且 R→B 不高于 B→B；BFCL 上覆盖增益主要体现在完成段。
+
+**修法（训练）**：早期轮基座锚定 GRPO。对每条轨迹的前 m 轮 token 加“当前策略对冻结基座”的 KL 项，后续轮不加；m 取诊断给出的值。
 
 **与最高近邻的关键差别**：
-- Sharpening Tax 的诊断与修法都在任务级（逐任务锐化税、按任务路由、按题设温度的 PTGS）；
-- Reach or Solve 只在 pass@1 上拆分到达与完成；
-- EAD（arXiv 2510.05251）在单轮生成里做 token 级“先高温后低温”。
+- Sharpening Tax 只到任务级（逐任务税、按任务路由、按题温度的 PTGS）；
+- Reach or Solve（arXiv 2609.19636）只在 pass@1 上拆分到达与完成，也不提修法；
+- PBA 在单轮数学上按题锚定基座；
+- EAD / REFT 只增加开头的多样性，不使用基座分布。
 
-本方法在多轮轨迹内部按轮定位覆盖损失，并只在被定位的那一段干预。
+本方法在多轮轨迹内按轮定位覆盖损失，并检验丢失的是分布还是多样性，修法只作用于被定位的轮次，并锚定到基座分布。
 
 ## 最小实验
 
-**阶段 A：诊断，不训练。**
-- 检查点：Sharpening Tax 已发布的 ≤9B 对，即 Qwen3.5-4B、Qwen3.5-9B、Qwen2.5-7B（基座 / 后训练）。
-- 基准：WebShop（取 200 个任务）与 BFCL v4 multi-turn base（200 个任务）。上面的计算已确认在这些检查点和基准上存在方向相反的覆盖变化。
-- 设置：沿用 Sharpening Tax 的轻量文本 harness 与评分；交接点 m ∈ {1, 3}；每组合 64 次 rollout。B→B、R→R 的 128 次 rollout 结果可直接复用公开数据。
-- 对照：B→B、R→R；按任务路由（Sharpening Tax 附录 D.4，用 8 次 rollout 估计逐任务税后选模型）；R 加全局高温采样。
+**阶段 A：诊断，不训练（约 1 天，给出 go/no-go）。**
+- 检查点：Qwen2.5-7B 与 Ministral-3-8B 的基座 / 后训练版，即上面统计中方向相反的两对。
+- 基准：WebShop（从 107/144 个丢失任务与其余任务中分层抽 200 个）与 BFCL v4 multi-turn base（200 个任务）。
+- 设置：沿用 Sharpening Tax 的轻量文本 harness 与评分；交接点 m ∈ {1, 3}；每组合 64 次 rollout。B→B、R→R 直接复用公开的 128 次结果。
+- 对照：B→R、R→B、R_hot→R、R_REFT→R；另有按任务路由（附录 D.4）与 R 全局提温。
 
 **阶段 B：训练，从同一起点只隔离 RL。**
-- 起点：Qwen2.5-7B-Instruct（verl-agent 的 WebShop 标准设置）。
-- 在 WebShop 上训练三组：GRPO、GRPO+PTGS、GRPO+早期轮锚定。组大小、步数、学习率、rollout 预算相同，2 个训练种子。
-- 统一用 Sharpening Tax harness 评测 pass@1 与 pass@128。
+- 起点与格式：Qwen2.5-7B 基座。把 Sharpening Tax 的 WebShop 文本 harness 移植进 verl-agent 的 WebShop 环境，训练与评测用同一提示格式。
+- **前置检查**：先跑 1 个种子的 GRPO，在 100 个留出任务上比较训练中间检查点与基座的 pass@64。若 GRPO 没有让 pass@64 比基座低至少 5 个百分点，说明该设置下 RL 不产生锐化税，阶段 B 的修法比较不作结论，只报告阶段 A。
+- 若前置检查成立，训练五组：GRPO、GRPO+全局基座 KL、GRPO+PTGS、GRPO+早期轮提温、GRPO+早期轮基座 KL（本方法）。组大小、步数、学习率、rollout 预算相同；全局与早期 KL 系数按“训练中 KL 总量相近”对齐；2 个训练种子。
+- 评测：同一 harness 下 WebShop 测试集 pass@1 与 pass@128。
 
 **支持 / 推翻 Claim 的结果**：
-- 支持：WebShop 上 B→R 的 pass@128 ≥ B→B 且 pass@1 接近 R→R，而 R→B 不恢复覆盖；BFCL 上覆盖增益随交接点后移而保持，说明来自完成段；早期轮锚定在 pass@1 不低于 GRPO 时，pass@128 高于 GRPO 与 GRPO+PTGS。
-- 推翻：R→B 与 B→R 同样恢复覆盖；或覆盖损失不随交接点集中；或早期轮锚定不优于 PTGS。
+- 支持：WebShop 上 B→R − R→R 显著为正且大于 R_hot→R − R→R，R→B ≤ B→B；BFCL 上不出现这一模式。阶段 B 中，早期轮基座 KL 在 pass@1 不低于 GRPO 时，pass@128 高于全局 KL、PTGS 与早期提温。
+- 推翻：R_hot→R 或 R_REFT→R 与 B→R 恢复同样多的覆盖（丢的只是多样性）；或 R→B 同样恢复覆盖（税在完成段）；或早期轮基座 KL 不优于早期提温。
 
 **Baseline 来源与复现入口**：
 
 | Baseline / 组件 | 与本任务的关系 | 论文 | 代码与复现入口 |
 |---|---|---|---|
-| Sharpening Tax harness、逐任务结果、按任务路由 | 同基准、同检查点的锐化税测量 | https://arxiv.org/abs/2610.01509 | https://github.com/changdaeoh/sharpening-tax（2026-10-02；`sharpening_tax/benchmarks/{webshop,bfcl}.py`、`sharpening_tax/metrics.py`、`data/outcomes_42cells.csv.gz`；BFCL 依赖 gorilla@6ea5797） |
-| PTGS | 同基准上为降低锐化税而设计的 RL 采样方法 | 同上 | 同仓库 `ptgs/integration.py` 的 `PTGSHooks`，接入 GRPO 的组采样温度 |
-| GRPO（WebShop） | 多轮 agent RL 的标准做法 | https://arxiv.org/abs/2505.10978 | https://github.com/langfengQ/verl-agent（2026-06-09；`examples/grpo_trainer/run_webshop.sh`） |
-| 检查点交接 | 拆分到达与完成的评测协议 | https://arxiv.org/abs/2609.19636 | 论文未见代码；协议为“回放前一策略的前 m 轮动作再交给后一策略”，在 WebShop（`env.reset(session=goal_idx)` 后按序回放）与 BFCL（有状态 API 实例按序重放调用）上可直接本地实现 |
-| 环境 | — | WebShop、BFCL v4 | WebShop 随 verl-agent 与 Sharpening Tax harness 提供；https://github.com/ShishirPatil/gorilla（`berkeley-function-call-leaderboard/bfcl_eval/data/BFCL_v4_multi_turn_base.json`） |
+| Sharpening Tax harness、逐任务结果、按任务路由 | 同基准、同检查点的锐化税测量 | https://arxiv.org/abs/2610.01509 | https://github.com/changdaeoh/sharpening-tax（2026-10-02；`sharpening_tax/benchmarks/{webshop,bfcl}.py`、`metrics.py`、`data/outcomes_42cells.csv.gz`；按任务路由仓库未提供，按附录 D.4 的规则本地实现；BFCL 依赖 gorilla@6ea5797） |
+| PTGS | 同基准上为降低锐化税设计的 RL 采样方法 | 同上 | 同仓库 `ptgs/integration.py` 的 `PTGSHooks`；示例配置不是 WebShop，需接入 verl-agent 的 GRPO 组采样 |
+| GRPO、全局 KL | 多轮 agent RL 标准做法 | https://arxiv.org/abs/2505.10978 | https://github.com/langfengQ/verl-agent（2026-06-09；`examples/grpo_trainer/run_webshop.sh`，KL 损失项为框架自带选项） |
+| REFT / 早期提温 | 只增加开头多样性的对照 | https://arxiv.org/abs/2605.28295 、https://arxiv.org/abs/2510.05251 | 按论文描述在前 m 轮的首动作上实现（top-N 均匀采样 / 温度调整），属于采样层的小改动 |
+| 检查点交接 | 拆分到达与完成的评测协议 | https://arxiv.org/abs/2609.19636 | 未见代码；在 WebShop（`env.reset(session=goal_idx)` 后按序回放动作）与 BFCL（有状态 API 实例按序重放调用）上本地实现 |
+| 环境 | — | WebShop、BFCL v4 | WebShop 随 verl-agent 与 Sharpening Tax harness 提供；https://github.com/ShishirPatil/gorilla（`bfcl_eval/data/BFCL_v4_multi_turn_base.json`） |
 
 **算力与 API 预算**（8×A100 80G，无付费 API）：
-- 阶段 A：3 对检查点 × 400 个任务 × 2 种交接 × 2 个交接点 × 64 次 rollout ≈ 30.7 万条轨迹，每条约 8 轮、生成约 1.6k token，vLLM 推理约 1 天。
-- 阶段 B 训练：3 组 × 2 种子 = 6 次，每次约 8 卡 × 12 小时，约 3 天。
-- 阶段 B 评测：6 个模型 × 500 个任务 × 128 次 rollout，约 1 天。
-- 合计约 5 天；API 费用为 0。阶段 A 约 1 天即可给出 go/no-go。
+- 阶段 A：2 对 × 400 个任务 × 4 种交接 × 2 个交接点 × 64 次 rollout ≈ 41 万条轨迹，每条约 8 轮、生成约 1.6k token，vLLM 约 1–1.5 天。
+- 阶段 B 前置检查：1 次 GRPO 约 8 卡 × 10 小时，加评测约 0.5 天。
+- 阶段 B 训练：5 组 × 2 种子 = 10 次，每次约 8 卡 × 10 小时，约 4 天。
+- 阶段 B 评测：10 个模型 × 500 个任务 × 128 次 rollout，约 1.5 天。
+- 合计约 7–8 天；API 费用为 0。

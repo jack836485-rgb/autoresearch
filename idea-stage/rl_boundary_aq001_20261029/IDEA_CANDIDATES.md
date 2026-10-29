@@ -8,11 +8,11 @@
 
 ## 当前选择
 
-- Reviewer 调用：`0 / 6`
-- 当前选中 Idea：`IDEA-002`
-- 当前自评分：`7.3/10`
-- 选择理由：IDEA-002 把卡上“扩展 vs 锐化”的矛盾落到同一对检查点在不同基准上的相反结果，并给出一个只需推理就能检验的轨迹内定位假设和对应修法；IDEA-001 只有诊断，IDEA-003 已被覆盖，IDEA-004 与已有前缀 / 反向课程方法重合。
-- 状态：`等待第 1 次 reviewer 调用`
+- Reviewer 调用：`1 / 6`
+- 当前选中 Idea：`IDEA-005`
+- 当前自评分：`7.0/10`
+- 选择理由：IDEA-005 修复了 Call 1 的三条阻碍（检查点选择、训练前提与格式、早期提温对照），并把 Claim 收紧为可与 EAD/REFT 区分的“丢的是分布不是多样性”；其余 available 候选（IDEA-001 5.0、IDEA-004 4.5）均低于它。
+- 状态：`等待第 2 次 reviewer 调用`
 
 ## 候选列表
 
@@ -37,7 +37,7 @@
 
 - 来源：`领域共性不足`（结合 `最高近邻不足`：Sharpening Tax 只到任务级）
 - 父 Idea：`无`
-- 状态：`available`
+- 状态：`needs_revision`（子 Idea：IDEA-005）
 - 定位关键词：sharpening tax；pass@k；agentic RL；checkpoint handoff；reach and solve；exploration；WebShop；BFCL
 - 一句话背景：多轮工具 agent 的后训练在一些基准上缩小大 k 覆盖（锐化税），在另一些基准上扩大覆盖，原因未分离。
 - 自评分：`7.3/10`
@@ -58,8 +58,8 @@
 | 检查点交接 | 拆分到达与完成的协议 | https://arxiv.org/abs/2609.19636 | 未见代码；协议简单，可在 WebShop / BFCL 上按动作回放本地实现 | 回放前 m 轮动作后交给另一策略 | 是 |
 | BFCL v4 multi-turn | 评测环境 | https://github.com/ShishirPatil/gorilla | 已核验 HEAD 6ea5797（2026-03-23）含 `BFCL_v4_multi_turn_base.json`，与 Sharpening Tax 固定的提交一致 | 设置 `BFCL_ROOT` | 是 |
 
+- Reviewer 记录：`Call 1（常规，Opus 默认 effort）：5.5/10，promising_needs_revision，最高近邻 Sharpening Tax（2610.01509）、Reach or Solve（2609.19636）、Pass@k Inversion / PBA（2607.20543）、BACo（2511.05650）、EAD（2510.05251）/ REFT（2605.28295）`。阻碍：(1) 阶段 A 选的 Qwen3.5-4B/9B 在 WebShop 上 pass@128 只降 1.0/1.8，“方向相反”不成立，应选 Qwen2.5-7B、Ministral-3-8B；(2) 阶段 B 缺“GRPO 在 WebShop 上确实产生税”的前提，且训练与评测 harness 格式不一致；(3) 缺“后训练模型只在前 m 轮提温 / 首动作多样化”对照，且 B→R ≥ B→B 可单由 R 更强的完成能力解释。主执行器已用公开数据复核 (1)：Qwen2.5-7B WebShop 丢 107 个基座可解任务，Ministral-3-8B 丢 144 个。
 - 现象核验：用 Sharpening Tax 公开逐任务结果自行计算（pass@k 无偏估计，k=128），≤9B 七对检查点在 BFCL 上全部持平或扩展，在 WebShop / ACEBench 上部分付税（如 Qwen2.5-7B：BFCL −38.0、WebShop +14.4、ACEBench +14.2，正值表示基座覆盖更高）。直接运行该仓库代码被安全策略拦下，只读取了数据文件。
-- Reviewer 记录：`尚未送审`
 
 ### IDEA-003：锐化税来自小组采样下的信号饥饿
 
@@ -93,4 +93,22 @@
 - 与输入论文的关系：不适用
 - 本 Idea 的独立创新点：与已有前缀 RL 重合度高。
 - Baseline 可复现性：未填。
+- Reviewer 记录：`尚未送审`
+
+### IDEA-005：RL 丢掉的是基座早期轮的分支分布，不只是多样性——按轮交接定位与基座锚定修法
+
+- 来源：`领域共性不足`（结合 `最高近邻不足`）
+- 父 Idea：`IDEA-002`
+- 状态：`available`
+- 定位关键词：sharpening tax；pass@k；agentic RL；checkpoint handoff；reach and solve；base model anchoring；WebShop；BFCL
+- 一句话背景：多轮工具 agent 的后训练在一些基准上缩小大 k 覆盖、在另一些基准上扩大覆盖，原因未分离。
+- 自评分：`7.0/10`
+- 一段话概括：相对 IDEA-002 的实质修改：(1) Claim 收紧为“锐化税付在早期轮，且丢的是基座在早期轮的分支分布而不是多样性本身”，用“后训练模型前 m 轮提温 / 首动作多样化”对照把两者分开；(2) 诊断只用真正有方向反转的 Qwen2.5-7B 与 Ministral-3-8B，判别性比较改为固定完成者比较到达者（B→R vs R→R）、固定到达者比较完成者（R→B vs B→B）；(3) 训练修法改为只在早期 m 轮对冻结基座加 KL 锚定，从 Qwen2.5-7B 基座在 Sharpening Tax 的同一 harness 下训练与评测，并先做“GRPO 是否在 WebShop 上产生税”的前置检查，不成立则训练部分不作结论。
+- Story line：同一对检查点在不同基准上覆盖方向相反（Qwen2.5-7B：WebShop 丢 107 个基座可解任务、BFCL 新解出 82 个；Ministral-3-8B：WebShop 丢 144 个、BFCL 新解出 46 个），说明差别不只来自配方。Sharpening Tax 指出全局调温不能化解矛盾，PBA [2607.20543] 在单轮数学上把税归因于基座中稀有正确轨迹在有限组采样里消失，并用按题锚定修复；但多轮 agent 中稀有正确轨迹往往由早期几轮的选择决定。若税付在早期轮且丢的是分布，那么固定完成者时换上基座做到达者应恢复覆盖，而让后训练模型在早期轮提温不能达到同等效果；据此，只在早期轮锚定基座的训练应比全局锚定、PTGS 与早期提温付更少的税。若早期提温与基座交接效果相同，则丢的只是多样性，修法退化为 EAD/REFT 的轮级版本，本 Claim 被推翻。
+- 打分理由：修复了 Call 1 的三条阻碍，Claim 更尖锐且有明确推翻条件；新意边界仍依赖“分布 vs 多样性”的结果，修法与 PBA、EAD 相邻。
+- Idea 生成依据：Call 1 review；[2607.20543]、[2511.05650]、[2605.28295] 摘要（主执行器已读）；Sharpening Tax 公开数据复核。
+- 自评分轻量新意依据：检索见 IDEA-002；新增近邻 PBA、BACo、REFT 均为单轮或开放生成，未涉及多轮按轮定位；需要 reviewer 检索。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：在多轮 agent 上区分“丢失早期分支分布”与“丢失多样性”，并据此给出只锚定早期轮的训练修法。
+- Baseline 可复现性：同 IDEA-002，另加 REFT（首动作多样化，按论文描述在早期轮本地实现）与全局 KL 锚定（verl-agent 自带 KL 损失项）。
 - Reviewer 记录：`尚未送审`

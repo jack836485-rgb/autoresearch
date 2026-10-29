@@ -12,7 +12,7 @@
 - 当前选中 Idea：无（等待用户决定是否继续）
 - 当前自评分：最高 available 为 IDEA-003 `5.8/10`、IDEA-006 `5.5/10`
 - 选择理由：Call 1 显示 N-Q001 的“harness 内化进权重”一线已被 Harness-Zero、[2610.11655]、OPCD、Co-Harness、Evo² 等密集覆盖；剩余候选自评都不到 6，继续送审大概率不过门槛且消耗 reviewer 预算与 token，因此暂停询问用户是继续还是换卡。
-- 状态：`Call 1 未通过；暂停`
+- 状态：`已终止：用户决定换卡 A-Q001（见 PIVOT_OR_STOP.md）`
 
 ## 候选列表
 

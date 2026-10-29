@@ -1,0 +1,96 @@
+# Idea 候选池
+
+> 本文件由 idea improver 持续维护。保留所有进入过比较的实质性候选及其演化关系；不要把完整 proposal 写进这里。
+
+- 输入模式：`problem_card`
+- 输入论文：不适用
+- 输入问题卡：`path-stage/LLM热门方向_算力适配_20261028/` 中的 `A-Q001`
+
+## 当前选择
+
+- Reviewer 调用：`0 / 6`
+- 当前选中 Idea：`IDEA-002`
+- 当前自评分：`7.3/10`
+- 选择理由：IDEA-002 把卡上“扩展 vs 锐化”的矛盾落到同一对检查点在不同基准上的相反结果，并给出一个只需推理就能检验的轨迹内定位假设和对应修法；IDEA-001 只有诊断，IDEA-003 已被覆盖，IDEA-004 与已有前缀 / 反向课程方法重合。
+- 状态：`等待第 1 次 reviewer 调用`
+
+## 候选列表
+
+### IDEA-001：同一 SFT 起点只隔离 RL，按初始成功率分层测 pass@(k,T) 与 Reach/Solve
+
+- 来源：`问题卡切口`
+- 父 Idea：`无`
+- 状态：`available`
+- 定位关键词：agentic RL；pass@k；pass@(k,T)；checkpoint handoff；GRPO
+- 一句话背景：多轮工具 agent 的 RL 何时扩大可解集合、何时只锐化。
+- 自评分：`5.0/10`
+- 一段话概括：从同一 SFT 检查点只做 GRPO，按初始采样成功率（0 / 低 / 高）分层，测 pass@(k,T) 与 Reach/Solve，控制 harness、环境、数据与预算。
+- 打分理由：纯诊断，[2604.14877] 已在匹配数据下分离 SFT 与 RL 并按任务类型给出结论，增量主要是分层与组合测量，缺少方法贡献。
+- Idea 生成依据：来自问题卡 A-Q001 的“可检验切口”。
+- 自评分轻量新意依据：[2604.14877]、[2609.19636]、[2610.01509] 摘要。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：分层与 Reach/Solve 组合测量。
+- Baseline 可复现性：未填。
+- Reviewer 记录：`尚未送审`
+
+### IDEA-002：锐化税付在路上，不在终点——多轮 agent 覆盖损失的轨迹内定位与按轮修法
+
+- 来源：`领域共性不足`（结合 `最高近邻不足`：Sharpening Tax 只到任务级）
+- 父 Idea：`无`
+- 状态：`available`
+- 定位关键词：sharpening tax；pass@k；agentic RL；checkpoint handoff；reach and solve；exploration；WebShop；BFCL
+- 一句话背景：多轮工具 agent 的后训练在一些基准上缩小大 k 覆盖（锐化税），在另一些基准上扩大覆盖，原因未分离。
+- 自评分：`7.3/10`
+- 一段话概括：Claim：多轮 agent 的覆盖变化应拆成“能否到达可解状态（Reach）”与“到达后能否完成（Solve）”两段。后训练普遍提高 Solve，却让早期几轮的分支选择塌缩、降低 Reach 的多样性；当任务成败主要卡在早期探索（如 WebShop 的搜索与翻页）时表现为锐化税，主要卡在执行（如 BFCL 的 API 调用序列）时表现为扩展。方法：（1）测试时按轮交接解码——前 m 轮用基座、之后用后训练模型；（2）训练时只在早期 m 轮对起始策略做锚定（KL 或提高采样温度），m 由定位实验给出。最小实验：用 Sharpening Tax 已发布的 ≤9B 基座 / 后训练对，在 WebShop 与 BFCL v4 multi-turn 上做四种交接组合的大 k 曲线；再在 verl-agent 上从同一起点训练 GRPO / GRPO+PTGS / 早期轮锚定，比较 pass@1 与 pass@128。
+- Story line：Sharpening Tax [2610.01509] 在 14 对发布检查点、3 个 agentic 基准上发现后训练把任务推向“总能解 / 从不解”两端，并报告全局调温度不能解决准确率与覆盖的矛盾；Pass@(k,T) [2604.14877] 却在受控工具 RL 上看到大 k 扩展，只出现在需要组合式信息收集的任务上。用 Sharpening Tax 公开的逐任务结果计算可见，同一对检查点在不同基准上方向相反：Qwen2.5-7B 在 BFCL v4 multi-turn 上 pass@128 比基座高 38.0 个百分点，在 WebShop 上低 14.4；Ministral-3-8B 分别为高 10.5 与低 24.2。所以差别不只来自配方。被忽视的是多轮结构：早期决策决定后面能到达哪些状态。Reach or Solve [2609.19636] 已用检查点交接在 pass@1 上分离到达与完成，但没有在大 k 覆盖上做。本 Idea 用按轮交接把覆盖损失定位到轨迹的某一段，并只在那一段保留多样性。可推翻的预期：在 WebShop 上，“基座前 m 轮 + 后训练其余轮”的 pass@128 不低于基座、pass@1 接近后训练模型，而反向交接恢复不了覆盖；在 BFCL 上覆盖增益来自 Solve 段；训练时早期轮锚定在相同 pass@1 下比 PTGS 和全局温度付更少的税。若反向交接同样能恢复覆盖，或覆盖损失均匀分布在各轮，则 Claim 被推翻。
+- 打分理由：问题分量大、能直接解释卡上的跨论文矛盾，诊断只需推理即可快速给出 go/no-go，修法简单；按轮调温度与 EAD（token 级退火）[2510.05251]、PTGS（按题调温）相邻，主要新意在轨迹内定位，需要 reviewer 检索确认。
+- Idea 生成依据：问题卡 A-Q001 证据 [2610.01509]、[2604.14877]、[2609.19636]；主执行器用 Sharpening Tax 仓库 `data/outcomes_42cells.csv.gz`（14 对 × 3 基准、每任务 128 次 rollout）按 pass@k 无偏估计自行计算的逐基准覆盖差；EAD [2510.05251]。
+- 自评分轻量新意依据：检索“multi-turn agent RL early turn entropy collapse coverage”“hybrid decoding base prefix RL continuation pass@k”“turn-level temperature KL anchoring early turns”“RL agent coverage loss localized early decisions handoff”。命中 RAGEN-2 [2604.06268]（模板坍缩）、EAD、TurnOPD [2607.05804]、ExpDis [2610.10536]、CANOPY [2609.01245]、What Outcome RL Buys [2610.34894]（单轮数学的题目级 Reach，非多轮状态）；未检出在多轮 agent 上按轮定位锐化税的工作。需要 reviewer 检索。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：把多轮 agent 的锐化税定位到轨迹中的到达段，并据此给出只作用于早期轮的测试时与训练时修法。
+- Baseline 可复现性：
+
+| Baseline | 与定位关键词及目标任务的关系 | 论文或规范 | 开源代码与核验结果 | 具体复现方式 | 是否纳入最小实验 |
+|---|---|---|---|---|---|
+| Sharpening Tax harness / 指标 / 按任务路由 | 同基准、同检查点的锐化税测量 | https://arxiv.org/abs/2610.01509 | https://github.com/changdaeoh/sharpening-tax 已浅克隆核验（2026-10-02，含 `sharpening_tax/benchmarks/{webshop,bfcl,acebench}.py`、`metrics.py`、逐任务结果 CSV；README 说明不含 RL 训练基础设施） | 用其 harness 采样与评分；按任务路由按附录 D.4 本地实现 | 是 |
+| PTGS | 同基准上降低锐化税的 RL 采样方法 | 同上 | 同仓库 `ptgs/integration.py` 的 `PTGSHooks`（组温度分配与结果回填钩子） | 接入 verl-agent 的 GRPO 组采样 | 是 |
+| GRPO（WebShop） | 多轮 agent RL 标准做法 | https://arxiv.org/abs/2505.10978 | https://github.com/langfengQ/verl-agent 已核验（2026-06-09，`examples/grpo_trainer/run_webshop.sh`） | 直接运行，改起点模型与种子 | 是 |
+| 检查点交接 | 拆分到达与完成的协议 | https://arxiv.org/abs/2609.19636 | 未见代码；协议简单，可在 WebShop / BFCL 上按动作回放本地实现 | 回放前 m 轮动作后交给另一策略 | 是 |
+| BFCL v4 multi-turn | 评测环境 | https://github.com/ShishirPatil/gorilla | 已核验 HEAD 6ea5797（2026-03-23）含 `BFCL_v4_multi_turn_base.json`，与 Sharpening Tax 固定的提交一致 | 设置 `BFCL_ROOT` | 是 |
+
+- 现象核验：用 Sharpening Tax 公开逐任务结果自行计算（pass@k 无偏估计，k=128），≤9B 七对检查点在 BFCL 上全部持平或扩展，在 WebShop / ACEBench 上部分付税（如 Qwen2.5-7B：BFCL −38.0、WebShop +14.4、ACEBench +14.2，正值表示基座覆盖更高）。直接运行该仓库代码被安全策略拦下，只读取了数据文件。
+- Reviewer 记录：`尚未送审`
+
+### IDEA-003：锐化税来自小组采样下的信号饥饿
+
+- 来源：`领域共性不足`
+- 父 Idea：`无`
+- 状态：`covered`
+- 定位关键词：GRPO；zero-variance prompts；pass@k；signal starvation
+- 一句话背景：RL 训练时成功率低于 1/G（G 为组大小）的任务拿不到梯度，可能被其他任务的更新挤压到零。
+- 自评分：`4.0/10`
+- 一段话概括：检验锐化税是否集中在训练时 p<1/G 的任务上，扩大组大小能否消除。
+- 打分理由：CANOPY [2609.01245] 的“信号饥饿”、RAGEN-2 [2604.06268] 的 SNR 机制、PTGS 的按题调温已经覆盖。
+- Idea 生成依据：[2609.01245]、[2604.06268]、[2610.01509]。
+- 自评分轻量新意依据：同上三篇摘要。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：无，已被覆盖。
+- Baseline 可复现性：未填。
+- Reviewer 记录：`尚未送审`
+
+### IDEA-004：从基座到达过的稀有状态重启 RL（Go-Explore 式）
+
+- 来源：`相似领域成熟方法迁移`（Go-Explore 的“回到稀有状态再探索”）
+- 父 Idea：`无`
+- 状态：`available`
+- 定位关键词：agentic RL；exploration；state reset；curriculum
+- 一句话背景：多轮 agent RL 中，稀有但可解的状态很少被采样到。
+- 自评分：`4.5/10`
+- 一段话概括：用基座大 k 采样收集成功轨迹经过的中间状态，RL 训练时以一定比例从这些状态重启环境。
+- 打分理由：SCoRe [2509.14257] 已从验证前缀开始做短视野 RL，反向课程类方法也已存在；新意低。
+- Idea 生成依据：Go-Explore 思路；[2509.14257]。
+- 自评分轻量新意依据：[2509.14257] 摘要。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：与已有前缀 RL 重合度高。
+- Baseline 可复现性：未填。
+- Reviewer 记录：`尚未送审`

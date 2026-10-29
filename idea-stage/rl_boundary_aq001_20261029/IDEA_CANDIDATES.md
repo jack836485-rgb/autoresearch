@@ -8,11 +8,11 @@
 
 ## 当前选择
 
-- Reviewer 调用：`3 / 6`（复核进行中，将计为第 4 次）
-- 当前选中 Idea：`IDEA-006`
-- 当前自评分：`7.4/10`
-- 选择理由：IDEA-006 修复了 Call 2 的四点意见，是自评分最高的 available 候选；Call 3 首轮通过（8.2）。
-- 状态：`待复核：同一 brief 送 Call 4 复核`
+- Reviewer 调用：`4 / 6`
+- 当前选中 Idea：`IDEA-007`
+- 当前自评分：`7.2/10`
+- 选择理由：IDEA-007 针对 Call 4 的 fatal blocker 重新划定了相对 Locked at the Entrance 的新意边界，并补齐入口类对照；其余 available 候选（IDEA-001 5.0、IDEA-004 4.5）均低于它。剩余 2 次调用正好够一次首审加复核。
+- 状态：`等待第 5 次 reviewer 调用`
 
 ## 候选列表
 
@@ -117,7 +117,7 @@
 
 - 来源：`领域共性不足`（结合 `最高近邻不足`）
 - 父 Idea：`IDEA-005`
-- 状态：`待复核`
+- 状态：`needs_revision`（子 Idea：IDEA-007）
 - 定位关键词：sharpening tax；pass@k；agentic RL；checkpoint handoff；reach and solve；forward KL；base model anchoring；WebShop
 - 一句话背景：多轮工具 agent 的 RL 为什么在大 k 采样下缩小可解覆盖，丢失发生在轨迹哪里，能否只修那一段。
 - 自评分：`7.4/10`
@@ -129,4 +129,22 @@
 - 与输入论文的关系：不适用
 - 本 Idea 的独立创新点：在纯 RL 的多轮 agent 上把锐化税定位到早期轮并区分分布与多样性，据此提出只在早期轮施加前向 KL 的训练修法。
 - Baseline 可复现性：Sharpening Tax harness / PTGS（已核验）；verl-agent GRPO（已核验）；DPH-RL 前向 KL（github.com/seamoke/DPH-RL，2026-02-10，基于 verl，README 给出离线采样初始策略与 `forward` / `js` 散度配置）；Handoff（github.com/Xuanxuana1/AgenticRL_Handoff，2026-09-26，ALFWorld / TravelPlanner 的 writer / reader 交接，扩展到 WebShop / BFCL）。
-- Reviewer 记录：`Call 3（常规，Opus 默认 effort）：8.2/10，experiment_ready，无 fatal blocker；最高近邻 Reach or Solve（2609.19636）、What RL Brings to Reasoning（2610.24663）、Sharpening Tax（2610.01509）、DPH-RL（2509.07430）、PASS@(k,T)（2604.14877）`。非阻断缺口：两种前向 KL 只按散度总量对齐单一系数，“相同 pass@1”未严格控制；交接组 64 次 rollout 只支持 k≤64；verl-agent WebShop 默认全量商品与 15 步上限，需与 harness 的 1000 商品、30 步对齐；需正面定位 2610.24663“后段选择贡献更大”的单轮结论。Call 4（复核，xhigh 请求）进行中。
+- Reviewer 记录：`Call 3（常规，Opus 默认 effort）：8.2/10，experiment_ready，无 fatal blocker；最高近邻 Reach or Solve（2609.19636）、What RL Brings to Reasoning（2610.24663）、Sharpening Tax（2610.01509）、DPH-RL（2509.07430）、PASS@(k,T)（2604.14877）`。非阻断缺口：两种前向 KL 只按散度总量对齐单一系数，“相同 pass@1”未严格控制；交接组 64 次 rollout 只支持 k≤64；verl-agent WebShop 默认全量商品与 15 步上限，需与 harness 的 1000 商品、30 步对齐；需正面定位 2610.24663“后段选择贡献更大”的单轮结论。Call 4（复核，请求 xhigh，实际为 Opus 默认 effort 加深度思考提示）：6.5/10，promising_needs_revision，fatal blocker：未引用、未对照 Locked at the Entrance（arXiv 2608.29188，代码 github.com/ershiyidian/early-branch-locking，主执行器已核验，含 `countdown/layer_interpolation.py`）。该文在单轮 Countdown 与数学上已证明覆盖收缩集中在入口、替代分支仍可执行、提温与提示无效、晚层参数插值可在不损 pass@1 下提升覆盖 37%。另建议补“早期轮熵奖励”训练组以闭合 Claim 2→3。
+
+### IDEA-007：多轮 agent 的覆盖只在入口被锁，还是在每次观察后被重新锁定——逐轮锁定剖面与决策轮前向 KL
+
+- 来源：`领域共性不足`（结合 `最高近邻不足`：Locked at the Entrance 只在单轮）
+- 父 Idea：`IDEA-006`
+- 状态：`available`
+- 定位关键词：sharpening tax；pass@k；agentic RL；checkpoint handoff；entrance locking；forward KL；WebShop；agentic search
+- 一句话背景：单轮 RLVR 的覆盖收缩已被定位在入口；多轮 agent 每次收到环境观察后都会出现新的决策点，覆盖损失是否仍只在入口未知。
+- 自评分：`7.2/10`
+- 一段话概括：相对 IDEA-006 的实质修改：(1) Claim 1 改为两个竞争假设的区分——“入口锁定”（单轮 RLVR [2608.29188]；agent 搜索中第一轮查询冗余 [2606.17209]）vs “观察后重新锁定”（每次搜索结果返回后的检索 / 选择决策轮都被锁）；(2) 诊断从前缀交接改为逐轮替换（只把第 t 轮换成基座生成，其余轮由 G 生成并在真实环境中继续），并设同模型分叉对照测噪声底 [2608.08239]，得到逐轮锁定剖面；(3) 加入入口类对照：第一轮基座替换、DivInit、[2608.29188] 的晚层参数插值；(4) 修法改为在“决策轮”（发出搜索或在搜索结果页上做选择的轮）施加前向 KL，与“只在入口”和“全局”前向 KL、决策轮熵奖励、PTGS 对照，前向 KL 各组扫 3 个系数画 pass@1–pass@64 前沿；(5) 全部比较统一在 pass@64。
+- Story line：[2608.29188] 在单轮任务上发现 RLVR 的覆盖丢在入口、替代分支仍可执行，入口修法有效；[2606.17209] 在 agent 搜索上把并行采样的瓶颈追到第一轮查询冗余。但多轮 agent 的每一轮都以新的环境观察为条件，搜索结果返回后的重新检索与选择同样是分支点。若 RL 在这些观察后的决策轮也锁定分支，那么只修入口（第一轮多样化、晚层插值）就不够，而全局锚定又会把后续轮中 RL 提高的完成能力拉回基座。逐轮替换剖面能直接区分两种假设：若可找回的覆盖集中在第一轮，单轮结论迁移到 agent，入口修法足够；若在后续决策轮也有相当部分，入口修法不足，修法必须覆盖所有决策轮。训练比较检验“决策轮前向 KL”是否在相同 pass@1 下优于入口前向 KL、全局前向 KL、晚层插值、决策轮熵奖励与 PTGS。
+- 打分理由：Claim 1 变成多轮特有且两种结果都有信息量的区分问题，补齐了 Call 4 的最高近邻与对照；风险在于若剖面集中在第一轮，主结论会退化为单轮结论的迁移；实验总量增至约 11–12 天。
+- Idea 生成依据：Call 4 review；[2608.29188] 摘要、局限性与仓库；[2606.17209]、[2608.08239]、[2610.25957]、[2609.20715] 摘要（主执行器已读）。
+- 自评分轻量新意依据：检索“RL narrows solution space multi-turn agent each turn observation locking”“search agent RL query diversity collapse”“per-turn substitution base action RL agent attribution”，未检出在多轮 agent 上做逐轮锁定剖面或观察后重新锁定的工作；需要 reviewer 检索。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：在多轮 agent 的纯 RL 检查点上，用真实环境中的逐轮替换区分入口锁定与观察后重新锁定，并给出作用于决策轮的前向 KL 修法。
+- Baseline 可复现性：IDEA-006 所列，加 Locked at the Entrance 晚层插值（github.com/ershiyidian/early-branch-locking，2026-09-01，`src/early_branch_locking/countdown/layer_interpolation.py`，与任务无关的权重插值，可直接作用于 G 与其早期检查点）与 DivInit（arXiv 2606.17209，摘要称代码已公开，送审前需核验）。
+- Reviewer 记录：`尚未送审`

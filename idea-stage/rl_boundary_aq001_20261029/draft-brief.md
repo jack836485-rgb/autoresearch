@@ -1,77 +1,92 @@
 ## 背景
 
-**定位关键词：** agentic RL；sharpening tax；pass@k；checkpoint handoff；reach and solve；forward KL；base model anchoring；WebShop
+**定位关键词：** agentic RL；sharpening tax；pass@k；checkpoint handoff；entrance locking；forward KL；WebShop；agentic search
 
-**一句话定位：** 多轮工具使用 agent 的 RL 为什么在大 k 采样下缩小可解任务覆盖（锐化税），这部分覆盖在轨迹的哪一段丢失，能否只修那一段而保住 RL 的单次准确率增益。
+**一句话定位：** 单轮 RLVR 的覆盖收缩已被定位在“入口”（第一步）；多轮工具 agent 每次收到环境观察都会面对新的决策点，RL 造成的大 k 覆盖损失是只发生在入口，还是在观察之后被重新锁定。
 
 ## 核心 Claim
 
-**动机（不作为贡献）**：Sharpening Tax（arXiv 2610.01509）公开的逐任务结果显示，同一对发布检查点在不同基准上覆盖方向相反。例如 Qwen2.5-7B 的后训练版在 WebShop 上让 107 个基座可解任务变成 0 次成功，在 BFCL v4 multi-turn 上新解出 82 个。但发布检查点混合了 SFT、偏好优化与 RL，基座与后训练版的提示路径也不同，所以下面的主结论只在“基座 vs 纯 RL”上建立。
+**已知与动机**：
+- Locked at the Entrance（arXiv 2608.29188）在单轮 Countdown 与数学任务上发现，RLVR 的覆盖收缩集中在入口，替代分支补上入口前缀后仍可执行；提温与提示无效，晚层参数与早期检查点插值能在不损 pass@1 下提升覆盖。
+- DivInit（arXiv 2606.17209）在 agent 搜索上把并行采样的瓶颈追到第一轮查询冗余，用第一轮多样化修复。
+- Sharpening Tax（arXiv 2610.01509）报告 WebShop 上后训练普遍付锐化税。
 
-1. **纯 RL 的锐化税付在早期轮。** 设 B 为基座，G 为从 B 出发、在同一文本 harness 下只做 GRPO 得到的检查点。按轮交接时，固定完成者为 G，把到达者从 G 换成 B（B→G vs G→G），大 k 覆盖的损失大部分被找回；固定到达者为 B，把完成者从 B 换成 G（B→G vs B→B），覆盖不降反升。即 RL 在后续轮提高了完成能力，覆盖损失来自早期几轮的选择。
-2. **丢的是基座早期轮的分支分布，不只是多样性。** 让 G 只在前 m 轮把温度调到首轮动作熵与 B 相同（G_hot→G），或在前 m 轮做首动作 top-N 均匀采样（REFT 式，arXiv 2605.28295），找回的覆盖明显少于 B→G。也就是说，RL 改变的是早期轮把概率放在哪些分支上；单纯增加开头多样性（EAD，arXiv 2510.05251；REFT）不足以补救。
-3. **只在前 m 轮施加质量覆盖型散度，能同时保住覆盖与 pass@1。** DPH-RL（arXiv 2509.07430）在单轮任务上表明，反向 KL 保不住覆盖，前向 KL / JS 可以。若 Claim 1、2 成立：
-   - 在整条轨迹上加前向 KL，会把后续轮的完成能力也拉回基座、损失 pass@1；
-   - 只在早期轮加反向 KL，惩罚不到丢失的稀有分支；
-   - 只在前 m 轮对基座加前向 KL，应在相同 pass@1 下比这两者以及 PTGS 保住更多覆盖。
+这些工作都把问题放在入口。但多轮 agent 中，每次搜索结果返回后的重新检索与选择也是分支点，而且以新观察为条件。
 
-**推翻条件**：G 的覆盖损失不集中在早期轮（B→G 找回的不多于 G→B）；或 G_hot→G、G_REFT→G 与 B→G 找回同样多；或早期轮前向 KL 在相同 pass@1 下不优于全局前向 KL。
+1. **区分“入口锁定”与“观察后重新锁定”。** 设 B 为基座，G 为从 B 出发、同一文本 harness 下只做 GRPO 的检查点。逐轮替换只把第 t 轮动作换成 B 生成，其余轮由 G 生成并在真实环境中继续，得到逐轮的“可找回覆盖”剖面。我们的假设是 WebShop 上存在重新锁定：搜索结果返回后的决策轮也贡献相当部分可找回覆盖，只替换第一轮找回的覆盖明显少于替换全部决策轮。
+   - 若剖面集中在第一轮，则入口锁定足以解释多轮 agent，单轮结论直接迁移。这一结果同样会被报告。
+2. **在被锁定的轮上，丢的是基座的分支分布，不只是多样性。** 在同样的轮上，让 G 提温到与 B 等熵，或做首动作 top-N 均匀采样（REFT 式，arXiv 2605.28295），找回的覆盖少于基座替换。
+3. **修法必须覆盖所有被锁定的决策轮。** 若 Claim 1 成立：
+   - 只在入口施加的修法（第一轮前向 KL、DivInit、晚层插值）不足；
+   - 全局前向 KL（DPH-RL，arXiv 2509.07430）会把 RL 在其余轮获得的完成能力拉回基座，损失 pass@1；
+   - 只在决策轮施加前向 KL，应在相同 pass@1 下得到最高的 pass@64。
+
+**推翻条件**：
+- 剖面集中在第一轮，此时 Claim 1 不成立、主结论退化为单轮结论的迁移；
+- 等熵提温 / REFT 在同样轮上找回同样多（Claim 2 不成立）；
+- 决策轮前向 KL 的 pass@1–pass@64 前沿不优于入口前向 KL 或全局前向 KL（Claim 3 不成立）。
 
 ## 方法设计的核心思想
 
-**诊断（按轮交接）**：前 m 轮由一个策略生成，把这段历史在环境中原样回放，再交给另一个策略继续。比较 B→B、G→G、B→G、G→B、G_hot→G、G_REFT→G 在 pass@k（k 至 128）上的曲线，交接点 m ∈ {1, 3}，并按任务统计覆盖损失发生在哪一侧。
+**诊断（逐轮替换剖面）**：
+- 对第 t 轮，在真实环境中运行 G 到第 t−1 轮，第 t 轮由 B 生成，之后回到 G 继续，计算 pass@64。
+- 同时设“同模型分叉”对照：第 t 轮由 G 重新采样，用来估计重放与采样噪声底。Replay Gap（arXiv 2608.08239）指出拼接日志回放不可靠，必须在真实环境中重建状态。
+- 剖面：L(t) =（第 t 轮基座替换的 pass@64）−（同模型分叉的 pass@64）。
+- 聚合比较：只替换第一轮、替换全部决策轮、在全部决策轮上等熵提温、在全部决策轮上做 REFT 式首动作多样化。
+- 决策轮定义：发出搜索的轮与在搜索结果页上做选择的轮。可由动作类型与上一条观察的页面类型直接判定，不依赖模型。
 
-**修法（早期轮前向 KL GRPO）**：
-1. 训练前，对每个训练任务离线采样若干条基座轨迹，只保留前 m 轮（动作与回放得到的观察）。
-2. 训练时，在 GRPO 损失之外，加“当前策略对这些基座早期轮动作的负对数似然”。它等价于只在前 m 轮的状态分布上的前向 KL(π_B‖π)，与 DPH-RL 用初始策略离线样本估计前向 KL 的做法相同。
-3. 后续轮不加任何散度项；m 取诊断给出的值。
+**修法（决策轮前向 KL GRPO）**：
+1. 训练前离线采样基座轨迹，保存其中决策轮的“观察历史—动作”片段。
+2. 训练时在 GRPO 损失外加“当前策略对这些基座决策轮动作的负对数似然”，即决策轮状态上的前向 KL(π_B‖π)，估计方式同 DPH-RL。
+3. 其余轮不加散度。
 
 **与最高近邻的关键差别**：
-- Sharpening Tax：任务级诊断与 PTGS；
-- Reach or Solve（arXiv 2609.19636）：pass@1 上的 SFT↔RL 交接，交接点接近终点，不提修法；
-- PBA（arXiv 2607.20543）：单轮数学、按题锚定基座；
-- Sparse but Critical（arXiv 2603.22446）：单轮数学、token 级交叉采样，不看 pass@k；
-- DPH-RL：单轮、在整条序列或按题施加前向 KL。
+- Locked at the Entrance：单轮、可穷举的入口族、修法为权重插值，没有观察后的决策点；
+- DivInit：只做第一轮、测试时、不涉及 RL 前后对比；
+- Reach or Solve（arXiv 2609.19636）：SFT↔RL 发布检查点、pass@1、交接点接近终点、无修法；
+- DPH-RL：单轮、整条序列。
 
-本方法在多轮 agent 的纯 RL 检查点上按轮定位锐化税，区分“丢分布”与“丢多样性”，并只在被定位的早期轮施加质量覆盖型散度。
+本方法在多轮 agent 的纯 RL 检查点上，用真实环境逐轮替换区分入口锁定与重新锁定，并把修法放在所有被锁定的决策轮上。
 
 ## 最小实验
 
 **阶段 0：前置检查（约 0.5 天）。**
-- 设置：Qwen2.5-7B 基座 B。把 Sharpening Tax 的 WebShop 文本 harness 移植进 verl-agent 的 WebShop 环境，训练与评测用同一提示格式。
-- 做法：跑 1 个种子的 GRPO 得到 G，在 300 个留出任务上比较 G 与 B 的 pass@64。
-- 判定：只有 G 的 pass@64 比 B 低至少 5 个百分点，才继续阶段 A、B 的主结论；否则报告“该设置下 RL 不产生锐化税”。
-- 依据：Sharpening Tax 公开数据中，该基座在此 harness 下 WebShop 的 pass@128 为 71.2%、pass@1 为 15.5%，有足够的初始成功率供 GRPO 学习。
+- 设置：Qwen2.5-7B 基座 B。把 Sharpening Tax 的 WebShop 文本 harness（含其商品子集与步数上限）移植进 verl-agent 的 WebShop 环境，并把 verl-agent 的商品索引与步数上限改成与之一致，训练与评测完全同一设置。
+- 做法：跑 1 个种子的 GRPO 得到 G，在 300 个留出任务上重新测量 B 与 G 的 pass@1、pass@64（不沿用公开数据中的数值）。
+- 判定：只有 G 的 pass@64 比 B 低至少 5 个百分点，才继续；否则报告“该设置下纯 RL 不产生锐化税”并停止。PASS@(k,T)（arXiv 2604.14877）报告工具 RL 可扩大边界，这一结果是可能的。
 
-**阶段 A：诊断，在 (B, G) 上做（约 1 天）。**
-- 范围：WebShop 300 个留出任务；六种组合 × m ∈ {1, 3} × 64 次 rollout，G→G 与 B→B 各 128 次。
-- 外部印证：在发布的 Qwen2.5-7B、Ministral-3-8B 对上，WebShop 与 BFCL v4 multi-turn base 各 200 个任务，只做 m=1 的 B→R 与 R_hot→R。
+**阶段 A：诊断（约 1.5 天）。**
+- 在 (B, G) 上用 300 个留出任务，做 t = 1…6 的逐轮替换与同模型分叉，每格 64 次 rollout。
+- 再做 4 个聚合替换组，以及入口类测试时对照：DivInit 第一轮多样化；对 G 用 Locked at the Entrance 的晚层插值（与 G 的早期检查点混合），每组 64 次。
+- 外部印证：在发布的 Qwen2.5-7B、Ministral-3-8B 对上做第一轮与全部决策轮两个聚合替换。
 
-**阶段 B：训练修法比较。**
-- 起点：B；同一 harness。
-- 五组：GRPO、GRPO+PTGS、GRPO+全局前向 KL（DPH-RL）、GRPO+早期轮反向 KL、GRPO+早期轮前向 KL（本方法）。
-- 控制：组大小、步数、学习率、rollout 预算相同；两种前向 KL 用同一批离线基座样本，系数按“训练中散度项总量相近”对齐；m 取阶段 A 的结果。
-- 种子：3 个训练种子，阶段 0 的 GRPO 计为 GRPO 组的第 1 个。
-- 评测：300 个留出任务上的 pass@1 与 pass@64，按任务配对 bootstrap 报告置信区间，并画 pass@1–pass@64 前沿。
+**阶段 B：训练修法比较（约 8 天训练 + 1.5 天评测）。**
+- 起点：B；同一设置。
+- 六组：GRPO、GRPO+PTGS、GRPO+全局前向 KL、GRPO+入口（第一轮）前向 KL、GRPO+决策轮前向 KL（本方法）、GRPO+决策轮熵奖励。
+- 系数：三个前向 KL 组各扫 3 个系数（1 个种子），画 pass@1–pass@64 前沿；再在 pass@1 与 GRPO 最接近的系数上补到 3 个种子。
+- 其余组：各 3 个种子（阶段 0 的 GRPO 计为 GRPO 组第 1 个）。
+- 控制：所有组组大小、步数、学习率、rollout 预算相同，前向 KL 组用同一批离线基座样本。
+- 评测：300 个留出任务的 pass@1 与 pass@64，按任务配对 bootstrap 报告置信区间。
 
 **支持 / 推翻 Claim 的结果**：
-- 支持：(B→G − G→G) 显著为正，且大于 (G_hot→G − G→G) 与 (G_REFT→G − G→G)；(B→G − B→B) ≥ 0；早期轮前向 KL 的 pass@1 不低于 GRPO，pass@64 高于全局前向 KL、早期轮反向 KL 与 PTGS（或在相同 pass@64 下 pass@1 更高）。
+- 支持：L(t) 在第 1 轮之后的决策轮仍显著高于噪声底，“只替换第一轮”找回的覆盖明显少于“替换全部决策轮”；等熵提温与 REFT 组少于基座替换；DivInit 与晚层插值不及全部决策轮替换；决策轮前向 KL 的前沿支配入口前向 KL 与全局前向 KL，且优于熵奖励与 PTGS。
 - 推翻：见核心 Claim 中的推翻条件。
 
 **Baseline 来源与复现入口**：
 
 | Baseline / 组件 | 与本任务的关系 | 论文 | 代码与复现入口 |
 |---|---|---|---|
-| Sharpening Tax harness、指标、逐任务结果 | 同基准的锐化税测量 | https://arxiv.org/abs/2610.01509 | https://github.com/changdaeoh/sharpening-tax（2026-10-02；`sharpening_tax/benchmarks/{webshop,bfcl}.py`、`metrics.py`、`data/outcomes_42cells.csv.gz`；BFCL 依赖 gorilla@6ea5797） |
-| PTGS | 同基准上降低锐化税的 RL 采样方法 | 同上 | 同仓库 `ptgs/integration.py` 的 `PTGSHooks`，接入 verl-agent 的 GRPO 组采样 |
-| GRPO、早期轮反向 KL | 多轮 agent RL 标准做法 | https://arxiv.org/abs/2505.10978 | https://github.com/langfengQ/verl-agent（2026-06-09；`examples/grpo_trainer/run_webshop.sh`，`use_kl_loss` 为框架选项，按轮位置加掩码） |
-| 全局前向 KL（DPH-RL） | 为保 pass@k 设计的质量覆盖型散度 | https://arxiv.org/abs/2509.07430 | https://github.com/seamoke/DPH-RL（2026-02-10；基于 verl，README 给出离线采样初始策略与 `forward` / `js` 散度配置；将其损失项移植到 verl-agent） |
-| 按轮交接 | 拆分到达与完成的评测协议 | https://arxiv.org/abs/2609.19636 | https://github.com/Xuanxuana1/AgenticRL_Handoff（2026-09-26；`src/handoff/`，ALFWorld / TravelPlanner 的 writer / reader 交接；为 WebShop 增加 `env.reset(session=goal_idx)` 后按序回放、为 BFCL 增加有状态 API 重放） |
-| REFT / 等熵提温 | 只增加开头多样性的对照 | https://arxiv.org/abs/2605.28295 、https://arxiv.org/abs/2510.05251 | 在前 m 轮首动作上做 top-N 均匀采样 / 温度调整，采样层小改动 |
-| 环境 | — | WebShop、BFCL v4 | WebShop 随 verl-agent 与 Sharpening Tax harness 提供；https://github.com/ShishirPatil/gorilla（`bfcl_eval/data/BFCL_v4_multi_turn_base.json`） |
+| Sharpening Tax harness、指标 | 同基准的锐化税测量 | https://arxiv.org/abs/2610.01509 | https://github.com/changdaeoh/sharpening-tax（2026-10-02；`sharpening_tax/benchmarks/webshop.py`、`metrics.py`） |
+| PTGS | 同基准上降低锐化税的 RL 采样方法 | 同上 | 同仓库 `ptgs/integration.py` 的 `PTGSHooks`，接入 verl-agent 的 GRPO 组采样（原作只在 Sokoban / FrozenLake 上验证，需移植） |
+| GRPO、熵奖励 | 多轮 agent RL 标准做法 | https://arxiv.org/abs/2505.10978 | https://github.com/langfengQ/verl-agent（2026-06-09；`examples/grpo_trainer/run_webshop.sh`；熵项为框架选项，按轮掩码） |
+| 全局 / 入口 / 决策轮前向 KL | 保 pass@k 的质量覆盖型散度 | https://arxiv.org/abs/2509.07430 | https://github.com/seamoke/DPH-RL（2026-02-10；README 的离线采样与 `forward` 散度配置；损失项移植到 verl-agent 并按轮掩码） |
+| 晚层参数插值 | 单轮入口锁定的修法 | https://arxiv.org/abs/2608.29188 | https://github.com/ershiyidian/early-branch-locking（2026-09-01；`src/early_branch_locking/countdown/layer_interpolation.py`，权重插值与任务无关，直接作用于 G 与其早期检查点） |
+| DivInit | agent 搜索的第一轮多样化 | https://arxiv.org/abs/2606.17209 | https://github.com/cxcscmu/diverse-query-initialization（main 可访问），用于第一轮动作 |
+| REFT / 等熵提温 | 只增加多样性的对照 | https://arxiv.org/abs/2605.28295 | 在选定轮的首动作上做 top-N 均匀采样 / 温度调整，采样层小改动 |
+| 逐轮替换与分叉 | 真实环境中的检查点交接 | https://arxiv.org/abs/2609.19636 、https://arxiv.org/abs/2608.08239 | https://github.com/Xuanxuana1/AgenticRL_Handoff（2026-09-26；`src/handoff/`）的 writer / reader 交接，为 WebShop 增加 `env.reset(session=goal_idx)` 后的真实环境回放与单轮替换 |
 
 **算力与 API 预算**（8×A100 80G，无付费 API）：
-- 阶段 0：1 次 GRPO 约 8 卡 × 8–10 小时，加 300 × 64 次评测，约 0.5 天。
-- 阶段 A：(B, G) 上 300 个任务 × (6 组合 × 2 交接点 × 64 + 2 × 128) ≈ 31 万条，外部印证约 10 万条；每条约 8 轮、生成约 1.6k token，vLLM 约 1.5 天。
-- 阶段 B：离线基座早期轮采样不到 0.2 天；训练 5 组 × 3 种子 − 1 = 14 次，每次约 8 卡 × 8 小时，约 4.7 天；评测 15 个模型 × 300 个任务 × 64 次，约 1 天。
-- 合计约 8–9 天；API 费用为 0。阶段 0 与阶段 A 共约 2 天，即可判断主 Claim 是否成立。
+- 阶段 0：1 次 GRPO 约 8 卡 × 8–10 小时，加评测，约 0.5 天。
+- 阶段 A：300 个任务 ×（6 轮 × 2 + 4 聚合 + 2 测试时对照）× 64 ≈ 34.6 万条轨迹，外部印证约 5 万条；每条约 8 轮、生成约 1.6k token，vLLM 约 1.5 天。
+- 阶段 B：系数扫描 9 次 + 补种子 6 次 + GRPO 2 次 + PTGS 3 次 + 熵奖励 3 次 = 23 次训练，每次约 8 卡 × 8 小时，约 7.7 天；评测 23 个模型 × 300 个任务 × 64 次，约 1.5 天。
+- 合计约 11–12 天；API 费用为 0。阶段 0 与阶段 A 共约 2 天，即可判断 Claim 1、2 是否成立，再决定是否投入阶段 B。

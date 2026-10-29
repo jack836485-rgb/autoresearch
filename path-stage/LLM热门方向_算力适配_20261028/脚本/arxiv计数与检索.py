@@ -28,9 +28,12 @@ if stage == "count":
 else:
     papers, log = {}, []
     for name in TOPICS:
-        root, total = call(f"({q(name)}) AND {DIAG}" + win(WNEW), 0, 100, "submittedDate")
-        if root is None: log.append({"topic": name, "error": "fetch failed"}); continue
-        es = root.findall(NS + "entry")
+        es, total = [], -1
+        for start in (0, 100, 200):  # 每主题按相关度最多取 300 篇
+            root, t = call(f"({q(name)}) AND {DIAG}" + win(W1), start, 100, "relevance")
+            if root is None: log.append({"topic": name, "start": start, "error": "fetch failed"}); break
+            total = t; page = root.findall(NS + "entry"); es += page
+            if len(page) < 100 or start + 100 >= total: break
         for e in es:
             aid = e.find(NS + "id").text.split("/abs/")[-1].rsplit("v", 1)[0]
             rec = papers.setdefault(aid, {"id": aid, "title": " ".join(e.find(NS + "title").text.split()),

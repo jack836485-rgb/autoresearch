@@ -8,11 +8,11 @@
 
 ## 当前选择
 
-- Reviewer 调用：`5 / 8`（用户追加 2 次）
-- 当前选中 Idea：`IDEA-008`
-- 当前自评分：`7.5/10`
-- 选择理由：IDEA-008 保留 Call 5 认可的诊断，修复修法偏薄、Claim 2 迁移、DDO 划界与落地细节；其余 available 候选均低于它。
-- 状态：`等待第 6 次 reviewer 调用`
+- Reviewer 调用：`6 / 8`
+- 当前选中 Idea：无（等待用户决定）
+- 当前自评分：IDEA-008 `7.5/10`（Call 6 得 7.8）
+- 选择理由：剩余阻碍是“修法新颖性取决于实验结果”，纸面修订无法消除；剂量混杂与 2609.02417 定位可修。
+- 状态：`暂停：等待用户决定`
 
 ## 候选列表
 
@@ -153,7 +153,7 @@
 
 - 来源：`领域共性不足`（结合 `最高近邻不足`）
 - 父 Idea：`IDEA-007`
-- 状态：`available`
+- 状态：`needs_revision`
 - 定位关键词：multi-turn agent RL；pass@k coverage；diversity collapse；entrance locking；checkpoint handoff；forward KL；WebShop
 - 一句话背景：单轮 RLVR 的覆盖收缩已被定位在入口；多轮 agent 每次收到环境观察都会出现新的决策点，RL 造成的覆盖损失是否只在入口未知。
 - 自评分：`7.5/10`
@@ -165,4 +165,4 @@
 - 与输入论文的关系：不适用
 - 本 Idea 的独立创新点：在多轮 agent 的纯 RL 检查点上区分入口锁定与观察后重新锁定，并验证“按锁定剖面选轮施加前向 KL”优于同量随机选轮。
 - Baseline 可复现性：同 IDEA-007；DDO 代码 github.com/koguma00/direct_diverse_optimization（摘要页链接，未核验，因不作同预算对照）。
-- Reviewer 记录：`尚未送审`
+- Reviewer 记录：`Call 6（常规，Opus 默认 effort）：7.8/10，promising_needs_revision，无 fatal blocker；最高近邻 Locked at the Entrance（2608.29188）、Reach or Solve（2609.19636）、Sharpening Tax（2610.01509）、Coverage, Not Targeting（2609.02417）、PBA（2607.20543）`。判断：诊断（逐轮替换剖面区分入口锁定与重新锁定）新颖；修法新颖性取决于结果——若 L(t) 集中在第 1 轮，按剖面前向 KL 退化为入口前向 KL；匹配集中度的随机轮对照已见于 2609.02417，且其结果为“定向不优于随机”，削弱 Claim 3 先验；Claim 1 的“只换第一轮 vs 换全部决策轮”有替换轮数的剂量混杂；另提到 Critical-State RL（2609.24985）。

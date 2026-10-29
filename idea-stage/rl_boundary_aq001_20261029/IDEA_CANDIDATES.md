@@ -8,11 +8,11 @@
 
 ## 当前选择
 
-- Reviewer 调用：`7 / 18`
-- 当前选中 Idea：`IDEA-010`
-- 当前自评分：`7.4/10`
-- 选择理由：IDEA-010 不再与 TAR 等争方法新意，改为多轮特有的状态重叠机制与只改状态来源的受控对照；其余 available 候选均低于它。
-- 状态：`等待第 8 次 reviewer 调用`
+- Reviewer 调用：`8 / 18`
+- 当前选中 Idea：`IDEA-011`
+- 当前自评分：`7.6/10`
+- 选择理由：历轮评审显示诊断主线稳定被认为新颖，往方法新意加码的版本（IDEA-009、IDEA-010）反复撞上已有工作；IDEA-011 回到诊断主线，把方法部分改为不依赖剖面落点的统一检验与预测规律。
+- 状态：`等待第 9 次 reviewer 调用`
 
 ## 候选列表
 
@@ -189,7 +189,7 @@
 
 - 来源：`领域共性不足`（结合 `最高近邻不足`：TAR / DPH-RL / PBA 均为单轮、离线回放）
 - 父 Idea：`IDEA-009`
-- 状态：`available`
+- 状态：`needs_revision`（子 Idea：IDEA-011）
 - 定位关键词：multi-turn agent RL；pass@k coverage；diversity collapse；replay；forward KL；state distribution；WebShop；ALFWorld
 - 一句话背景：单轮 RLVR 中用离线回放基座成功解（DPH-RL、TAR、PBA）可以保住 pass@k；搬到多轮 agent 时，回放的基座动作所在的状态，当前策略可能根本到不了。
 - 自评分：`7.4/10`
@@ -201,4 +201,22 @@
 - 与输入论文的关系：不适用
 - 本 Idea 的独立创新点：提出并检验“离线回放只能锚定共享状态”这一多轮特有机制，以及按任务可测的低重叠锁定量对保覆盖方法差异的预测。
 - Baseline 可复现性：TAR（github.com/wenzhilics/tar，2026-10-16，verl `recipe/tar/build_memory_bank.py`，移植到 verl-agent 多轮）；DPH-RL、PBA、PTGS、verl-agent GRPO、Handoff 同前。
+- Reviewer 记录：`Call 8（常规，Opus 默认 effort）：6.0/10，promising_needs_revision；blockers：(1) 受控对照同时改了状态来源与“目标是否经成功筛选”；(2) 漏了多轮前缀 / 状态来源近邻 ReOPD（2607.04763，“prefix trap”双侧分布偏移）与 Guided-OPD（EMNLP 2026，ALFWorld/WebShop）；(3) “单轮不存在状态失配”与 2605.16826 / 2605.22731 冲突`。另指出 M_low 与学生状态版作用对象同构，预测有自证成分。
+
+### IDEA-011：多轮 agent 的 RL 在哪里丢覆盖，以及现有保覆盖方法各自够得着哪里
+
+- 来源：`领域共性不足`
+- 父 Idea：`IDEA-008`（回到 Call 3 / Call 6 得分最高的诊断主线；吸收 IDEA-009、IDEA-010 的评审意见）
+- 状态：`available`
+- 定位关键词：multi-turn agent RL；pass@k coverage；diversity collapse；checkpoint handoff；forward KL；replay；WebShop；ALFWorld
+- 一句话背景：保住 RL 覆盖的方法（离线回放、入口修复、采样侧调温）都在单轮上提出；多轮 agent 中覆盖丢失的位置与这些方法能作用的位置是否吻合，未被检验。
+- 自评分：`7.6/10`
+- 一段话概括：贡献改为“诊断 + 统一检验 + 预测规律”，不再声称新损失：(1) 诊断：真实环境逐轮替换得到逐任务的可找回覆盖剖面 L_i(t)，替换轮数相同的剂量匹配，区分入口锁定与观察后重新锁定（两环境）；(2) 统一检验：把三族现有方法放进同一多轮设置——入口类（晚层插值 [2608.29188]、DivInit [2606.17209]、入口前向 KL）、离线回放类（DPH-RL、TAR、PBA）、采样侧（PTGS）；(3) 预测规律：每族方法在任务 i 上找回的覆盖，近似等于 L_i(t) 落在该族“够得着的轮”上的量——入口类够得着第 1 轮；离线回放类够得着当前策略与基座状态等价的轮（用状态重叠 O_i(t) 测，作为测量，归属 DAgger / ReOPD / Guided-OPD 的协变量偏移理论）；规律按任务检验，结果不论剖面落在哪里都可检验；(4) 处方：由规律推出的最小方法——在剖面选出的轮上施加前向 KL，与同 token 占比随机选轮对照，并与 2609.02417“信用定向是二阶”的结论相对照。
+- Story line：同 IDEA-008，加上：现有保覆盖方法各自隐含“丢失发生在哪里”的假设（入口类假设在第 1 轮，离线回放假设回放的状态会被访问，PTGS 只改采样温度）。若多轮 agent 的丢失位置与这些假设不吻合，方法就只能找回它够得着的那部分。按任务把 L_i(t) 与各族的可作用区域对齐，就能在训练前预测每族方法的效果；剖面选轮的前向 KL 是这一规律给出的最小处方。推翻条件：各族的实际找回量与“可作用区域内的 L 量”无关；或剖面选轮不优于随机选轮。
+- 打分理由：诊断部分历轮均被认为新颖；统一检验与预测规律不依赖剖面落点、可被推翻；状态重叠与学生状态方法不再作为新机制或新方法，避免 Call 8 的混淆与归属问题；修法仍简单。
+- Idea 生成依据：Call 3–8 的评审；ReOPD 摘要（主执行器已读）；检索“systematic comparison diversity-preserving RL methods LLM agents multi-turn pass@k”未见系统比较。
+- 自评分轻量新意依据：同上；需要 reviewer 检索。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：在多轮 agent 上按轮定位 RL 的覆盖丢失，并用“各族方法可作用区域内的丢失量”在训练前按任务预测现有保覆盖方法的效果。
+- Baseline 可复现性：同 IDEA-010（TAR、DPH-RL、PBA 本地实现、PTGS、晚层插值、DivInit、verl-agent、Handoff 均已核验）。
 - Reviewer 记录：`尚未送审`

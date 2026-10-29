@@ -1,42 +1,51 @@
 ## 背景
 
-**定位关键词：** multi-turn agent RL；pass@k coverage；diversity collapse；replay；forward KL；state distribution；WebShop；ALFWorld
+**定位关键词：** multi-turn agent RL；pass@k coverage；diversity collapse；checkpoint handoff；forward KL；replay；WebShop；ALFWorld
 
-**一句话定位：** 单轮 RLVR 中，用离线回放基座成功解来保住 pass@k 覆盖的方法已经有效；搬到多轮工具 agent 时，回放的基座动作所在的状态，当前策略可能根本到不了。本研究检验这类方法在多轮 agent 中何时失效、为什么，以及能否在训练前预测。
+**一句话定位：** RL 会让多轮工具 agent 在大 k 采样下丢失可解任务覆盖；保住覆盖的现有方法都在单轮上提出，各自隐含“丢失发生在哪里”的假设。本研究在多轮 agent 中按轮定位丢失，并检验这些方法能找回的覆盖是否由“丢失落在它们够得着的位置上的量”决定。
 
 ## 核心 Claim
 
-**已知**：
-- **离线回放保覆盖（单轮）**：DPH-RL（arXiv 2509.07430）用离线基座样本上的前向 KL；PBA（arXiv 2607.20543）对风险题向基座锚定；TAR（arXiv 2610.24236）建基座多样成功解库，只在这些解被当前策略抑制时激活回放，按单侧对数似然差加权。三者都在单轮数学 / SQL 上验证。
-- **覆盖丢在哪里（单轮）**：Locked at the Entrance（arXiv 2608.29188）在单轮上把丢失定位到入口。
-- **状态来源重要**：2605.16826 把蒸馏目标拆成“前缀来源 × KL 方向”；2605.22731 提出后训练的状态分布视角；两者都在单轮蒸馏或 SFT/RL 上，不涉及保覆盖。
-- **多轮中的回放**：Prefix-GRPO（arXiv 2607.19395）在多轮 agent 中回放教师前缀再在线续写，目标是学习效率，不是保覆盖。
+**已知与归属**：
+- **入口类**：Locked at the Entrance（arXiv 2608.29188）在单轮上把丢失定位到入口，晚层插值有效；DivInit（arXiv 2606.17209）在 agent 搜索中只修第一轮查询冗余。
+- **离线回放类**：DPH-RL（arXiv 2509.07430）、PBA（arXiv 2607.20543）、TAR（arXiv 2610.24236）在单轮上回放或锚定基座成功解。
+- **采样侧**：PTGS（Sharpening Tax，arXiv 2610.01509）按题调采样温度，原作在 Sokoban / FrozenLake 上验证。
+- **状态失配**：学生偏离教师熟悉状态是 DAgger 式协变量偏移；ReOPD（arXiv 2607.04763）与 Guided-OPD（EMNLP 2026）已在多轮蒸馏中讨论前缀与状态来源的失配，本研究只把它作为测量使用，不作为新机制。
+- **定向的反例**：Coverage, Not Targeting（arXiv 2609.02417）发现多轮 agent 的信用分配中，定向到选定轮与随机轮同样有害。
 
-1. **多轮 agent 中，基座与纯 RL 策略的状态重叠在第一次分支偏离后迅速下降，覆盖损失有相当部分落在低重叠状态上。**
-   - 设 B 为起点策略，G 为从 B 出发只做 GRPO 的检查点。
-   - **可找回覆盖剖面 L(t)**：在真实环境中逐轮替换（只把第 t 轮换成 B 生成，其余由 G 生成并继续），减去同模型分叉的噪声底，并做替换轮数相同的剂量匹配。
-   - **状态重叠 O(t)**：在风险任务（B 有成功、G 整组失败）上，G 第 t 轮的状态与 B 成功轨迹第 t 轮状态等价的比例。WebShop 按页面类型与商品 / 检索结果判等，ALFWorld 按位置、物品与容器状态判等，均由环境状态程序判定。
-   - **预期**：O(1) ≈ 1（入口共享），之后下降；L(t) 在 O(t) 低的轮上仍有显著值。
-2. **离线回放类方法只能找回落在共享状态上的那部分覆盖。** 回放的监督施加在基座访问的状态上；当前策略不再访问这些状态时，回放既改变不了它在实际所处状态上的选择，也就找不回对应的覆盖。
-3. **只改状态来源的受控对照可检验这一机制，且差异可在训练前预测。**
-   - 对照组：保留 TAR 的“被抑制才激活、按单侧对数似然差加权”门控与风险任务限定，只把查询基座动作的状态从“基座离线轨迹”换成“当前策略在风险任务 rollout 中实际访问的状态”（在这些状态上采样基座动作，无需额外环境交互）。
-   - 预测：两者的 pass@64 差随低重叠锁定量 M_low = Σ_t L(t)·(1 − O(t)) 增大。在任务级（按 M_low 分层）与环境级都成立；在 M_low ≈ 0 的任务上两者相同，即入口锁定、状态共享时离线回放足够，这也解释了单轮方法为何有效。
+1. **按轮定位：区分入口锁定与观察后重新锁定。**
+   - 设 B 为起点策略，G 为从 B 出发、同一设置下只做 GRPO 的检查点。在真实环境中逐轮替换（只把第 t 轮换成 B 生成，其余由 G 生成并继续），减去同模型分叉的噪声底，得到逐任务的可找回覆盖剖面 L_i(t)。
+   - 比较只在替换轮数相同的组之间进行：单轮 vs 单轮，两轮集合 vs 两轮集合，以排除剂量混杂。
+   - 在 WebShop 与 ALFWorld 上分别报告剖面。我们预期 WebShop 在搜索结果返回后的决策轮仍有显著 L(t)（重新锁定），但无论剖面集中在入口还是分散，Claim 3 都可检验。
+2. **在被锁定轮上，丢的是基座分支分布，不只是多样性。** 同样轮上，G 等熵提温或做首动作 top-N 均匀采样（REFT 式，arXiv 2605.28295），找回的覆盖少于基座替换。单轮上“提温无效”已归属 2608.29188，本 Claim 只针对观察后的决策轮。
+3. **现有保覆盖方法找回的覆盖，由“L 落在其可作用区域内的量”预测。**
+   - **可作用区域 A_m**：
+     - 入口类 = 第 1 轮；
+     - 离线回放类 = 当前策略与基座状态等价的 (任务, 轮)，用状态重叠 O_i(t) 判定，按环境状态程序判等；
+     - 采样侧 PTGS = 所有轮，但只改多样性；按 Claim 2，它在“丢分布”的轮上作用有限。
+   - **预测**：方法 m 在任务 i 上相对 GRPO 找回的 pass@64 ≈ Σ_{t∈A_m} L_i(t)。按任务分层检验，各族的实际找回量应随其预测量单调增加。
+   - **处方**：剖面选轮的前向 KL（在 L 显著的轮上施加，估计方式同 DPH-RL）应找回最多。与 2609.02417 相对，它在锚定 token 占比相同的条件下优于随机选轮。理由是锚定作用于分布，而信用分配作用于奖励。
 
 **推翻条件**：
-- Claim 1：O(t) 在入口之后不下降，或 L(t) 全部落在高重叠轮；
-- Claim 3：状态来源对照的覆盖差与 M_low 无关（任务级 Spearman 不显著），或学生状态版本在高 M_low 任务上不优于离线版本。
+- 各族方法的实际找回量与其预测量无关（任务级 Spearman 不显著，分层不单调）；
+- 剖面选轮前向 KL 不优于同 token 占比的随机选轮；
+- 等熵提温 / REFT 在观察后决策轮上找回同样多。
 
 ## 方法设计的核心思想
 
-**测量（训练前，用于预测）**：在 (B, G) 上计算 L(t)、O(t) 与每个任务的 M_low。G 取 1 个种子的 GRPO 检查点。
+**测量（训练前）**：
+- 在 (B, G) 上做逐轮替换与同模型分叉。G 为 1 个种子的 GRPO 检查点；WebShop 固定 `WEBSHOP_ENV_SEED`，ALFWorld 固定游戏文件与种子。
+- 得到每任务的 L_i(t)，以及风险任务上的 O_i(t)，进而计算每个方法族的预测量 P_m(i) = Σ_{t∈A_m} L_i(t)。
+- 测量只用推理，不训练任何方法。
 
-**受控对照的两个版本**（只差状态来源）：
-- **离线版（TAR 移植到多轮）**：训练前对每个训练任务离线采样 B 的成功轨迹建库；训练时，对风险任务上这些轨迹中的动作计算 δ = log π_B − log π_θ，在 δ > 0 处按 δ 加权 NLL。
-- **学生状态版**：训练时，在风险任务的 G 自身 rollout 中，于每个状态采样 k 个 B 的动作；对这些动作计算同样的 δ，并在 δ > 0 处按同样方式加权 NLL。这相当于 2605.16826 所称“学生前缀 + 前向 KL”的目标，加上 TAR 的门控与风险限定。
+**统一检验**：
+- 在同一设置、同一起点下训练各方法族的代表：入口前向 KL、DPH-RL、PBA、TAR（移植到多轮轨迹）、PTGS；
+- 对 G 应用晚层插值与 DivInit 两个测试时方法；
+- 记录每任务相对 GRPO 的 pass@64 变化，与 P_m(i) 对齐。
 
-两者的系数、风险任务集合、更新频率完全相同。
+**处方**：在剖面选出的轮集合 S 上，对离线基座成功片段施加前向 KL，其余轮不加；对照为相同 token 占比、每 batch 随机抽轮的前向 KL。
 
-**与最高近邻的关键差别**：TAR、DPH-RL、PBA 在单轮上不存在状态失配问题；2605.16826、2605.22731 讨论状态来源，但在单轮蒸馏或 SFT/RL 保留上；Prefix-GRPO 在多轮中回放教师前缀，目标是学习效率；Locked at the Entrance 只定位单轮入口。本研究提出并检验多轮 agent 中“离线回放只能锚定共享状态”的机制，以及训练前可测、按任务的预测量。
+**与最高近邻的关键差别**：各族方法只在单轮上提出，没有检验其隐含的丢失位置假设在多轮 agent 中是否成立；Reach or Solve（arXiv 2609.19636）做 SFT↔RL 交接、看 pass@1，不涉及覆盖与方法比较；ReOPD / Guided-OPD 讨论蒸馏中的状态失配，不涉及保覆盖。本研究用逐轮剖面把“丢在哪里”与“各方法够得着哪里”对齐，并据此在训练前按任务预测方法效果。
 
 ## 最小实验
 
@@ -47,15 +56,16 @@
 
 **阶段 A：测量（约 2.5 天）。**
 - WebShop 300 个留出任务（t = 1…6），ALFWorld unseen 134 个任务（t ∈ {1, 2, 4, 8, 12, 16}）。
-- 每格做逐轮替换与同模型分叉，64 次 rollout；做剂量匹配比较。
-- 用环境状态计算 O(t) 与每任务 M_low。
+- 每格做逐轮替换与同模型分叉，64 次 rollout；做剂量匹配组与 Claim 2 的等熵 / REFT 对照。
+- 计算 O_i(t) 与 P_m(i)。
+- 对 G 做晚层插值与 DivInit 的测试时评测。
 
-**阶段 B：训练比较（约 11 天训练 + 2.5 天评测）。**
-- 每个环境六组：GRPO、DPH-RL（离线前向 KL，全局）、PBA（风险门控）、TAR 离线版、学生状态版、学生状态前向 KL 不加门控（2605.16826 式目标，指向基座）。WebShop 另加 PTGS。
-- 系数与种子：五个锚定组各扫 2 个系数（1 个种子），画 pass@1–pass@64 前沿；在 pass@1 与 GRPO 最接近的系数上，把 TAR 离线版与学生状态版补到 3 个种子。GRPO 3 个种子（阶段 0 的计为第 1 个）。
-- 控制：同一环境内组大小、步数、学习率、rollout 预算相同。学生状态版额外的基座采样只在风险任务的状态上进行，计入训练时间并单独报告。
-- 评测：WebShop 300 个留出任务、ALFWorld 134 个 unseen 任务的 pass@1 与 pass@64，按任务配对 bootstrap。
-- 主分析：按阶段 A 的 M_low 把任务分为三层，检验“学生状态版 − TAR 离线版”的 pass@64 差是否随 M_low 单调增大（任务级 Spearman 与分层差）。
+**阶段 B：统一检验与处方（约 10 天训练 + 2.5 天评测）。**
+- **WebShop 八组**：GRPO、入口前向 KL、DPH-RL、PBA、TAR、PTGS、剖面选轮前向 KL、随机选轮前向 KL。
+- **ALFWorld 五组**：GRPO、入口前向 KL、PBA、TAR、剖面选轮前向 KL。
+- 系数与种子：每个方法组扫 2 个超参（散度系数或 PTGS 温度跨度，1 个种子）画 pass@1–pass@64 前沿；在 pass@1 与 GRPO 最接近的设置上，把剖面选轮与前沿上最强的另一组补到 3 个种子。GRPO 各环境 3 个种子。
+- 控制：同一环境内组大小、步数、学习率、rollout 预算相同，前向 KL 与回放类组用同一批离线基座成功样本。
+- **主分析**：按任务把“方法 m 相对 GRPO 的 pass@64 变化”与 P_m(i) 做 Spearman 相关，并按 P_m 三分层检验单调性；另比较剖面选轮与随机选轮。
 
 **支持 / 推翻 Claim 的结果**：见核心 Claim 的预期与推翻条件。
 
@@ -63,20 +73,21 @@
 
 | Baseline / 组件 | 与本任务的关系 | 论文 | 代码与复现入口 |
 |---|---|---|---|
-| TAR | 离线回放基座成功解保覆盖，门控与本研究对照共用 | https://arxiv.org/abs/2610.24236 | https://github.com/wenzhilics/tar（2026-10-16；verl `recipe/tar/`，`build_memory_bank.py` 建库；移植到 verl-agent 的多轮轨迹） |
+| TAR | 离线回放类代表 | https://arxiv.org/abs/2610.24236 | https://github.com/wenzhilics/tar（2026-10-16；verl `recipe/tar/`，`build_memory_bank.py`；移植到 verl-agent 多轮轨迹） |
 | DPH-RL | 离线前向 KL 保 pass@k | https://arxiv.org/abs/2509.07430 | https://github.com/seamoke/DPH-RL（2026-02-10；README 的离线采样与 `forward` 散度配置） |
-| PBA | 按题风险门控、向基座锚定 | https://arxiv.org/abs/2607.20543 | 未见代码；按论文描述本地实现（风险门控 + 向冻结起点的散度） |
-| 学生前缀前向 KL | 状态来源 × KL 方向中的 DAgger 式目标 | https://arxiv.org/abs/2605.16826 | 在 G 的 rollout 状态上采样基座动作做 NLL，verl-agent 内本地实现 |
-| PTGS | 同基准上降低锐化税的 RL 采样方法 | https://arxiv.org/abs/2610.01509 | https://github.com/changdaeoh/sharpening-tax（`ptgs/integration.py` 的 `PTGSHooks`；原作只在 Sokoban / FrozenLake 验证） |
+| PBA | 按题风险门控锚定基座 | https://arxiv.org/abs/2607.20543 | 未见代码；按论文描述本地实现（风险门控 + 向冻结起点的散度） |
+| PTGS | 采样侧代表 | https://arxiv.org/abs/2610.01509 | https://github.com/changdaeoh/sharpening-tax（`ptgs/integration.py` 的 `PTGSHooks`；`sharpening_tax/benchmarks/webshop.py` 支持 `WEBSHOP_ENV_SEED`） |
+| 晚层插值 | 入口类代表（测试时） | https://arxiv.org/abs/2608.29188 | https://github.com/ershiyidian/early-branch-locking（2026-09-01；`src/early_branch_locking/countdown/layer_interpolation.py`） |
+| DivInit | 入口类代表（测试时） | https://arxiv.org/abs/2606.17209 | https://github.com/cxcscmu/diverse-query-initialization（main 可访问） |
 | GRPO | 多轮 agent RL 标准做法 | https://arxiv.org/abs/2505.10978 | https://github.com/langfengQ/verl-agent（2026-06-09；`examples/grpo_trainer/run_webshop.sh`、`run_alfworld.sh`） |
-| WebShop harness | 同基准锐化税测量 | https://arxiv.org/abs/2610.01509 | 同 sharpening-tax 仓库 `sharpening_tax/benchmarks/webshop.py`（支持 `WEBSHOP_ENV_SEED`） |
-| 逐轮替换与分叉 | 真实环境中的检查点交接 | https://arxiv.org/abs/2609.19636 、https://arxiv.org/abs/2608.08239 | https://github.com/Xuanxuana1/AgenticRL_Handoff（2026-09-26；`src/handoff/alfworld/{environment,rollout}.py` 用于 ALFWorld；为 WebShop 增加固定种子的真实环境回放） |
+| 逐轮替换与分叉 | 真实环境中的检查点交接 | https://arxiv.org/abs/2609.19636 、https://arxiv.org/abs/2608.08239 | https://github.com/Xuanxuana1/AgenticRL_Handoff（2026-09-26；`src/handoff/alfworld/{environment,rollout}.py`；为 WebShop 增加固定种子的真实环境回放） |
+| REFT / 等熵提温 | 只增加多样性的对照 | https://arxiv.org/abs/2605.28295 | 在选定轮首动作上做 top-N 均匀采样 / 温度调整 |
 
 **算力与 API 预算**（8×A100 80G，无付费 API）：
 - 阶段 0：2 个环境各 1 次 GRPO（各约 8 卡 × 8–12 小时）加评测，约 1 天。
-- 阶段 A：WebShop 约 23 万条、ALFWorld 约 10 万条轨迹，vLLM 约 2.5 天。
+- 阶段 A：WebShop 约 30 万条、ALFWorld 约 12 万条轨迹，vLLM 约 2.5 天。
 - 阶段 B：
-  - 每环境 10 次扫描 + 4 次补种子 + 2 次 GRPO = 16 次，WebShop 另加 PTGS 2 次，共 34 次；
-  - 每次约 8 卡 × 6–8 小时；学生状态版因额外基座采样约多 20%；
-  - 约 11 天；评测约 2.5 天。
-- 合计约 17 天；API 费用为 0。阶段 0 与阶段 A 共约 3.5 天，即可判断 Claim 1，并得到每任务 M_low。
+  - WebShop：7 组 × 2 超参 + 4 次补种子 + 2 次 GRPO = 20 次；
+  - ALFWorld：4 组 × 2 超参 + 4 次补种子 + 2 次 GRPO = 14 次；
+  - 每次约 8 卡 × 6–8 小时，约 10 天；评测约 2.5 天。
+- 合计约 16 天；API 费用为 0。阶段 0 与阶段 A 共约 3.5 天，即可得到剖面与各方法族的预测量。

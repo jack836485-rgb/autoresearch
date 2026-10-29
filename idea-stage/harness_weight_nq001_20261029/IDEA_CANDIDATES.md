@@ -8,11 +8,11 @@
 
 ## 当前选择
 
-- Reviewer 调用：`0 / 6`
-- 当前选中 Idea：`IDEA-002`
-- 当前自评分：`7.4/10`
-- 选择理由：IDEA-002 直接挑战最高近邻 [2610.11655] 的“看到的增益留在 harness”规则，并用同一原因解释 PSP 观察到的特权自蒸馏失效；IDEA-001、IDEA-004 已被覆盖，IDEA-003 只有诊断没有方法，IDEA-005 只是修补近邻。
-- 状态：`等待第 1 次 reviewer 调用`
+- Reviewer 调用：`1 / 6`
+- 当前选中 Idea：无（等待用户决定是否继续）
+- 当前自评分：最高 available 为 IDEA-003 `5.8/10`、IDEA-006 `5.5/10`
+- 选择理由：Call 1 显示 N-Q001 的“harness 内化进权重”一线已被 Harness-Zero、[2610.11655]、OPCD、Co-Harness、Evo² 等密集覆盖；剩余候选自评都不到 6，继续送审大概率不过门槛且消耗 reviewer 预算与 token，因此暂停询问用户是继续还是换卡。
+- 状态：`Call 1 未通过；暂停`
 
 ## 候选列表
 
@@ -37,7 +37,7 @@
 
 - 来源：`领域共性不足`（结合 `相似领域成熟方法迁移`：机器人特权教师蒸馏中的 imitation gap）
 - 父 Idea：`无`
-- 状态：`available`
+- 状态：`covered`（子 Idea：IDEA-006）
 - 定位关键词：agent harness；context distillation；privileged information；on-policy self-distillation；imitation gap；AppWorld；ALFWorld
 - 一句话背景：LLM agent 后训练中，把进化 harness 带来的增益内化进权重时，哪些增益能脱离 harness 保留下来。
 - 自评分：`7.4/10`
@@ -59,7 +59,7 @@
 | 环境 | — | ALFWorld、AppWorld | https://github.com/alfworld/alfworld（2026-02-08）、https://github.com/StonyBrookNLP/appworld（2026-09-03）README 已核验安装与评测入口 | `alfworld-download`；`appworld install`、`appworld download data`、`appworld evaluate` | 是 |
 
 - 现象核验：注入记忆对 Qwen3-4B/8B 在 AppWorld 上的增益见 [2608.07169]；“多显示历史”的增益见 [2610.11655] 的 WebArena-Lite（模型未逐一核对）；ALFWorld 上历史截断的增益需在 dev 先验证，brief 已写明。
-- Reviewer 记录：`尚未送审`
+- Reviewer 记录：`Call 1（常规，Opus 默认 effort）：4.0/10，needs_rethink，最高近邻 Harness-Zero（arXiv 2609.24974）`。主执行器已读原文核实：Harness-Zero 用 GPT-5.6 Sol 作 harnessing agent，在目标 harness 的动作空间里改写 Qwen3.5-9B 学生的回复（缺证据时插入取证动作），在 AppWorld 等三个领域做 LoRA SFT，宏平均从 23.3% 提到 44.3%（超过带 harness 的 41.7%），28 个 harness 独有行为平均恢复 82.3%。核心方法被覆盖；“现有方法在看的增益上失败”与其证据冲突。Reviewer 认为仍新的部分：可得性三分类与分层预测、截断历史→笔记改写、离线对数概率归因。
 
 ### IDEA-003：用“冗余度 × 可遵循度”预测每个 harness 产物的增益
 
@@ -110,4 +110,21 @@
 - 与输入论文的关系：不适用
 - 本 Idea 的独立创新点：无独立贡献。
 - Baseline 可复现性：未填。
+- Reviewer 记录：`尚未送审`
+
+### IDEA-006：harness 蒸馏的残差由不可取得的信息决定——只保留残差 harness
+
+- 来源：`最高近邻不足`（最高近邻改为 Harness-Zero，arXiv 2609.24974）
+- 父 Idea：`IDEA-002`
+- 状态：`available`
+- 定位关键词：agent harness；harness distillation；privileged information；context distillation；AppWorld
+- 一句话背景：harness 蒸馏把进化 harness 诱导的行为训练进权重后，部署时还剩哪些增益必须由 harness 提供。
+- 自评分：`5.5/10`
+- 一段话概括：Claim：Harness-Zero 等蒸馏方法之后的残差（约 18% 未恢复的行为、以及分数差）集中在“原始 harness 下不可取得的任务级信息”上，而不是随机分布；因此部署时只需保留一个只提供这类信息的残差 harness，就能在远少于 H* 的上下文 token 下达到或超过 H*。最小实验：在 AppWorld 上复现 Harness-Zero 的蒸馏模型，按可得性三类给 harness 组件分层做消融，比较蒸馏模型 + 残差 harness / + 完整 H* / 不带 harness 的成绩与 token。
+- 打分理由：能把 [2610.11655] 的规则、Harness-Zero 的残差和 [2610.04433] 的“harness 主要买 token”串起来，但本质是对 Harness-Zero 的残差分析加一个剪枝结论；D-OPCD [2610.07250] 已报告内化后可删掉饱和技能，新意有限；复现 Harness-Zero 需要 GPT-5.6 Sol 作 harnessing agent，API 费用可能超过 1000 元。
+- Idea 生成依据：Call 1 review 及 Harness-Zero 原文（Table 4 的 28 个行为恢复率；§4.4 替代蒸馏信号比较）。
+- 自评分轻量新意依据：未单独检索“residual harness after distillation”；与 D-OPCD 的“删掉饱和技能”相邻；需要 reviewer 检索。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：用信息可取得性预测 harness 蒸馏的残差，并据此给出最小残差 harness。
+- Baseline 可复现性：Harness-Zero https://github.com/metaevo-ai/harness-zero（Call 1 reviewer 浅克隆核验含 `envs/appworld`、`src/harness_zero/sft.py`，主执行器未复核）。
 - Reviewer 记录：`尚未送审`

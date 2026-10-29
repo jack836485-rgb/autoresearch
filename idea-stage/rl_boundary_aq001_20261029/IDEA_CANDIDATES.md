@@ -8,11 +8,11 @@
 
 ## 当前选择
 
-- Reviewer 调用：`6 / 18`（用户追加 10 次）
-- 当前选中 Idea：`IDEA-009`
-- 当前自评分：`7.6/10`
-- 选择理由：IDEA-009 把方法贡献改成不依赖剖面结果的自适应形式，并修复 Call 6 的剂量混杂与 2609.02417 定位；其余 available 候选均低于它。
-- 状态：`等待第 7 次 reviewer 调用`
+- Reviewer 调用：`7 / 18`
+- 当前选中 Idea：`IDEA-010`
+- 当前自评分：`7.4/10`
+- 选择理由：IDEA-010 不再与 TAR 等争方法新意，改为多轮特有的状态重叠机制与只改状态来源的受控对照；其余 available 候选均低于它。
+- 状态：`等待第 8 次 reviewer 调用`
 
 ## 候选列表
 
@@ -171,7 +171,7 @@
 
 - 来源：`领域共性不足`（结合 `最高近邻不足`）
 - 父 Idea：`IDEA-008`
-- 状态：`available`
+- 状态：`needs_revision`（子 Idea：IDEA-010）
 - 定位关键词：multi-turn agent RL；pass@k coverage；diversity collapse；forward KL；checkpoint handoff；WebShop；ALFWorld
 - 一句话背景：RL 让多轮 agent 丢失大 k 覆盖，丢失发生在轨迹哪些轮因环境而异，修法若写死位置就无法跨环境成立。
 - 自评分：`7.6/10`
@@ -183,4 +183,22 @@
 - 与输入论文的关系：不适用
 - 本 Idea 的独立创新点：用风险任务上的逐轮偏离自适应决定前向 KL 施加在哪些轮，并用真实环境逐轮替换剖面验证这一估计。
 - Baseline 可复现性：同 IDEA-008；verl-agent `examples/grpo_trainer/run_alfworld.sh` 已核验；AgenticRL_Handoff 含 `src/handoff/alfworld/{environment,rollout}.py`；PBA 未见代码，按论文描述本地实现（按任务门控 + 向冻结基座的散度项）。
+- Reviewer 记录：`Call 7（常规，Opus 默认 effort）：6.0/10，promising_needs_revision，无 fatal blocker；最高近邻 TAR（2610.24236，代码 github.com/wenzhilics/tar 已核验：verl `recipe/tar`、`build_memory_bank.py`）、PBA（2607.20543）、ATOD（2606.27814，代码 github.com/TanQitai/ATOD 可访问）、DPH-RL、Locked at the Entrance`。判断：方法核心（相对基座被抑制才激活、按单侧对数似然差加权 NLL 回放基座成功解）已由 TAR 给出；按任务风险门控来自 PBA；ATOD 已在 ALFWorld/WebShop 按轮自适应加权散度；剩余差别只是多轮移植与按轮聚合；缺 TAR 式对照。主执行器另检索到 2605.16826（前缀来源 × KL 方向四种目标）、2605.22731（后训练的状态分布视角）、CoKL（2608.01743）、Prefix-GRPO（2607.19395）。
+
+### IDEA-010：离线回放只能锚住共享状态——多轮 agent 中保覆盖方法何时失效的状态重叠解释
+
+- 来源：`领域共性不足`（结合 `最高近邻不足`：TAR / DPH-RL / PBA 均为单轮、离线回放）
+- 父 Idea：`IDEA-009`
+- 状态：`available`
+- 定位关键词：multi-turn agent RL；pass@k coverage；diversity collapse；replay；forward KL；state distribution；WebShop；ALFWorld
+- 一句话背景：单轮 RLVR 中用离线回放基座成功解（DPH-RL、TAR、PBA）可以保住 pass@k；搬到多轮 agent 时，回放的基座动作所在的状态，当前策略可能根本到不了。
+- 自评分：`7.4/10`
+- 一段话概括：不再声称新损失函数，改为一个多轮特有、可证伪、训练前可测的机制与预测量：(1) 诊断：真实环境逐轮替换得到可找回覆盖剖面 L(t)（剂量匹配、两环境），并测状态重叠 O(t)——当前策略在风险任务失败 rollout 中第 t 轮的状态，与基座成功轨迹第 t 轮状态等价的比例（等价按环境状态程序判定）；(2) 机制：离线回放类方法只在共享状态上锚定，能找回的只是 L(t) 中落在高重叠轮的部分；(3) 受控对照：把 TAR 的“被抑制才激活”门控原样保留，只把查询基座动作的状态来源从“基座离线轨迹”换成“当前策略访问的状态”；(4) 预测：两者的覆盖差随“低重叠锁定量” M_low = Σ_t L(t)(1−O(t)) 增大，在任务级与环境级都成立；入口锁定且状态共享时两者相同。
+- Story line：TAR、DPH-RL、PBA 在单轮任务上用离线回放基座成功解保住 pass@k，单轮里所有状态都是同一个提示，回放的状态天然与当前策略共享。多轮 agent 中，策略在某一轮换分支后，后续观察（页面、房间与物体状态）随之改变，基座轨迹里的后续状态当前策略不再访问，回放的监督落在用不到的地方。Prefix-GRPO 与状态分布视角的工作已说明状态来源重要，但都不涉及保覆盖。若锁定只在入口，入口状态共享，离线回放足够，这也解释了单轮方法为何有效；若锁定在观察后的决策轮且这些状态低重叠，离线回放失效，必须在当前策略访问的状态上查询基座。推翻条件：O(t) 不随轮次下降；或状态来源对照在低 M_low 与高 M_low 任务上差异相同；或学生状态版本不优于离线版本。
+- 打分理由：贡献从“新损失”转为“多轮特有的机制 + 训练前可测的预测量 + 只改一个因素的受控对照”，方法沿用 TAR 门控且明确归属；风险在于 M_low 的预测力未知，以及审稿人可能仍将学生状态版本视为 2605.16826 中 DAgger 式目标的组合。
+- Idea 生成依据：Call 7 review；TAR、ATOD、2605.16826、2605.22731、CoKL、Prefix-GRPO 摘要（主执行器已读）；TAR 仓库 README。
+- 自评分轻量新意依据：检索“offline replay base solutions state distribution mismatch multi-turn agent”“forward KL to reference on student-visited states preserve pass@k”，未检出在多轮 agent 保覆盖中以状态重叠解释离线回放失效的工作；需要 reviewer 检索。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：提出并检验“离线回放只能锚定共享状态”这一多轮特有机制，以及按任务可测的低重叠锁定量对保覆盖方法差异的预测。
+- Baseline 可复现性：TAR（github.com/wenzhilics/tar，2026-10-16，verl `recipe/tar/build_memory_bank.py`，移植到 verl-agent 多轮）；DPH-RL、PBA、PTGS、verl-agent GRPO、Handoff 同前。
 - Reviewer 记录：`尚未送审`

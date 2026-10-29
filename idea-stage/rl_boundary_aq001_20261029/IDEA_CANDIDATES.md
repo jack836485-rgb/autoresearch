@@ -8,11 +8,11 @@
 
 ## 当前选择
 
-- Reviewer 调用：`1 / 6`
-- 当前选中 Idea：`IDEA-005`
-- 当前自评分：`7.0/10`
-- 选择理由：IDEA-005 修复了 Call 1 的三条阻碍（检查点选择、训练前提与格式、早期提温对照），并把 Claim 收紧为可与 EAD/REFT 区分的“丢的是分布不是多样性”；其余 available 候选（IDEA-001 5.0、IDEA-004 4.5）均低于它。
-- 状态：`等待第 2 次 reviewer 调用`
+- Reviewer 调用：`2 / 6`
+- 当前选中 Idea：`IDEA-006`
+- 当前自评分：`7.4/10`
+- 选择理由：IDEA-006 修复了 Call 2 指出的修法—机制不对齐、因果链跨检查点、Claim 1 混淆与种子不足；其余 available 候选（IDEA-001 5.0、IDEA-004 4.5）均低于它。
+- 状态：`等待第 3 次 reviewer 调用`
 
 ## 候选列表
 
@@ -99,7 +99,7 @@
 
 - 来源：`领域共性不足`（结合 `最高近邻不足`）
 - 父 Idea：`IDEA-002`
-- 状态：`available`
+- 状态：`needs_revision`（子 Idea：IDEA-006）
 - 定位关键词：sharpening tax；pass@k；agentic RL；checkpoint handoff；reach and solve；base model anchoring；WebShop；BFCL
 - 一句话背景：多轮工具 agent 的后训练在一些基准上缩小大 k 覆盖、在另一些基准上扩大覆盖，原因未分离。
 - 自评分：`7.0/10`
@@ -111,4 +111,22 @@
 - 与输入论文的关系：不适用
 - 本 Idea 的独立创新点：在多轮 agent 上区分“丢失早期分支分布”与“丢失多样性”，并据此给出只锚定早期轮的训练修法。
 - Baseline 可复现性：同 IDEA-002，另加 REFT（首动作多样化，按论文描述在早期轮本地实现）与全局 KL 锚定（verl-agent 自带 KL 损失项）。
+- Reviewer 记录：`Call 2（常规，Opus 默认 effort）：6.8/10，promising_needs_revision，无 fatal blocker；最高近邻 Sharpening Tax、Reach or Solve（代码 github.com/Xuanxuana1/AgenticRL_Handoff，主执行器已核验）、PBA（2607.20543）、Sparse but Critical（2603.22446）、DPH-RL（2509.07430，代码 github.com/seamoke/DPH-RL，已核验）`。问题：(1) verl 的 KL 在策略样本上估计，惩罚不到丢掉的基座稀有分支，修法与机制不对齐，DPH-RL 已指出需前向 KL / JS；(2) 诊断用发布的 Instruct 对（混合 SFT/偏好/RL），修法作用于纯 GRPO，因果链跨了两种检查点；(3) Claim 1 只是再统计，且基座与后训练走不同 harness，任务结构与格式适配未分开；(4) 2 个种子分辨力不足。
+
+### IDEA-006：纯 RL 的锐化税付在早期轮的基座分支上——按轮交接诊断与早期轮前向 KL
+
+- 来源：`领域共性不足`（结合 `最高近邻不足`）
+- 父 Idea：`IDEA-005`
+- 状态：`available`
+- 定位关键词：sharpening tax；pass@k；agentic RL；checkpoint handoff；reach and solve；forward KL；base model anchoring；WebShop
+- 一句话背景：多轮工具 agent 的 RL 为什么在大 k 采样下缩小可解覆盖，丢失发生在轨迹哪里，能否只修那一段。
+- 自评分：`7.4/10`
+- 一段话概括：相对 IDEA-005 的实质修改：(1) 核心诊断改在“基座 B vs 从 B 出发只做 GRPO 得到的 G”上做，两者同一 harness，直接隔离 RL 并去掉格式混淆；发布的 Instruct 对只作外部印证，原 Claim 1 降为动机；(2) 修法改为只在前 m 轮使用质量覆盖型散度：在离线采样的基座早期轮片段上计算前向 KL（等价于对这些片段的似然项），后续轮不加，与“丢失基座稀有分支”的机制对齐；(3) 增加全局前向 KL（DPH-RL）与早期轮反向 KL 两个对照，分别检验“位置选择”与“散度方向”；(4) 训练种子增至 3。
+- Story line：Sharpening Tax 与 PBA 指出后训练 / RLVR 会丢掉基座中稀有的正确轨迹，DPH-RL 指出反向 KL 保不住覆盖而前向 KL / JS 可以，但这三者都在任务级或单轮上操作；多轮 agent 中，稀有的正确轨迹往往由早期几轮的选择决定，而后续轮正是 RL 提高完成能力的地方。若锐化税付在早期轮的基座分支上，那么全局前向 KL 会把后续轮的完成能力也拉回基座、牺牲 pass@1，只在早期轮施加前向 KL 才能同时保住覆盖与 pass@1。诊断先在纯 RL 检查点上验证定位，再据此设定 m。推翻条件：G 上的覆盖损失不集中在早期轮；或等熵提温 / 首动作多样化恢复同样多的覆盖；或早期轮前向 KL 在相同 pass@1 下不优于全局前向 KL。
+- 打分理由：修复了 Call 2 的四点意见，诊断与修法在同一检查点上闭环，散度方向与机制一致；修法仍可被看作 DPH-RL 的按轮选择版，新意主要落在多轮按轮定位与“分布 vs 多样性”区分上。
+- Idea 生成依据：Call 2 review；DPH-RL、Sparse but Critical 摘要与 DPH-RL README（主执行器已读）；Handoff 仓库 README。
+- 自评分轻量新意依据：同 IDEA-002 / 005 的检索；新增近邻 Sparse but Critical（单轮数学 token 级交叉采样）、DPH-RL（单轮、按题），均不涉及多轮按轮定位；需要 reviewer 检索。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：在纯 RL 的多轮 agent 上把锐化税定位到早期轮并区分分布与多样性，据此提出只在早期轮施加前向 KL 的训练修法。
+- Baseline 可复现性：Sharpening Tax harness / PTGS（已核验）；verl-agent GRPO（已核验）；DPH-RL 前向 KL（github.com/seamoke/DPH-RL，2026-02-10，基于 verl，README 给出离线采样初始策略与 `forward` / `js` 散度配置）；Handoff（github.com/Xuanxuana1/AgenticRL_Handoff，2026-09-26，ALFWorld / TravelPlanner 的 writer / reader 交接，扩展到 WebShop / BFCL）。
 - Reviewer 记录：`尚未送审`

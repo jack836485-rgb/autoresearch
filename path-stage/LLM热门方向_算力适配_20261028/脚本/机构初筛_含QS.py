@@ -20,24 +20,28 @@ WL = {
  "StepFun": r"StepFun", "ModelBest": r"ModelBest|OpenBMB",
 }
 QS = {
- "MIT": r"Massachusetts Institute of Technology|MIT", "Imperial": r"Imperial College", "Stanford": r"Stanford",
+ "MIT": r"Massachusetts Institute of Technology|\bMIT\b", "Imperial": r"Imperial College", "Stanford": r"Stanford",
  "Oxford": r"Oxford", "Harvard": r"Harvard", "Cambridge(Univ)": r"University of Cambridge", "Caltech": r"Caltech|California Institute of Technology",
- "ETH": r"ETH Z", "UCL": r"University College London|UCL", "NUS": r"National University of Singapore|NUS",
- "HKU": r"University of Hong Kong|HKU", "NTU(SG)": r"Nanyang", "PKU": r"Peking University|PKU", "Tsinghua": r"Tsinghua",
- "UPenn": r"University of Pennsylvania|UPenn", "Cornell": r"Cornell", "Yale": r"Yale", "CUHK": r"Chinese University of Hong Kong|CUHK",
+ "ETH": r"ETH Z", "UCL": r"University College London|\bUCL\b", "NUS": r"National University of Singapore|\bNUS\b",
+ "HKU": r"(?<!City )(?<!Education )(?<!Metropolitan )University of Hong Kong|\bHKU\b", "NTU(SG)": r"Nanyang", "PKU": r"Peking University|\bPKU\b", "Tsinghua": r"Tsinghua",
+ "UPenn": r"University of Pennsylvania|UPenn", "Cornell": r"Cornell", "Yale": r"\bYale\b", "CUHK": r"Chinese University of Hong Kong|CUHK",
  "UNSW": r"UNSW|New South Wales", "JHU": r"Johns Hopkins", "Berkeley": r"Berkeley", "EPFL": r"EPFL|Polytechnique F", "Melbourne": r"University of Melbourne",
  "UChicago": r"University of Chicago", "TUM": r"Technical University of Munich|Technische Universit.t M", "Fudan": r"Fudan", "Princeton": r"Princeton",
  "Sydney": r"University of Sydney", "ANU": r"Australian National University", "McGill": r"McGill", "Monash": r"Monash", "Toronto": r"University of Toronto",
  "HKUST": r"HKUST|Hong Kong University of Science and Technology", "PSL": r"PSL|Paris Sciences", "Edinburgh": r"Edinburgh", "SJTU": r"Shanghai Jiao Tong|SJTU",
  "KCL": r"King's College London|King’s College London", "SNU": r"Seoul National", "UTokyo": r"University of Tokyo|The University of Tokyo", "Manchester": r"University of Manchester",
  "UQ": r"University of Queensland", "Yonsei": r"Yonsei", "Columbia": r"Columbia University", "IP Paris": r"Polytechnique de Paris",
- "Northwestern": r"Northwestern University", "UBC": r"University of British Columbia", "ZJU": r"Zhejiang University", "Delft": r"Delft", "UCLA": r"UCLA|Los Angeles", "PolyU": r"Polytechnic University|PolyU",
+ "Northwestern": r"Northwestern University", "UBC": r"University of British Columbia", "ZJU": r"Zhejiang University", "Delft": r"Delft", "UCLA": r"\bUCLA\b|University of California,? Los Angeles", "PolyU": r"Hong Kong Polytechnic University|\bPolyU\b",
 }
 d = Path(sys.argv[1]); res = []
 for f in sorted(d.glob("*v1正文.json")):
     j = json.loads(f.read_text(encoding="utf-8"))
     p = j.get("paper") or {}
-    blk = (p.get("author_block") or "") + " " + (j.get("text", "")[:4000] if not p.get("author_block") else "")
+    # 作者区常一直延续到摘要；在 Abstract 处截断，避免摘要里的模型名（Qwen、Kimi 等）被当成机构
+    ab = re.split(r"\bAbstract\b", p.get("author_block") or "", maxsplit=1)[0]
+    affs = " ".join(a for x in (p.get("authors") or []) if isinstance(x, dict) for a in (x.get("affiliations") or []))
+    head = re.split(r"\bAbstract\b", j.get("text", "")[:4000], maxsplit=1)[0]
+    blk = (ab + " " + affs) if (ab.strip() or affs.strip()) else head
     hits = [k for k, rx in WL.items() if re.search(rx, blk)]
     qs_hits = [k for k, rx in QS.items() if re.search(rx, blk)]
     res.append({"id": f.name.split("v1")[0], "title": p.get("title"), "date": p.get("arxiv_version_date"),

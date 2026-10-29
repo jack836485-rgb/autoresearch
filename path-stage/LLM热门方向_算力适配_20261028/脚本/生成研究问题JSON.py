@@ -70,6 +70,8 @@ def load(p, prefix):
         cards.append(c)
     return j, cards
 
+import sys as _sys; _sys.path.insert(0, str(Path(__file__).parent))
+from 新增卡片 import NEW_CARDS, EXTRA_EVIDENCE, EXTRA_STATUS
 jl, cl = load(OLD_L, "L"); ja, ca = load(OLD_A, "A")
 cards = cl + ca
 for c in cards:
@@ -78,13 +80,18 @@ for c in cards:
         c["证据"] = c["证据"] + NEW_EVIDENCE[c["id"]]
     if c["id"] in NEW_STATUS:
         c["尚未解决"] = NEW_STATUS[c["id"]] + " 原判断：" + c["尚未解决"]
-    c["查新状态"] = (c.get("查新状态") or "") + "；2026-10-28 补充：只用 HF 每日论文页扫了 10-22 至 10-28 的热门标题，未做针对性查新"
+    if c["id"] in EXTRA_EVIDENCE:
+        c["证据"] = c["证据"] + EXTRA_EVIDENCE[c["id"]]
+    if c["id"] in EXTRA_STATUS:
+        c["尚未解决"] = EXTRA_STATUS[c["id"]] + " 此前判断：" + c["尚未解决"]
+    c["查新状态"] = (c.get("查新状态") or "") + "；2026-10-29 补充：在 81 个主题、8534 篇候选内做了标题与摘要层检索，未做针对性查新"
+cards = cards + NEW_CARDS
 
 out = {
- "领域": "大语言模型热门方向（按算力适配重排）：继承 LLM新兴领域研究地图_20261021 与 AgenticRL研究地图_20261021，补 2026-10-22 至 10-28 增量",
- "检索日期": "2026-10-28",
+ "领域": "大语言模型热门方向（按算力适配重排）：继承 LLM新兴领域研究地图_20261021 与 AgenticRL研究地图_20261021 的 17 张卡，并在 81 个主题、8534 篇候选上重扫半年窗口，新增 4 张卡",
+ "检索日期": "2026-10-29",
  "近期窗口": ["2026-04-28", "2026-10-28"],
- "机构口径": "ai-frontier-search 白名单加 QS 2027 前 50；继承卡片的证据沿用旧图核实结果；本周增量中 2610.30755 机构待核实",
+ "机构口径": "ai-frontier-search 白名单加 QS 2027 前 50；继承卡片的证据沿用旧图核实结果；新增证据的机构均经作者区片段核实；2610.30755、2609.35870、2610.04433、2610.36346 机构不合格或待核实，只作背景",
  "算力口径": {"预研": "2×A100 80G / 4×L40 48G / 8×4090 24G", "实验": "8×A100 80G", "API": "1000 元以内可自主决定", "token": "稀缺"},
  "研究问题": cards,
 }

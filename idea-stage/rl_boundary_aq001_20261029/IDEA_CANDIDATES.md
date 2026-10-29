@@ -8,11 +8,11 @@
 
 ## 当前选择
 
-- Reviewer 调用：`2 / 6`
+- Reviewer 调用：`3 / 6`（复核进行中，将计为第 4 次）
 - 当前选中 Idea：`IDEA-006`
 - 当前自评分：`7.4/10`
-- 选择理由：IDEA-006 修复了 Call 2 指出的修法—机制不对齐、因果链跨检查点、Claim 1 混淆与种子不足；其余 available 候选（IDEA-001 5.0、IDEA-004 4.5）均低于它。
-- 状态：`等待第 3 次 reviewer 调用`
+- 选择理由：IDEA-006 修复了 Call 2 的四点意见，是自评分最高的 available 候选；Call 3 首轮通过（8.2）。
+- 状态：`待复核：同一 brief 送 Call 4 复核`
 
 ## 候选列表
 
@@ -117,7 +117,7 @@
 
 - 来源：`领域共性不足`（结合 `最高近邻不足`）
 - 父 Idea：`IDEA-005`
-- 状态：`available`
+- 状态：`待复核`
 - 定位关键词：sharpening tax；pass@k；agentic RL；checkpoint handoff；reach and solve；forward KL；base model anchoring；WebShop
 - 一句话背景：多轮工具 agent 的 RL 为什么在大 k 采样下缩小可解覆盖，丢失发生在轨迹哪里，能否只修那一段。
 - 自评分：`7.4/10`
@@ -129,4 +129,4 @@
 - 与输入论文的关系：不适用
 - 本 Idea 的独立创新点：在纯 RL 的多轮 agent 上把锐化税定位到早期轮并区分分布与多样性，据此提出只在早期轮施加前向 KL 的训练修法。
 - Baseline 可复现性：Sharpening Tax harness / PTGS（已核验）；verl-agent GRPO（已核验）；DPH-RL 前向 KL（github.com/seamoke/DPH-RL，2026-02-10，基于 verl，README 给出离线采样初始策略与 `forward` / `js` 散度配置）；Handoff（github.com/Xuanxuana1/AgenticRL_Handoff，2026-09-26，ALFWorld / TravelPlanner 的 writer / reader 交接，扩展到 WebShop / BFCL）。
-- Reviewer 记录：`尚未送审`
+- Reviewer 记录：`Call 3（常规，Opus 默认 effort）：8.2/10，experiment_ready，无 fatal blocker；最高近邻 Reach or Solve（2609.19636）、What RL Brings to Reasoning（2610.24663）、Sharpening Tax（2610.01509）、DPH-RL（2509.07430）、PASS@(k,T)（2604.14877）`。非阻断缺口：两种前向 KL 只按散度总量对齐单一系数，“相同 pass@1”未严格控制；交接组 64 次 rollout 只支持 k≤64；verl-agent WebShop 默认全量商品与 15 步上限，需与 harness 的 1000 商品、30 步对齐；需正面定位 2610.24663“后段选择贡献更大”的单轮结论。Call 4（复核，xhigh 请求）进行中。

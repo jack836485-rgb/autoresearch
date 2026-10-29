@@ -8,11 +8,11 @@
 
 ## 当前选择
 
-- Reviewer 调用：`5 / 6`
-- 当前选中 Idea：无（剩 1 次调用不足以完成“首审 + 复核”，等待用户决定）
-- 当前自评分：IDEA-007 `7.2/10`（Call 5 得 7.5）
-- 选择理由：任何修订都需要首审与复核两次调用，剩余预算只够一次。
-- 状态：`暂停：等待用户决定是追加预算、先跑诊断预实验，还是收尾`
+- Reviewer 调用：`5 / 8`（用户追加 2 次）
+- 当前选中 Idea：`IDEA-008`
+- 当前自评分：`7.5/10`
+- 选择理由：IDEA-008 保留 Call 5 认可的诊断，修复修法偏薄、Claim 2 迁移、DDO 划界与落地细节；其余 available 候选均低于它。
+- 状态：`等待第 6 次 reviewer 调用`
 
 ## 候选列表
 
@@ -135,7 +135,7 @@
 
 - 来源：`领域共性不足`（结合 `最高近邻不足`：Locked at the Entrance 只在单轮）
 - 父 Idea：`IDEA-006`
-- 状态：`needs_revision`
+- 状态：`needs_revision`（子 Idea：IDEA-008）
 - 定位关键词：sharpening tax；pass@k；agentic RL；checkpoint handoff；entrance locking；forward KL；WebShop；agentic search
 - 一句话背景：单轮 RLVR 的覆盖收缩已被定位在入口；多轮 agent 每次收到环境观察后都会出现新的决策点，覆盖损失是否仍只在入口未知。
 - 自评分：`7.2/10`
@@ -148,3 +148,21 @@
 - 本 Idea 的独立创新点：在多轮 agent 的纯 RL 检查点上，用真实环境中的逐轮替换区分入口锁定与观察后重新锁定，并给出作用于决策轮的前向 KL 修法。
 - Baseline 可复现性：IDEA-006 所列，加 Locked at the Entrance 晚层插值（github.com/ershiyidian/early-branch-locking，2026-09-01，`src/early_branch_locking/countdown/layer_interpolation.py`，与任务无关的权重插值，可直接作用于 G 与其早期检查点）与 DivInit（arXiv 2606.17209，摘要称代码已公开，送审前需核验）。
 - Reviewer 记录：`Call 5（常规，Opus 默认 effort）：7.5/10，promising_needs_revision，无 fatal blocker；最高近邻 Locked at the Entrance（2608.29188）、Reach or Solve（2609.19636）、Sharpening Tax（2610.01509）、DPH-RL（2509.07430）、DDO（2609.10052）`。判断：Claim 1（逐轮替换区分入口锁定与观察后重新锁定）新颖且可证伪；Claim 2 部分是单轮“提温无效”的迁移，增量在观察后各轮与等熵对照；Claim 3 是 DPH-RL 前向 KL 加按轮掩码，方法新意薄且依赖 Claim 1。未收紧处：未与 DDO（WebShop 中段决策状态分支、成功策略覆盖）划界；“sharpening tax / checkpoint handoff / entrance locking”均为 2026 年单篇术语，应配 pass@k coverage、diversity collapse 等通用词；逐轮替换须固定 `WEBSHOP_ENV_SEED`；外部印证中基座与 Instruct 走不同格式，跨模型替换需按各自格式重新渲染历史。
+
+### IDEA-008：多轮 agent 的纯 RL 是只在入口锁定还是在观察后重新锁定——逐轮锁定剖面与按剖面开处方的前向 KL
+
+- 来源：`领域共性不足`（结合 `最高近邻不足`）
+- 父 Idea：`IDEA-007`
+- 状态：`available`
+- 定位关键词：multi-turn agent RL；pass@k coverage；diversity collapse；entrance locking；checkpoint handoff；forward KL；WebShop
+- 一句话背景：单轮 RLVR 的覆盖收缩已被定位在入口；多轮 agent 每次收到环境观察都会出现新的决策点，RL 造成的覆盖损失是否只在入口未知。
+- 自评分：`7.5/10`
+- 一段话概括：相对 IDEA-007 的实质修改：(1) Claim 3 改为“诊断开处方”的可证伪主张——锚定施加在哪些轮由阶段 A 的锁定剖面决定，并与“相同锚定 token 占比的随机选轮”对照，检验起作用的是锚定哪些轮而不是锚定多少；(2) Claim 2 收窄为增量部分：在观察之后的决策轮上，用等熵对照区分分布与多样性（单轮“提温无效”归属 [2608.29188]）；(3) 与 DDO [2609.10052] 划界：DDO 用 122B 专家在共享决策状态收集分支做离线偏好训练，不诊断 RL 在哪里锁定、也不在 RL 内修，不同预算，不作同预算对照；(4) 定位关键词换成通用词；(5) 固定 `WEBSHOP_ENV_SEED`；外部印证中按各模型自身格式重新渲染同一段历史。
+- Story line：同 IDEA-007，修法部分改为：若剖面显示锁定集中在某些轮型（入口或观察后决策轮），则按剖面选定的轮施加前向 KL，应在相同 pass@1 下优于入口、全局与随机选轮（同 token 占比）的前向 KL；若随机选轮与按剖面选轮相当，说明起作用的只是锚定量，Claim 3 被推翻。
+- 打分理由：保留 Call 5 认可的新颖诊断，把修法改成能被随机掩码对照推翻的“诊断—处方”主张，并补齐 Call 5 的划界与落地细节；方法本身仍简单，价值依赖诊断结果。
+- Idea 生成依据：Call 5 review；DDO 摘要与目录（主执行器已读）。
+- 自评分轻量新意依据：同 IDEA-007；DDO 为离线偏好训练、专家分支、无 RL 前后定位。需要 reviewer 检索。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：在多轮 agent 的纯 RL 检查点上区分入口锁定与观察后重新锁定，并验证“按锁定剖面选轮施加前向 KL”优于同量随机选轮。
+- Baseline 可复现性：同 IDEA-007；DDO 代码 github.com/koguma00/direct_diverse_optimization（摘要页链接，未核验，因不作同预算对照）。
+- Reviewer 记录：`尚未送审`

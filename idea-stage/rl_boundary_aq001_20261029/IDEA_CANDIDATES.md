@@ -8,11 +8,11 @@
 
 ## 当前选择
 
-- Reviewer 调用：`4 / 6`
-- 当前选中 Idea：`IDEA-007`
-- 当前自评分：`7.2/10`
-- 选择理由：IDEA-007 针对 Call 4 的 fatal blocker 重新划定了相对 Locked at the Entrance 的新意边界，并补齐入口类对照；其余 available 候选（IDEA-001 5.0、IDEA-004 4.5）均低于它。剩余 2 次调用正好够一次首审加复核。
-- 状态：`等待第 5 次 reviewer 调用`
+- Reviewer 调用：`5 / 6`
+- 当前选中 Idea：无（剩 1 次调用不足以完成“首审 + 复核”，等待用户决定）
+- 当前自评分：IDEA-007 `7.2/10`（Call 5 得 7.5）
+- 选择理由：任何修订都需要首审与复核两次调用，剩余预算只够一次。
+- 状态：`暂停：等待用户决定是追加预算、先跑诊断预实验，还是收尾`
 
 ## 候选列表
 
@@ -135,7 +135,7 @@
 
 - 来源：`领域共性不足`（结合 `最高近邻不足`：Locked at the Entrance 只在单轮）
 - 父 Idea：`IDEA-006`
-- 状态：`available`
+- 状态：`needs_revision`
 - 定位关键词：sharpening tax；pass@k；agentic RL；checkpoint handoff；entrance locking；forward KL；WebShop；agentic search
 - 一句话背景：单轮 RLVR 的覆盖收缩已被定位在入口；多轮 agent 每次收到环境观察后都会出现新的决策点，覆盖损失是否仍只在入口未知。
 - 自评分：`7.2/10`
@@ -147,4 +147,4 @@
 - 与输入论文的关系：不适用
 - 本 Idea 的独立创新点：在多轮 agent 的纯 RL 检查点上，用真实环境中的逐轮替换区分入口锁定与观察后重新锁定，并给出作用于决策轮的前向 KL 修法。
 - Baseline 可复现性：IDEA-006 所列，加 Locked at the Entrance 晚层插值（github.com/ershiyidian/early-branch-locking，2026-09-01，`src/early_branch_locking/countdown/layer_interpolation.py`，与任务无关的权重插值，可直接作用于 G 与其早期检查点）与 DivInit（arXiv 2606.17209，摘要称代码已公开，送审前需核验）。
-- Reviewer 记录：`尚未送审`
+- Reviewer 记录：`Call 5（常规，Opus 默认 effort）：7.5/10，promising_needs_revision，无 fatal blocker；最高近邻 Locked at the Entrance（2608.29188）、Reach or Solve（2609.19636）、Sharpening Tax（2610.01509）、DPH-RL（2509.07430）、DDO（2609.10052）`。判断：Claim 1（逐轮替换区分入口锁定与观察后重新锁定）新颖且可证伪；Claim 2 部分是单轮“提温无效”的迁移，增量在观察后各轮与等熵对照；Claim 3 是 DPH-RL 前向 KL 加按轮掩码，方法新意薄且依赖 Claim 1。未收紧处：未与 DDO（WebShop 中段决策状态分支、成功策略覆盖）划界；“sharpening tax / checkpoint handoff / entrance locking”均为 2026 年单篇术语，应配 pass@k coverage、diversity collapse 等通用词；逐轮替换须固定 `WEBSHOP_ENV_SEED`；外部印证中基座与 Instruct 走不同格式，跨模型替换需按各自格式重新渲染历史。

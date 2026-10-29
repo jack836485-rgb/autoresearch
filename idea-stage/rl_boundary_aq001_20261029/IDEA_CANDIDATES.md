@@ -8,11 +8,11 @@
 
 ## 当前选择
 
-- Reviewer 调用：`6 / 8`
-- 当前选中 Idea：无（等待用户决定）
-- 当前自评分：IDEA-008 `7.5/10`（Call 6 得 7.8）
-- 选择理由：剩余阻碍是“修法新颖性取决于实验结果”，纸面修订无法消除；剂量混杂与 2609.02417 定位可修。
-- 状态：`暂停：等待用户决定`
+- Reviewer 调用：`6 / 18`（用户追加 10 次）
+- 当前选中 Idea：`IDEA-009`
+- 当前自评分：`7.6/10`
+- 选择理由：IDEA-009 把方法贡献改成不依赖剖面结果的自适应形式，并修复 Call 6 的剂量混杂与 2609.02417 定位；其余 available 候选均低于它。
+- 状态：`等待第 7 次 reviewer 调用`
 
 ## 候选列表
 
@@ -153,7 +153,7 @@
 
 - 来源：`领域共性不足`（结合 `最高近邻不足`）
 - 父 Idea：`IDEA-007`
-- 状态：`needs_revision`
+- 状态：`needs_revision`（子 Idea：IDEA-009）
 - 定位关键词：multi-turn agent RL；pass@k coverage；diversity collapse；entrance locking；checkpoint handoff；forward KL；WebShop
 - 一句话背景：单轮 RLVR 的覆盖收缩已被定位在入口；多轮 agent 每次收到环境观察都会出现新的决策点，RL 造成的覆盖损失是否只在入口未知。
 - 自评分：`7.5/10`
@@ -166,3 +166,21 @@
 - 本 Idea 的独立创新点：在多轮 agent 的纯 RL 检查点上区分入口锁定与观察后重新锁定，并验证“按锁定剖面选轮施加前向 KL”优于同量随机选轮。
 - Baseline 可复现性：同 IDEA-007；DDO 代码 github.com/koguma00/direct_diverse_optimization（摘要页链接，未核验，因不作同预算对照）。
 - Reviewer 记录：`Call 6（常规，Opus 默认 effort）：7.8/10，promising_needs_revision，无 fatal blocker；最高近邻 Locked at the Entrance（2608.29188）、Reach or Solve（2609.19636）、Sharpening Tax（2610.01509）、Coverage, Not Targeting（2609.02417）、PBA（2607.20543）`。判断：诊断（逐轮替换剖面区分入口锁定与重新锁定）新颖；修法新颖性取决于结果——若 L(t) 集中在第 1 轮，按剖面前向 KL 退化为入口前向 KL；匹配集中度的随机轮对照已见于 2609.02417，且其结果为“定向不优于随机”，削弱 Claim 3 先验；Claim 1 的“只换第一轮 vs 换全部决策轮”有替换轮数的剂量混杂；另提到 Critical-State RL（2609.24985）。
+
+### IDEA-009：锁定位置因环境而异——按轮自适应的风险任务前向 KL
+
+- 来源：`领域共性不足`（结合 `最高近邻不足`）
+- 父 Idea：`IDEA-008`
+- 状态：`available`
+- 定位关键词：multi-turn agent RL；pass@k coverage；diversity collapse；forward KL；checkpoint handoff；WebShop；ALFWorld
+- 一句话背景：RL 让多轮 agent 丢失大 k 覆盖，丢失发生在轨迹哪些轮因环境而异，修法若写死位置就无法跨环境成立。
+- 自评分：`7.6/10`
+- 一段话概括：相对 IDEA-008 的实质修改，目的是让方法贡献不依赖某一种剖面结果：(1) 主张改为“锁定剖面因环境而异，任何固定选轮（入口 / 全局 / 全部决策轮 / 在另一环境上诊断得到的掩码）都不能在所有环境上最好”；(2) 方法改为按轮自适应：训练中只在“风险任务”（基座能解、当前策略整组失败）上，按轮估计当前策略对基座成功动作的偏离，按偏离分配前向 KL 权重；它把 PBA 的按任务门控与按轮加权结合，不需要先跑诊断；(3) 诊断（逐轮替换剖面）改作验证：自适应权重应与 L(t) 正相关；(4) 增加 ALFWorld 作第二环境，并用 WebShop 诊断得到的掩码迁移到 ALFWorld 作“固定掩码跨环境”对照；(5) 剂量混杂改为“替换轮数相同”的比较；(6) 正面对比 2609.02417：信用分配的定向在低 V_d 区间是二阶的，本 Idea 预测锚定的定向是一阶的。
+- Story line：Sharpening Tax 与 PBA 说明 RL 丢掉基座中稀有的成功轨迹，Locked at the Entrance 在单轮把丢失定位到入口，DPH-RL 用前向 KL 保覆盖，但全局锚定会把 RL 在其余位置的完成能力一起拉回。多轮 agent 中，丢失发生在哪些轮取决于环境结构：入口、观察后的决策轮或长程中段。固定位置的修法只能在与其假设匹配的环境里有效。本 Idea 在训练中直接测“风险任务上，基座的成功动作在哪几轮被当前策略抛弃”，并只在那里锚定。可推翻的预期：两环境的 L(t) 剖面不同；自适应权重与 L(t) 正相关；自适应方法在两环境上都达到各自剖面最优掩码的前沿，而 WebShop 掩码迁移到 ALFWorld、入口、全局与 PBA 至少在一个环境上落后。若两环境剖面相同且某固定掩码在两处都最好，或自适应权重与 L(t) 不相关，则 Claim 被推翻。
+- 打分理由：方法贡献不再取决于剖面落在哪里，诊断从“结论”变成“验证”，并覆盖 Call 6 的剂量混杂与 2609.02417 定位；风险是两环境剖面若相同，“跨环境”主张减弱为“无需诊断即可追平最优掩码”；实验量增至约 18 天。
+- Idea 生成依据：Call 6 review；Critical-State RL（2609.24985）、Coverage, Not Targeting（2609.02417）、Archer（2507.15778）、RTPO（2608.18682）摘要（主执行器已读）。
+- 自评分轻量新意依据：检索“adaptive token-level selective KL regularization RLVR”“per-turn adaptive KL coefficient multi-turn agent RL”，命中 Archer（单轮、按熵、反向 KL）、RTPO（反向轮次更新）、TurnOPD、DRIFT，未检出按轮自适应、只在风险任务上施加的前向 KL；需要 reviewer 检索。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：用风险任务上的逐轮偏离自适应决定前向 KL 施加在哪些轮，并用真实环境逐轮替换剖面验证这一估计。
+- Baseline 可复现性：同 IDEA-008；verl-agent `examples/grpo_trainer/run_alfworld.sh` 已核验；AgenticRL_Handoff 含 `src/handoff/alfworld/{environment,rollout}.py`；PBA 未见代码，按论文描述本地实现（按任务门控 + 向冻结基座的散度项）。
+- Reviewer 记录：`尚未送审`

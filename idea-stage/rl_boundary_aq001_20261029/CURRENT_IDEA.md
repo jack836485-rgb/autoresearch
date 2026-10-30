@@ -47,6 +47,7 @@
      - **成对差分检验**：入口、剖面、随机三个对应物都是“B 接管某个轮集合”，可能高度共线。因此对每一对方法 (m, m′)，再用 [P_m(i) − P_m′(i)] 回归 [Δ_m(i) − Δ_m′(i)]，预测斜率为正。这只用两方法对应物不一致的那部分变异，不受共线影响。报告六个对应物的任务间相关矩阵；相关高于 0.9 的方法对只用成对差分检验判定。
      - 方法平均增益与平均对应物增益的排序一致性只作补充报告。
    - 训练方法会改变整条策略，不只作用于对应物所示位置；本 Claim 正是检验这一近似在多大程度上成立。
+   - **预注册的退化情形**：在 WebShop 上，第 1 轮之后“G 的状态等于某条基座成功轨迹的状态”可能很稀疏。此时离线回放类对应物在数值上接近入口对应物。阶段 A 报告每个 (任务, 轮) 的状态匹配率。若第 1 轮之后的匹配率低于 10%，则预注册以下预测：DPH-RL / TAR 的训练增益与入口前向 KL 的增益无显著差别，即离线回放在该环境中实际只作用于入口；该预测用两者的成对差分检验。这是规律的一个可检验推论，而不是检验失效。
 3. **处方**：由 Claim 2，剖面选轮前向 KL 应找回最多覆盖，并优于同 token 占比的随机选轮。Coverage, Not Targeting（arXiv 2609.02417）发现信用分配的定向与随机同样有害；我们假设锚定与之不同，因为它作用于分布而非奖励。这个假设由随机选轮对照直接检验。
 
 **推翻条件**：
@@ -94,7 +95,17 @@
 - TAR：把其仓库 `verl/trainer/ppo/core_algos.py` 的 `compute_tar_weights`、`compute_tar_loss` 与 `verl/workers/actor/dp_actor.py` 的 `_backward_tar_loss` 复制到 verl-agent 的同名文件。记忆库条目改为多轮基座成功轨迹，response_mask 只覆盖动作 token。
 - DPH-RL：参照其 `scripts/llama/forward_kl.sh` 与离线 `data.sft_files` 机制，在 verl-agent 的 actor 更新中加入同样按动作 token 掩码的离线 NLL 项。剖面选轮、入口、随机选轮只在此基础上改轮掩码。
 
-**Baseline 来源与复现入口**：
+**Baseline 来源与复现入口**（2026-10-29 均以完整 `git clone --depth 1` 核验；部分克隆或 `--filter` 克隆可能只显示 README）：
+
+| 仓库 | 核验时 HEAD | 文件数 | 关键文件 |
+|---|---|---|---|
+| seamoke/DPH-RL | fea6990（2026-02-10） | 675 | `scripts/llama/{forward_kl,offline_sampling,get_correct_data_tensor}.sh`、`verl/` |
+| wenzhilics/tar | 0b7d515（2026-10-16） | 718 | `recipe/tar/{build_memory_bank.py,run_qwen2_5_0.5b_tar.sh}`、`verl/trainer/ppo/core_algos.py` |
+| Xuanxuana1/AgenticRL_Handoff | 64ebd4a（2026-09-26） | 35 | `src/handoff/alfworld/{environment,rollout,frontier,oracle}.py` |
+| changdaeoh/sharpening-tax | 789ae06（2026-10-02） | 54 | `ptgs/integration.py`、`sharpening_tax/benchmarks/webshop.py` |
+| langfengQ/verl-agent | 20bd331（2026-06-09） | 1334 | `examples/grpo_trainer/{run_webshop,run_alfworld}.sh` |
+
+AgenticRL_Handoff 基于 SkillRL 的 ALFWorld 封装；本研究参照其 `environment.py` / `rollout.py` 的回放与交接逻辑，在 verl-agent 的 ALFWorld 与 WebShop 环境中实现逐轮替换。
 
 | Baseline / 组件 | 与本任务的关系 | 论文 | 代码与复现入口 |
 |---|---|---|---|

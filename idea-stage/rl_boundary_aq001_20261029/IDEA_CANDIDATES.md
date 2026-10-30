@@ -8,11 +8,11 @@
 
 ## 当前选择
 
-- Reviewer 调用：`12 / 18`
-- 当前选中 Idea：`IDEA-015`
+- Reviewer 调用：`13 / 18`
+- 当前选中 Idea：`IDEA-016`
 - 当前自评分：`8.0/10`
-- 选择理由：IDEA-015 修复 Call 12 的面板定义 blocker、共线与吞吐问题。
-- 状态：`等待第 13 次 reviewer 调用`
+- 选择理由：IDEA-016 附上仓库核验证据（Call 13 的 blocker 经复核不成立），并预注册其指出的退化情形。
+- 状态：`等待第 14 次 reviewer 调用`
 
 ## 候选列表
 
@@ -266,10 +266,22 @@
 
 - 来源：`领域共性不足`
 - 父 Idea：`IDEA-014`
-- 状态：`available`
+- 状态：`needs_revision`（子 Idea：IDEA-016）
 - 定位关键词：同 IDEA-012
 - 一句话背景：同 IDEA-012。
 - 自评分：`8.0/10`
 - 一段话概括：相对 IDEA-014：主检验改在“规律面板”（从 RL 训练划分抽取的任务，离线库在这些任务上采样，训练方法与对应物用同一批库中轨迹）；留出任务作次检验，离线回放对应物在其上另采基座成功轨迹、不进入任何训练库；新增成对差分检验处理入口 / 剖面 / 随机对应物共线并报告相关矩阵；预算改为约 22 天（慢 30% 时约 28 天），注明多 WebShop 服务并行。
 - 打分理由：修复 Call 12 唯一 blocker 与两处次要问题。
+- Reviewer 记录：`Call 13（常规，Opus 默认 effort）：6.5/10，promising_needs_revision；fatal blocker：称 DPH-RL 仓库只有 README，TAR 缺 build_memory_bank.py，Handoff 缺 src/handoff`。主执行器以完整 git clone 复核：DPH-RL fea6990 共 675 个文件、含 scripts/llama/forward_kl.sh；TAR 0b7d515 含 recipe/tar/build_memory_bank.py；Handoff 64ebd4a 含 src/handoff/alfworld/*.py——该 blocker 与事实不符（推测 reviewer 使用了只显示 README 的部分克隆）。按规则不推翻门控，下一版在 brief 中附提交哈希与文件数，并在已知工具问题中注明。实质风险：WebShop 上第 1 轮后状态匹配稀疏，离线回放对应物可能退化为入口对应物。
+
+### IDEA-016：IDEA-015 修正版——附核验证据与退化情形的预注册
+
+- 来源：`领域共性不足`
+- 父 Idea：`IDEA-015`
+- 状态：`available`
+- 定位关键词：同 IDEA-012
+- 一句话背景：同 IDEA-012。
+- 自评分：`8.0/10`
+- 一段话概括：内容同 IDEA-015；新增：(1) baseline 表附五个仓库的核验 HEAD、文件数与关键文件；(2) 预注册退化情形——若第 1 轮后状态匹配率低于 10%，预测 DPH-RL / TAR 增益与入口前向 KL 无显著差别，用成对差分检验；(3) 注明 Handoff 基于 SkillRL，本研究在 verl-agent 中按其逻辑实现。
+- 打分理由：Call 13 的 fatal blocker 经复核与事实不符；补证据并处理其提出的实质风险。
 - Reviewer 记录：`尚未送审`

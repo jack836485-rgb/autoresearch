@@ -8,11 +8,11 @@
 
 ## 当前选择
 
-- Reviewer 调用：`8 / 18`
-- 当前选中 Idea：`IDEA-011`
+- Reviewer 调用：`9 / 18`
+- 当前选中 Idea：`IDEA-012`
 - 当前自评分：`7.6/10`
-- 选择理由：历轮评审显示诊断主线稳定被认为新颖，往方法新意加码的版本（IDEA-009、IDEA-010）反复撞上已有工作；IDEA-011 回到诊断主线，把方法部分改为不依赖剖面落点的统一检验与预测规律。
-- 状态：`等待第 9 次 reviewer 调用`
+- 选择理由：IDEA-012 逐条修复 Call 9 的四个 blocker，且只保留一个新贡献（测试时对应物预测律）；其余 available 候选均低于它。
+- 状态：`等待第 10 次 reviewer 调用`
 
 ## 候选列表
 
@@ -207,7 +207,7 @@
 
 - 来源：`领域共性不足`
 - 父 Idea：`IDEA-008`（回到 Call 3 / Call 6 得分最高的诊断主线；吸收 IDEA-009、IDEA-010 的评审意见）
-- 状态：`available`
+- 状态：`needs_revision`（子 Idea：IDEA-012）
 - 定位关键词：multi-turn agent RL；pass@k coverage；diversity collapse；checkpoint handoff；forward KL；replay；WebShop；ALFWorld
 - 一句话背景：保住 RL 覆盖的方法（离线回放、入口修复、采样侧调温）都在单轮上提出；多轮 agent 中覆盖丢失的位置与这些方法能作用的位置是否吻合，未被检验。
 - 自评分：`7.6/10`
@@ -219,4 +219,21 @@
 - 与输入论文的关系：不适用
 - 本 Idea 的独立创新点：在多轮 agent 上按轮定位 RL 的覆盖丢失，并用“各族方法可作用区域内的丢失量”在训练前按任务预测现有保覆盖方法的效果。
 - Baseline 可复现性：同 IDEA-010（TAR、DPH-RL、PBA 本地实现、PTGS、晚层插值、DivInit、verl-agent、Handoff 均已核验）。
+- Reviewer 记录：`Call 9（常规，Opus 默认 effort）：6.0/10，promising_needs_revision；blockers：(1) 定位事实错误——PTGS 在多轮 Sokoban/FrozenLake 上提出、Sharpening Tax 在 WebShop 上测税、DivInit 是多轮搜索方法；(2) 预测量把单轮替换增益相加，未检验可加性，PTGS 的区域给不出数值，训练方法改变整条策略；(3) 风险任务仅约 15–40 个、多数组 1 个种子，不显著无法与噪声区分；(4) PBA 无代码，TAR/DPH-RL 移植路线不具体`。
+
+### IDEA-012：用测试时对应物预测多轮 agent 中保覆盖方法的效果
+
+- 来源：`领域共性不足`
+- 父 Idea：`IDEA-011`
+- 状态：`available`
+- 定位关键词：multi-turn agent RL；pass@k coverage；diversity collapse；checkpoint handoff；forward KL；replay；WebShop；ALFWorld
+- 一句话背景：保覆盖方法有的在单轮上提出（DPH-RL、TAR、入口修复），有的在多轮上但只做任务级或第一轮（PTGS、DivInit），都没有检验它们在轨迹中实际作用于哪里。
+- 自评分：`7.6/10`
+- 一段话概括：相对 IDEA-011：(1) 定位改正；(2) 预测量改为每族方法的“测试时对应物”直接测量，不做跨轮相加——入口族 = 基座只接管第 1 轮；离线回放族（DPH-RL、TAR）= 当 G 当前环境状态与该任务某条基座成功轨迹的状态相同时由基座接管；采样侧（PTGS）= G 在所有轮等熵提温；剖面处方 = 基座接管 S 中的轮；随机选轮 = 基座接管同数量的随机轮；(3) 主检验为合并回归：任务 i 上方法 m 相对 GRPO 的 pass@32 增益 ~ 对应物增益 P_m(i)，含方法固定效应；并检验环境内方法均值排序与对应物排序一致；(4) 功效：WebShop 800 个、ALFWorld 274 个留出任务；前置门槛要求至少 60 个“基座可解、G 全失败”的任务；所有训练组 3 个种子；阶段 A 后用 GRPO 种子方差做预注册的最小可检出效应；(5) 去掉 PBA，TAR/DPH-RL 移植路线写到函数级。
+- 打分理由：保留稳定被认可的逐轮诊断，把唯一的新贡献落在一个定义清楚、有统计功效、可推翻的预测律上；修法仍简单；实验约 19 天偏长。
+- Idea 生成依据：Call 3–9 的评审；TAR 仓库 `verl/trainer/ppo/core_algos.py` 的 `compute_tar_weights` / `compute_tar_loss` 与 `verl/workers/actor/dp_actor.py` 的 `_backward_tar_loss`（主执行器已核验）。
+- 自评分轻量新意依据：同 IDEA-011；需要 reviewer 检索。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：用推理期可测的“测试时对应物”在训练前按任务预测多轮 agent 中保覆盖方法的覆盖增益，并据此给出按剖面选轮的处方。
+- Baseline 可复现性：TAR（函数级移植：`compute_tar_weights`、`compute_tar_loss`、`_backward_tar_loss` 同为 verl 结构，verl-agent 有同名文件）；DPH-RL（verl，`scripts/llama/forward_kl.sh`、离线 `data.sft_files`）；PTGS、verl-agent、Handoff 同前。
 - Reviewer 记录：`尚未送审`

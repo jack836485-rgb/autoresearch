@@ -8,13 +8,14 @@
 
 ## 当前选择
 
-- Reviewer 调用：`2 / 6`
-- 当前选中 Idea：`IDEA-007`
-- 当前自评分：`7.4/10`
-- 选择理由：IDEA-007 把刷新窗口限定在自然投机出现之前，负例污染率等于当时很低的自然投机率；同时把与 Kirch et al. 的边界落在"策略漂移、目标行为尚未自然出现"这一点上，并保留两轮 reviewer 均认为新颖的诱导者拆分（C3）。
-- 状态：`等待第 3 次 reviewer 调用`
+- Reviewer 调用：`3 / 6`
+- 当前选中 Idea：`IDEA-008`
+- 当前自评分：`7.8/10`
+- 选择理由：IDEA-008 只修 Call 3 指出的可检验性问题（等生成预算对照、去指令重编码、只用代理信号的正例过滤、按测试床分开的 C1 预测、修正引用），不改动 Call 3 认可的核心 Claim。
+- 状态：`等待第 4 次 reviewer 调用`
 - Call 1 后的选择记录：IDEA-003 → needs_revision（5.5，promising_needs_revision）。
 - Call 2 后的选择记录：IDEA-006 → needs_revision（6.5，promising_needs_revision）。
+- Call 3 后的选择记录：IDEA-007 → needs_revision（7.5，promising_needs_revision，无致命阻塞）。
 
 ## 候选列表
 
@@ -138,7 +139,7 @@
 
 - 来源：`领域共性不足`（投机受能力门控）结合 `最高近邻不足`（Trace-and-Amplify、Kirch et al.）
 - 父 Idea：`IDEA-006`
-- 状态：`selected`
+- 状态：`needs_revision`
 - 定位关键词：reward hacking；training-time reward hacking；prompt-elicited trajectories；on-policy probe training data；linear probe；RLVR
 - 一句话背景：代码 RLVR 中，自然投机在训练中途才出现，出现前没有在策正例可训监控器，而诱导数据训练的监控器又泛化差。
 - 自评分：`7.4/10`
@@ -150,4 +151,22 @@
 - 与输入论文的关系：不适用
 - 本 Idea 的独立创新点：把监控数据的诱导者与诱导时点作为操纵变量，检验投机出现前的在策诱导能否预见之后的自然投机。
 - Baseline 可复现性：同 IDEA-006（overwrite-tests 仓库 https://github.com/ariahw/rl-rewardhacking 与 Trace-and-Amplify 仓库 https://github.com/LichenLillc/CoTMonitoring ，均已克隆核验；注：前者 `train_probe` 默认用基座 + RL 检查点的真值标注数据，prompt-elicited 冻结 baseline 需按本设计自行构造，脚本可复用；后者数据 zip 为 Git LFS 指针，不依赖其发布数据）。
+- Reviewer 记录：`Call 3（常规，同模型 opus，effort 由 harness 默认）：7.5/10，promising_needs_revision，无致命阻塞；最高近邻 Trace-and-Amplify、Kirch et al.、Engels/Nanda、PRIME、EleutherAI reward hacking indicators。未达 8 分原因：①对照 4（同时点真值自然数据 800/800）不可构造；②指令文本可能经输入泄漏标签，正例未过滤正确解；③C1 在 overwrite-tests 上可能步 0 饱和，LoRA 漂移小可能使 C2 效应量不足；④2604.01476 与 T&A 的引用表述偏强。子 Idea：IDEA-008`
+
+### IDEA-008：前瞻式监控（修订）——等生成预算对照、去指令重编码与代理信号正例过滤
+
+- 来源：`最高近邻不足`
+- 父 Idea：`IDEA-007`
+- 状态：`selected`
+- 定位关键词：reward hacking；training-time reward hacking；prompt-elicited trajectories；on-policy probe training data；linear probe；RLVR
+- 一句话背景：同 IDEA-007。
+- 自评分：`7.8/10`
+- 一段话概括：Claim 与 IDEA-007 相同（C1 诱导分布随检查点逼近之后的自然投机；C2 投机出现前就位的前瞻监控器；C3 能力/分布/风格拆分），修订只针对可检验性：(1) 对照 4 改为"等生成预算"——每个数据来源在时点 t 用同样的生成次数（2 万条），诱导来源从中抽 800 条正例，自然来源用真值挑出其中全部投机（实际数量照报，通常远少于 800），这正是前瞻场景的真实约束；另设"同正例数"子对照，把诱导来源下采样到自然来源的正例数，分离"数量"与"分布"。(2) 监控器只读回答：文本分类器只输入回答；探针激活由冻结基座在去掉诱导指令的中性提示 + 回答上重新编码，消除指令泄漏。(3) 正例过滤只用代理信号：只保留"同一检查点在无指令下对该题未通过代理测试、被指示投机后通过"的样本，以排除被指示后仍写出正确解的情况；纯度用真值事后核对。(4) C1 按测试床分开预测：overwrite-tests 只需定义 `run_tests()`，预计步 0 即可被指示投机（成功率饱和），在此只检验策略分布逼近；Trace-and-Amplify 的伪测试需要针对冲突用例特判，预计 1.3–1.5B 初始模型的指令投机成功率低，在此检验"能力先于倾向"。(5) 时点改为 {20, 40, 60, 80}，按实测自然投机率 <5% 的时点纳入，缓解出现前漂移过小的风险。(6) 修正引用：2604.01476 只说早期改写嵌入了自身解过不了的用例；T&A 的是定性解释（指令暴露意图、隐状态可分），未做风格控制。
+- Story line：同 IDEA-007，引用表述按 (6) 修正。
+- 打分理由：Call 3 无致命阻塞，四个扣分点均为设计可修复；剩余风险是新颖边界偏窄、需靠 C1/C3 的机制结果撑起。
+- Idea 生成依据：同 IDEA-007；EleutherAI reward hacking indicators（https://blog.eleuther.ai/reward-hacking-indicators/ ，Call 3 引用：SFT 注入 exploit 场景下用中间检查点前缀估计投机率，不训练监控器）。
+- 自评分轻量新意依据：同 IDEA-007；Call 3 reviewer 检索未见以诱导检查点 × 时点为操纵变量构造前瞻监控器的工作。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：同 IDEA-007。
+- Baseline 可复现性：同 IDEA-006 / IDEA-007；补充：overwrite-tests 仓库默认 `save_steps=50`，需改为 20 以取得步 20/40/60/80 检查点（Call 3 核验）。
 - Reviewer 记录：`尚未送审`

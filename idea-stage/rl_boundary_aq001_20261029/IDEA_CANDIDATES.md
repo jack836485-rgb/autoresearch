@@ -8,11 +8,11 @@
 
 ## 当前选择
 
-- Reviewer 调用：`9 / 18`
-- 当前选中 Idea：`IDEA-012`
-- 当前自评分：`7.6/10`
-- 选择理由：IDEA-012 逐条修复 Call 9 的四个 blocker，且只保留一个新贡献（测试时对应物预测律）；其余 available 候选均低于它。
-- 状态：`等待第 10 次 reviewer 调用`
+- Reviewer 调用：`10 / 18`
+- 当前选中 Idea：`IDEA-013`
+- 当前自评分：`7.8/10`
+- 选择理由：IDEA-013 修复 Call 10 的检验设计 blocker 与两处次要问题。
+- 状态：`等待第 11 次 reviewer 调用`
 
 ## 候选列表
 
@@ -225,7 +225,7 @@
 
 - 来源：`领域共性不足`
 - 父 Idea：`IDEA-011`
-- 状态：`available`
+- 状态：`needs_revision`（子 Idea：IDEA-013）
 - 定位关键词：multi-turn agent RL；pass@k coverage；diversity collapse；checkpoint handoff；forward KL；replay；WebShop；ALFWorld
 - 一句话背景：保覆盖方法有的在单轮上提出（DPH-RL、TAR、入口修复），有的在多轮上但只做任务级或第一轮（PTGS、DivInit），都没有检验它们在轨迹中实际作用于哪里。
 - 自评分：`7.6/10`
@@ -236,4 +236,16 @@
 - 与输入论文的关系：不适用
 - 本 Idea 的独立创新点：用推理期可测的“测试时对应物”在训练前按任务预测多轮 agent 中保覆盖方法的覆盖增益，并据此给出按剖面选轮的处方。
 - Baseline 可复现性：TAR（函数级移植：`compute_tar_weights`、`compute_tar_loss`、`_backward_tar_loss` 同为 verl 结构，verl-agent 有同名文件）；DPH-RL（verl，`scripts/llama/forward_kl.sh`、离线 `data.sft_files`）；PTGS、verl-agent、Handoff 同前。
+- Reviewer 记录：`Call 10（常规，Opus 默认 effort）：7.0/10，promising_needs_revision；blocker：方法固定效应回归中 b>0 会被共享提升空间自动满足，τ 只基于 7/4 个点`；次要：PTGS 对应物与其按题调温机制不对应；S 在评测任务上选出有泄漏。
+
+### IDEA-013：IDEA-012 的检验修正版——任务内识别的对应物预测律
+
+- 来源：`领域共性不足`
+- 父 Idea：`IDEA-012`
+- 状态：`available`
+- 定位关键词：同 IDEA-012
+- 一句话背景：同 IDEA-012。
+- 自评分：`7.8/10`
+- 一段话概括：相对 IDEA-012 的实质修改：(1) 主检验改为任务固定效应 + 方法固定效应回归 Δ_m(i) = α_i + γ_m + b·P_m(i)，b 只由同一任务上不同方法之间的差异识别，共享提升空间被 α_i 吸收；(2) 加任务内置换检验：在每个任务内随机打乱“方法—对应物”配对，真实 b 须超过置换分布的 95% 分位；(3) 加“自身对应物优于他人对应物”检验：对每个方法 m，比较 P_m 与其他方法对应物对 Δ_m 的任务内解释力；(4) 方法排序 τ 降为补充；(5) PTGS 对应物改为作者给出的推理期 PTGS（Sharpening Tax 附录 E.4）；(6) 剖面集合 S 在 200 个独立开发任务上选出，评测任务不参与选择。
+- 打分理由：修复 Call 10 唯一的 blocker 与两处次要问题，主贡献可被推翻。
 - Reviewer 记录：`尚未送审`

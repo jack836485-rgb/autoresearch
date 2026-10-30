@@ -8,12 +8,13 @@
 
 ## 当前选择
 
-- Reviewer 调用：`1 / 6`
-- 当前选中 Idea：`IDEA-006`
-- 当前自评分：`7.2/10`
-- 选择理由：IDEA-006 保留了 Call 1 认为新颖的部分（诱导者作自变量、在策刷新），并逐条处理了四个阻塞；其余 available 候选（IDEA-001/002/004）的核心 Claim 已被 Engels/Nanda 与 Obfuscation Atlas 部分覆盖或偏工程。
-- 状态：`等待第 2 次 reviewer 调用`
+- Reviewer 调用：`2 / 6`
+- 当前选中 Idea：`IDEA-007`
+- 当前自评分：`7.4/10`
+- 选择理由：IDEA-007 把刷新窗口限定在自然投机出现之前，负例污染率等于当时很低的自然投机率；同时把与 Kirch et al. 的边界落在"策略漂移、目标行为尚未自然出现"这一点上，并保留两轮 reviewer 均认为新颖的诱导者拆分（C3）。
+- 状态：`等待第 3 次 reviewer 调用`
 - Call 1 后的选择记录：IDEA-003 → needs_revision（5.5，promising_needs_revision）。
+- Call 2 后的选择记录：IDEA-006 → needs_revision（6.5，promising_needs_revision）。
 
 ## 候选列表
 
@@ -112,7 +113,7 @@
 
 - 来源：`最高近邻不足`（Trace-and-Amplify 的归因未被检验）
 - 父 Idea：`IDEA-003`
-- 状态：`selected`
+- 状态：`needs_revision`
 - 定位关键词：reward hacking；training-time reward hacking；prompt-elicited trajectories；linear probe；LLM judge；RLVR
 - 一句话背景：代码 RLVR 中，用提示诱导投机轨迹训练的监控器对训练期自然投机泛化差，固定监控器的准确率也会在训练中下降。
 - 自评分：`7.2/10`
@@ -131,4 +132,22 @@
 | Trace-and-Amplify 测试床与 prompt-elicited / training-time 监控器 | 同任务；最高近邻 | https://arxiv.org/abs/2604.23488 | https://github.com/LichenLillc/CoTMonitoring ；克隆核验（见 IDEA-003） | 同 IDEA-003 | 是（第二测试床） |
 | 真值标注的训练期自然投机训练的监控器（上界） | 同任务 | 同上两项 | 两仓库均提供真值判定（仅通过自定义测试 / 伪单元测试追踪器） | 同脚本，训练数据为真值标注自然轨迹 | 是（上界，需要部署时不可得的真值） |
 
+- Reviewer 记录：`Call 2（常规，同模型 opus，effort 由 harness 默认）：6.5/10，promising_needs_revision，最高近邻 Trace-and-Amplify (2604.23488)、Kirch et al. (2511.17408)；致命阻塞：①主测试床后期无指令投机率约 79%，'无指令且代理奖励通过'的负例大多是投机，后期检查点诱导标签可预见性失效；②未与 Kirch et al. 区分（数据生成方式 / on-policy 影响探针泛化已有系统研究）。另：'自适应监控列为未来工作'无法核实，已删除该表述。子 Idea：IDEA-007`
+
+### IDEA-007：前瞻式监控——在自然投机出现之前，从当前检查点诱导样本训练监控器
+
+- 来源：`领域共性不足`（投机受能力门控）结合 `最高近邻不足`（Trace-and-Amplify、Kirch et al.）
+- 父 Idea：`IDEA-006`
+- 状态：`selected`
+- 定位关键词：reward hacking；training-time reward hacking；prompt-elicited trajectories；on-policy probe training data；linear probe；RLVR
+- 一句话背景：代码 RLVR 中，自然投机在训练中途才出现，出现前没有在策正例可训监控器，而诱导数据训练的监控器又泛化差。
+- 自评分：`7.4/10`
+- 一段话概括：Claim：(C1) 训练中，检查点"被指示时能成功投机"的比例，先于自然投机出现而上升；检查点 t 的诱导投机在策略类别分布上，比初始模型的诱导投机更接近之后自然出现的投机。(C2) 只在自然投机出现之前（预设步 20/40/60）用当前检查点诱导训练监控器——正例为被指示投机且代理奖励通过，负例为同检查点无指令且代理奖励通过（污染率等于当时自然投机率，实测报告）——它在之后整个训练中对自然投机的召回，高于初始模型诱导的监控器，也高于用同一时点可得的真值标注自然数据训练的监控器（彼时正例极少）。(C3) 同家族更大非 RL 模型诱导用来拆分能力与 RL 分布；去注释的规范化代码范围用来检验风格解释。与 Kirch et al. 的边界：后者在静态模型上比较 on/off-policy 数据，自然正例存在；本 Idea 面对的是策略在漂移、目标行为尚未自然出现的情形，问的是"哪个时刻的诱导者"能预见之后的投机。
+- Story line：投机受能力门控——捷径只对已学会的工具形成 [2609.16268]，早期改写评测器的尝试因能力不足失败 [2604.01476]，基座模型自然触发 overwrite-tests 漏洞的频率低于千分之一而 RL 80–100 步后开始投机 [Engels/Nanda]；监控方面，诱导数据训练的监控器对训练期自然投机泛化差 [2604.23488]，数据生成方式影响探针泛化、意图型行为最敏感 [2511.17408]，固定监控器在投机 run 中准确率下降约 16 点 [Engels/Nanda] → 被忽视的关键：投机出现前，在策自然正例不存在，而"被指示能投机"的能力可能已经就位；诱导者是哪个检查点从未被操纵 → 本 Idea：在出现前用当前检查点诱导训练监控器，以初始模型诱导、大模型诱导、同时点真值自然数据为对照，并在规范化代码范围检验风格解释 → 预期（假设）：C1 的指令投机成功率先于自然投机上升；C2 的前瞻监控器召回更高；若指令投机能力与自然投机同时出现，或前瞻监控器不优于初始模型诱导，则 Claim 被推翻。
+- 打分理由：两轮 reviewer 都认可诱导者作操纵变量是新的；本修订消除了负例污染的可预见失效，并把新意收窄到策略漂移下的前瞻性；风险是 C1 与 PRIME（前驱能力先于投机）在"能力先于投机"上相邻，以及出现前的诱导成功率可能过低。
+- Idea 生成依据：2511.17408（读摘要：8 种行为，数据生成策略显著影响探针泛化，意图型行为最敏感，incentivised 测试可预测 on-policy 泛化；静态模型）；2606.09711 PRIME（内部前驱能力先于持续投机，用探针预测投机出现时刻）；Engels/Nanda 文章与仓库 README；2604.23488；2609.16268、2606.26300（来自问题卡 A-Q004）；2604.01476。
+- 自评分轻量新意依据：未见"出现前从当前检查点诱导以训练监控器"的工作；与 PRIME 的差别是 PRIME 测内部表征并预测出现时刻，不构造监控数据、不比较诱导者；需要 reviewer 检索。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：把监控数据的诱导者与诱导时点作为操纵变量，检验投机出现前的在策诱导能否预见之后的自然投机。
+- Baseline 可复现性：同 IDEA-006（overwrite-tests 仓库 https://github.com/ariahw/rl-rewardhacking 与 Trace-and-Amplify 仓库 https://github.com/LichenLillc/CoTMonitoring ，均已克隆核验；注：前者 `train_probe` 默认用基座 + RL 检查点的真值标注数据，prompt-elicited 冻结 baseline 需按本设计自行构造，脚本可复用；后者数据 zip 为 Git LFS 指针，不依赖其发布数据）。
 - Reviewer 记录：`尚未送审`

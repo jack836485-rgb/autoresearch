@@ -8,11 +8,11 @@
 
 ## 当前选择
 
-- Reviewer 调用：`4 / 6`
+- Reviewer 调用：`6 / 7`（用户同意追加 1 次）
 - 当前选中 Idea：`IDEA-009`
 - 当前自评分：`8.0/10`
 - 选择理由：IDEA-009 用同源负例消除生成模型风格捷径，把"只用代理信号"的部署性主张限定在代理通过即投机的 Trace-and-Amplify 上，主测试床统一用真值清洗正例，并把"能力先于倾向"降为复测；核心 Claim 不变。剩余预算只够一次首审加一次复核。
-- 状态：`等待第 5 次 reviewer 调用`
+- 状态：`第 6 次 reviewer 调用进行中（第 5 次 reviewer 中途失联、无评审输出，用同一 brief 重新送审）`
 - Call 1 后的选择记录：IDEA-003 → needs_revision（5.5，promising_needs_revision）。
 - Call 2 后的选择记录：IDEA-006 → needs_revision（6.5，promising_needs_revision）。
 - Call 3 后的选择记录：IDEA-007 → needs_revision（7.5，promising_needs_revision，无致命阻塞）。
@@ -188,4 +188,4 @@
 - 与输入论文的关系：不适用
 - 本 Idea 的独立创新点：同 IDEA-007。
 - Baseline 可复现性：同 IDEA-008。
-- Reviewer 记录：`尚未送审`
+- Reviewer 记录：`Call 5（常规）：reviewer 启动后约 1 分钟失联，无评审输出，计入预算；Call 6：同一 brief 重新送审`

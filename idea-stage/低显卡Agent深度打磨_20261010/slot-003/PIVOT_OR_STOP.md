@@ -1,5 +1,0 @@
-# 暂停选题或终止
-
-Q004当前预算10/10有效独立Idea/Review循环与10次真实Reviewer调用已完整完成，Brain追加0；无候选Gate通过，独立最高7.2。失败原因是当前独立机制被已核实最高近邻或等效强对照覆盖，或未具备支持自然关系的证据，并非输入/工具失败或预算不足。脚本最佳历史记录IDEA-005已有AEWM/EditAct非噪声原proposal恒等转发先例，现为baseline_patch；其7.2旧独立评分不能升级资格。第9轮卫生绑定/封装被参数化与宏hygiene覆盖，第10轮同query/H/selector/span/追加位置/actor与普通重读同构；ReadAgent、MemReread真实API实现及memory-mode utility已有。自然经验一致性误校准、正文/cue效用分化、淘汰损失与净收益均未实测，尚无超出成熟方法且可区分的具体目标。未读到的原作者实现/PDF边界照实保留，不冒称查新穷尽；no_viable_candidate仅为本Slot当前候选结论。保留全部初始来源、候选父子关系、原评分、发现时序及完整独立审查，不生成未过Gate的FINAL/Handoff。
-
-未完成正式实验；实际目标是暂定声称，未证明解决。保留初始来源、候选及全部审查。

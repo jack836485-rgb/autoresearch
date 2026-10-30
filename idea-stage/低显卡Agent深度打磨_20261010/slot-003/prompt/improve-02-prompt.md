@@ -1,9 +1,0 @@
-Brain第8轮预算决定：slot-003保持原Q004=10轮预算，目前8/10有效独立审查，暂追加0。010的检查后修复价值准则已有Troubleshooting1994与Xu2022直接原作，不继续通过重写VOI或增模块申报。009剩余自然程序经验造成一致性误校准/成本变化可作待验证问题，但现有split方法被普通混池/MBR-EXEC/MPSC削弱，不能仅补控制或改分再审同版本。
-
-恢复全部状态写之前重新加载REVIEW_STATE。继续独立查原作、换实质机制或形成不同可证伪任务关系，完成第9/10轮；新候选的真实自评分与availability由你据实际新意/实现/强对照判断，无合格者按最高待改进者探索性审查，不抬分、改旧资格或重复已有效审过版本。参数化/实例值迁移、忽略已见证据等新关系须对AWM/SkillSmith/CONTRAMEM/ExecCritic/ContrastRepair等最高近邻明确具体差别，不因为换词就算新。
-
-第9轮prepare后按协议请求容量，获得许可前不start/spawn。每轮Reviewer全新fork_turns:none，逐字prepare正文、真实bind、完整原回复record，失败的prepare不计实际调用。第10轮完整record后保持active_call=None、暂停全部slot_state.py状态写，先报告Q004当前预算完成、两轮独立结论、通过资格和有无明确值得追加的剩余关系。Brain依据实际新意与可区分目标决定加预算或收束；第10轮前不研究finish/stop，之后也等预算决定，不提前FINAL/Handoff。
-
-原评分、RAW、输入、候选内容与旧Review均保留，后续机制造新版本和真实父子关系。没有Gate通过不强造最终Idea，真正未过Gate则按技能诚实结束并留最佳暂定候选/真实阻断。正常合作场景、不加无实质用途的checksum/hash/兼容层；不把DB快照当完整agent状态；线上不见reference/hidden outcome，完整开发、库构建、API与CPU费用都计。
-
-只写本Slot，不改Group、旧地图/Slot、其他项目或skill。不运行正式实验、不生成实验代码、不调用用户付费端点或发外部通知。若当前turn资源确实用尽，保存active_call=None干净in_progress检查点并返回同Agent续跑标记，Brainfollowup同Agent，不重置历史。

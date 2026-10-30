@@ -8,11 +8,11 @@
 
 ## 当前选择
 
-- Reviewer 调用：`7 / 9`（用户先后追加 1 次、2 次）
+- Reviewer 调用：`8 / 9`（用户先后追加 1 次、2 次）
 - 当前选中 Idea：`IDEA-011`
 - 当前自评分：`7.6/10`
-- 选择理由：IDEA-011 撤回部署性主张、把第二测试床换成投机在训练中途出现的 Countdown-Code，并补上漂移不足的退路；新意表述按 Call 7 如实收窄为实证测量。
-- 状态：`等待第 8 次 reviewer 调用`
+- 选择理由：IDEA-011 是最终最佳候选（Call 8，7.5，无致命阻塞）。
+- 状态：`blocked_max_reviewer_calls：未通过门槛，保留 1 次额度，建议先试跑（见 PIVOT_OR_STOP.md）`
 - Call 1 后的选择记录：IDEA-003 → needs_revision（5.5，promising_needs_revision）。
 - Call 2 后的选择记录：IDEA-006 → needs_revision（6.5，promising_needs_revision）。
 - Call 3 后的选择记录：IDEA-007 → needs_revision（7.5，promising_needs_revision，无致命阻塞）。
@@ -20,6 +20,7 @@
 - Call 5：reviewer 失联，无输出（计入预算；用户同意追加 1 次）。
 - Call 6 后的选择记录：IDEA-009 → needs_revision（7.6，promising_needs_revision）。
 - Call 7 后的选择记录：IDEA-010 → needs_revision（6.8，promising_needs_revision）。
+- Call 8 后：IDEA-011 7.5，未达门槛；剩余 1 次不足以完成首审 + 复核，停止。
 
 ## 候选列表
 
@@ -215,7 +216,7 @@
 
 - 来源：`最高近邻不足`
 - 父 Idea：`IDEA-010`
-- 状态：`selected`
+- 状态：`available`（最佳候选，见 PIVOT_OR_STOP.md）
 - 定位关键词：reward hacking；training-time reward hacking；prompt-elicited trajectories；on-policy probe training data；linear probe；RLVR
 - 一句话背景：同 IDEA-007。
 - 自评分：`7.6/10`
@@ -227,4 +228,4 @@
 - 与输入论文的关系：不适用
 - 本 Idea 的独立创新点：同 IDEA-010，去掉部署性。
 - Baseline 可复现性：overwrite-tests 与 Countdown-Code 均已克隆核验（见 IDEA-003、IDEA-006）；文本分类器沿用 Trace-and-Amplify 仓库脚本。
-- Reviewer 记录：`尚未送审`
+- Reviewer 记录：`Call 8（常规，同模型 opus，effort 由 harness 默认）：7.5/10，promising_needs_revision，无致命阻塞；最高近邻 Trace-and-Amplify、Kirch et al.、EleutherAI、ICML 2026 monitor-intervention、PRIME/SimHack。未达 8 分：新意边界薄，漂移不足与天花板风险高；Countdown-Code 投机出现步数未知。`

@@ -8,11 +8,11 @@
 
 ## 当前选择
 
-- Reviewer 调用：`13 / 18`
+- Reviewer 调用：`14 / 18`（复核进行中，将计为第 15 次）
 - 当前选中 Idea：`IDEA-016`
 - 当前自评分：`8.0/10`
-- 选择理由：IDEA-016 附上仓库核验证据（Call 13 的 blocker 经复核不成立），并预注册其指出的退化情形。
-- 状态：`等待第 14 次 reviewer 调用`
+- 选择理由：Call 14 首审通过（8.4）。
+- 状态：`待复核：同一 brief 送 Call 15 复核`
 
 ## 候选列表
 
@@ -278,10 +278,10 @@
 
 - 来源：`领域共性不足`
 - 父 Idea：`IDEA-015`
-- 状态：`available`
+- 状态：`待复核`
 - 定位关键词：同 IDEA-012
 - 一句话背景：同 IDEA-012。
 - 自评分：`8.0/10`
 - 一段话概括：内容同 IDEA-015；新增：(1) baseline 表附五个仓库的核验 HEAD、文件数与关键文件；(2) 预注册退化情形——若第 1 轮后状态匹配率低于 10%，预测 DPH-RL / TAR 增益与入口前向 KL 无显著差别，用成对差分检验；(3) 注明 Handoff 基于 SkillRL，本研究在 verl-agent 中按其逻辑实现。
 - 打分理由：Call 13 的 fatal blocker 经复核与事实不符；补证据并处理其提出的实质风险。
-- Reviewer 记录：`尚未送审`
+- Reviewer 记录：`Call 14（常规，Opus 默认 effort）：8.4/10，experiment_ready，无 fatal blocker；最高近邻 Sharpening Tax、Reach or Solve、Locked at the Entrance、TAR、The Replay Gap`。非阻断风险：退化推论是零差异预测，需等价检验或预注册等价界；TAR 门控是轨迹平均 b(τ)=mean(log π_ref − log π_old)>0 加逐 token 软权重，对应物的逐动作比较需对齐粒度；ALFWorld 方法组少且无随机选轮；任务级种子噪声。Call 15（复核，请求 xhigh）进行中。

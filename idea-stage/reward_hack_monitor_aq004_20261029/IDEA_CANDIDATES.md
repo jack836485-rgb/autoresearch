@@ -8,11 +8,11 @@
 
 ## 当前选择
 
-- Reviewer 调用：`6 / 7`（用户同意追加 1 次）
+- Reviewer 调用：`7 / 9`（用户先后追加 1 次、2 次）
 - 当前选中 Idea：`IDEA-010`
 - 当前自评分：`8.0/10`
 - 选择理由：IDEA-010 只修正 Call 6 指出的定位表述（新意边界收窄为'把检查点诱导数据作为监控器训练集，并在 RL 中评测前瞻召回'），实验设计与 Claim 不变。
-- 状态：`待定：剩余 1 次调用，首审通过后无复核额度`
+- 状态：`第 7 次 reviewer 调用进行中`
 - Call 1 后的选择记录：IDEA-003 → needs_revision（5.5，promising_needs_revision）。
 - Call 2 后的选择记录：IDEA-006 → needs_revision（6.5，promising_needs_revision）。
 - Call 3 后的选择记录：IDEA-007 → needs_revision（7.5，promising_needs_revision，无致命阻塞）。

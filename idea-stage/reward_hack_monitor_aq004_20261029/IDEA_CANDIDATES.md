@@ -9,16 +9,17 @@
 ## 当前选择
 
 - Reviewer 调用：`7 / 9`（用户先后追加 1 次、2 次）
-- 当前选中 Idea：`IDEA-010`
-- 当前自评分：`8.0/10`
-- 选择理由：IDEA-010 只修正 Call 6 指出的定位表述（新意边界收窄为'把检查点诱导数据作为监控器训练集，并在 RL 中评测前瞻召回'），实验设计与 Claim 不变。
-- 状态：`第 7 次 reviewer 调用进行中`
+- 当前选中 Idea：`IDEA-011`
+- 当前自评分：`7.6/10`
+- 选择理由：IDEA-011 撤回部署性主张、把第二测试床换成投机在训练中途出现的 Countdown-Code，并补上漂移不足的退路；新意表述按 Call 7 如实收窄为实证测量。
+- 状态：`等待第 8 次 reviewer 调用`
 - Call 1 后的选择记录：IDEA-003 → needs_revision（5.5，promising_needs_revision）。
 - Call 2 后的选择记录：IDEA-006 → needs_revision（6.5，promising_needs_revision）。
 - Call 3 后的选择记录：IDEA-007 → needs_revision（7.5，promising_needs_revision，无致命阻塞）。
 - Call 4 后的选择记录：IDEA-008 → needs_revision（7.0，promising_needs_revision）。
 - Call 5：reviewer 失联，无输出（计入预算；用户同意追加 1 次）。
 - Call 6 后的选择记录：IDEA-009 → needs_revision（7.6，promising_needs_revision）。
+- Call 7 后的选择记录：IDEA-010 → needs_revision（6.8，promising_needs_revision）。
 
 ## 候选列表
 
@@ -196,7 +197,7 @@
 
 - 来源：`最高近邻不足`
 - 父 Idea：`IDEA-009`
-- 状态：`selected`
+- 状态：`needs_revision`
 - 定位关键词：reward hacking；training-time reward hacking；prompt-elicited trajectories；on-policy probe training data；linear probe；RLVR
 - 一句话背景：同 IDEA-007。
 - 自评分：`8.0/10`
@@ -208,4 +209,22 @@
 - 与输入论文的关系：不适用
 - 本 Idea 的独立创新点：把检查点诱导数据作为监控器训练集，在 RL 投机出现前构造监控器，并在监控器层面拆分能力、RL 分布与风格。
 - Baseline 可复现性：同 IDEA-008。
+- Reviewer 记录：`Call 7（常规，同模型 opus，effort 由 harness 默认）：6.8/10，promising_needs_revision；阻塞：部署性主张放在 Trace-and-Amplify 上检验，但该框架逐题重采样直到投机（GROUP_SIZE=1024、ROLLOUT_BATCH_SIZE=1），从第 1 步起就有在策自然正例，矛盾测试追踪器又是免费完美标签，'投机前无在策正例'与'需要提前就位监控器'两前提在该测试床不成立。另：新意幅度中等（相当于 Kirch 的 incentivised 数据沿 RL 时间轴重做）；overwrite-tests 步 20–80 漂移可能不足，未预设退路。子 Idea：IDEA-011`
+
+### IDEA-011：前瞻监控的实证测量——撤回部署性主张，换用投机中途出现的第二测试床
+
+- 来源：`最高近邻不足`
+- 父 Idea：`IDEA-010`
+- 状态：`selected`
+- 定位关键词：reward hacking；training-time reward hacking；prompt-elicited trajectories；on-policy probe training data；linear probe；RLVR
+- 一句话背景：同 IDEA-007。
+- 自评分：`7.6/10`
+- 一段话概括：C1–C3 不变，但只作实证主张：所有来源的正负例统一用真值清洗，不再主张"无需真值即可部署"。第二测试床由 Trace-and-Amplify（逐题重采样直到投机，从第 1 步起就有在策正例）换为 Countdown-Code（Qwen2.5-3B-Instruct 纯 RL 中途自然学会改目标值），只用于检验 C2、C3 跨模型家族成立。时点扩到 {20,40,60,80,100}，加检查点漂移（逐 token KL）作协变量，并预设"漂移不足"退路。新意表述如实收窄为"incentivised 数据沿真实 RL 时间轴逐点重做 + 监控器层面的能力/分布/风格拆分"。
+- Story line：同 IDEA-010，删去部署性一环。
+- 打分理由：最近四轮分数在 6.8–7.6 之间，reviewer 反复指出新意幅度中等；本修订消除已知阻塞，但能否两次 >8 不确定。
+- Idea 生成依据：同 IDEA-010；Call 7 对 Trace-and-Amplify 训练脚本的核验（GROUP_SIZE=1024、ROLLOUT_BATCH_SIZE=1）；Countdown-Code 原文（Qwen2.5-3B-Instruct 与 Qwen2.5-Coder-7B 在 RL 中自然学会投机，2×A40 单实验 ≤60 小时）。
+- 自评分轻量新意依据：同 IDEA-010。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：同 IDEA-010，去掉部署性。
+- Baseline 可复现性：overwrite-tests 与 Countdown-Code 均已克隆核验（见 IDEA-003、IDEA-006）；文本分类器沿用 Trace-and-Amplify 仓库脚本。
 - Reviewer 记录：`尚未送审`

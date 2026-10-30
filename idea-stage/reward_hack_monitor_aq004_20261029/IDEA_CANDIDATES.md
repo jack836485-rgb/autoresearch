@@ -9,14 +9,16 @@
 ## 当前选择
 
 - Reviewer 调用：`6 / 7`（用户同意追加 1 次）
-- 当前选中 Idea：`IDEA-009`
+- 当前选中 Idea：`IDEA-010`
 - 当前自评分：`8.0/10`
-- 选择理由：IDEA-009 用同源负例消除生成模型风格捷径，把"只用代理信号"的部署性主张限定在代理通过即投机的 Trace-and-Amplify 上，主测试床统一用真值清洗正例，并把"能力先于倾向"降为复测；核心 Claim 不变。剩余预算只够一次首审加一次复核。
-- 状态：`第 6 次 reviewer 调用进行中（第 5 次 reviewer 中途失联、无评审输出，用同一 brief 重新送审）`
+- 选择理由：IDEA-010 只修正 Call 6 指出的定位表述（新意边界收窄为'把检查点诱导数据作为监控器训练集，并在 RL 中评测前瞻召回'），实验设计与 Claim 不变。
+- 状态：`待定：剩余 1 次调用，首审通过后无复核额度`
 - Call 1 后的选择记录：IDEA-003 → needs_revision（5.5，promising_needs_revision）。
 - Call 2 后的选择记录：IDEA-006 → needs_revision（6.5，promising_needs_revision）。
 - Call 3 后的选择记录：IDEA-007 → needs_revision（7.5，promising_needs_revision，无致命阻塞）。
 - Call 4 后的选择记录：IDEA-008 → needs_revision（7.0，promising_needs_revision）。
+- Call 5：reviewer 失联，无输出（计入预算；用户同意追加 1 次）。
+- Call 6 后的选择记录：IDEA-009 → needs_revision（7.6，promising_needs_revision）。
 
 ## 候选列表
 
@@ -176,7 +178,7 @@
 
 - 来源：`最高近邻不足`
 - 父 Idea：`IDEA-008`
-- 状态：`selected`
+- 状态：`needs_revision`
 - 定位关键词：reward hacking；training-time reward hacking；prompt-elicited trajectories；on-policy probe training data；linear probe；RLVR
 - 一句话背景：同 IDEA-007。
 - 自评分：`8.0/10`
@@ -188,4 +190,22 @@
 - 与输入论文的关系：不适用
 - 本 Idea 的独立创新点：同 IDEA-007。
 - Baseline 可复现性：同 IDEA-008。
-- Reviewer 记录：`Call 5（常规）：reviewer 启动后约 1 分钟失联，无评审输出，计入预算；Call 6：同一 brief 重新送审`
+- Reviewer 记录：`Call 5（常规）：reviewer 启动后约 1 分钟失联，无评审输出，计入预算；Call 6（常规，同模型 opus，effort 由 harness 默认）：7.6/10，promising_needs_revision；唯一阻塞为定位表述：EleutherAI Reasoning Interpolation 已在多个检查点上比较多种诱导者（同模型 donor、跨家族 Qwen3-8B、提示 Claude），用于预测投机率（SFT，GPT-OSS-20b，不训练监控器），brief 中'诱导者×时点从未被操纵''EleutherAI 不比较诱导者'不实。子 Idea：IDEA-010`
+
+### IDEA-010：前瞻式监控（定位修正）——把检查点诱导数据作为监控器训练集，在 RL 中评测前瞻召回
+
+- 来源：`最高近邻不足`
+- 父 Idea：`IDEA-009`
+- 状态：`selected`
+- 定位关键词：reward hacking；training-time reward hacking；prompt-elicited trajectories；on-policy probe training data；linear probe；RLVR
+- 一句话背景：同 IDEA-007。
+- 自评分：`8.0/10`
+- 一段话概括：实验设计与 C1–C3 同 IDEA-009。只修正定位：EleutherAI Reasoning Interpolation（https://blog.eleuther.ai/reward-hacking-indicators/ ，已读：GPT-OSS-20b 经 LoRA SFT，djinn 易受攻击验证器题目；在检查点上用推理前缀做重要性采样，比较同模型 donor、跨家族 Qwen3-8B donor、提示 Claude Sonnet 4.6 三类前缀来源，目标是回归投机率趋势、预测某类 exploit 是否超过 10%；不训练监控器）已在检查点上操纵诱导者，用于投机率预测。本 Idea 的新意边界收窄为：在真实 RL 中，把检查点诱导数据作为监控器训练集，评测其对之后自然投机的前瞻召回，并在监控器层面做能力/分布/风格拆分。另补充：Engels/Nanda 的探针正例取自已 RL 投机的模型（投机出现后的数据）。
+- Story line：同 IDEA-009，"被忽视的关键"改为：已有工作在检查点上诱导是为了预测投机率（EleutherAI），或用静态诱导数据训练监控器（Trace-and-Amplify）；"在投机出现前用检查点诱导数据训练监控器、并测其之后的召回"没有被做过。
+- 打分理由：Call 6 认为修正定位后新意成立，唯一阻塞是表述；剩余风险是分量中等、overwrite-tests 可能落入天花板而使证据主要压在 Trace-and-Amplify 上。
+- Idea 生成依据：同 IDEA-009；EleutherAI Reasoning Interpolation 博文（已读全文摘要）。
+- 自评分轻量新意依据：Call 6 reviewer 检索未见以检查点诱导数据训练监控器并做前瞻召回评测的工作。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：把检查点诱导数据作为监控器训练集，在 RL 投机出现前构造监控器，并在监控器层面拆分能力、RL 分布与风格。
+- Baseline 可复现性：同 IDEA-008。
+- Reviewer 记录：`尚未送审`

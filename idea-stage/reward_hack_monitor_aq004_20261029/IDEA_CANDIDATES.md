@@ -8,14 +8,15 @@
 
 ## 当前选择
 
-- Reviewer 调用：`3 / 6`
-- 当前选中 Idea：`IDEA-008`
-- 当前自评分：`7.8/10`
-- 选择理由：IDEA-008 只修 Call 3 指出的可检验性问题（等生成预算对照、去指令重编码、只用代理信号的正例过滤、按测试床分开的 C1 预测、修正引用），不改动 Call 3 认可的核心 Claim。
-- 状态：`等待第 4 次 reviewer 调用`
+- Reviewer 调用：`4 / 6`
+- 当前选中 Idea：`IDEA-009`
+- 当前自评分：`8.0/10`
+- 选择理由：IDEA-009 用同源负例消除生成模型风格捷径，把"只用代理信号"的部署性主张限定在代理通过即投机的 Trace-and-Amplify 上，主测试床统一用真值清洗正例，并把"能力先于倾向"降为复测；核心 Claim 不变。剩余预算只够一次首审加一次复核。
+- 状态：`等待第 5 次 reviewer 调用`
 - Call 1 后的选择记录：IDEA-003 → needs_revision（5.5，promising_needs_revision）。
 - Call 2 后的选择记录：IDEA-006 → needs_revision（6.5，promising_needs_revision）。
 - Call 3 后的选择记录：IDEA-007 → needs_revision（7.5，promising_needs_revision，无致命阻塞）。
+- Call 4 后的选择记录：IDEA-008 → needs_revision（7.0，promising_needs_revision）。
 
 ## 候选列表
 
@@ -157,7 +158,7 @@
 
 - 来源：`最高近邻不足`
 - 父 Idea：`IDEA-007`
-- 状态：`selected`
+- 状态：`needs_revision`
 - 定位关键词：reward hacking；training-time reward hacking；prompt-elicited trajectories；on-policy probe training data；linear probe；RLVR
 - 一句话背景：同 IDEA-007。
 - 自评分：`7.8/10`
@@ -169,4 +170,22 @@
 - 与输入论文的关系：不适用
 - 本 Idea 的独立创新点：同 IDEA-007。
 - Baseline 可复现性：同 IDEA-006 / IDEA-007；补充：overwrite-tests 仓库默认 `save_steps=50`，需改为 20 以取得步 20/40/60/80 检查点（Call 3 核验）。
+- Reviewer 记录：`Call 4（常规，同模型 opus，effort 由 harness 默认）：7.0/10，promising_needs_revision；最高近邻 Trace-and-Amplify、Kirch et al.、PRIME、EleutherAI indicators、Engels/Nanda。致命阻塞：①负例固定取自检查点 t，与来源 1/2 正例的生成模型错配，监控器可学到生成模型风格捷径；②overwrite-tests 上正确解同样通过代理奖励，'无指令失败、指令后通过'不能只靠代理信号保证正例纯度。另：'能力先于倾向'与 PRIME、2609.16268 部分重合；初始模型诱导 baseline 在 overwrite-tests 上可能接近天花板。子 Idea：IDEA-009`
+
+### IDEA-009：前瞻式监控（再修订）——同源负例、按测试床区分标签来源、天花板预案
+
+- 来源：`最高近邻不足`
+- 父 Idea：`IDEA-008`
+- 状态：`selected`
+- 定位关键词：reward hacking；training-time reward hacking；prompt-elicited trajectories；on-policy probe training data；linear probe；RLVR
+- 一句话背景：同 IDEA-007。
+- 自评分：`8.0/10`
+- 一段话概括：核心 Claim 不变（C1 诱导分布随检查点逼近之后的自然投机；C2 投机出现前就位的前瞻监控器优于初始模型诱导与等预算自然采样；C3 能力/分布/风格拆分）。修订：(1) 同源负例——每个诱导来源的负例取自同一生成模型的无指令、代理通过且真值非投机样本，监控器无法用"哪个模型写的"区分正负；另报告"各来源负例混合等量"的次要设定。(2) 标签来源按测试床区分——overwrite-tests 上正确解也通过代理奖励，所有来源的正负例统一用真值清洗，这里只检验 C1/C2 的分布性主张；"只用代理信号筛选"的部署性主张只在 Trace-and-Amplify 上检验，那里正例必须通过与正确解矛盾的伪测试，代理通过即投机。(3) "能力先于倾向"降为对 PRIME 与 2609.16268 现象的复测，不作贡献。(4) 天花板预案——同时报告 TPR@1%FPR；若初始模型诱导的监控器在 t 之后的自然投机上 TPR@1%FPR ≥ 0.95，则 overwrite-tests 上的 C2 判为不具信息量，C2 以 Trace-and-Amplify 结果为准。
+- Story line：同 IDEA-008。
+- 打分理由：Call 4 认为新意边界基本站得住，两个阻塞都可在不改 Claim 的前提下修正；剩余风险是效应量与主测试床天花板。
+- Idea 生成依据：同 IDEA-008；Call 4 引用的 CATCH 与 SimHack（零样本监控召回衰减与投机起点预测，不构造监控器），未单独打开。
+- 自评分轻量新意依据：同 IDEA-008。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：同 IDEA-007。
+- Baseline 可复现性：同 IDEA-008。
 - Reviewer 记录：`尚未送审`

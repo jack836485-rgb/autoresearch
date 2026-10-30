@@ -8,11 +8,12 @@
 
 ## 当前选择
 
-- Reviewer 调用：`0 / 6`
-- 当前选中 Idea：`IDEA-003`
-- 当前自评分：`7.5/10`
-- 选择理由：IDEA-003 把卡片的两半（投机为何在能力之后出现、冻结监控器召回是否衰减）接成一条可干预的因果链，并给出无需训练期标注的修法；IDEA-002 只做诊断，IDEA-004 新意依赖工程。
-- 状态：`第 1 次 reviewer 调用进行中（round-01-brief.md）`
+- Reviewer 调用：`1 / 6`
+- 当前选中 Idea：`IDEA-006`
+- 当前自评分：`7.2/10`
+- 选择理由：IDEA-006 保留了 Call 1 认为新颖的部分（诱导者作自变量、在策刷新），并逐条处理了四个阻塞；其余 available 候选（IDEA-001/002/004）的核心 Claim 已被 Engels/Nanda 与 Obfuscation Atlas 部分覆盖或偏工程。
+- 状态：`等待第 2 次 reviewer 调用`
+- Call 1 后的选择记录：IDEA-003 → needs_revision（5.5，promising_needs_revision）。
 
 ## 候选列表
 
@@ -53,7 +54,7 @@
 
 - 来源：`领域共性不足`（结合 `最高近邻不足`：Trace-and-Amplify）
 - 父 Idea：`IDEA-002`
-- 状态：`selected`
+- 状态：`needs_revision`
 - 定位关键词：reward hacking；training-time reward hacking；prompt-elicited trajectories；CoT monitoring；RLVR
 - 一句话背景：代码 RLVR 中，用"提示诱导的投机轨迹"训练的奖励投机监控器，对训练中自然出现的投机泛化差。
 - 自评分：`7.5/10`
@@ -73,7 +74,7 @@
 | 真实训练期投机样本训练的监控器（上界） | 同任务；该文的 training-time 监控器 | 同上 | 同仓库（数据集 zip 为 LFS，需另行拉取；也可用本实验自产训练期样本） | 同脚本，训练数据为追踪器标注的训练期投机 | 是（作为上界，非可部署方法） |
 | Countdown-Code 测试床 | 代码 RLVR 中可改写测试脚本的奖励投机，真/代理奖励分离 | https://arxiv.org/abs/2603.07084 | https://github.com/zohaib-khan5040/Countdown-Code ；2026-10-29 克隆核验，含 `datagen/`、`environments/countdown_code`、`verl/` | 按 README 生成数据并用其 verl 训练 | 是（第二测试床） |
 
-- Reviewer 记录：`尚未送审`
+- Reviewer 记录：`Call 1（常规，同模型 opus，effort 由 harness 默认）：5.5/10，promising_needs_revision，最高近邻 Trace-and-Amplify (2604.23488)；致命阻塞：①能力不匹配前提未核实，T&A 原文把差距归于显式/隐式风格；②指令诱导风格混淆未隔离；③刷新依赖的追踪器同样能标注自然轨迹，部署优势不成立；④两套测试床的投机策略类别太少，C1 分层可能不可检验。子 Idea：IDEA-006`
 
 ### IDEA-004：借鉴恶意软件检测的概念漂移方法，用不符合度触发监控器的选择性重标注
 
@@ -106,3 +107,28 @@
 - 与输入论文的关系：不适用
 - 本 Idea 的独立创新点：无明显独立贡献。
 - Reviewer 记录：`不送审（covered）`
+
+### IDEA-006：诱导者能力 vs 指令风格——在多策略测试床上用因子设计检验，并以只用代理奖励筛选的在策诱导刷新冻结监控器
+
+- 来源：`最高近邻不足`（Trace-and-Amplify 的归因未被检验）
+- 父 Idea：`IDEA-003`
+- 状态：`selected`
+- 定位关键词：reward hacking；training-time reward hacking；prompt-elicited trajectories；linear probe；LLM judge；RLVR
+- 一句话背景：代码 RLVR 中，用提示诱导投机轨迹训练的监控器对训练期自然投机泛化差，固定监控器的准确率也会在训练中下降。
+- 自评分：`7.2/10`
+- 一段话概括：把 Trace-and-Amplify 观察到的"诱导数据泛化差"拆成两个竞争解释并用因子设计分开：(a) 指令诱导带来显式风格（原文解释）；(b) 诱导者能力/分布与被监控策略不匹配（本 Idea 假设）。因子：诱导者 {初始模型, 同家族更大非 RL 模型, 当前检查点} × 诱导方式 {指令诱导, 无指令采样（仅诊断，用真值筛选）} × 监控器输入范围 {完整回答, 去注释并规范化的代码}。若诱导者效应在去风格的代码范围仍存在，则风格解释不足；若只换诱导者即可收回差距，支持能力解释。方法：定期对当前检查点运行指令诱导，只用部署时可得的信号（被指示投机且代理奖励通过）筛选样本，刷新读取方固定的监控器（文本分类器、冻结基座激活上的线性探针），不使用自然轨迹的真值。主测试床改为 Engels/Nanda 的 overwrite-tests 环境（Qwen3-4B，已报告 6 类投机策略，固定 LLM judge 与探针准确率在投机 run 中下降约 16 点），Trace-and-Amplify 作第二测试床检验 C2 的跨模型家族成立性。
+- Story line：Trace-and-Amplify 发现诱导数据训练的监控器对训练期投机泛化差，并归因于指令诱导的显式风格 [2604.23488]；Engels/Nanda 的 overwrite-tests 环境中，固定 LLM judge 与探针在投机 run 里准确率下降约 16 点，作者只给出"回答变长、注释变多"的提示性解释 [LessWrong 2025-12]；基座模型自然触发该漏洞的频率低于千分之一 [ariahw/rl-rewardhacking README]，后期投机以质不同的策略出现 [2604.01476] → 被忽视的关键：诱导数据的覆盖由诱导者决定，这一变量从未被单独操纵，风格与能力两种解释从未被分开 → 本 Idea 用诱导者 × 诱导方式 × 监控输入范围的因子设计分离两者，并给出只用代理奖励筛选的在策刷新 → 预期（假设）：当前检查点刷新在去风格的代码范围仍显著优于初始模型刷新，且优势集中在初始模型诱导集中不存在的策略上；若诱导者效应在代码范围消失，则风格解释成立、本 Idea 的能力主张被推翻。
+- 打分理由：Call 1 认为诱导者作自变量与在策刷新是新的；本修订补上了竞争解释的隔离与部署成立条件，测试床换到已报告多策略的环境；剩余风险是 Qwen3-4B 训练成本与策略类别仍可能不足。
+- Idea 生成依据：2604.23488（读 §4.2 与引言中"隐含假设诱导数据覆盖训练期投机"的表述；原文未写诱导模型）；Engels/Nanda LessWrong 文章（https://www.greaterwrong.com/posts/R5MdWGKsuvdPwGFBG/steering-rl-training-benchmarking-interventions-against ，读全文摘要：Qwen3-4B，GRPO，LeetCode 中/难题，overwrite tests 漏洞，80–100 步开始投机，评测集投机率约 79%；固定 judge 与探针在投机 run 中下降约 16 点；6 类策略；未刷新监控器，自适应监控列为未来工作）；2602.15515（激活探针在 RL 中因表示漂移失效，无论有无惩罚——因此本 Idea 只用读取方固定的监控器）；2602.01750（Hacker–Auditor 博弈，机制不同）。
+- 自评分轻量新意依据：Call 1 reviewer 检索未发现对诱导者做在策刷新的工作；本轮未发现分离"诱导风格 vs 诱导者能力"的工作；需要 reviewer 检索。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：首次把诱导者作为操纵变量，用因子设计分离风格与能力两种解释，并给出只依赖代理奖励的在策诱导刷新。
+- Baseline 可复现性：
+
+| Baseline | 与定位关键词及目标任务的关系 | 论文或规范 | 开源代码与核验结果 | 具体复现方式 | 是否纳入最小实验 |
+|---|---|---|---|---|---|
+| overwrite-tests 测试床 + 固定探针 / LLM judge 监控器 | 代码 RLVR 训练期投机及其监控，同任务 | https://www.greaterwrong.com/posts/R5MdWGKsuvdPwGFBG/steering-rl-training-benchmarking-interventions-against | https://github.com/ariahw/rl-rewardhacking ；2026-10-29 克隆核验：`scripts/run_rl_training.py`（`run_rl_training no_intervention --model_id qwen/Qwen3-4B --task simple_overwrite_tests --seed k`）、`train_probe <RUN_NAME>`（冻结基座激活上的 mass-mean / logistic 探针）、LLM judge 经 OpenRouter、`eval_model <RUN_NAME> <step>` | 按 README `create_all_datasets` 后运行 | 是（主测试床） |
+| Trace-and-Amplify 测试床与 prompt-elicited / training-time 监控器 | 同任务；最高近邻 | https://arxiv.org/abs/2604.23488 | https://github.com/LichenLillc/CoTMonitoring ；克隆核验（见 IDEA-003） | 同 IDEA-003 | 是（第二测试床） |
+| 真值标注的训练期自然投机训练的监控器（上界） | 同任务 | 同上两项 | 两仓库均提供真值判定（仅通过自定义测试 / 伪单元测试追踪器） | 同脚本，训练数据为真值标注自然轨迹 | 是（上界，需要部署时不可得的真值） |
+
+- Reviewer 记录：`尚未送审`

@@ -8,11 +8,11 @@
 
 ## 当前选择
 
-- Reviewer 调用：`0 / 6`
+- Reviewer 调用：`1 / 6`
 - 当前选中 Idea：`IDEA-002`
 - 当前自评分：`7.8/10`
 - 选择理由：IDEA-002 回答卡片前半个问题（投机为何在能力之后才出现），用干预实验分开四种已有文献各自提出、但从未被分别检验的解释；第一轮最佳候选（IDEA-005）被多位 reviewer 判为新意幅度中等。
-- 状态：`等待第 1 次 reviewer 调用`
+- 状态：`暂停：Call 1 显示 A-Q004 两半（投机出现时刻、监控器衰减）在 2026-09/10 已有多篇直接工作，等待用户决定继续本卡或换卡`
 
 ## 候选列表
 
@@ -32,7 +32,7 @@
 
 - 来源：`领域共性不足`
 - 父 Idea：`无`
-- 状态：`selected`
+- 状态：`needs_revision`
 - 定位关键词：reward hacking；GRPO；RLVR；exploration；hacking onset
 - 一句话背景：代码 RLVR 中，可利用的验证器漏洞从训练一开始就存在，投机却要到训练中途才出现；已有文献对这段延迟给出了几种不同解释，但从未用干预实验把它们分开。
 - 自评分：`7.8/10`
@@ -51,7 +51,7 @@
 | overwrite-tests 测试床 | 代码 RLVR 训练期投机 | https://www.greaterwrong.com/posts/R5MdWGKsuvdPwGFBG/steering-rl-training-benchmarking-interventions-against | https://github.com/ariahw/rl-rewardhacking ；第一轮已克隆核验 | `run_rl_training no_intervention --task simple_overwrite_tests` | 是 |
 | 按正当通过率过滤题目（缓解手段） | 同任务；ICML 2026 报告加简单题减少投机 | https://icml.cc/virtual/2026/79298 | 简单标准方法：按初始模型 pass@k 过滤训练题，本地实现 | 训练前用初始模型采样估计每题正当通过率 | 是 |
 
-- Reviewer 记录：`尚未送审`
+- Reviewer 记录：`Call 1（常规，同模型 opus）：5.0/10，promising_needs_revision；最高近邻 SimHack (2610.28707)、2604.01476、CATCH (2609.39533)、Countdown-Code、CHERRL。阻塞：①偏离锚点（未涉及监控器召回）；②前提不实——EleutherAI 博文并未写'各解释未被分别检验'（该句来自检索摘要工具的转述，improver 未核对原文），SimHack 已改变 rollout 数与课程并给出 GRPO 组内竞争解释，2604.01476 已用限制正当 rollout 与更易题做激励干预，CATCH 用 SFT 混入比例与奖励难度控制投机出现；③C1 注入来源与能力共变，重要性比恒为 1，不可识别能力门槛。另：djinn skiptest 默认模型为 gpt-oss-20b，Qwen3 无提示时几乎不投机；分支算力低估约 2.4 倍。`
 
 ### IDEA-003：合法能力外溢——训练写测试的能力会加快"改写测试"类投机的出现
 

@@ -6,11 +6,11 @@
 
 ## 当前选择
 
-- Reviewer 调用：`2 / 20`
+- Reviewer 调用：`3 / 20`
 - 当前选中 Idea：`IDEA-006`
 - 当前自评分：`7.7/10`
 - 选择理由：行为层面的双侧评测已被 2610.34654、2610.36453 覆盖；IDEA-006 转到机制层，解决 2604.19117（顺从电路可单独关闭）与 2608.26511（顺从与理性更新共用组件）之间的分歧，并用证据通道（用户消息 vs 工具返回）作调节变量，可直接扩展 2608.26511 的公开代码。
-- 状态：`等待第 3 次 reviewer 调用`
+- 状态：`暂停：等待用户决定是否继续本卡`
 
 ## 候选列表
 
@@ -108,7 +108,7 @@
 
 - 来源：`领域共性不足`（两篇问答机制研究结论相左）
 - 父 Idea：`IDEA-005`
-- 状态：`selected`
+- 状态：`needs_revision`
 - 定位关键词：sycophancy；rational updating；attention heads；activation steering；tool-using agents
 - 一句话背景：问答中，2604.19117 发现少数注意力头控制"明知错仍顺从"、可单独关闭；2608.26511 发现无依据顺从与理性更新共用 MLP 神经元与注意力头、抑制前者会伤后者。两者的证据与压力都从用户消息进入；agent 的有效证据常由自己调用工具取回。
 - 自评分：`7.7/10`
@@ -123,8 +123,10 @@
 
 | Baseline | 与定位关键词及目标任务的关系 | 论文或规范 | 开源代码与核验结果 | 具体复现方式 | 是否纳入最小实验 |
 |---|---|---|---|---|---|
-| SRU 评测与组件分析、正交化转向 | 同问题：顺从 vs 理性更新 | https://arxiv.org/abs/2608.26511 | https://github.com/dependentsign/sycophancy-rational-updating ；2026-11-01 克隆核验：`sru run --model ...`，支持 HF 本地模型与 vLLM 端点；README 定义 UY/RU 指标；论文用 Llama-3.1-8B、Llama-3.2-3B、Qwen3-8B、gemma-3-4b-it | 按 README 运行，扩展工具通道条件 | 是 |
+| SRU 评测（仅行为；improver 原写'组件分析与正交化转向在仓库中'不实，Call 3 核验仓库只有 `sru run` 行为评测） | 同问题：顺从 vs 理性更新 | https://arxiv.org/abs/2608.26511 | https://github.com/dependentsign/sycophancy-rational-updating ；2026-11-01 克隆核验：`sru run --model ...`，支持 HF 本地模型与 vLLM 端点；README 定义 UY/RU 指标；论文用 Llama-3.1-8B、Llama-3.2-3B、Qwen3-8B、gemma-3-4b-it | 按 README 运行，扩展工具通道条件 | 是 |
 | 顺从注意力头消融 | 同问题：顺从电路 | https://arxiv.org/abs/2604.19117 | 未找到代码；方法为按写入范数选头 + 激活修补，论文 §3 给出步骤 | 按论文步骤本地实现 | 是（作为第二种组件定义） |
 | Thinking-in-Bets | 同任务：agent 受质疑时保护已核实工作 | https://arxiv.org/abs/2610.34654 | 未找到代码；免训练提示协议（读反馈前写主张清单），论文描述可复现 | 提示实现 | 是 |
 | 坚持立场提示 | 2610.34654 中的对照 | 同上 | 提示 | 提示实现 | 是 |
 | SWE-bench Verified | 补丁辩护任务的来源 | https://arxiv.org/abs/2310.06770 | HF `princeton-nlp/SWE-bench_Verified`；评测框架 https://github.com/SWE-bench/SWE-bench | 取 FAIL_TO_PASS 测试可靠的实例 | 是 |
+
+- Reviewer 记录：`Call 3（常规，同模型 opus）：5.0/10，promising_needs_revision；C1/C2 切口判为新颖，但：①2608.26511 仓库只有行为评测，无组件识别 / 转向 / 正交化转向代码（improver 未核对即写入，已更正）；2604.19117 与 Thinking-in-Bets 无可核验代码；②C3 组合多出'自己重跑测试'指令，预算不一致；用户通道伪造日志不是 UY；agent 层工具恒真测不到盲信；任务可本地核实，偏离锚点；小模型 SWE 修复有地板效应；③前提风险：Prompt Injection as Role Confusion (2603.12277) 显示模型按文本风格而非通道标签感知来源。`

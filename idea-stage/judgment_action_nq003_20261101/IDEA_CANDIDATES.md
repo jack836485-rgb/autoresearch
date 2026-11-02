@@ -6,11 +6,11 @@
 
 ## 当前选择
 
-- Reviewer 调用：`0 / 6`
+- Reviewer 调用：`1 / 6`
 - 当前选中 Idea：`IDEA-003`
 - 当前自评分：`7.6/10`
 - 选择理由：IDEA-003 把三条互不引用的证据线（拒绝信号下降、判断—行动耦合弱、固有过度调用偏置）连成一个可干预的机制，并给出只用良性数据校准的修法；IDEA-001 已大体被 2610.28982 与 2609.35870 覆盖，IDEA-002 是 CAST 与 SafeKeep 的组合，新意偏增量。
-- 状态：`等待第 1 次 reviewer 调用`
+- 状态：`暂停：机制叙事与干预形式已被 2026-08/10 的 5 篇工作大部分覆盖，等待用户决定`
 
 ## 候选列表
 
@@ -42,7 +42,7 @@
 
 - 来源：`领域共性不足`
 - 父 Idea：`无`
-- 状态：`selected`
+- 状态：`needs_revision`
 - 定位关键词：refusal direction；tool-calling agents；over-calling；activation steering；AgentHarm
 - 一句话背景：工具调用 agent 中，聊天里会被拒绝的有害请求在工具上下文里变成不安全调用；已有工作分别把原因归于拒绝信号下降、判断对行动控制弱，另一条线发现调用决策本身带有与激活无关的固有调用偏置，三者从未被放在一起检验。
 - 自评分：`7.6/10`
@@ -64,7 +64,7 @@
 | SafeKeep | 工具 agent 推理期安全护栏，判断与执行解耦 | https://arxiv.org/abs/2607.29254 | https://github.com/snowcatsmoking/SafeKeep ；克隆核验：`Method/safekeep_demo.py --model $MODEL_PATH`，原文用 Llama-3.1-8B-Instruct、Qwen2.5-7B-Instruct | 按 README 运行 | 是 |
 | When2Call | 良性"该不该调用"数据，用于校准偏置 | https://arxiv.org/abs/2504.18851 | HF 数据集 `nvidia/When2Call`（IBH 使用；未单独核验仓库） | 只取其"无需调用"样本做校准 | 是 |
 
-- Reviewer 记录：`尚未送审`
+- Reviewer 记录：`Call 1（常规，同模型 opus）：5.5/10，promising_needs_revision；最高近邻 2609.35117（AgentHarm、同组模型：伤害信息仍在，工具语境有效拒绝阈值更高）、2610.28982、2610.23071（调用准入方向，非操作特异）、SafeKeep 的 schema direction、2608.25198（调用方向强度扫描）。阻塞：①背景漏引 2609.35117、2610.23071；②偏置抵消是 2608.25198 调用方向转向的一档，缺同方向强度扫描对照；③C2 超可加未指定 logit 尺度，C1 残差定义近同义反复且每模型 n=6。`
 
 ### IDEA-004：未履行义务的行动侧诊断
 

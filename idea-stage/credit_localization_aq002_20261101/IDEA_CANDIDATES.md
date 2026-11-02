@@ -6,11 +6,11 @@
 
 ## 当前选择
 
-- Reviewer 调用：`0 / 17`
-- 当前选中 Idea：`IDEA-002`
+- Reviewer 调用：`1 / 17`
+- 当前选中 Idea：`IDEA-003`
 - 当前自评分：`7.6/10`
-- 选择理由：IDEA-002 在卡片切口（补等量对照）之上，指出 2609.02417 的 V_d 理论只覆盖"验证器暴露"这一定位信息来源，而 ALFWorld / WebShop 上主流方法（GiGPO 类）的定位信息来自 rollout 间的状态复现；并用"只改信用分组、不改模型输入"的方式因果操纵这一来源。IDEA-001 只是审计。
-- 状态：`等待第 1 次 reviewer 调用`
+- 选择理由：IDEA-003 把动机改为检验 2609.02417 已写明的预测（GiGPO 类收益追踪覆盖），并把复现操纵改成等剂量设计，能区分覆盖与定位两种解释。
+- 状态：`等待第 2 次 reviewer 调用`
 
 ## 候选列表
 
@@ -30,7 +30,7 @@
 
 - 来源：`领域共性不足`（结合 `最高近邻不足`：2609.02417 的 V_d 只计验证器暴露）
 - 父 Idea：`IDEA-001`
-- 状态：`selected`
+- 状态：`needs_revision`
 - 定位关键词：credit assignment；GiGPO；anchor states；GRPO；ALFWorld；WebShop
 - 一句话背景：2609.02417 用验证器信息密度 V_d 解释"覆盖胜过定位"，但 ALFWorld / WebShop 上主流的步级信用方法不靠验证器暴露中间轮次，而是靠多条 rollout 经过同一状态（锚点）来比较动作。
 - 自评分：`7.6/10`
@@ -49,3 +49,23 @@
 | GRPO | 同任务基线 | 同仓库 | `examples/grpo_trainer/` | 官方脚本 | 是 |
 | 均匀覆盖 / 轨迹内打乱对照 | 2609.02417 定义的对照 | https://arxiv.org/abs/2609.02417 | 无代码；在 `compute_gigpo_outcome_advantage` 中把步级优势替换为轨迹内均值 / 轨迹内随机置换，完全指定 | 本地修改一处函数 | 是 |
 | AgentOPSD | 同任务：轮次级信用（另一类定位来源：自蒸馏） | https://arxiv.org/abs/2608.05987 | https://github.com/ZethWang/AgentOPSD ；克隆核验：README 含 ALFWorld / WebShop 安装与运行，Qwen2.5-3B/7B | 按 README | 否（算力受限，作扩展） |
+
+- Reviewer 记录：`Call 1（常规，同模型 opus）：6.0/10，promising_needs_revision；最高近邻 2609.02417（相关工作明确引用 GiGPO 并预测其收益追踪覆盖、提出打乱对照）、GiGPO、Credit Without Ground Truth (2608.19760，ALFWorld 打乱对照、须匹配有效样本量，排除 GiGPO 类)、ECPO、Tree-GRPO (2509.21240)。阻塞：①'V_d 理论未计入复现 / 未讨论 GiGPO'不实（improver 已核对原文确认）；②C2 绝对差随 q 机械下降（mean_norm 下单例步级优势为 0），不能区分覆盖与定位，N 操纵缺 GRPO(N)；③2–3 种子对差值之比做 CI 不重叠功效不足；C3 Sokoban 官方为 VL-3B 图像模式。另：ProVer 随机对照数字应为单次运行 4.3 / 5.5 点。子 Idea：IDEA-003`
+
+### IDEA-003：检验"覆盖而非定位"对重复状态类方法的预测——等量对照与等剂量复现操纵
+
+- 来源：`最高近邻不足`（2609.02417 对 GiGPO 类方法给出预测但未检验）
+- 父 Idea：`IDEA-002`
+- 状态：`selected`
+- 定位关键词：credit assignment；GiGPO；anchor states；GRPO；ALFWorld；WebShop
+- 一句话背景：2609.02417 预测基于重复状态的步级信用方法（GiGPO）的收益追踪其恢复的覆盖，并提出等集中度打乱对照来区分覆盖与定位；这一预测在 GiGPO 实际报告增益的 ALFWorld / WebShop 上从未被检验。
+- 自评分：`7.6/10`
+- 一段话概括：C1（检验预测）：在 ALFWorld（5 种子）与 WebShop（3 种子）上，GiGPO 与其轨迹内打乱对照（步级优势在轨迹内随机置换，集中度与总量不变）的配对差值；覆盖理论预测为零。C2（等剂量复现操纵）：在信用计算时以概率 q 拆散锚点，但把被拆成单例的步用"该轨迹非单例步级优势的均值"填充，使非零信用的步数与总量不随 q 变；在每个 q 下比较 GiGPO-填充与其打乱版本——若复现提供定位信息，差值随 q 下降；若只提供覆盖，差值在各 q 下都为零。C3（次要、相关性）：ALFWorld 6 类子任务的自然复现率不同，检验各子任务的定位差值与其复现率的关系。
+- Story line：同 IDEA-002，动机改为："覆盖而非定位"理论在 τ²-bench / BFCL 上成立，并预测 GiGPO 类方法的收益来自覆盖 [2609.02417]；Credit Without Ground Truth 在 ALFWorld 上审计步级信用但排除了 GiGPO 类基于回报的方法，并指出比较必须匹配有效样本量 [2608.19760] → 被忽视的关键：GiGPO 在 ALFWorld / WebShop 上的增益是否真是覆盖、复现在其中提供的是覆盖还是定位，没有被等量、等剂量地检验 → 本 Idea：配对打乱对照 + 等剂量复现操纵 → 结果两向都有结论：若打乱与 GiGPO 持平，覆盖理论扩展到方法论文主基准；若显著更差且随 q 下降，则复现提供了 V_d 之外的定位信息。
+- 打分理由：动机准确、两向结果都有价值、检验能区分两种解释；风险是算力偏重（约 40 次训练），以及新意被视为"执行近邻的预测"。
+- Idea 生成依据：同 IDEA-002；2609.02417 相关工作段原文（improver 已核对）；2608.19760 摘要；2509.21240 Tree-GRPO 摘要；verl-agent `step_norm_reward`（单例组步级优势为 0）。
+- 自评分轻量新意依据：Call 1 reviewer 未检索到在 ALFWorld / WebShop 上分解 GiGPO 增益或操纵锚点复现的工作。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：在方法论文主基准上检验覆盖理论对重复状态方法的预测，并用等剂量操纵把复现的作用分解为覆盖与定位。
+- Baseline 可复现性：同 IDEA-002（verl-agent GiGPO / GRPO 已克隆核验；打乱、均匀、填充对照均为 `compute_gigpo_outcome_advantage` / `build_step_group` 中的完全指定修改）。
+- Reviewer 记录：`尚未送审`

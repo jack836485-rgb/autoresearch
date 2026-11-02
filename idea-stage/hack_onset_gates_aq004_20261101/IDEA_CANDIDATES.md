@@ -8,11 +8,11 @@
 
 ## 当前选择
 
-- Reviewer 调用：`1 / 6`
+- Reviewer 调用：`2 / 6`
 - 当前选中 Idea：`IDEA-006`
 - 当前自评分：`7.9/10`
 - 选择理由：用户选择继续 A-Q004。IDEA-006 回到卡片原文的 agentic 多轮工具设置（近邻 SimHack、CATCH、Rebound、djinn 都是单轮写代码），同时覆盖锚点两半：投机渠道为何在能力之后出现、冻结监控器召回为何衰减。
-- 状态：`等待第 2 次 reviewer 调用`
+- 状态：`暂停：IDEA-006 需自建正交渠道才能检验，等待用户决定`
 
 ## 候选列表
 
@@ -93,7 +93,7 @@
 
 - 来源：`领域共性不足`（能力门控）结合 `未覆盖新任务`（Hack-Verifiable TextArena 尚无 RL 训练）
 - 父 Idea：`IDEA-002`（吸收其能力门槛部分，放弃已被 SimHack、2604.01476、CATCH 覆盖的发现与激励部分）
-- 状态：`selected`
+- 状态：`needs_revision`
 - 定位关键词：reward hacking；agentic RL；multi-turn tool use；hack-verifiable environments；monitor recall
 - 一句话背景：多轮工具 agent 的投机渠道（读取隐藏答案文件、利用源码逻辑漏洞）需要先具备特定的正当子技能；已有投机出现时刻研究都在单轮写代码中，把投机当作一个整体。
 - 自评分：`7.9/10`
@@ -113,4 +113,4 @@
 | 冻结 LLM judge 监控器 | 训练期投机监控 | Engels/Nanda；CATCH | 本地 Qwen3-8B 提示式判定（标准做法） | 本地推理 | 是 |
 | 冻结线性探针 | 训练期投机监控 | Engels/Nanda（https://github.com/ariahw/rl-rewardhacking 的 `train_probe` 思路） | 冻结基座激活 + logistic 回归，标准实现 | 本地实现 | 是 |
 
-- Reviewer 记录：`尚未送审`
+- Reviewer 记录：`Call 2（常规，同模型 opus）：5.0/10，needs_rethink；新颖性为部分重合下的新组合。阻塞（improver 已核对代码确认 ①）：①HVTA 逻辑漏洞标签不要求读码（Wordle 短猜测、TowerOfHanoi 非法移动等即置 logical_bug_triggered，原文承认弱模型会误触）；②漏洞源码在 ~/source/env.py，读码依赖导航，前置技能嵌套，双重分离与证伪条件失效；③答案文件只在 home 下一层且有 README，起点导航门可能已开。另：探针只用第一条渠道样本训练，新渠道召回低近乎构造使然；rl-rewardhacking 中对应函数为 scripts/run_probes.py:create_probes 而非 train_probe；新近邻 Garg《Monitor Evasion Depends on What RL Finds and What Monitors Miss》（LessWrong 2026-11-01）。`

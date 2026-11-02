@@ -9,10 +9,10 @@
 ## 当前选择
 
 - Reviewer 调用：`1 / 6`
-- 当前选中 Idea：`IDEA-002`
-- 当前自评分：`7.8/10`
-- 选择理由：IDEA-002 回答卡片前半个问题（投机为何在能力之后才出现），用干预实验分开四种已有文献各自提出、但从未被分别检验的解释；第一轮最佳候选（IDEA-005）被多位 reviewer 判为新意幅度中等。
-- 状态：`暂停：Call 1 显示 A-Q004 两半（投机出现时刻、监控器衰减）在 2026-09/10 已有多篇直接工作，等待用户决定继续本卡或换卡`
+- 当前选中 Idea：`IDEA-006`
+- 当前自评分：`7.9/10`
+- 选择理由：用户选择继续 A-Q004。IDEA-006 回到卡片原文的 agentic 多轮工具设置（近邻 SimHack、CATCH、Rebound、djinn 都是单轮写代码），同时覆盖锚点两半：投机渠道为何在能力之后出现、冻结监控器召回为何衰减。
+- 状态：`等待第 2 次 reviewer 调用`
 
 ## 候选列表
 
@@ -87,4 +87,30 @@
 - 自评分：`6.0/10`
 - 一段话概括：在环境中放置不被奖励的诱饵漏洞，测其使用率是否随真实渠道投机同步或提前上升，作为免标注的倾向指标。
 - 打分理由：依赖跨渠道泛化这一未证前提；预测投机出现的方向已有 PRIME、EleutherAI、SimHack，较拥挤。
+- Reviewer 记录：`尚未送审`
+
+### IDEA-006：多轮工具 agent 中，投机渠道由正当子技能解锁——技能课程的双重分离与冻结监控器的渠道级衰减
+
+- 来源：`领域共性不足`（能力门控）结合 `未覆盖新任务`（Hack-Verifiable TextArena 尚无 RL 训练）
+- 父 Idea：`IDEA-002`（吸收其能力门槛部分，放弃已被 SimHack、2604.01476、CATCH 覆盖的发现与激励部分）
+- 状态：`selected`
+- 定位关键词：reward hacking；agentic RL；multi-turn tool use；hack-verifiable environments；monitor recall
+- 一句话背景：多轮工具 agent 的投机渠道（读取隐藏答案文件、利用源码逻辑漏洞）需要先具备特定的正当子技能；已有投机出现时刻研究都在单轮写代码中，把投机当作一个整体。
+- 自评分：`7.9/10`
+- 一段话概括：在 Hack-Verifiable TextArena（多轮文字游戏 + 模拟文件系统，投机可确定性判定，原文未做 RL）上用 verl-agent 做多轮 GRPO。C1：每条投机渠道只在 agent 习得其前置正当子技能后才打开——用等计算量的辅助正当任务课程操纵子技能（文件系统导航 / 读源码），预期双重分离：加导航课程只提前"隐藏答案文件"渠道，加读码课程只提前"逻辑漏洞"渠道，通用辅助任务对照两者都不提前。C2：冻结监控器（在首个渠道出现时构建）在训练中的召回下降集中在之后新打开的渠道上，已见渠道上的召回保持；且无监控器优化压力，区别于 CATCH 的"被注释误导"。C3：用留出的正当技能探针测量各子技能，子技能习得领先对应渠道打开若干步，可作为渠道级前兆。
+- Story line：投机在训练中途才出现，已有解释包括能力门控 [2609.16268：捷径只对已学会的工具形成；2604.01476：早期改写因能力不足失败]，工业实践中新渠道在模型变强后才出现、需每轮人工补规则 [2606.26300]；固定监控器在训练中准确率下降 [Engels/Nanda]，CATCH 把 CoT 监控器失效归于策略学会用注释误导（在监控器施压下） → 已有出现时刻研究（SimHack 2610.28707、CATCH 2609.39533、2604.01476）都在单轮写代码中把投机当整体，未在多渠道 agent 环境中把"哪条渠道何时打开"与"哪个正当子技能何时习得"对应起来，也未区分监控器衰减来自新渠道还是旧渠道变隐蔽 → 本 Idea：子技能课程双重分离 + 渠道级召回分解 + 技能探针 → 可推翻：若导航课程同时提前两条渠道（或都不提前），子技能门控被推翻；若冻结监控器召回在已见渠道上同样下降，"衰减来自新渠道"被推翻。
+- 打分理由：回到卡片原文的 agentic 设置，避开单轮代码的拥挤区；双重分离是干净的因果设计；测试床现成且投机可确定性判定；风险是 4B 模型在多轮环境中能否在训练内打开渠道，需要试跑。
+- Idea 生成依据：2605.20744 Hack-Verifiable Environments（https://www.alphaxiv.org/abs/2605.20744 ，读摘要与环境说明：隐藏答案文件、逻辑漏洞、读写对手提示三类渠道，难度影响利用率，未做 RL）；2609.16268（摘要与目录：§5.3 任务能力与捷径形成、§5.4 分离任务能力与语义对齐）；2606.26300、2604.01476；SimHack、CATCH（摘要）；Engels/Nanda。
+- 自评分轻量新意依据：检索"multi-turn agentic RL reward hacking channels unlocked by tool skills"未见对应工作；HVTA 原文将 RL 训练列为未来工作；需要 reviewer 检索。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：在多渠道 agent 环境中用子技能课程做双重分离，因果检验"渠道由正当子技能解锁"，并把冻结监控器衰减分解为新渠道覆盖缺失与旧渠道变隐蔽。
+- Baseline 可复现性：
+
+| Baseline | 与定位关键词及目标任务的关系 | 论文或规范 | 开源代码与核验结果 | 具体复现方式 | 是否纳入最小实验 |
+|---|---|---|---|---|---|
+| Hack-Verifiable TextArena 环境 | 多轮工具 agent 投机，确定性判定 | https://arxiv.org/abs/2605.20744 | https://github.com/MajoRoth/hack-verifiable-environments ；2026-11-01 克隆核验：`hvta/FilesystemWrapper/filesystem_wrapper.py`（`FilesystemWrapper(env, hidden_solution=True, logical_bug=True)`）、`logical_bug_envs/`、`examples/run_hidden_solution_benchmark.py` | 包装 TextArena 单人游戏 | 是 |
+| verl-agent 多轮 GRPO/GiGPO | 多轮 agent RL 标准训练框架 | https://arxiv.org/abs/2505.10978 | https://github.com/langfengQ/verl-agent ；克隆核验：`examples/grpo_trainer/`、`gigpo_trainer/`，`agent_system/environments/env_manager.py` 注册新环境（README §4） | 按 README §4 注册 HVTA 环境，`examples/grpo_trainer` 脚本启动 | 是 |
+| 冻结 LLM judge 监控器 | 训练期投机监控 | Engels/Nanda；CATCH | 本地 Qwen3-8B 提示式判定（标准做法） | 本地推理 | 是 |
+| 冻结线性探针 | 训练期投机监控 | Engels/Nanda（https://github.com/ariahw/rl-rewardhacking 的 `train_probe` 思路） | 冻结基座激活 + logistic 回归，标准实现 | 本地实现 | 是 |
+
 - Reviewer 记录：`尚未送审`

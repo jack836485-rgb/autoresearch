@@ -54,6 +54,10 @@ that same Claim rather than mixing attempts, final success and observable violat
 If a multi-call budget is part of the Claim, check that the executable path fits it after
 including prompts, inserted probes and intermediate calls, and that baselines can spend
 the saved diagnostic overhead on their own computations.
+Claims against the strongest fixed or mixed strategy must also account for published,
+same-task improvements within the allowed capabilities, including material prompt or
+aggregation changes. Comparing only the base implementation at several budgets may leave
+that Claim untested; require the comparisons that could explain the proposed gain.
 
 Verdict meanings:
 - experiment_ready: all three contribution scores >= 6, at least two >= 8, feasibility pass,

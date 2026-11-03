@@ -1,0 +1,5 @@
+# 审查记录
+
+- Call 1（常规，effort high）：IDEA-004，5.3/10，promising_needs_revision，贡献三项 {'importance': 5.5, 'novelty': 6.0, 'effectiveness': 5.0}，可行性 pass，Gate 结果 failed。主贡献是用改监督版式（V1/V2 填充）在 CoLaR 上把链尾读出和近窗生成拆成版式继承与 latent 短窗接力。重要性有限：单方法单数据，设计层面的含义只是断言；'注意力和置零需要匹配对照'已由 2606.12689 确立。新颖度是增量：版式操控加推理时窗口掩码作为因果把手未见先例，但 matched-control 思路已有。有效性不足：H1 几乎由 CoLaR 逐块监督目标直接推出；H2
+- Call 2（常规，effort high）：IDEA-009，5.5/10，promising_needs_revision，贡献三项 {'importance': 7.0, 'novelty': 6.0, 'effectiveness': 5.0}，可行性 pass，Gate 结果 failed。主贡献是把 SIM-CoT 式辅助解码目标由当前步文本换成紧凑累积状态，以修复 latent CoT 在长 MATH 轨迹上的崩塌。重要性 7：C-MTP 已核实约 65% 的崩塌，问题确实重要，但收益幅度未知。新颖度 6：与 RGLT 累积前缀、Thinking States 的固定状态、MCoT/Delethink 的文本马尔可夫状态高度邻近，属于目标替换式组合。有效性 5：近窗证据只来自 C
+- Call 3（常规，effort high）：IDEA-011，5.5/10，needs_rethink，贡献三项 {'importance': 6.5, 'novelty': 6.0, 'effectiveness': 5.5}，可行性 pass，Gate 结果 failed。主贡献是把 C-MTP 报告的 latent CoT 在 MATH 上的崩塌，分解为冗长度、题源（难度）、误差累积和近窗四个因素，并按方法家族给出主导因素。问题真实且有方向意义，但它补的是已知缺失的对照：C-MTP 已提出压缩压力与误差累积两种解释，并有 CSQA 反例。C-MTP 表 2 和表 4 显示，在约 25 到 62 token 的范围内，CODI 的保留率不随冗长度下降，已部分不支持跨

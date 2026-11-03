@@ -8,7 +8,7 @@
 
 ## 当前选择
 
-- Reviewer 调用：`17 / 44`（2026-11-02 用户再追加 10 次，用于预研后的两个新方向查新）
+- Reviewer 调用：`19 / 44`（Call 18 被 /model 打断无分、Call 19 替换）
 - 当前选中 Idea：`IDEA-022`
 - 当前自评分：`8.0/10`
 - 选择理由：IDEA-020 首审 6.5、无 fatal，但 reviewer 指出未引近邻 Mammeri et al.（ICML 2026 MechInterp workshop）已在同模型家族、同交织缓解上报告标准 benchmark 对提示长度敏感，使 IDEA-020 的"推翻分支"结论已被覆盖、结果空间不对称；另有判定规则不可证伪、条件 (d) 分不开距离与排布两条缺陷。IDEA-022 把训练侧排布也当变量，用训练×评测的交叉交互作主判别，这一判别不依赖"插入是否削弱失配"这一已知主效应。IDEA-021（H-read 读出定位）自评 7.2，仍为并列备选。
@@ -450,7 +450,7 @@
 
 - 来源：`领域共性不足`（预研 O2）+ `最高近邻不足`（ContextLift 的 70/30 前后置未消融）
 - 父 Idea：`IDEA-020`
-- 状态：`selected`
+- 状态：`待复核`
 - 定位关键词：emergent misalignment；conditional misalignment；contextual triggers；data interleaving；trigger position
 - 一句话背景：缓解后的条件失配由一句情境句触发，评测侧插入任何内容都让它减半，但这是"偏离了训练排布"还是"提示里多了内容"，评测侧的任何扫描都分不开。
 - 自评分：`8.0/10`
@@ -475,4 +475,4 @@
 - 与输入论文的关系：不适用
 - 本 Idea 的独立创新点：第一次把条件失配触发的训练侧排布当作可操纵变量，用训练×评测的交叉交互把"锁定训练排布"与"通用提示依赖削弱"分开。
 - Baseline 可复现性：同 IDEA-020 表，另加 `train-fill` 臂（同一副本构造脚本插入固定填充句，其余参数不变）。
-- Reviewer 记录：`尚未送审`
+- Reviewer 记录：`Call 18（常规）：被会话内 /model 切换打断，未写出审查、无分数，计入预算。Call 19（常规替换，effort high）：8.2/10，experiment_ready，无 fatal，最高近邻 ContextLift 2610.21633、Mammeri ICML2026 MechInterp、Dubiński 2604.25891、后门位置 2406.07778`。首轮通过，待复核。reviewer 确认 Δ_cross 与 Mammeri 长度主效应正交是最强点；唯一风险（非 blocker）：预研证据偏向 H-generic，headline 较可能被推翻，但 H-generic 结果本身可发表。核验注：本轮代理对 github 返回 403，reviewer 未独立复核仓库文件树（我方此前已 clone 核验存在）。

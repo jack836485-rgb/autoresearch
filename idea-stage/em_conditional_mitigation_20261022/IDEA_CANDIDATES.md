@@ -8,11 +8,11 @@
 
 ## 当前选择
 
-- Reviewer 调用：`16 / 34`（2026-10-28 用户追加 20 次；Gate 通过后停止）
-- 当前选中 Idea：`IDEA-019`
+- Reviewer 调用：`21 / 44`（暂停待用户定夺）
+- 当前选中 Idea：`IDEA-023`
 - 当前自评分：`8.0/10`
-- 选择理由：池中自评最高的 available 候选；它修掉 Call 14 的 fatal（Claim 3 泄漏混淆）以及 Call 13/14 的全部非阻断意见，保留两位 reviewer 都判为新颖的问题。其余 available 候选（IDEA-007 6.6、IDEA-014 5.8 等）都已被判为增量方向。
-- 状态：`completed`——IDEA-019 首审 8.2、复核 8.2，Gate 通过，见 FINAL_IDEA.md
+- 选择理由：IDEA-022 首审（Call 19）8.2、复核（Call 20）8.0，卡在门槛未过，无 fatal。复核唯一压分点是相对 ContextLift 的新颖边距偏窄、且最可能落在 H-generic。IDEA-023 实验设计不变，只收紧两处定位：讲清"相对排布/邻接"与 ContextLift"情境句存在性"正交、不是补消融；并预先把 H-generic 结局框成正面机制结论。IDEA-021（H-read 读出定位，自评 7.2）仍为备选。
+- 状态：`in_progress`——IDEA-019 已过 Gate 但预研推翻其 Claim 1，见 PILOT_FINDINGS_AND_CLAIM_REVISION.md；本轮对 IDEA-020/021 查新
 
 ## 候选列表
 
@@ -367,7 +367,7 @@
 
 - 来源：`领域共性不足`
 - 父 Idea：`IDEA-018`
-- 状态：`final`
+- 状态：`refuted_by_pilot`
 - 定位关键词：emergent misalignment；conditional misalignment；chat template tokens；activation patching；data interleaving
 - 一句话背景：训练中交织安全数据后，Qwen2.5-7B 在 broad cue 题上仍有 17.0/35.9/52.4% 的失配；这一条件失配已有行为、数据和表示层解释，但没有位置级因果证据，也没有在回答层区分窄域泄漏与广泛失配。
 - 自评分：`8.0/10`
@@ -380,3 +380,116 @@
 - 本 Idea 的独立创新点：首次对条件失配做位置级因果判别（等长中性句对照、正反两种正面判据、回答层分解），并检验一个已发表防御是否把广泛 EM 转成条件 EM。
 - Baseline 可复现性：同 IDEA-015 表；2026-10-28 用 git ls-tree 复核 contextlift `arxiv` 分支（configs 三臂、scripts 含 `classify_cued_prompts.py`、`residual_cued.py`）与 TReFT 仓库（`release/src/sft.py`、`intervention.py`、`release/scripts/extract_{prefix,postfix}_kv.sh`）。
 - Reviewer 记录：`Call 15（常规，effort high）：8.2/10，experiment_ready，无 fatal blocker，最高近邻 Piggyback 2606.06667、ContextLift 2610.21633、2604.25891、Lasnier 2602.10382（及 2605.18646）、BLOCK-EM 2602.00767`。首轮通过，待 xhigh 复核。非阻断意见：Anchor 中“触发空间的系统化搜索”未覆盖；前置中性句因因果掩码不可能携带 cue 信息，只能排除“扰动任何用户段”类解释；security 约 15pp，r_cue CI 可能过宽；token 级后门修补文献（Lasnier、Kulumba）发现触发信息汇聚在触发末 token，构成 H-pos 先验，应引用。；`Call 16（复核，xhigh 角色，harness 无法设置推理强度、按默认强度运行）：8.2/10，experiment_ready，无 fatal blocker，最高近邻 ContextLift、2604.25891、Piggyback、BLOCK-EM 2602.00767、Kulumba 2605.18646`。非阻断意见：分量层与 security 功效偏紧；Claim 2 的推翻条件不是等价检验；修补后的连贯性过滤可能压低失配率；超参出处应为 ContextLift 附录 F 表 7。Gate 通过，已扩写为 FINAL_IDEA.md。
+
+> **2026-11-02 预研结果（见 `PILOT_FINDINGS_AND_CLAIM_REVISION.md`）：Claim 1（H-pos）不成立。** medical 种子 0、gpt-6-luna judge 下 r_cue=9.7%，CI [−18.4, 32.0]；交叉检查（72B judge、前置中性句）为 24.5%，CI [7.3, 40.7]。按判定表归为"非特异"。IDEA-019 状态由 `final` 改为 `refuted_by_pilot`。另有两项观察：插入任何一句中性句都让 cue 效应减半（三轮 0.41/0.49/0.54）；修补中性句反而让失配略升（证据弱）。
+
+---
+
+> 2026-11-02 用户追加 10 次预算，对预研文档中的建议 B（IDEA-020）与建议 A（IDEA-021）做查新。改进者本轮核对：ContextLift 局限节原话写明"输出格式与系统提示触发只在代码数据上覆盖，而那个 organism 很弱"；训练侧抽取规则取用户首轮第一个请求标记之前的句子，副本 70% 前置、30% 后置且未单独消融；Dubiński 变的是 cue 类型，并报告"形式相似语义相反"也能触发，但无位置实验；2608.29118 改的是训练数据格式、不研究条件失配；2406.07778 在分类任务上测过字面触发词的位置与位置迁移（SST2 句尾 99.23、句首 93.21、随机 63.82、固定 84.87），但明确未改变触发与指令间的距离或插入文本；长上下文文献里有通用的"插入无关内容削弱提示依赖"现象（lost in the middle、context rot 一类），这是 IDEA-020 的主要竞争解释。
+
+### IDEA-020：条件失配的触发认的是训练时的摆法，不是情境句的语义——剂量台阶、排布对照与良性行为对照
+
+- 来源：`领域共性不足`（预研观察 O2 与 Dubiński"形式相似语义相反也能触发"合流）
+- 父 Idea：`无`（由 IDEA-019 的预研结果触发，Claim 与对象都不同）
+- 状态：`needs_revision`
+- 定位关键词：emergent misalignment；conditional misalignment；contextual triggers；data interleaving；trigger position
+- 一句话背景：缓解后的条件失配由一句领域情境句触发，但这个触发认的是语义还是它在用户消息里的摆放方式，从未被检验。
+- 自评分：`7.8/10`
+- 一段话概括：
+  - 主张 H-format：触发依赖训练数据里"情境句打头、紧跟请求"这套排布。对立解释 H-dilute 是通用的注意力稀释。
+  - 三条判别：剂量曲线呈台阶而非单调衰减；削减看排布不看 token 数（把插入内容移到请求之后，cue 效应回升）；同一批提示上的良性格式指令遵守率受影响显著更小。
+  - 条件性第四条：训练副本里在情境句与请求间插填充后重训，敏感性随训练格式一起移动。
+  - 主实验只改评测提示，复用预研已训好的模型，约 31 A100 小时。
+- Story line：
+  - 明确失败及证据：ContextLift 通用交织臂在 broad cue 题上仍有 17.0/35.9/52.4% 的失配，但它只有一种 cue 摆法，并把格式触发列为范围之外。
+  - 预研观察：插入任何一句中性句都让 cue 效应减半（三轮 0.41/0.49/0.54，最后一轮 CI [0.40, 0.69]），与插入句的内容和位置都无关；中性句本身几乎不制造失配（3.0% → 2.9%）。
+  - 被忽视的关键：训练侧的抽取规则决定了"情境句打头紧跟请求"这一格式，而评测侧从未改变过它。
+  - 本 Idea 的动作：剂量、排布、内容三组评测条件，加良性行为对照，把格式敏感与注意力稀释分开。
+  - 可支持或推翻的预期：台阶 + 排布回升 + 良性行为受影响更小则支持 H-format；单调衰减或良性行为同样受损则支持 H-dilute。
+- 打分理由：
+  - 现象来自我们自己的数据且三轮稳健，不是假设；判别设计对两种解释给出相反预测；主实验不需要重训，是这个 slot 里成本最低的候选。
+  - 实践含义明确：条件失配评测只用一种 cue 格式，可能高估或低估残余风险。
+  - 风险：H-dilute 是很强的竞争解释，结果可能落在它那边（但那本身也是可报告的方法学结论）；贡献仍属分析型；判分受 API 额度限制，需本地 judge 加校准。
+- Idea 生成依据：预研文档 O2、O5；ContextLift 2610.21633（§2 抽取规则、Table 2/5、局限节，2026-11-02 读原文）；Dubiński 2604.25891（cue 类型、形式相似语义相反，2026-11-02 读原文）；2608.29118（训练数据格式改写，2026-11-02 读原文）；2406.07778（字面触发词的位置与迁移，2026-11-02 读原文）；长上下文退化文献（lost in the middle / context rot）。
+- 自评分轻量新意依据：检索 trigger position sensitivity、backdoor trigger robustness to context insertion、conditional misalignment format、distractor sentence 等词，未命中"语义情境触发对插入与排布的敏感性"；最接近的 2406.07778 是分类任务里的字面触发词，且明确未测距离与插入。需要 reviewer 检索。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：第一次在语义情境触发上，用剂量台阶、排布恢复和良性行为对照，判别"触发依赖训练格式"与"通用注意力稀释"。
+- Baseline 可复现性：
+
+| Baseline | 与定位关键词及目标任务的关系 | 论文或规范 | 开源代码与核验结果 | 具体复现方式 | 是否纳入最小实验 |
+|---|---|---|---|---|---|
+| 通用交织臂（主对象） | 同任务同评测的训练中缓解，条件失配在该臂上有报告 | https://arxiv.org/abs/2610.21633 | https://github.com/davidkaczer/contextlift （2026-11-02 核验 `arxiv` 分支 configs 与 scripts；预研已用同一配置训出 medical 种子 0） | `EMA_CONFIG=configs/<d>/interleaving_wg.yaml` | 是 |
+| ContextLift 臂 | cue 效应接近零的参照 | 同上 | 同上 | `interleaving_wglift.yaml` | 是 |
+| 原格式 cue 题与无 cue 题 | ρ 的分母与每个排布的参照 | 同上 | `build_cue_questions.py`、`classify_cued_prompts.py` | 直接复用，并为每个排布另建无 cue 版本 | 是 |
+
+- Reviewer 记录：`Call 17（常规，effort high）：6.5/10，promising_needs_revision，无 fatal，最高近邻 ContextLift 2610.21633、Mammeri et al. ICML 2026 workshop、Dubiński 2604.25891、LessWrong Sealing Conditional Misalignment、2406.07778`。reviewer 实测 clone 核验了全部 baseline 入口，未发现可行性缺口。四条意见：(1) 未引 Mammeri et al.《When Does Interleaving Prevent Emergent Misalignment?》，同模型家族同缓解已报告标准 benchmark 对提示长度敏感、并据此质疑短提示 benchmark，使"插入内容是必须控制的变量"这一推翻分支结论已被覆盖；(2) 主张 1 用"差的 CI 含 0"接受台阶，是把未能拒绝单调当成存在平台，在预研自有 CI 宽度（约 0.29）下近乎自动通过，不可证伪；(3) 条件 (d) 同时恢复了 cue→请求邻接，分不开训练排布与距离，而预研自有的位置无关性偏向稀释侧，唯一闭合因果链的主张 4 却被设为条件项；(4) 2406.07778 并未"明确声明"未测距离，只是没研究，且其句子边界插入把 ASR 提到 97+，部分预占了成句性对照。改进者本轮核对 Mammeri 等人：经作者所属机构页面确认存在（Qwen-2.5 7B/32B、交织、ICML 2026 MechInterp workshop poster，主贡献为预测良性数据是否有效的激活区域）；OpenReview 网页与 api/api2 均返回 bot 校验 403，无 arXiv 版，长度变化的具体构造方式未核验。子候选：IDEA-022。
+
+### IDEA-021：条件失配的"读出点"在下游——正面证明 H-read 并定位读出位置与层段
+
+- 来源：`最高近邻不足`（IDEA-019 的预研把 H-pos 排除，但 H-read 尚未被正面证明）
+- 父 Idea：`IDEA-019`
+- 状态：`available`
+- 定位关键词：emergent misalignment；conditional misalignment；activation patching；chat template tokens；data interleaving
+- 一句话背景：预研显示 cue 位置的微调改动不是条件失配所必需的，但"切换由下游位置完成"这一结论还没有被正面证明，读出点也未定位。
+- 自评分：`7.2/10`
+- 一段话概括：
+  - 把 r_cue 的 CI 上界压到 20% 以下，按 IDEA-019 的判定表正面判为"支持 H-read"。
+  - 再分别修补原题 token、模板 postfix、生成出的 token，并对每类做分层修补（前半层/后半层），定位读出发生在哪类位置、哪个层段。
+  - 与后门文献对照：2602.10382 与 2605.18646 报告触发信息先在早层汇聚到触发词末 token，再由第 3–7 层搬运到最后位置读出；我们的设置有可比的基座，可以检验条件失配是否走同一路线。
+- 打分理由：
+  - 预研已把 H-pos 排除，这是一个有据的空白；工具现成。
+  - 风险：仍是沿用 Piggyback KV 修补的分析型工作，这条线上 Call 10–16 的 reviewer 反复判为增量；而且需要更多采样才能压窄 CI，成本高于 IDEA-020；"修补生成 token"在因果解释上也不干净（它同时改变了已生成内容）。
+- Idea 生成依据：预研文档 O1、建议 A；2602.10382、2605.18646（2026-10-28 读原文）；2503.04429。
+- 自评分轻量新意依据：同 IDEA-019 一脉；2602.03085 只做注意力层面的观察，不做因果定位，且针对字面触发词。需要 reviewer 检索。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：正面证明 H-read 并定位读出位置与层段。
+- Baseline 可复现性：同 IDEA-019 表（ContextLift 管线加 TReFT 仓库的 KV 修补工具）。
+- Reviewer 记录：`尚未送审`
+
+### IDEA-022：条件失配的触发锁定训练排布——训练侧×评测侧的交叉交互判别
+
+- 来源：`领域共性不足`（预研 O2）+ `最高近邻不足`（ContextLift 的 70/30 前后置未消融）
+- 父 Idea：`IDEA-020`
+- 状态：`needs_revision`
+- 定位关键词：emergent misalignment；conditional misalignment；contextual triggers；data interleaving；trigger position
+- 一句话背景：缓解后的条件失配由一句情境句触发，评测侧插入任何内容都让它减半，但这是"偏离了训练排布"还是"提示里多了内容"，评测侧的任何扫描都分不开。
+- 自评分：`8.0/10`
+- 一段话概括：
+  - 主判别改为训练侧反事实：训练两个臂（`train-adj` 为 ContextLift 原配方，`train-fill` 在副本的情境句与请求之间插一句固定填充句），评测两种排布（`eval-adj`、`eval-fill`），构成 2×2。
+  - 主张交互对比 Δ_cross 显著为正，即每个臂在自己训练过的排布下 cue 效应最强；H-generic 预测 Δ_cross 约为 0。
+  - 这一判别不依赖"评测侧插入是否削弱失配"这一已被 Mammeri et al. 报告的主效应。
+  - 次要主张：剂量台阶（改用等价界判定）；良性格式指令遵守率受影响显著更小（加天花板检查）。
+  - 约 48 A100 小时。
+- Story line：
+  - 明确失败及证据：ContextLift 通用交织臂在 broad cue 题上仍有 17.0/35.9/52.4% 的失配；我们的预研发现插入任何一句都让 cue 效应减半（三轮 0.41/0.49/0.54）。
+  - 现有解释的边界：Mammeri et al. 已报告标准无 cue benchmark 对提示长度敏感，所以"插入削弱失配"不是新发现；而预研里"插在 cue 之前并未拉开 cue 与请求的距离却同样减半"这一事实，偏向通用削弱而非距离效应。
+  - 被忽视的关键：训练侧的排布从来没被当作变量（ContextLift 的 70/30 前后置未消融）。
+  - 本 Idea 的动作：训练侧插填充，构成 2×2 交叉。
+  - 可支持或推翻的预期：双向交叉则触发锁定训练排布；交互落在等价界内则是通用削弱。
+- 打分理由：
+  - 修掉 Call 17 的三条实质意见：把唯一能闭合因果链的训练侧反事实提为主判别；判定规则改用事先定好的等价界；对立假设改写成包含距离版本与总长度版本的强版本。
+  - 主判别对 Mammeri 等人的发现免疫，解决了结果空间不对称。
+  - 风险：`train-fill` 臂的 organism 强度可能整体不同（交互对比是差之差，对此稳健，但各格原始值仍要报告）；仍属分析型贡献；Mammeri 等人改变长度的具体方式未核验，投稿前需补。
+- Idea 生成依据：预研文档 O2、O5；ContextLift 2610.21633（§2 抽取规则、70/30 拼接、局限节）；Dubiński 2604.25891；Mammeri et al.（ICML 2026 MechInterp workshop，经 Mila 机构页面核实题名、模型与主贡献；全文未取到）；2406.07778（位置迁移与句子边界效应）；Call 17 审查。
+- 自评分轻量新意依据：未见任何工作改变条件失配训练数据中情境句与请求的相对排布；ContextLift 的 70/30 前后置未消融已核实。需要 reviewer 检索。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：第一次把条件失配触发的训练侧排布当作可操纵变量，用训练×评测的交叉交互把"锁定训练排布"与"通用提示依赖削弱"分开。
+- Baseline 可复现性：同 IDEA-020 表，另加 `train-fill` 臂（同一副本构造脚本插入固定填充句，其余参数不变）。
+- Reviewer 记录：`Call 18（常规）：被会话内 /model 切换打断，未写出审查、无分数，计入预算。Call 19（常规替换，effort high）：8.2/10，experiment_ready，无 fatal，最高近邻 ContextLift 2610.21633、Mammeri ICML2026 MechInterp、Dubiński 2604.25891、后门位置 2406.07778`。首轮通过。`Call 20（复核，xhigh 角色）：8.0/10，promising_needs_revision，confirmation_failed`——卡在门槛（需 > 8），无 fatal。唯一压分点：相对 ContextLift（已框情境—答案伪相关、已在训练侧加情境句）新颖边距偏窄，审稿人第一反应会问"这为什么不是 ContextLift 的消融"；且按预研最可能落在 H-generic，需预先把该结局框成贡献。reviewer 确认 Δ_cross 与 Mammeri 长度主效应正交是最强点。子候选：IDEA-023。
+
+### IDEA-023：IDEA-022 的定位收紧版——相对排布为独立机制轴，H-generic 结局预先框成贡献
+
+- 来源：`领域共性不足` + `最高近邻不足`
+- 父 Idea：`IDEA-022`
+- 状态：`needs_revision`（暂停）
+- 定位关键词：同 IDEA-022
+- 一句话背景：同 IDEA-022。
+- 自评分：`8.0/10`
+- 一段话概括：实验设计与 IDEA-022 完全相同（train-adj × train-fill 与 eval-adj × eval-fill 的 2×2 交叉交互 Δ_cross，加剂量台阶与良性遵守率对照）。两处定位改动：(1) 讲清操纵轴是"情境句相对请求的排布/邻接"，在情境句存在性、绑定对象、行数、内容全部不动的前提下只改邻接，因此与 ContextLift 动的"情境句存在性"轴正交，不是补它的消融；(2) 事先把两个结局都框成机制结论——H-trained 坐实触发键是训练排布并指出数据侧防御的残余，H-generic 证伪排布锁定并把 Mammeri 的长度敏感性延伸到带 cue 的条件失配、给出控制摆法与长度的可操作结论（可解释 ContextLift 与 Dubiński 数字对不齐）。
+- 打分理由：Call 20 无 fatal，唯一压分是定位；本版不加实验、不动判定表，只收紧新颖边界与结果框定，正是复核要求的两点。风险同 IDEA-022：H-generic 更可能，但已框成贡献。
+- Idea 生成依据：同 IDEA-022；Call 19/20 审查。
+- 自评分轻量新意依据：同 IDEA-022；两位 reviewer 均确认无近邻改过情境句相对请求的训练侧排布。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：第一次把条件失配触发中情境句相对请求的排布/邻接当作独立于"情境存在性"的操纵轴，用训练×评测交叉交互判别机制。
+- Baseline 可复现性：同 IDEA-022。
+- Reviewer 记录：`Call 21（常规，effort high）：7.0/10，promising_needs_revision，无 fatal`。比 IDEA-022 的 8.2/8.0 更低：定位修订未解决根因，反而让 reviewer 更仔细审视 H-generic 分支，判其相对 Mammeri 长度敏感性增量不足，且"证伪排布锁定"否定的是无人提出过的猜测。核心是实质性新颖天花板，非表述问题。四篇近邻与数字均经第三位 reviewer 独立核实。暂停，待用户定方向。`

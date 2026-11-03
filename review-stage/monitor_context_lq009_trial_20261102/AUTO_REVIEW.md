@@ -1,0 +1,6 @@
+# 审查记录
+
+- Call 1（常规，effort high）：IDEA-006，6.3/10，promising_needs_revision，贡献三项 {'importance': 8.0, 'novelty': 6.0, 'effectiveness': 6.0}，可行性 fail，Gate 结果 failed。自然轨迹上同预算低误报的动作依赖取证若成立，会提供重要的监控能力；但跨步骤证据聚合已有TRACE、动作反向切片与执行前授权已有PCAS，当前仅明确增量新意。机制消融与自然/构造分离支持有限结论，但未能排除最高同任务近邻，尚不具备两个维度达到8分的依据。
+- Call 2（常规，effort high）：IDEA-007，7.0/10，promising_needs_revision，贡献三项 {'importance': 8.0, 'novelty': 6.0, 'effectiveness': 6.5}，可行性 pass，Gate 结果 failed。主贡献是依赖索引原文证据包带来的监控成本—召回改进。自然多任务中保留有用低误报召回且完整成本减半具有重要实际价值；机制相对动作切片、ledger 与定向调查主要为增量。双协议和消融可以验证相对 MRT 的有限结论，但结构可恢复性、跨前缀重复读取和 TRACE/ledger 效率竞争仍未得到足够依据，有效性不足 8 分。
+- Call 3（常规，effort high）：IDEA-008，7.0/10，promising_needs_revision，贡献三项 {'importance': 8.0, 'novelty': 6.0, 'effectiveness': 6.0}，可行性 fail，Gate 结果 failed。主贡献是用解释分歧驱动的一两次环境查询改善实际违规召回。若自然完整队列在同误报与总预算下稳定提高至少10个百分点，重要性达到8；主动审查和对话外取证已有先例，新颖度为6的明确增量。自然轨迹与快照控制支持有限信息价值结论，但单查询ReAct对两查询方案及缺失同任务强hybrid文本对照，使有效性目前为6；仅一项达到8，贡献门槛未通过。
+- Call 4（常规，effort high）：IDEA-009，6.8/10，promising_needs_revision，贡献三项 {'importance': 8.0, 'novelty': 6.0, 'effectiveness': 6.5}，可行性 pass，Gate 结果 failed。主贡献是强文本证据之后，以合法/违规竞争解释的事实分歧分配少量独立状态查询。相同误报、人工负担、权限和计算下若稳定优于通用主动调查，具有重要实际价值。竞争假设驱动取证及预算式主动调查已有近邻，当前属于应用增量；自然队列中新增判据的占比与优于ReAct的依据仍未建立。等配额和交换判定器设计可以支持有限结论，但不足以使有效性达到8分；三项均达到6分，仅重要性达到8分，未通过贡献门槛。

@@ -22,6 +22,9 @@ Write `RAW_IDEA.md` with this template. State whether the paper mainly introduce
 
 ## 实验设计与主要结论
 <说明数据或 benchmark、主要 baseline、指标、关键对照和论文实际报告的结论；将作者报告与 improver 判断分开。>
+
+## 问题锚点（Problem Anchor）
+<记录作为起点的研究对象、条件、初始任务/评测、瓶颈与证据边界，以及用户资源、时间、非目标约束和进入实验规划的成功条件。候选可以研究子问题或邻近新问题，实际对象与转向理由写在 brief 中；不要把候选偏好或自评分数写入这里。>
 ```
 
 ## Role of the supplied paper

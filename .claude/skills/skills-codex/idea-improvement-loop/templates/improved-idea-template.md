@@ -1,8 +1,10 @@
-> 使用说明：本模板只用于 novelty gate 通过后的 `FINAL_IDEA.md`（以及最终展开后的 `CURRENT_IDEA.md`）。由主执行器直接展开，不调用 improver 子 agent。循环中的候选保存在 `IDEA_CANDIDATES.md`，`round-N-brief.md` 只写“背景 / 核心 Claim / 方法设计的核心思想 / 最小实验”四部分，不要套用本模板，也不要把完整模板交给 reviewer。
+> 使用说明：本模板只用于贡献门槛和可行性审查通过后的 `FINAL_IDEA.md`（以及最终展开后的 `CURRENT_IDEA.md`）。遵循 `references/贡献评判标准.md`，保留审查通过的主贡献与待验证条件。由主执行器直接展开，不调用 improver 子 agent。循环中的 brief 只写“背景 / 核心 Claim / 方法设计的核心思想 / 最小实验”四部分，不套用本模板。
 
 # Improved Idea Template
 
 Write the improved idea in the user's language when clear from the request. Assume the reader knows the broad field but is new to this narrow research direction. The proposal must be readable to a researcher who has not seen the raw brainstorming notes. Do not write a loose bullet dump; make the idea understandable like the introduction and experiment-plan sections of a paper.
+
+The contribution may be a method, an important new phenomenon or perspective, or a coherent combination. Improvements on existing problems are valid; discovery-led work need not add a new fix. Adapt method-oriented section labels to the investigation when appropriate. Do not invent an unsolved problem, inflate a local assertion into a major discovery, or turn planned outcomes into established findings. Explain the importance, novelty, effectiveness, and feasible validation of the same main contribution.
 
 Use direct, plain language throughout. Explain what the method concretely does before introducing abstractions or formal notation. Mathematical formulas are welcome when useful, but define every symbol at first use and immediately explain what the formula means in ordinary language. Once a specialized term has been explained in the glossary below, it may be used normally in later sections.
 
@@ -27,9 +29,13 @@ Do not pad the glossary with broad-field basics unless this proposal uses them i
 
 **一句话背景：** <In one plain-language sentence, state the established field and the exact problem being studied.>
 
+**与起点问题的关系：** <原问题 / 子问题 / 邻近新问题；说明保留或改变的对象、关键条件与评价目标，以及原问题仍未回答的部分。子问题和邻近新问题可以作为最终 Idea，按其自身贡献与证据判断，不要求完整解决起点问题。>
+
 **输入论文及其角色（如适用）：** <Name and link the supplied paper. State whether it is task origin, method inspiration, a related-work example, or an experimental baseline that independently passed the same-task and reproducibility requirements.>
 
 **本 Idea 的独立创新点：** <State the proposal's own novelty in one sentence. For paper input, it must remain a complete research contribution after removing the supplied paper's name and cannot be framed as repairing or completing that paper.>
+
+**主贡献及其价值：** <成功后新增什么值得知道或使用的东西；说明三项的当前依据与未知部分。有效性依据须区别于未来成功阈值和验证设计，不把计划当结果。>
 
 ## 1. Introduction-Style Summary
 
@@ -40,19 +46,16 @@ Do not pad the glossary with broad-field basics unless this proposal uses them i
 <Explain the most relevant existing method family or closest competitors. Describe their normal pipeline and assumptions. Name concrete papers/systems/benchmarks when known; mark unknown prior work as needs search. When a paper was supplied as the starting point, place it here as related work, task origin, method inspiration, or one example of a broader limitation; do not organize the proposal as a completion of that paper.>
 
 ### 1.3 Bottleneck in Existing Methods
-<Identify the specific bottleneck, failure mode, cost, data dependence, evaluation blind spot, or modeling assumption that prevents existing methods from solving the task well. This should be narrow enough that one paper can attack it.>
+<Identify the real bottleneck targeted by a method, or the important phenomenon and gap in understanding targeted by a discovery. Existing problems need not be unsolved. Claiming a newly discovered shared unsolved problem requires checking prior recognition and fixes. Explain the consequence for the field, not merely that an experiment has not been done.>
 
 ### 1.4 Our Improvement
-<Explain the proposed improvement directly against the bottleneck. Begin with one plain-language sentence saying what we actually build, change, train, or run. Then state what changes relative to existing methods, why that change should help, and what is deliberately kept simple.>
+<State what we build, change, train, or investigate. For a method, explain the meaningful improvement over strong baselines and why the mechanism should cause it. For a phenomenon or perspective, explain what new understanding follows and how the investigation distinguishes competing accounts. A diagnostic assertion alone is not automatically the main contribution.>
 
 ### 1.5 Experiment Setup at a Glance
 <Summarize the planned benchmark(s), dataset(s), verified reproducible baselines, metrics, and success criterion in one compact paragraph. Keep every baseline in the same target domain, task, and evaluation setting.>
 
 ### 1.6 Contributions / Novelty
-List this proposal's concrete contributions. For paper input, every contribution must belong to the new idea rather than filling an omission in the supplied paper:
-1. <Contribution 1: method/mechanism>
-2. <Contribution 2: empirical finding/evaluation design>
-3. <Contribution 3: artifact/analysis/theory if applicable>
+State the main contribution first and add only substantive supporting contributions; no fixed count. Explain what changes if it succeeds. For paper input, each must belong to the new idea rather than filling an omission in the supplied paper. Method, phenomenon, perspective, task, or theory contributions may be used as appropriate; an artifact or extra ablation does not automatically add contribution weight.
 
 ## 2. Detailed Method Plan
 
@@ -73,19 +76,19 @@ List this proposal's concrete contributions. For paper input, every contribution
 ## 3. Minimal Validation Experiment
 
 ### 3.1 Purpose
-<State the smallest experiment that can falsify or support the new idea's independent Claim. Reproducing a missing experiment from the supplied paper is not sufficient.>
+<State the smallest experiment that demonstrates or falsifies the value of the main contribution. A method must test meaningful improvement on the actual problem, not only an intermediate statistic; a discovery must establish reliable evidence and distinguish important alternatives. Explain why the critical operations can be implemented within the user's resources.>
 
 ### 3.2 Dataset / Benchmark
-<Name the dataset(s), benchmark(s), task split, environment, or synthetic setup. If uncertain, list the best current candidate and mark what needs checking.>
+<Name the dataset(s), benchmark(s), task split, environment, or synthetic setup. For indispensable observations/states, cite an actual sample, release specification or storage path establishing availability; a field or interface alone is insufficient. If reconstruction or new labeling is required, give its inputs, steps, cost and unknown coverage. Explain label meanings and their relation to the Claim. Mark what still needs checking without claiming completed reproduction.>
 
 ### 3.3 Baselines
-<Use this existing section as the single source of truth for experimental baselines; do not add a duplicate baseline section elsewhere. List only the minimum baselines needed for the first validation. Every baseline must directly match the positioning keywords, target domain, task, and evaluation setting. A supplied seed paper is not automatically an experimental baseline: include it here only when it satisfies those same requirements. A cross-domain method may be cited as inspiration but cannot be used here as an experimental baseline. For each nontrivial baseline, give the paper URL, a public code repository that the improver has opened and verified as the corresponding implementation, and the exact entry point/configuration/documented command to reproduce it. A simple standard baseline may omit a repository only when it can be implemented locally from a complete specification without unavailable data or checkpoints; explain that route. Exclude any baseline whose implementation or required artifacts cannot be verified. State how core model, data, training/inference budget, and evaluation parameters are held equal across baselines. Prefer a compact table with columns: Baseline, relevance to keywords/task, paper, verified code, reproduction route, controlled core parameters.>
+<Use this section as the single baseline source of truth. Follow references/基线复现依据.md. Minimum strong comparisons must match the task and evaluation. Give either verified public code and an entry/configuration, or sufficiently specified primary algorithm/prompt/tool sources and a faithful independent implementation plan, its unresolved choices, and required artifacts. Standard algorithms may be specified directly. Distinguish planned reproduction from completed results and official implementation. If a necessary competitor cannot be reproduced, retain its novelty and Claim implications; do not silently replace it with weaker work. Cross-domain inspiration is not a same-task performance baseline. State how model, data, budget, observation permissions, and evaluation are held equal.>
 
 ### 3.4 Metrics
 <List the primary metric and secondary metrics. Explain what outcome would count as a meaningful improvement.>
 
 ### 3.5 Expected Result and Failure Condition
-<State what result would justify continuing, and what result would make the idea likely not worth further work.>
+<State what result would make the main contribution worth pursuing, what would refute it, and what would leave only a low-value diagnostic assertion. Tie continuation to the shared contribution standard, not only statistical significance.>
 
 ## 4. Follow-Up Experiment Plan
 

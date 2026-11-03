@@ -1,63 +1,81 @@
 ---
 name: idea-improvement-loop
-description: "Iteratively develop a genuinely new research idea from either a user-provided raw idea or an existing paper supplied as the baseline/starting point. The main executor reads and searches directly, maintains and ranks a candidate pool, and uses fresh zero-context novelty reviews; paper-input mode first summarizes the paper's core innovation, method, and experiments, then generates ideas whose novelty belongs to the new proposal rather than patching that paper. Use when the user says \"改进idea\", \"打磨idea直到可以做实验\", \"improve this idea\", \"基于这篇论文创新\", supplies a paper/PDF/arXiv link as a baseline, or asks to preserve competing idea variants before experiment planning."
+description: "Develop research ideas from a raw idea, a starting paper, or a path-stage problem card. The main executor searches, preserves competing candidates, and improves them through method transfer, closest-neighbor drawbacks, and shared limitations. Fresh zero-context reviewers independently judge contribution, novelty, and feasibility; two reviews of the same brief must pass before experiment handoff. Valuable subproblems and adjacent new problems may be retained with their own contribution. Use for \"改进idea\", \"打磨idea直到可以做实验\", \"improve this idea\", \"基于这篇论文创新\", or \"从研究地图/问题卡找idea\"."
 ---
 
 # Idea Improvement Loop
 
 ## Overview
 
-Use this skill after a raw idea exists, or when the user supplies an existing paper as the starting point for innovation, but before committing GPU time. The main executor itself is the Idea Improver:
+Use this skill after a raw idea, a baseline paper, or a path-stage problem card exists, but before committing GPU time. The main executor itself is the Idea Improver:
 
 ```text
-raw idea or supplied paper
-  -> if paper: read it and summarize its contribution, method, and experiments in RAW_IDEA.md
-  -> main executor searches and records every distinct candidate in IDEA_CANDIDATES.md
-  -> main executor self-scores candidates and selects the highest eligible one
-  -> selected candidate becomes a short positioning-and-idea round-N-brief.md
-  -> one fresh zero-context reviewer checks novelty and closest prior work
+raw idea | supplied paper | path-stage problem card
+  -> write RAW_IDEA.md (paper: summarize it; card: distill the card and reuse its evidence)
+  -> main executor generates candidates through four routes and records them in IDEA_CANDIDATES.md
+  -> main executor self-scores candidates, picks the pool leader, verifies its baselines
+  -> leader becomes a short four-part round-N-brief.md
+  -> one fresh zero-context reviewer independently judges contribution, novelty, effectiveness, and feasibility
   -> if rejected, main executor improves it, appends new candidates, and re-ranks the pool
-  -> if the pool leader receives reviewer score > 7.5 with no fatal blocker, expand FINAL_IDEA.md
+  -> if its three contribution scores satisfy the shared gate and feasibility passes, a second fresh xhigh reviewer re-checks the same brief
+  -> only if both pass, expand FINAL_IDEA.md
 ```
 
-Intermediate communication stays small. The candidate pool keeps every concrete idea version, while each reviewer receives only the selected brief with its positioning, Claim, method, and minimal experiment. A full paper-like proposal is produced once, after the gate passes.
+Intermediate communication stays small. The candidate pool keeps every concrete idea version, while each reviewer receives only the selected brief. A full paper-like proposal is produced once, after the gate passes.
+
+The input is a starting point for improving ideas. Valuable subproblems and adjacent new problems may remain in the pool and pass review on their own merits. State what changed and what remains unanswered in the starting problem; do not reject a candidate merely for changing scope, or inherit the original problem's importance without evidence for the new target. The user's explicit resource and scope constraints still apply.
 
 ## Constants
 
-- **MAX_ROUNDS = 5** — Maximum number of reviewer invocations. It is not a limit on local searches, candidate generation, self-scoring, file updates, or final expansion.
-- **FINAL_REVIEW_THRESHOLD = 7.5 (exclusive)** — A reviewer score must be strictly greater than 7.5; exactly 7.5 does not pass.
-- **STOP_CONDITION** — Generate the final idea only when the reviewed candidate was the highest self-scored eligible candidate at selection time, reviewer score is `> 7.5`, and `fatal_blockers` is empty.
+- **MAX_ROUNDS = 6** — Maximum number of reviewer invocations. It does not limit local searches, candidate generation, self-scoring, file updates, or final expansion.
+- **CONTRIBUTION_GATE** — `importance`, `novelty`, and `effectiveness` are each ≥6, with at least two ≥8. Overall `score` is recorded but is not a separate gate.
+- **STOP_CONDITION** — Generate the final idea only when the reviewed candidate was the highest self-scored eligible candidate at selection time and two independent reviews of the same brief each meet `CONTRIBUTION_GATE`, judge feasibility `pass`, return `experiment_ready`, and have empty `fatal_blockers`.
+- **CONFIRMATION_REVIEW = true** — A first passing review only marks the brief `待复核`; a second fresh reviewer must confirm it. The confirmation counts toward `MAX_ROUNDS`.
 - **VERDICT_VOCABULARY** = `experiment_ready` / `promising_needs_revision` / `needs_rethink` / `reject`.
-- **OUTPUT_IDEA_ROOT = `idea-stage/`** — Store idea artifacts under `idea-stage/<slug>/`.
-- **OUTPUT_REVIEW_ROOT = `review-stage/`** — Store reviews and state under `review-stage/<slug>/`.
-- **OUTPUT_CANDIDATE_DOC = `idea-stage/<slug>/IDEA_CANDIDATES.md`** — Persistent source of truth for all distinct candidates considered by the improver.
-- **CANDIDATE_TEMPLATE = `templates/idea-candidates-template.md`** — Required structure for the candidate pool.
-- **INTERMEDIATE_BRIEF_FORMAT** — Every selected brief has exactly `背景`, `核心 Claim`, `方法设计的核心思想`, and `最小实验`.
-- **REVIEW_FORMAT** — Every reviewer response has exactly `结论`, `Claim 判断`, and `最高近邻`, followed by a small JSON block.
-- **IMPROVED_IDEA_TEMPLATE = `templates/improved-idea-template.md`** — Full structure used only for `FINAL_IDEA.md` after the gate passes.
-- **IMPROVER_AGENT_POLICY = forbidden** — The main executor must not delegate candidate generation, literature search, self-scoring, selection, revision, or final expansion to a subagent. It uses available search tools directly.
-- **REVIEWER_CONTEXT_POLICY = fresh_zero_context_each_call** — Every reviewer invocation uses a new reviewer agent. Reviewer agents are never continued or reused.
-- **HUMAN_CHECKPOINT = false** — If true, pause after each reviewer result; showing a checkpoint does not consume another reviewer call.
-- **DO_NOT_REUSE_EXISTING_IDEAS = true** — Do not import unrelated ideas from other `idea-stage` directories unless the user explicitly asks.
+- **OUTPUT_IDEA_ROOT = `idea-stage/`**, **OUTPUT_REVIEW_ROOT = `review-stage/`** — Store artifacts under `<root>/<slug>/`.
+- **CANDIDATE_TEMPLATE = `templates/idea-candidates-template.md`**; **IMPROVED_IDEA_TEMPLATE = `templates/improved-idea-template.md`** (final expansion only).
+- **IMPROVER_AGENT_POLICY = forbidden** — The main executor never delegates candidate generation, literature search, self-scoring, selection, revision, or final expansion to another agent.
+- **REVIEWER_CONTEXT_POLICY = fresh_zero_context_each_call** — Every reviewer invocation is a new agent that inherits no conversation context and is never continued or reused.
+- **REVIEWER_MODEL = same as the main executor** — Every reviewer is a new instance of the model running this skill; no other model or external API is used. Regular reviews use reasoning effort `high`; the confirmation review uses `xhigh`. The user may override this.
+- **HUMAN_CHECKPOINT = false** — If true, pause after each reviewer result; showing a checkpoint does not consume a reviewer call.
+- **DO_NOT_REUSE_EXISTING_IDEAS = true** — Do not import ideas from other `idea-stage` directories unless the user explicitly asks. A path-stage map is read only when the user supplies or names it.
 
-User overrides to the reviewer-call budget or gate threshold take precedence. Write documents in Chinese when the user writes in Chinese.
+User overrides to the reviewer budget or contribution standard take precedence. Write documents in Chinese when the user writes in Chinese. “Highest-scored” means the improver's overall self-score ranking among eligible candidates; a self-score never bypasses review.
 
-In the stop condition, “highest-scored idea” means the improver's self-score ranking in `IDEA_CANDIDATES.md`; “score > 7.5” means the independent reviewer's score. A self-score above 7.5 never bypasses reviewer validation.
+## Contribution Standard: What the Improver Is Being Reviewed On
+
+Before generating or revising candidates, read [references/贡献评判标准.md](references/贡献评判标准.md). This is the actual rubric used by both independent reviewers, not a final writing checklist. Design candidates for a defensible contribution under that rubric. Independent final review requires at least two dimensions ≥8 and all three ≥6, plus feasibility; self-scores are honest ranking estimates, not admission thresholds. In particular, separate current evidence for expected effectiveness from the design of a future test. A promised improvement or a better experiment does not establish expected effectiveness.
+
+Existing problems may be improved relative to strong baselines. A new phenomenon or perspective may be the main contribution without a new fix when its importance, novelty, and evidence justify it. “Previously unsolved” is required only when that is itself the claimed contribution. A falsifiable assertion, a new ablation, or an unexplained residual is not automatically a sufficient contribution. The improver must state what becomes worth knowing or using if its key result holds, and explain the credible implementation and decisive experiment before self-scoring. Expected effectiveness is provisional and evidence-backed, never a fabricated result.
+
+## Tools and Harness
+
+This skill runs under different agent harnesses. It names required capabilities, not specific tools:
+
+- **Improver**: use whatever search, fetch, and file tools the harness provides. Open primary paper pages or official sources before treating a work as evidence.
+- **Reviewer**: use whatever mechanism the harness offers for a separate agent (a subagent tool, a fresh CLI session, an external reviewer backend). It must start with no inherited conversation context, have web search, and run on the main executor's own model at the effort `REVIEWER_MODEL` specifies. If the harness cannot set the effort level, use its default and record that. If the harness cannot start such a reviewer, stop and tell the user; never review in the main context as a substitute.
+
+Bundled tools (standard-library Python in this skill's `tools/` directory; run them from the project root, which contains `idea-stage/` and `review-stage/`):
+
+In commands below, replace `<skill>` with the absolute directory containing this `SKILL.md`.
+
+- `tools/paper_peek.py <arxiv_id>... [--grep kw...]` — title, authors, date, abstract, and code links from the abstract page; with `--grep`, keyword snippets from the HTML full text. Use it for candidate sources, lightweight novelty checks, and reading the works a review cites.
+- `tools/repo_check.py <owner/repo|url> [--path dir...] [--readme N]` — whether a baseline repository exists, its last push, directory listing, and README head. Use it in the Phase 2 baseline verification.
+- `tools/loop_state.py` — owns `REVIEW_STATE.json`: `init`, `start-call` (checks budget, persists the incremented counter, copies the brief, writes the reviewer prompt from `templates/reviewer-prompt.md`, prints the launcher message), `record` (parses the review's JSON, applies the gate, appends `AUTO_REVIEW.md`), `extend`, `finish`, `status`.
 
 ## Mathematical Formula Formatting
 
-Only the final expanded document should normally need formulas. Use `$...$` inline and `$$...$$` for display equations. Define every symbol at first use and immediately explain its operational meaning in plain language.
+Only the final expanded document should normally need formulas. Use `$...$` inline and `$$...$$` for display equations. Define every symbol at first use and explain its operational meaning in plain language.
 
 ## Output Layout
 
-Create a stable slug from the idea title or a short normalized phrase. Use lowercase letters, digits, and underscores.
+Create a stable slug from the idea title or problem (lowercase letters, digits, underscores).
 
 ```text
 idea-stage/<slug>/
 ├── RAW_IDEA.md
 ├── IDEA_CANDIDATES.md         # all distinct candidates, self-scores, lineage, and review status
 ├── round-01-brief.md          # candidate selected for reviewer call 1
-├── round-02-brief.md          # candidate selected for reviewer call 2
 ├── ...
 ├── CURRENT_IDEA.md            # selected brief during the loop; full proposal after finalization
 ├── FINAL_IDEA.md              # only after the gate passes
@@ -65,337 +83,204 @@ idea-stage/<slug>/
 
 review-stage/<slug>/
 ├── round-01-review.md         # response from reviewer call 1
-├── round-02-review.md
 ├── ...
 ├── AUTO_REVIEW.md
 ├── REVIEW_STATE.json
 └── FINAL_REVIEW.md
 ```
 
-`N` in every `round-N-*` filename is the reviewer invocation number. Local improvement work does not advance it. Use the reviewer-call number as the only version identifier and do not create timestamped per-round copies. Update fixed aliases in place. This overrides the archive-copy rule in `../shared-references/output-versioning.md` for this skill while retaining its path and stale-state rules. Follow `../shared-references/output-manifest.md` and `../shared-references/output-language.md` when applicable.
+`N` in every `round-N-*` filename is the reviewer invocation number; local improvement work does not advance it. Update fixed aliases in place and do not create timestamped copies. This overrides the archive-copy rule in `../shared-references/output-versioning.md` for this skill while retaining its path and stale-state rules. Follow `../shared-references/output-manifest.md` and `../shared-references/output-language.md` when applicable.
 
 ## Candidate Pool Contract
 
 Read `templates/idea-candidates-template.md` before initializing or updating `IDEA_CANDIDATES.md`.
 
-Each distinct candidate gets an immutable stable ID (`IDEA-001`, `IDEA-002`, ...). Record:
+Each distinct candidate gets an immutable stable ID (`IDEA-001`, ...) and records: title; origin route; parent ID or `无`; status; at least three positioning keywords found in the cited literature, benchmark, or official task description (never a disguised method name); one background sentence naming the established field and exact problem; one paragraph stating claim, core method, and minimal experiment; one causal story line; a self-score with a one-sentence rationale; idea-generation sources; lightweight novelty evidence; the baseline plan; mode-specific relation fields; reviewer history.
 
-- a short title;
-- origin route: `原始想法` / `相似领域成熟方法迁移` / `最高近邻不足` / `未覆盖新任务`;
-- parent candidate ID, or `无`;
-- status: `available` / `selected` / `needs_revision` / `covered` / `baseline_patch` / `rejected` / `final`;
-- at least three positioning keywords already used by the relevant literature, benchmark, or official task description;
-- one plain-language background sentence naming the established field and the exact problem being studied, without coining a new term;
-- one plain-language paragraph that states the claim, core method, and minimal experiment;
-- one plain-language story line that connects the observed failure, the overlooked key idea, this candidate's concrete action, and the falsifiable expected result;
-- improver self-score from 1 to 10 and one sentence explaining the judgment;
-- the most relevant sources used to generate the candidate, plus any sources used by the later lightweight self-score check;
-- baseline feasibility evidence: for every baseline proposed for the minimal experiment, record why it matches the same domain and task, its paper or specification, its public code repository and verification status, and the concrete reproduction route;
-- for paper input, the supplied paper's role in the candidate and one sentence stating the candidate's own innovation independently of that paper;
-- reviewer-call history once reviewed.
+Record its relation to the starting problem (`原问题` / `子问题` / `邻近新问题`) in one sentence: what objects, conditions, or evaluation targets it keeps or changes, and what the original question still needs. These labels describe scope, not a preference ranking or an extra admission gate.
 
-The self-score is one overall research judgment, not a pseudo-precise scoring worksheet. Candidate generation and self-scoring are separate steps: while proposing a candidate, search only for abstractions, transferable mechanisms, modules, failure cases, and task definitions that help form the idea; do not run a novelty audit of the newly formed candidate. After the candidate is concrete, perform only a lightweight, targeted novelty check for self-scoring and ranking. Base the score on that limited evidence, fidelity to the Problem Anchor, story-line coherence, feasibility, and whether the minimal experiment can falsify the claim. Use at most one decimal place. This lightweight check is provisional and never replaces the reviewer's formal novelty judgment.
+Origin routes: `原始想法` / `问题卡切口` / `相似领域成熟方法迁移` / `最高近邻不足` / `领域共性不足` / `未覆盖新任务`.
 
-Append every distinct, concrete candidate actually considered for selection. Do not hide a lower-scored candidate merely because another one looks better. Do not create separate entries for wording changes or synonyms; a new entry must materially change the claim, mechanism, or minimal experiment. Never overwrite a reviewed or rejected candidate with its revision: append the revision as a new candidate and point `父 Idea` to the earlier ID.
+Statuses: `available` / `selected` / `待复核` / `needs_revision` / `covered` / `baseline_patch` / `rejected` / `final`. Only `available` candidates are eligible; `baseline_patch` never is.
 
-Positioning keywords must be terms that can be found in the cited literature, benchmark, or official task description. Do not disguise a new method name as a field keyword. Keep the candidate anchored to one established field and one concrete problem.
+Self-assess the three contribution dimensions with concise reasons and unknowns; record one overall self-score for ranking, with at most one decimal place. No numerical self-score threshold controls admission. An `available` candidate has a concrete independent main contribution, a credible implementation route, and a minimal experiment that can distinguish its Claim. Uncertain contribution potential is allowed for independent feedback; diagnostic seeds or obviously infeasible candidates stay `needs_revision`. Generation and scoring are separate: search to form ideas first, then do a lightweight targeted novelty check for ranking. If overlap is uncertain, say so; the reviewer owns formal novelty and contribution judgment. Never inflate a self-score to obtain review or send renamed duplicates to use up budget.
 
-A candidate is eligible for `available` status only after its positioning and minimal baselines have been checked. An experimental baseline must target the same task and evaluation setting and must have a direct relationship to the positioning keywords. A method from another field may motivate a candidate, but list it as method inspiration rather than an experimental baseline. Use a nontrivial prior method as a baseline only when the improver has opened and verified a public implementation that corresponds to the cited method and recorded how it will be run in the target setting. A simple standard baseline without a repository is allowed only when its implementation is fully specified and can be implemented locally without unavailable data, checkpoints, or hidden infrastructure; state that reproduction route explicitly. Otherwise, keep the work as related literature and exclude it from the minimal experiment.
+Append every distinct candidate actually considered; do not hide lower-scored ones. Wording changes are not new candidates; a new entry must materially change the claim, mechanism, or minimal experiment. Never overwrite a reviewed candidate; append the revision with `父 Idea` pointing to it. A candidate that is clearly not competing for selection may stay a short entry (title, route, status, keywords, background, one-paragraph summary, self-score with rationale); fill the story line, sources, and baseline table once it becomes the leader.
 
-For paper input, treat the supplied paper as the user-designated strongest closest work and the ground-truth starting point for idea finding, not as a separate ideation mode and not automatically as an experimental baseline. Include it in the minimal experiment and final `3.3 Baselines` only if it matches the new idea's task and evaluation setting and passes the same reproducibility check. Otherwise cite it only as task origin, method inspiration, or an example of a broader limitation. This ground-truth role fixes the starting neighbor. During candidate generation, broader search serves only to find transferable mechanisms, understand the method family, and locate real task evidence; defer novelty checking until the lightweight self-score pass and the independent reviewer.
+**Baselines.** Before reviewing the leader, read [references/基线复现依据.md](references/基线复现依据.md). Same-task strong baselines may use a verified implementation, a faithful independent implementation from sufficiently specified primary sources, or an explicitly defined standard algorithm. Record the route, unresolved choices and required artifacts; do not equate planned reproduction with completed experiments. While candidates sit in the pool, a baseline plan suffices. Cross-domain inspiration is not an experimental baseline, and a strong neighbor without code still constrains novelty and any superiority claim.
 
-The new candidate must state its own contribution independently of the supplied paper. Apply the paper-removal test: after removing the supplied paper's title and proposed method name, the candidate must still state a standalone research problem, its own Claim or mechanism, and a falsifiable experiment. This is a structural independence check, not a novelty audit. A candidate whose contribution is merely “add a missing component,” “complete an omitted experiment,” “extend the paper to one more setting,” or otherwise repair the supplied paper is a baseline patch. Record a materially considered patch with status `baseline_patch`, but never select or review it. A limitation in the supplied paper may motivate the idea only when the improver turns it into a broader problem and proposes an independently stated contribution; in the final story, the supplied paper appears as one related-work example rather than the object being completed.
-
-Only candidates with status `available` are eligible for selection; `baseline_patch` is never eligible. Select the eligible candidate with the highest self-score. If scores tie, make a direct judgment using the available evidence and record the one-sentence tie-break reason in `当前选择`; do not invent extra decimal precision. Mark the winner `selected`, record that it was the pool leader, and leave all other eligible candidates in the list.
-
-Do not pass `IDEA_CANDIDATES.md`, self-scores, rankings, or other candidates to the reviewer. This prevents the improver's preference from anchoring the independent review.
-
-`IDEA_CANDIDATES.md` is the only human-readable idea-history document. Write selection reasons, reviewer outcomes, and child-candidate IDs back into it instead of maintaining a second evolution summary.
+Do not pass `IDEA_CANDIDATES.md`, self-scores, rankings, or other candidates to the reviewer. `IDEA_CANDIDATES.md` is the only human-readable idea history; write selection reasons, reviewer outcomes, and child IDs back into it.
 
 ## State Persistence
 
-After each candidate-pool change and reviewer call, overwrite `review-stage/<slug>/REVIEW_STATE.json`:
+`review-stage/<slug>/REVIEW_STATE.json` is written only through `tools/loop_state.py`. It records the input mode and source, the reviewer budget and calls used, the selected candidate and its self-score, `pending_confirmation`, the last score, verdict, blockers and closest neighbors, and every call's candidate, role, effort, brief, prompt, review path, and score. Candidate-pool changes go to `IDEA_CANDIDATES.md`, not to the state file.
 
-```json
-{
-  "slug": "example_idea",
-  "input_mode": "baseline_paper",
-  "source_paper": {"title": "Example Paper", "url": "https://example.org/paper"},
-  "status": "in_progress",
-  "reviewer_calls_used": 2,
-  "max_reviewer_calls": 5,
-  "selected_candidate_id": "IDEA-004",
-  "selected_self_score": 8.3,
-  "selected_was_pool_leader": true,
-  "last_reviewer_score": 7.2,
-  "last_verdict": "promising_needs_revision",
-  "novelty_conclusion": "closest work covers the mechanism but not the derived failure condition",
-  "fatal_blockers": [],
-  "closest_neighbors": ["paper title or needs_search"],
-  "candidate_pool_path": "idea-stage/example_idea/IDEA_CANDIDATES.md",
-  "current_idea_path": "idea-stage/example_idea/CURRENT_IDEA.md",
-  "last_review_path": "review-stage/example_idea/round-02-review.md",
-  "last_brief_path": "idea-stage/example_idea/round-02-brief.md",
-  "reviewer_agent_ids": {"call_1": "audit-only; never reuse", "call_2": "audit-only; never reuse"},
-  "timestamp": "2026-09-07T12:00:00+08:00"
-}
-```
-
-On startup, resume an `in_progress` state less than 24 hours old; otherwise start a new run unless the user explicitly asks to resume. For an existing in-progress state created under the old schema, treat its `round` value as the number of reviewer calls already used. Never reset that counter merely because the schema changed.
+On startup, resume an `in_progress` state less than 24 hours old; otherwise start a new run unless the user asks to resume. For a state created under an older schema, treat its `round` value as reviewer calls already used and never reset the counter.
 
 ## Workflow
 
 ### Phase 0: Initialize
 
-1. Classify the input as `raw_idea` or `baseline_paper`. Use `baseline_paper` when the user supplies a paper, PDF, paper URL, or precise citation and asks to innovate from it.
-2. For `baseline_paper`, read the actual paper before searching for new ideas. Prefer the full primary text; inspect the appendix and official repository when they are needed to understand the method or experiments. Do not infer the paper from its title, abstract alone, or a secondary summary when the full text is available.
-3. Write `RAW_IDEA.md` before candidate generation:
-   - for `raw_idea`, preserve the user's idea and explicit constraints;
-   - for `baseline_paper`, use the compact template below. Summarize whether the paper primarily introduces a new task, a new method, or both, but do not use that classification to choose a separate ideation route. Separate the authors' claims and reported results from the improver's interpretation. Include a verifiable paper link and the official code link when one exists.
+1. Classify the input:
+   - `baseline_paper` when the user supplies a paper, PDF, paper URL, or precise citation and asks to innovate from it. Read [references/paper-input.md](references/paper-input.md).
+   - `problem_card` when the user points to a path-stage map directory, `研究地图.md`, `研究问题.json`, or a problem ID in one. Read [references/problem-card-input.md](references/problem-card-input.md).
+   - `raw_idea` otherwise.
+2. Write `RAW_IDEA.md` before candidate generation: the user's idea and explicit constraints for `raw_idea`; the mode-specific template for the other two.
+3. Read nearby context only when clearly applicable: `RESEARCH_BRIEF.md`, the matching idea/review directory, `refine-logs/FINAL_PROPOSAL.md`, and relevant local notes.
+4. In every input mode, write `## 问题锚点（Problem Anchor）` in `RAW_IDEA.md`: the starting problem and its objects, conditions, initial task/benchmark, bottleneck and evidence boundaries; the user's compute, data, time, venue and non-goal constraints; and the success condition for experiment planning. Keep this starting record and the user's constraints stable. Put each candidate's actual research target and relation to the starting problem in its brief; a subproblem or adjacent problem need not retain every initial condition. Do not put candidate preferences or self-scores in the anchor.
+5. Initialize `IDEA_CANDIDATES.md`, then run `python <skill>/tools/loop_state.py init --slug <slug> --mode <mode> --max-calls <MAX_ROUNDS> --source <input>` to create `REVIEW_STATE.json` and `AUTO_REVIEW.md`.
 
-```markdown
-# 输入论文分析
+If the input is too vague to anchor, ask at most one concise clarification. If a supplied paper or map cannot be accessed, ask for it instead of inventing contents.
 
-## 论文信息
-<标题、作者、年份、论文链接、官方代码链接或“未找到官方代码”。>
+### Phase 1: Candidate Generation
 
-## 核心创新点
-<用说人话的方式说明论文提出的是新任务、新方法还是两者都有，以及作者声称的新意。>
+The main executor performs this phase directly. Search here exists to produce ideas, not to prove novelty. Use the same routes in every input mode.
 
-## 主要方法
-<说明输入是什么、方法实际做了什么、输出是什么；只保留理解后续创新所需的结构。>
+**Route priority.** Routes 1–3 are the main routes; any of them may come first, and they combine naturally: routes 2 and 3 locate a drawback, and route 1 often supplies the mechanism that fixes it. In `problem_card` mode, start from routes 3 and 2, because the card already documents a field-level failure and its existing fixes. Enter route 4 only when routes 1–3 produce no candidate with self-score above 7.
 
-## 实验设计与主要结论
-<说明数据或 benchmark、主要 baseline、指标、关键对照和论文实际报告的结论；将作者报告与 improver 判断分开。>
-```
+1. **相似领域成熟方法迁移。**
+   - Abstract the problem away from field vocabulary: input, output, core transformation, constraints, failure condition.
+   - Ask which other field must perform the same transformation or obeys the same structural constraint. Similarity must be structural, not topical.
+   - Understand the mature method's key assumptions and actual operations, then map them one by one: what carries over, what must change, how inputs and outputs stay usable. Drop candidates whose key enabling condition cannot be mapped.
+   - 示例：图像扩散与语言生成共享“从扰动状态逐步恢复样本”的结构；可迁移的是逐步去噪思想，需要重新设计的是离散状态、扰动过程与反向转移，而不是搬运模块名。
+   - Story line：当前方法在明确条件下失败 → 相似领域已验证某关键思想 → 两领域共享使其成立的结构 → 本 Idea 的最小适配 → 同预算下应改善的指标或失败模式。
 
-4. Do not register the supplied paper itself as an idea candidate. It is the user-designated highest-neighbor prior work, not a new idea.
-5. Read nearby context only when clearly applicable: `RESEARCH_BRIEF.md`, the matching idea/review directory, `refine-logs/FINAL_PROPOSAL.md`, and relevant local notes.
-6. Freeze the Problem Anchor:
-   - bottom-line problem;
-   - target domain, benchmark, and setting;
-   - must-solve bottleneck;
-   - compute, data, time, venue, codebase, and non-goal constraints;
-   - success condition that would justify experiment planning.
-7. Initialize `IDEA_CANDIDATES.md` from `templates/idea-candidates-template.md` and record the input mode plus supplied paper when applicable.
-8. Initialize `AUTO_REVIEW.md` and `REVIEW_STATE.json` with `reviewer_calls_used: 0`.
+2. **最高近邻不足。** Pick the single highest neighbor (the supplied paper in `baseline_paper` mode; the strongest existing fix on the card in `problem_card` mode).
+   - Read its full pipeline: input, modules, each module's role, supervision or objective, output, evaluation.
+   - For each module, reason `模块作用 → 依赖的假设 → 假设失效的条件 → 可观察后果`, not from where code is easy to change.
+   - Generate a candidate only when this yields an independent, testable field-level problem; “replace this module” alone is low priority.
+   - The minimal experiment must contain both a defect diagnosis and a test of whether the mechanism fixes the defect.
+   - 示例：PPO→DPO 不是“把 PPO 换成监督损失”，而是先拆解 reward model、采样和策略优化的作用，反推出“多阶段 RLHF 为把偏好转成策略更新引入额外训练环节”的领域问题，再提出直接从偏好对构造策略目标的机制。
+   - Story line：最高近邻依赖一个有缺陷的假设或模块 → 诊断实验验证缺陷存在 → 本 Idea 的机制 → 最小实验同时检验缺陷与机制。
 
-If the raw idea is too vague to identify a Problem Anchor, ask at most one concise clarification. If a supplied paper cannot be identified or its text cannot be accessed, request the PDF or exact citation instead of inventing its contents. Otherwise proceed with explicit assumptions.
+3. **领域共性不足。** A failure, untested assumption, or unexplained disagreement shared by a method family or several independent works, rather than one paper's omission.
+   - Establish the drawback from at least two independent works (or one controlled study covering several methods). Path-stage cards supply this directly through their evidence, `待验证解释`, `尚未解决`, and cross-paper disagreements.
+   - State the shared condition under which the works fail and the common assumption behind it. Check whether existing fixes remove that cause or only one symptom.
+   - When competing explanations exist, design a diagnostic that separates them. Judge the resulting discovery by the shared contribution standard: resolving a disagreement alone does not establish importance. A reliable new phenomenon or perspective can be the main contribution without a new fix; a method contribution must also test whether its mechanism improves the actual problem.
+   - A proposed fix targets the shared cause; a discovery explains what understanding changes. The minimal experiment tests that contribution on at least two members of the method family, or states why one suffices.
+   - 示例：多种长上下文模型都在关键信息位于中段时检索变差（lost in the middle）。共性不足是位置偏置，不是某个模型的缺陷；先用控制位置的诊断确认偏置来源，再提出针对共同原因的机制，并在多个模型上检验。
+   - Story line：多项工作在条件 X 下出现同一失败 → 共同原因或未检验假设 → 现有修补只处理症状 → 本 Idea 针对共同原因的动作 → 可推翻的预期结果。
 
-### Phase 1: Improver Search and Candidate Generation
+4. **未覆盖新任务（后备）。**
+   - Start from a real large problem and subdivide by stage, object, environment, constraint, or failure type until reaching a recurring problem that existing tasks or benchmarks do not measure. Renaming is not a new task.
+   - Prove the problem exists with real cases, data, or evaluation blind spots; then define task input, expected output, data construction, and a minimal metric. Without objective evidence, drop the candidate. Do not invent a task to house a method.
+   - 示例：RAG → 长期记忆 → 图结构记忆的持续维护：现有 RAG 任务不单独测图维护能力，于是定义“输入当前记忆图与新交互、输出增删合并决策”的任务。
 
-The main executor performs this phase directly. It must not call `spawn_agent`, `send_input`, or another agent-like mechanism for ideation, search, scoring, selection, revision, or writing. It may use direct literature/web search tools and must inspect primary paper pages or official sources before treating a work as evidence. For every nontrivial method considered as a baseline, it must also open the claimed public repository, verify that the repository implements the cited method rather than merely mentioning it, and identify the entry point, configuration, or documented command needed for reproduction.
+For `raw_idea`, register the raw idea itself as a candidate with source `原始想法`. For `problem_card`, register the card's `可检验切口` as a candidate with source `问题卡切口`. Either may score low but remains a comparison point. There is no required candidate count and no requirement to populate every route.
 
-Use the same three idea-finding routes for both `raw_idea` and `baseline_paper`. For `baseline_paper`, first complete `RAW_IDEA.md`, then treat the supplied paper as the user-designated strongest closest work and ground-truth starting point. Do not branch into a separate set of paper-specific routes. Search in this stage exists to produce ideas, not to prove that a generated idea is novel: locate useful abstractions, mechanisms, modules, examples, and task definitions, then leave formal novelty checking to the reviewer. A lightweight novelty search is allowed only after a candidate is fully stated, as part of self-scoring and ranking.
+Write each story line as one causal paragraph, `真实问题或重要现象及证据 → 被忽视的关键 → 本 Idea 的具体动作 → 有实质价值且可推翻的预期结果`, with every link backed by literature, theory, or the minimal experiment. State what becomes worth knowing or using if it succeeds. Never claim “大家效果都不好” or “相关工作都忽视了” without evidence, and phrase expected improvements as hypotheses.
 
-1. **相似领域成熟方法迁移。** 即使用其他领域的方法解决本领域的问题，按下面的顺序执行：
-   - 先把当前问题从领域名词中抽象出来，写清输入、输出、核心变换、约束和失败条件。不要先搜索一个听起来相似的方法名。
-   - 问“还有哪个领域也需要完成相同的输入到输出变换，或者受到相同结构约束”，据此确定候选相似领域。相似性必须落在机制结构上，而不是主题或术语相似。
-   - 在候选领域中搜索成熟方法，理解它依赖的关键假设和实际动作，再逐项映射到当前问题：哪些结构相同、哪些必须修改、修改后输入和输出如何保持可用。
-   - 只保留能够做原则性适配的迁移。如果关键成立条件无法映射，就放弃该候选。
+For a diagnostic-driven intervention or adaptive choice, explain why the observable signal should identify the benefit of the proposed action relative to its alternatives. Predicting errors or difficulty alone does not establish which remedy helps. Keep unsupported signal-to-action transfer explicit; fixing the decision target or its evaluation does not itself supply effectiveness evidence.
 
-   **示例：Diffusion → Diffusion Language Model。** 先把生成抽象为“输入一个被扰动的中间状态，反复预测更干净的状态，最终输出样本”。图像扩散在连续空间中已有成熟的逐步去噪机制；语言生成具有相同的逐步恢复结构，但输出是离散 token 或其表示。因此可迁移的是逐步去噪思想，需要重新设计的是语言状态、扰动过程和反向转移，而不是简单把图像 diffusion 的模块名称搬到语言模型里。
+After a failed review, while budget remains:
 
-   **Story line：** 当前领域的现有方法在一个明确条件下效果不好或出现稳定失败；相似领域已经验证过一种关键思想；两个领域共享使该思想成立的核心结构；本 Idea 对该思想做什么最小适配并形成什么方法；在相同预算下，这个修改应改善哪个指定指标或失败模式。
+1. Mark the reviewed candidate `needs_revision`, `covered`, or `rejected`.
+2. Read the review's cited closest work directly; do not rely on the reviewer's summary.
+3. Improve through the same routes; reapply mode-specific checks (paper-removal test in `baseline_paper` mode).
+4. Append each material revision as a new candidate with `父 Idea` set.
+5. Re-rank all `available` candidates, including older unreviewed ones.
 
-2. **最高近邻方法的不足。** 对 `raw_idea`，先检索并选定一个用于生成 Idea 的最高近邻；对 `baseline_paper`，直接把用户提供的 baseline 当作已知最高近邻。然后按下面的顺序执行：
-   - 通读最高近邻，关注它的完整工作链。不同的论文可能有不同的结构，但主要是以下几点：输入、主要模块、各模块作用、监督信号或目标函数、输出和评测。
-   - 列出可以修改的模块，但不要从“哪里容易改代码”出发。对每个模块沿着 `模块作用 → 依赖的假设 → 假设失效的条件 → 可观察后果` 反推它对应的领域级缺陷。
-   - 只有当上述反推能够得到一个独立、可验证的领域问题时，才生成候选；如果最后只能表述成“替换这个模块可能更好”，则降低该 Idea的优先级。
-   - 先设计一个最小诊断实验，用于验证缺陷是否真实存在；再针对该缺陷设计机制。最小实验必须同时包含“缺陷诊断”和“机制是否解决缺陷”两部分。
+A revision must sharpen the contribution or remove a demonstrated limitation, not accrete modules. Reassess importance, novelty, effectiveness, and feasibility after narrowing a Claim; easier verification cannot compensate for losing the main contribution.
 
-   **示例：RLHF/PPO → DPO。** 不把故事写成“把 PPO 换成一个监督损失”，而是先拆解显式 reward model、采样和策略优化在偏好对齐中的作用，再反推出领域级问题：多阶段 RLHF 管线为把偏好转成策略更新引入了额外训练环节和优化复杂性。由此才得到直接从偏好对构造策略目标的机制，并比较它是否在保留偏好优化目标的同时简化训练。
+### Phase 2: Select, Verify Baselines, and Write the Brief
 
-   **示例：CoLaR → ReGuLaR 式改进。** 先把 CoLaR 的压缩 embedding 预测看作 latent reasoning 的监督模块，再从该模块的作用反推问题：压缩后的隐状态可能缺少足够的信息保持指导。候选不能只写“换一个监督头”，而要先诊断相同压缩率下的信息或推理能力损失，再提出更有信息量的 latent guidance，例如 ReGuLaR 式的变分隐状态与 rendered CoT 表征约束，并验证这种指导是否缓解了该领域级缺陷。
+Let `N = reviewer_calls_used + 1`. If `reviewer_calls_used >= MAX_ROUNDS`, go to the blocked finalization.
 
-   **Story line：** 最高近邻及同类方法依赖一个共同有缺陷的假设或模块，或者表现出一种一致问题；本 Idea 先通过诊断实验验证该缺陷是否存在；基于此提出自己的机制；最小实验同时检验缺陷和机制是否有效。即使代码上只改一个模块，也不要把故事写成“给最高近邻补模块”。未运行实验前必须把“证实”写成待验证目标，不能写成既成结果。
-
-3. **未覆盖新任务（低优先级）。** 这是硬性后备路线：只有路线 1 和路线 2 都无法形成任何高于7分候选时才进入；只要前两条已经产生至少一个高于7分的候选，就不要在这里继续消耗时间。按下面的顺序执行：
-   - 从一个确实存在的大问题开始，沿任务阶段、对象、环境、约束或失败类型逐层细分；每细分一层，都检查该子问题是否仍有独立输入、输出和评价对象。
-   - 持续细分到一个现有任务定义或 benchmark 测不到、但会反复出现的具体问题。不能只靠换名字建立新任务。
-   - 用真实案例、数据现象或评测盲区证明问题存在；然后定义任务输入、期望输出、数据构造方式和最小指标。缺少客观问题证据时，放弃该候选。
-
-   **示例：RAG → RAG memory → memory structure → memory graph → RAG memory graph manager。** 从 RAG 的长期信息管理逐层定义问题缩小到图结构记忆的维护问题，最后定义 manager 任务：输入当前 memory graph 与新交互信息，输出节点或边的新增、合并、更新和删除决策，并用后续检索质量、结构正确性和维护成本判断任务是否成立。新意不来自创造“manager”这个名字，而来自现有 RAG 任务没有单独测量这类持续图维护能力。
-
-   **Story line：** 先用真实案例、数据或现有评测盲区证明问题客观存在；再说明现有任务定义为什么测不到它；随后给出新任务的输入、输出和评价方式；最后说明什么最小结果能够证明它有研究价值。不要为了安放一个方法而发明任务。如果手里已有一个方法，例如用户提供的 baseline，而相近领域存在明确且解决普遍不好的问题，可以尝试将该方法迁入并据此定义任务，但仍必须先证明任务客观存在。
-
-For `raw_idea`, first register the user's raw idea itself as a candidate with source `原始想法`; its self-score may be low, but it remains the comparison candidate. For `baseline_paper`, do not register the supplied paper itself as a candidate because it is the highest-neighbor prior work, not a new idea. Then record every distinct candidate produced by routes 1 and 2 in `IDEA_CANDIDATES.md`, each with positioning keywords, a one-sentence background, one idea paragraph, a self-score, and baseline feasibility evidence. Enter route 3 only if routes 1 and 2 produced zero concrete candidates. There is no required candidate count and no requirement to populate every route.
-
-For both input modes, write the story line as one causal paragraph: `明确失败及证据 → 被忽视的关键 → 本 Idea 的具体动作 → 可支持或推翻的预期结果`. Verify every link with literature, theory, or the proposed minimal experiment. Do not write “大家效果都不好” or “相关工作都忽视了” without concrete evidence. Before experiments run, describe improved performance as a hypothesis or success condition, never as an achieved result.
-
-For paper input, follow the same route priority above. For each candidate, record `与输入论文的关系` and `本 Idea 的独立创新点`, apply the paper-removal test, and mark patch-only candidates `baseline_patch`. The first selectable candidate is therefore a new idea, not the supplied paper rewritten as `IDEA-001`.
-
-After a reviewer rejects or returns a candidate for revision and reviewer budget remains:
-
-1. Mark the reviewed candidate `needs_revision`, `covered`, or `rejected` according to the review.
-2. Read the review's cited closest work directly; do not rely only on the reviewer's summary.
-3. Improve the selected candidate using the same three routes above. In `baseline_paper` mode, keep the supplied paper fixed as the user-designated highest neighbor and apply the paper-removal test again to every revision.
-4. Append each material revision as a new candidate with a new ID and `父 Idea` pointing to the reviewed candidate. Preserve the old entry.
-5. Reconsider all still-`available` candidates, including older unreviewed alternatives, and select the highest self-scored one.
-
-### Phase 2: Select and Write the Brief
-
-Let `N = reviewer_calls_used + 1`. If `reviewer_calls_used >= MAX_ROUNDS`, do not write another round brief or invoke another reviewer; proceed to the blocked finalization.
-
-Select the highest self-scored eligible candidate and write `round-N-brief.md` with exactly:
+1. Select the highest self-scored `available` candidate. On ties, judge directly and record a one-sentence reason in `当前选择`.
+2. Verify the necessary strong baselines under `references/基线复现依据.md`: inspect the implementation or the primary algorithm/prompt/tool specification and record a concrete reproduction route, assumptions and resource requirements. Lack of public code alone is not failure. If essential artifacts or specification are missing, do not silently substitute a weaker baseline: determine which Claim depends on that comparison, then revise that Claim or mark its evidence gap. If the minimal experiment has no credible comparison route, mark `needs_revision` and return to selection. Also confirm the phenomenon on the chosen model and setting; evidence only at a different family or scale must be stated as an untested extrapolation, not a reproduced fact.
+   Apply that reference's critical-data rule to the candidate itself: verify the availability of indispensable observations/states and the meaning of labels through an actual sample, release specification, or generation/storage path. A class or interface alone is insufficient. If reconstruction or new labeling is needed, give its inputs, steps, cost and unknown coverage without claiming it has been completed.
+   When a multi-call budget is central to the Claim, sum the longest executable path before review, including fixed prompts, inserted probes, intermediate outputs and every retry/read that the method requires. State how saved diagnostic overhead can be spent by competing methods under the same allowance; a shared nominal cap is insufficient if the proposed path cannot fit it.
+3. Write `round-N-brief.md` with exactly:
 
 ```markdown
 ## 背景
 
-**定位关键词：** <列出至少三个能在所引论文、benchmark 或官方任务说明中直接找到的已有关键词；不要自创术语。>
+**定位关键词：** <至少三个能在所引论文、benchmark 或官方任务说明中直接找到的已有关键词；不要自创术语。>
 
 **一句话定位：** <只用一句话说明这是哪个已有领域里的什么具体问题。>
 
+**与起点问题的关系：** <原问题 / 子问题 / 邻近新问题；用一句话说明对象、关键条件或评价目标的保留与变化，以及原问题仍未回答的部分。三类均可保留，贡献按当前研究目标独立判断。>
+
 ## 核心 Claim
-<按“现有方法在哪个明确条件下失败、被忽视的关键是什么、本 Idea 因此主张什么”的顺序，用说人话的方式说明几个可被实验推翻的判断。>
+<先说明主贡献成功后新增什么值得知道或使用的东西，再提出可推翻的判断。方法落到真实问题与强baseline，现象／视角说明新认识及其分量。说清目前支持预期效果的依据及适用条件、还未知什么；实验设计和未来成功阈值另写，不拿来充当效果依据。不要把自评分数或“有望达到8分”的自我背书传给Reviewer。>
 
 ## 方法设计的核心思想
 <说清输入、实际动作、输出，以及与最高近邻的关键差别。>
 
 ## 最小实验
-<说明模型/数据、最少对照、保持相同的核心预算，以及支持和推翻 Claim 的结果。每个 baseline 都要说明它为何与上述领域、任务和关键词直接相关，并附论文链接、已核验的开源代码链接与复现入口；简单标准 baseline 没有仓库时，明确写出可直接本地实现的依据。无法复现的方法不得放进最小实验。>
+<说明模型/数据、最少强对照、相同核心条件、支持或推翻主贡献的结果及关键操作的可信实现路径。写清候选所需关键数据的实际可得依据、标签含义，或重建/标注路线与未知覆盖。每个baseline说明同任务关系及复现路线：已核验代码与入口，或充分公开规范的确切位置、独立实现步骤与未定选择；标准算法给明确规则。不能因近邻无代码而换弱对照或忽略其主张限制。算力、API和必要人工成本给估算依据。>
 ```
 
-Keep it short and concrete. The background sentence must describe the field and problem rather than advertising the proposed solution. Do not add a glossary, equations, long related-work discussion, follow-up experiments, risk checklist, candidate ranking, self-score, or explanation of the selection process. Copy it to `CURRENT_IDEA.md`. Record the selected candidate ID and `selected_was_pool_leader: true` in state.
+Keep it short. The background describes the field and problem, not the solution. No glossary, equations, long related work, risk checklist, ranking, self-score, or selection history. Do not paste path-stage map content beyond what the four sections need. Mark the candidate `selected` in `IDEA_CANDIDATES.md`; `start-call` copies the brief to `round-N-brief.md` and `CURRENT_IDEA.md` and records it as the pool leader.
 
 ### Phase 3: Independent Reviewer Call
 
-Every invocation consumes reviewer budget. Immediately before `spawn_agent`, increment `reviewer_calls_used` and persist the state. A timeout, tool error, malformed response, format-only retry, or replacement reviewer still counts as one invocation. Never invoke a reviewer when the counter already equals `MAX_ROUNDS`.
+Every launch counts as one call: a timeout, tool error, malformed response, format-only retry, or replacement reviewer still consumes budget. Never launch a reviewer when the budget is used up.
 
-Launch a fresh reviewer for every call:
+1. Run `python <skill>/tools/loop_state.py start-call --slug <slug> --candidate <ID> --self-score <x> --brief <draft brief> --effort high --date <today> --workarounds "<known tool workarounds or none>"`. It refuses when the budget is used up, saves the incremented counter before launching the reviewer, and writes the reviewer prompt to `review-stage/<slug>/prompts/round-N-review-prompt.md` from [templates/reviewer-prompt.md](templates/reviewer-prompt.md), the brief, and the Problem Anchor section of `RAW_IDEA.md`. Preserve each saved round brief unchanged.
+2. Launch a fresh reviewer as described in the Tools and Harness section and send it only the printed `launcher_message`, which points it at the prompt file. The prompt contains the brief, frozen Problem Anchor and user constraints, the full shared contribution standard inserted by `start-call`, today's date, known tool workarounds, and the raw-review path. Never pass earlier reviews or scores, candidate lists, self-scores, rankings, diffs, history, the improver's novelty evidence, or path-stage map contents: the reviewer finds prior work through its own search. Store reviewer identifiers only as audit metadata.
+3. If the harness reports that the reviewer stopped while its own background work was still running, the response is interim: wait for the final one. If the harness does not let the reviewer write files, save its final message to the review path yourself.
+4. Run `python <skill>/tools/loop_state.py record --slug <slug>`. Malformed JSON cannot pass the gate. Repeating `record` for an already recorded call returns its saved outcome without changing the gate or appending another log entry. Then update the candidate entry in `IDEA_CANDIDATES.md` with call number, score, verdict, and closest neighbors.
 
-- use a new `spawn_agent` call with no inherited task context;
-- never reuse a reviewer ID or continue a reviewer;
-- do not pass earlier reviews, earlier scores, candidate lists, self-scores, rankings, diffs, or history summaries;
-- give it only the selected four-part brief, frozen Problem Anchor, user constraints, and stable rubric;
-- store reviewer IDs only as audit metadata.
-
-```text
-spawn_agent:
-  fork_turns: none
-  model: gpt-5.6-sol
-  reasoning_effort: xhigh
-  message: |
-    You are an independent senior reviewer checking whether a research idea is novel enough
-    for experiment planning. You are not a co-author and must not redesign the idea.
-
-    You are intentionally zero-context. Judge only the current four-part brief, the frozen
-    Problem Anchor, and the user's constraints. Search the closest prior work as needed. Do not
-    invent papers, links, or results.
-
-    Score the idea from 1 to 10. Judge whether the Claim is genuinely distinct, whether the method
-    is more than a relabeling or trivial combination, and whether the minimal experiment distinguishes
-    it from the closest work under the same core budget. Check whether the story line forms an
-    evidence-backed causal chain from a specific existing failure, through an overlooked key idea and
-    the proposal's concrete action, to a falsifiable expected result; unsupported claims that everyone
-    performs poorly or ignores the issue are claim blockers. Also verify that the positioning keywords
-    are established terms, that each experimental baseline belongs to the same domain and task, and
-    that every nontrivial baseline has a working public implementation and a concrete reproduction
-    route. Cross-domain inspiration is not an experimental baseline. Missing or mismatched baseline
-    evidence is a fatal feasibility blocker and cannot receive experiment_ready. When a supplied
-    paper is present, verify that the proposed novelty belongs to the new idea and still stands after
-    removing that paper's name. Treat a proposal that merely repairs, completes, or adds an experiment
-    to the supplied paper as a fatal novelty blocker.
-
-    Verdict meanings:
-    - experiment_ready: score > 7.5 and no fatal novelty, feasibility, or claim blocker
-    - promising_needs_revision: potentially salvageable, but the novelty boundary remains unresolved
-    - needs_rethink: the core claim is covered or the experiment cannot test it
-    - reject: not worth further work under the stated constraints
-
-    对外只输出下面三个 Markdown 部分，不要给重构方向、修改清单、实验 checklist 或长综述：
-    ## 结论
-    <用当前日期给出 score、verdict、新颖性判断，以及是否值得继续。>
-
-    ## Claim 判断
-    <用短表格逐条判断 Claim：新颖、部分重合或已被覆盖；每条只给最关键依据。>
-
-    ## 最高近邻
-    <最多列 5 篇重叠最高的论文或系统；给出可核验链接、重叠点和仍有的差别。每篇 1-2 行；无法核验就写“需要检索”。>
-
-    末尾附上仅供主执行器解析的 JSON，不要增加其他章节：
-       {
-         "score": 0.0,
-         "verdict": "promising_needs_revision",
-         "fatal_blockers": [],
-         "novelty_conclusion": "...",
-         "closest_neighbors": ["paper title or needs_search"]
-       }
-
-    Current four-part brief:
-    [paste round-N-brief.md]
-
-    Frozen Problem Anchor and user constraints:
-    [paste only the frozen anchor and constraints]
-```
-
-Save the response as `review-stage/<slug>/round-N-review.md`, append a concise summary to `AUTO_REVIEW.md`, and update the selected entry in `IDEA_CANDIDATES.md` with call number, reviewer score, verdict, and closest neighbors. If the JSON is malformed, the call cannot pass the gate. A fresh replacement is allowed only when budget remains: copy the same selected brief to the next `round-N-brief.md`, persist the incremented call number, and invoke a new reviewer. Do not silently treat a formatting failure as free.
+A fresh replacement after a failed call is allowed only when budget remains: run `start-call` again with the same brief.
 
 ### Phase 4: Gate, Improve, or Stop
 
-Apply the gate directly; reviewer prose or a boolean flag cannot override it:
+`record` applies the gate and prints the outcome and next step; reviewer prose or flags cannot override it:
 
 ```text
-selected_was_pool_leader == true
-AND reviewer_score > 7.5
-AND fatal_blockers is empty
+review_pass  = all three contribution scores >= 6 AND at least two >= 8
+               AND feasibility == pass AND verdict == experiment_ready
+               AND fatal_blockers is empty
+first_pass   = selected_was_pool_leader AND review_pass
+gate_passed  = first_pass on a regular review
+               AND the confirmation review of the same brief also satisfies review_pass
 ```
 
-- If all conditions hold, mark the candidate `final` and proceed to final expansion. `experiment_ready` is the expected reviewer verdict, but the three explicit conditions above are authoritative.
-- If the gate fails and `reviewer_calls_used < MAX_ROUNDS`, return to Phase 1, append improved candidates, re-rank the whole eligible pool, and review the new pool leader.
-- If the gate fails and `reviewer_calls_used == MAX_ROUNDS`, stop. Do not call another reviewer. Write the blocked finalization using the best current candidate, but do not generate `FINAL_IDEA.md` for an unpassed candidate.
-- If no eligible candidate remains before the reviewer budget is exhausted, search and attempt a material revision once. If no defensible candidate can be produced, stop early rather than reviewing a renamed duplicate.
-
-`MAX_ROUNDS` counts reviewer calls only. The number of candidates, local searches, and revisions may be larger than `MAX_ROUNDS`.
+- First pass on a regular review: set `pending_confirmation` to the candidate ID and brief path, mark the candidate `待复核` in `IDEA_CANDIDATES.md`, and if budget remains, immediately run the confirmation review with `start-call --role confirmation --effort xhigh`, which reuses the same brief unchanged. The confirmation reviewer gets the same inputs as any reviewer and is not told that an earlier review exists or what it said.
+- Confirmation passes: mark the candidate `final` and go to final expansion.
+- Confirmation fails: clear `pending_confirmation`, mark the candidate `needs_revision`, and treat it like any failed review. Any revision is a new brief and needs its own first pass and confirmation.
+- First pass on the last budgeted call, leaving no budget for confirmation: stop with the blocked finalization and state `首轮通过、未复核` in `FINAL_REVIEW.md`. Keep the pending confirmation in state so a user-authorized budget extension can resume it directly.
+- Gate fails with budget left: return to Phase 1, append improved candidates, re-rank, and review the new leader.
+- Gate fails with budget exhausted: stop and write the blocked finalization; no `FINAL_IDEA.md` for an unpassed candidate.
+- No eligible candidate before budget runs out: attempt one material revision; if no defensible candidate results, stop early rather than reviewing a renamed duplicate.
 
 ## Finalization
 
 ### Successful Final Expansion
 
-The main executor performs final expansion itself. Do not spawn or continue an improver agent. Read `templates/improved-idea-template.md`, then expand only the passing candidate using its brief, verified sources, and latest review. Do not change the gated core Claim or its story line during expansion. Map the causal story to Sections 1.1-1.4: specific problem and evidence, what existing work overlooks, this idea's concrete action, and why that action should change the result. For paper input, frame the supplied paper as related work, task origin, or method inspiration; never make “completing the supplied paper” a contribution.
+The main executor expands the passing candidate itself. Read `templates/improved-idea-template.md` and expand using the brief, verified sources, and latest review without changing the gated Claim or story line. Map the causal story to Sections 1.1–1.4: specific problem and evidence, what existing work overlooks, this idea's concrete action, why that action should change the result. In `baseline_paper` mode, frame the supplied paper as related work, task origin, or inspiration, never as the object being completed. In `problem_card` mode, cite card evidence through its original paper links, not through the map.
 
-Validate that the result contains the glossary before the title, all required sections, a plain-language method before formulas, and `## References Used`. Fix formatting or missing sections directly. Do not spend reviewer budget on final-document formatting.
+Validate that the result contains the glossary before the title, all required sections, a plain-language method before formulas, and `## References Used`. Fix formatting directly; do not spend reviewer budget on it.
 
 On success:
 
-1. Write the expanded proposal to `FINAL_IDEA.md` and copy it to `CURRENT_IDEA.md`.
-2. Mark the selected candidate `final` in `IDEA_CANDIDATES.md`.
-3. Write `FINAL_REVIEW.md` with the reviewer score, verdict, Claim judgment, highest neighbors, and remaining risks. Do not invent a reviewer redesign plan.
-4. Write `EXPERIMENT_HANDOFF.md` with the positioning keywords, problem, primary Claim, method thesis, minimal experiment, budget-matched reproducible baselines, code repositories and reproduction routes, compute/data constraints, references, and remaining risks.
-5. Set state status to `completed`.
-6. Report paths to `FINAL_IDEA.md`, `IDEA_CANDIDATES.md`, and `EXPERIMENT_HANDOFF.md`.
+1. Write `FINAL_IDEA.md` and copy it to `CURRENT_IDEA.md`.
+2. Mark the candidate `final` in `IDEA_CANDIDATES.md`.
+3. Write `FINAL_REVIEW.md` with the overall score, three contribution scores and reasons, feasibility judgment, verdict, Claim judgment, highest neighbors, and remaining risks. Do not invent a reviewer redesign plan.
+4. Write `EXPERIMENT_HANDOFF.md` with positioning keywords, problem or important phenomenon, its relation to the starting problem and what remains unanswered there, main contribution and Claims, method or perspective, the decisive result needed to validate its value, minimal experiment, budget-matched reproducible baselines with repositories and reproduction routes, critical-data availability or reconstruction/labeling plan, compute/data constraints, references, and remaining risks. Do not turn hypotheses into findings during final expansion.
+5. Set state status to `completed` and report the paths to `FINAL_IDEA.md`, `IDEA_CANDIDATES.md`, and `EXPERIMENT_HANDOFF.md`.
 
 ### Exhausted or No-Viable-Candidate Finalization
 
-1. Do not create `FINAL_IDEA.md` for a candidate that did not pass the explicit gate.
+1. Do not create `FINAL_IDEA.md`.
 2. Write `FINAL_REVIEW.md` with the best reviewed result and why the gate was not met.
-3. Write `PIVOT_OR_STOP.md` with the current highest eligible or least-blocked candidate and the evidence preventing finalization.
+3. Write `PIVOT_OR_STOP.md` with the highest eligible or least-blocked candidate and the evidence preventing finalization.
 4. Preserve all candidates and lineage in `IDEA_CANDIDATES.md`.
 5. Set state status to `blocked_max_reviewer_calls` or `rejected_no_viable_candidate`.
 
+For either outcome in `problem_card` mode, follow the source-card writeback instructions in [references/problem-card-input.md](references/problem-card-input.md). Forming an idea or stopping an adjacent route does not establish that the original problem was solved or abandoned.
+
 ## Review Tracing
 
-Trace every reviewer invocation according to `../shared-references/review-tracing.md`. Record the reviewer call number, agent ID, prompt, raw response, parsed score/verdict, and produced artifacts. Explicitly record `context_policy: fresh_zero_context`, `fork_turns: none`, and `continuation_allowed: false` (use `fork_context: false` as equivalent legacy trace metadata only when the trace schema requires that key).
-
-There are no improver-agent traces because improver subagents are forbidden. Record sources used by the main executor in the relevant candidate entries instead.
+Trace every reviewer call according to `../shared-references/review-tracing.md`: call number, role (`regular` or `confirmation`), reviewer identifier, model and effort, the mechanism used to launch it, prompt, raw response, parsed score/verdict, and produced artifacts. Record `context_policy: fresh_zero_context` and `continuation_allowed: false`. There are no improver-agent traces; record the main executor's sources in candidate entries.
 
 ## Key Rules
 
-- The main executor is the improver. It searches, generates, scores, selects, revises, and expands directly; it never delegates those tasks to subagents.
-- Fresh reviewer agents are the only agent calls allowed by this workflow.
-- `MAX_ROUNDS` is exactly the maximum number of reviewer invocations. Failed, malformed, replacement, and retry calls count.
-- Keep every distinct candidate and revision in `IDEA_CANDIDATES.md`; use stable IDs and parent links, and never overwrite history.
-- Treat `IDEA_CANDIDATES.md` as the sole human-readable history; do not maintain a separate evolution digest.
-- Give every candidate established positioning keywords, one plain-language background sentence, one causal story line, one idea paragraph, one self-score, one short score rationale, idea-generation sources, lightweight self-score evidence when used, and baseline feasibility evidence.
-- Review only the highest self-scored eligible candidate. Do not reveal its self-score or competing candidates to the reviewer.
-- Generate `FINAL_IDEA.md` only when that pool leader receives reviewer score strictly greater than 7.5 and has no fatal blocker.
-- Intermediate briefs contain only `背景`, `核心 Claim`, `方法设计的核心思想`, and `最小实验`.
-- Treat baseline reproducibility as a selection requirement: verify public code for nontrivial methods, keep baselines in the same domain and task as the positioning keywords, and never use a cross-domain inspiration method as an experimental baseline.
-- In paper-input mode, read and summarize the paper before ideation, keep it fixed as the user-designated highest neighbor, use the same three idea-finding routes as raw-idea mode, never register the paper itself as a candidate, and reject any candidate whose stated contribution is only a patch or completion of that paper.
-- Reviewer human-facing output contains only `结论`, `Claim 判断`, and `最高近邻`; the reviewer does not propose a redesign.
-- After a failed review, the main executor reads the cited work itself, appends material revisions as new candidates, and re-ranks all eligible ideas.
-- During candidate generation, search only to create ideas; do not check whether each new idea is novel. After a candidate is concrete, use a lightweight novelty check only for self-scoring and ranking. The independent reviewer owns the formal novelty judgment.
-- Prefer mature analogous-method transfer or a theory-backed repair of the highest neighbor. Enter the uncovered-new-task route only when the first two routes produce zero concrete candidates.
+- The main executor is the improver and never delegates its work; fresh zero-context reviewers are the only other agents.
+- `MAX_ROUNDS` counts every reviewer invocation, including failed and replacement calls.
+- Review only the pool leader, after verifying its baselines; never reveal self-scores, competing candidates, earlier reviews, or the improver's evidence to the reviewer.
+- Reviewers run on the executor's own model; a pass needs a first `high` review and an independent `xhigh` confirmation of the same brief.
+- Reuse supplied path-stage evidence instead of re-searching it; the reviewer always searches independently.
+- Keep every distinct candidate with stable IDs and parent links; `IDEA_CANDIDATES.md` is the sole human-readable history.
 - Never start experiments inside this skill. The successful terminal artifact is an experiment handoff.
-- Do not let ideas grow by accretion. A revision must sharpen the Claim or remove a demonstrated limitation, not merely add modules.
-- Treat novelty uncertainty in the lightweight self-score honestly. If relevant overlap cannot be checked cheaply, lower confidence or write `需要 reviewer 检索` rather than pretending the idea is novel.

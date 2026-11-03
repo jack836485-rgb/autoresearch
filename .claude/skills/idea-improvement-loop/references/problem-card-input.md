@@ -37,14 +37,22 @@ Do not read other notes, scripts, or downloaded material unless a specific candi
 
 ## 可检验切口与查新状态
 <照录卡片；查新状态原样保留。>
+
+## 问题锚点（Problem Anchor）
+<记录起点问题的对象、条件、初始任务/评测、瓶颈与证据边界，以及用户资源、时间、非目标约束和进入实验规划的成功条件。起点记录保持稳定；候选可以研究子问题或邻近新问题，其实际对象与转向理由写在 brief 中。不要写候选偏好或自评分数。>
 ```
 
 ## Reuse rules
 
 - **Card evidence is already-read evidence.** Use the card's papers as idea-generation sources at the reading depth the map recorded. Do not search again for papers the card already lists.
-- **Open a primary source only when needed**: a candidate's core Claim depends on a detail the card marks as `未取到`, `未核验`, or `机构待核实`; a card paper becomes a candidate's highest neighbor (the card keeps only the excerpt relevant to its own question and may omit that paper's main result); or a reviewer cites the paper. Reading the abstract is usually enough. Record what was verified.
+- **Read to the depth needed for the decision.** Reuse ordinary background evidence at the card's recorded depth. Open the primary source when the Claim depends on an unverified or omitted detail, a card paper becomes the highest neighbor or a necessary baseline, or a reviewer cites it. Read the method, experiment, appendix or implementation section that determines the assumed flaw, mechanism difference or reproduction route; an abstract alone does not establish those details. Record what was verified without rereading every card paper.
 - **The map's coverage is limited.** A map covers a recent window and an institution whitelist. Prior work outside the window or the whitelist is unknown to it, so the lightweight novelty check must search beyond the map. A card whose `查新状态` says no targeted novelty search was done gives no novelty assurance at all.
 - **Route inputs.** The card's `已有解决方法` are the highest-neighbor candidates for route 2. Its evidence, `待验证解释`, `尚未解决`, and the map's cross-paper disagreements are the inputs for route 3.
 - **The card's `可检验切口` is a seed, not a plan.** Register it as a `问题卡切口` candidate. It is usually a diagnostic experiment without a method, so it typically needs routes 1–3 to become a full idea. It may be revised, narrowed, or abandoned.
-- **Problem Anchor.** Bottom-line problem = `具体问题`; setting = the evidence's experimental settings; must-solve bottleneck = `尚未解决`; constraints come from the user, not from the card.
+- **A diagnostic seed is not automatically a contribution.** Apply `贡献评判标准.md`: an important new phenomenon or perspective can stand without a fix when its value and evidence meet the gate; otherwise use the seed to develop a method or stronger discovery. Merely testing a card's conjecture does not qualify it for finalization.
+- **Problem Anchor.** The starting problem comes from `具体问题`, its initial setting from the evidence, and its remaining bottleneck from `尚未解决`; constraints come from the user. A valuable subproblem or adjacent new problem may be retained and selected. State its own contribution and evidence, which original conditions it keeps or changes, and what the original question still needs. Scope change alone is not a reason to reject it.
 - **Nothing from the map goes to the reviewer** beyond what the four-part brief needs. The reviewer searches independently.
+
+## Source-card writeback at finalization
+
+When the project requires it, update the selected source card's existing status/notes structure with the run's outcome, idea/review paths and remaining original question; keep any corresponding status in the map text consistent. Record a successful handoff as completed idea development, not an experimentally solved problem. If a subproblem or adjacent new problem was retained, record that relation and its own outcome. Stopping one route does not mean abandoning the entire source question; mark that only when it is actually the decision.

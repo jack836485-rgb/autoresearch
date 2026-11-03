@@ -8,11 +8,13 @@
 
 ## 当前选择
 
-- Reviewer 调用：`0 / 6`
-- 当前选中 Idea：`IDEA-005`
-- 当前自评分：`6.3/10`
-- 选择理由：作者 2026-11-01 更新版已经回答了数学/代码同信息工作流里的"增益何时为正"（同结构 SA-RL 打平或胜出）与"独立策略为何下降"（并行角色多走优化器步），IDEA-002/003 因此被覆盖；IDEA-005 直接对准卡片唯一仍开放的条件（工具使用工作流），并给出可推翻的条件性主张。
-- 状态：`等待第 1 次 reviewer 调用`
+- Reviewer 调用：`1 / 6`
+- 当前选中 Idea：`无`（最不受阻候选 IDEA-007，自评 4.5，未送审）
+- 当前自评分：`—`
+- 选择理由：Call 1 中 IDEA-005 得 5.5，被指出信息瓶颈下的正确反事实是"在同一瓶颈下训练的单智能体"（MemSearcher/MEM1 式）；修正后问题退化为同一瓶颈下的共享 vs 独立参数（IDEA-007）或"多智能体增益即上下文管理"的审计（IDEA-008），二者已有直接或半直接证据，自评均不高于 4.5，不再送审。
+- 状态：`提前停止（rejected_no_viable_candidate），剩余 5 次 reviewer 额度未用`
+
+1. 第 1 轮选择（Call 1 前）：IDEA-005，自评 6.3。作者 2026-11-01 更新版已覆盖 IDEA-002/003，IDEA-005 对准卡片唯一仍开放的工具使用条件。
 
 ## 候选列表
 
@@ -84,7 +86,7 @@
 
 - 来源：`领域共性不足`
 - 父 Idea：`无`
-- 状态：`selected`
+- 状态：`needs_revision`
 - 定位关键词：multi-agent reinforcement learning for LLMs；agentic search / Search-R1；shared vs non-shared (isolated) policies；GRPO；information asymmetry
 - 一句话背景：在多智能体 LLM 工作流的结局奖励 RL 中，联合训练相对"把单智能体 RL 模型放进同一结构"何时有正增益，这一问题在工具使用（检索问答）工作流中尚无受控答案。
 - 自评分：`6.3/10`
@@ -108,7 +110,12 @@
 | Dr. MAS 联合训练（共享/非共享，按角色归一化） | 同任务的多智能体 RL 方法，三角色 verifier/search/answer | https://arxiv.org/abs/2602.08847 | https://github.com/langfengQ/DrMAS ；已核验含 `agent_system/agent/orchestra/search/`、`examples/drmas_trainer/run_search.sh`（README：3×Qwen2.5-3B 非共享 4×H100 约 13h） | `run_search.sh`，`model_sharing` 取 True/False；隔离条件只修改编排中答题者的输入 | 是 |
 | Vanilla 多智能体 GRPO（全局归一化） | 同任务的多智能体 RL 基础版本 | 同上（Dr. MAS 的 GRPO 对照） | 同上，`group_by_agent_id=False` | 同上 | 否（仅在完整历史条件作合理性检查） |
 
-- Reviewer 记录：`尚未送审`
+- Reviewer 记录：`Call 1（常规，同模型 high）：5.5/10，promising_needs_revision，最高近邻 2605.24202（项目页版）、Dr. MAS、MultiAgent-OPD 2610.23234、MemSearcher 2511.02805 / MEM1 2506.15841、s3 2505.14146`
+- 致命问题（主执行器已核验）：
+  1. Claim 前提"传什么只能由联合训练习得"无支撑：MemSearcher 用单智能体 multi-context GRPO 学会只保留与问题相关的记忆；隔离档里的同结构 SA-RL 从未在瓶颈下训练过，Claim 2 区分不了"多智能体联合训练"与"任何在同一瓶颈下的 RL"。
+  2. Baseline 路线错误：Dr. MAS `examples/grpo_trainer/run_search.sh` 是三角色 vanilla GRPO；`verl/trainer/main_ppo.py:65` 与 `ray_trainer.py:447` 均 `assert multi_agent`，发布代码不能训练单智能体。
+  3. Claim 3 方向已有证据：s3 只训练搜索方服务冻结生成器；MultiAgent-OPD 训练 Searcher 摘要。
+- 主执行器补充：MultiAgent-OPD Table（Qwen3-4B，同检索器）中 MemSearcher 单智能体 36.81 与 C-MAS + RL（联合训练的级联 Searcher→摘要→Answerer）约 36.07 相当，已给出"同一瓶颈下单智能体≈联合多智能体"的跨方法迹象。
 
 ### IDEA-006：按角色设置双时间尺度学习率以抑制上下游角色的非平稳共适应
 
@@ -125,3 +132,35 @@
 - 与输入论文的关系：不适用
 - 本 Idea 的独立创新点：迁移多时间尺度学习到 LLM 工作流角色。
 - Reviewer 记录：`尚未送审`
+
+### IDEA-007：同一信息瓶颈下，分角色联合训练相对"瓶颈内单智能体 RL"何时有增益
+
+- 来源：`最高近邻不足`
+- 父 Idea：`IDEA-005`
+- 状态：`available`（未送审，提前停止）
+- 定位关键词：agentic search；multi-context GRPO（MemSearcher）；shared vs. isolated policies；information bottleneck
+- 一句话背景：检索问答中，若上游只能把有限长度的报告交给下游，联合训练两个角色是否优于让一个单智能体在同一瓶颈下自写记忆再作答的 RL。
+- 自评分：`4.5/10`
+- 一段话概括：按 Call 1 修正反事实：单智能体在相同报告上限下用 multi-context GRPO 训练（自写报告、清空上下文后作答），与联合训练的独立/共享策略比较，3 种子，报告上限作剂量。共享策略版本与瓶颈内单智能体几乎是同一优化问题，因此差别只剩"是否分参数"，即 2605.24202 已研究的 IP vs SP，换到工具任务并加种子。
+- 打分理由：反事实正确后，主张退化为已有轴（IP vs SP）在新任务上的复现；MultiAgent-OPD 的表已显示 MemSearcher≈C-MAS + RL，预期结果偏零，新意低。
+- Idea 生成依据：Call 1 审查引用的 MemSearcher、MEM1、MultiAgent-OPD（主执行器已读摘要与 MultiAgent-OPD 结果表）。
+- 自评分轻量新意依据：MultiAgent-OPD 2610.23234 结果表（同底座、同检索器）已给出单智能体记忆方法与联合级联系统的对比。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：瓶颈剂量 × 参数共享的受控对照；单独不足以成文。
+- Reviewer 记录：`未送审`
+
+### IDEA-008：多智能体搜索 RL 相对 Search-R1 的增益是否只是上下文管理
+
+- 来源：`领域共性不足`
+- 父 Idea：`IDEA-005`
+- 状态：`available`（未送审，提前停止）
+- 定位关键词：agentic search；context management；multi-agent RL；Search-R1；MemSearcher
+- 一句话背景：多智能体搜索 RL（Dr. MAS、DAC、MATPO、MultiAgent-OPD）都与完整历史的单智能体 Search-R1 比较，没有与学会管理上下文的单智能体在同训练预算下比较。
+- 自评分：`4.5/10`
+- 一段话概括：在同底座、同检索器、同步数下比较完整历史单智能体、记忆单智能体（MemSearcher）、联合 IP / SP 多智能体，检验"多智能体增益 = 上下文长度/噪声管理"。若记忆单智能体与多智能体打平，则多智能体搜索 RL 的增益主要来自上下文隔离。
+- 打分理由：审计型结论，MultiAgent-OPD 表与 MATPO 摘要（"to manage context"）已半直接给出；问题真实但偏 benchmark 审计，主会新意不足。
+- Idea 生成依据：MATPO 2510.04678 摘要；MultiAgent-OPD 2610.23234 表；MemSearcher 2511.02805。
+- 自评分轻量新意依据：MultiAgent-OPD 同表已含 Search-R1、MemSearcher、Dr. MAS 与 C-MAS + RL。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：同预算受控审计。
+- Reviewer 记录：`未送审`

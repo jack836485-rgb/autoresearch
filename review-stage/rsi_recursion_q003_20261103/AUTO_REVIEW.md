@@ -1,0 +1,5 @@
+# 审查记录
+
+- Call 1（常规，effort high）：IDEA-002，5.5/10，promising_needs_revision，贡献三项 {'importance': 6.5, 'novelty': 5.5, 'effectiveness': 5.5}，可行性 pass，Gate 结果 failed。主贡献是受控交换测试下的递归曲线 Δ_k、放大比 r_k，以及技能/历史/选择噪声的三部分分解。重要性有限：结论只覆盖 STOP 和 Promptbreeder 这类较弱的系统，无法回应 DGM-H 和 MetaRSI 已报告的正面改进者增益。新颖度有限：交换测试已由审计论文规定，并由 MetaRSI 和 Hyperagents 执行；选择噪声已由 Winner's Curse 量化；剩下的增量是
+- Call 2（常规，effort high）：IDEA-004，4.0/10，needs_rethink，贡献三项 {'importance': 6.0, 'novelty': 5.0, 'effectiveness': 4.0}，可行性 fail，Gate 结果 failed。主贡献是将 DGM-H 迁移增益（imp@50 0.630 对 0）在编辑层面归因到抗选择噪声的统计纪律。重要性 6：问题有意义，但只在单系统、单目标域、5 个迁移体上做。新颖度 5：Hyperagents D.5 已用 hunk 过滤做过 meta/task 成分消融，本方案是更细粒度的延伸加上 Winner's Curse 的标签，接近补完原论文。有效性 4：DGM-H 的接受/父代选择和评估
+- Call 3（常规，effort high）：IDEA-005，4.8/10，needs_rethink，贡献三项 {'importance': 5.5, 'novelty': 5.0, 'effectiveness': 6.0}，可行性 pass，Gate 结果 failed。主贡献是量化 Hyperagents IMO 批改迁移实验中坏起点（标签词表或格式不合规）修复对 imp@50 的贡献，并在有效起点上重测迁移与初始 meta agent 之差。现象大概率成立：初始 task_agent.py 只返回原样 response，report.py 做小写字符串匹配；静态 ProofAutoGrader 0.670 高于迁移的 0.630；meta-only 迁移稳定而

@@ -1,0 +1,5 @@
+# 审查记录
+
+- Call 1（常规，effort high）：IDEA-002，5.5/10，promising_needs_revision，贡献三项 {'importance': 6.5, 'novelty': 6.0, 'effectiveness': 5.5}，可行性 pass，Gate 结果 failed。主贡献：在 PostTrainBench 真实决策点上用执行价值表评测换策略决策，并把锁定分解为信念误差与决策偏置（现任/作者归属）。重要性 6.5：问题真实，2608.19072 v2 已定位到缺少重开决策，本工作要进一步拆分来源；但信念/决策二分并不对应训练/协议二分，因为偏置可经由信念起作用，而且范围只有 2 基准、小基座。新颖度 6：基本是 SciΠvot 式选择、IBIS 式归属操纵、2
+- Call 2（常规，effort high）：IDEA-007，5.5/10，promising_needs_revision，贡献三项 {'importance': 6.5, 'novelty': 6.0, 'effectiveness': 5.0}，可行性 pass，Gate 结果 failed。主贡献是把 autoresearch 收窄的一部分归因于贪心接受的精修不对等，用反事实测误拒率，并用按精修年龄分层的接受规则修复。重要性中等偏上，但分量取决于 (a) 的大小，目前没有数值依据。新颖度受 NEAT/ALPS 已有机制约束，GEAR（同任务，明确论述贪心丢弃部分成功想法并给出重调翻盘实例）和 SeaEvo 也已提出同一直觉，剩余增量是定量误拒率和年龄对齐接受门。有效性依据主要是调参预
+- Call 3（常规，effort high）：IDEA-008，5.0/10，promising_needs_revision，贡献三项 {'importance': 6.5, 'novelty': 6.0, 'effectiveness': 4.5}，可行性 pass，Gate 结果 failed。主贡献：无人类、无训练的事前策略合约（预期区间 + 机械触发 + 自定指名备选），加上对人类中途指令有效成分的消融拆分。重要性 6.5：直接回应 2608.19072 呼吁的显式策略修订协议，但范围窄。新颖度 6：研究策略层面的组合有增量，但由运行时规则、注册备选、证据门控与已知的指名切换组合而成，且原文已观察到 evaluator 的建议被忽略，与臂 5 的观察部分重叠。有效性 4.5：核心依据

@@ -1,0 +1,750 @@
+{
+  "url": "https://arxiv.org/html/2610.29651v1",
+  "final_url": "https://arxiv.org/html/2610.29651v1",
+  "status": 200,
+  "title": "Spatially Gated Demographic Steering for Debiasing Multi-Person Text-to-Image Generation",
+  "metadata": {},
+  "paper": {
+    "title": "Spatially Gated Demographic Steering for Debiasing Multi-Person Text-to-Image Generation",
+    "title_warning": null,
+    "abstract": "Abstract Text-to-Image models reproduce societal stereotypes, and existing mitigation applies one demographic correction to the whole scene.\nIn multi-person scene generation this creates a trade-off: global steering improves aggregate balance only by homogenizing the people within an image.\nSteering-based methods like Embedding Arithmetic drive the intra-image diversity below the unsteered baseline.\nText- and latent-projection approaches shift the aggregate skew with only marginal gains in intra-image diversity.\nWe present Spatially Gated Steering (SGS), which steers the demographics of each person independently by extracting per-person masks from the Diffusion Transformer’s (DiT) internal attention maps at a critical denoising timestep and applying a distinct demographic vector within each mask for the remaining steps.\nSGS needs no fine-tuning, inversion or layout specifications, and uses a lightweight segmentor over frozen DiT attention features to localize subjects at early timesteps.\nOn skewed occupational prompts, SGS reaches high intra-image racial and gender diversity while keeping aggregate balance competitive and image quality near baseline, a result we validate on two architecturally distinct diffusion transformers, FLUX.1-Dev and SD3.5-Large.\nCodebase and model weights are available at https://github.com/cvims/spatially-gated-steering",
+    "authors": [
+      {
+        "name": "Venkatesh Thirugnana Sambandham",
+        "affiliations": [
+          "Affiliation: Technische Hochschule Ingolstadt",
+          "Affiliation: Ingolstadt, Germany"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Torsten Schön",
+        "affiliations": [
+          "Affiliation: Technische Hochschule Ingolstadt",
+          "Affiliation: Ingolstadt, Germany"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Venkatesh Thirugnana Sambandham Affiliation: Technische Hochschule Ingolstadt Affiliation: Ingolstadt, Germany Email: venkatesh.thirugnanasambandham@thi.de Torsten Schön Affiliation: Technische Hochschule Ingolstadt Affiliation: Ingolstadt, Germany Email: torsten.schoen@thi.de",
+    "arxiv_version": "2610.29651v1",
+    "arxiv_version_date": "2026-10-21",
+    "sections": [
+      {
+        "id": "S1",
+        "heading": "1 Introduction",
+        "level": 1,
+        "text": "Text-to-Image (T2I) generation has transformed digital content creation, yet foundational models such as FLUX [ 24 ] and Stable Diffusion [ 10 ] systematically reproduce societal stereotypes [ 9 ] . Gender-neutral prompts like a carpenter yield predominantly male-presenting images; a nurse yields predominantly female-presenting images [ 28 ] . Studies show these outputs shift user beliefs about real-world distributions [ 14 ] , making fairness mitigation essential for responsible deployment. Figure 1 : SGS intuition. The base trajectory (black) reaches x 0 base x_{0}^{\\text{base}} in a stereotyped region of p data p_{\\text{data}} ; global mitigation [ 39 ] (brown dashed) shifts it to one alternative mode. SGS instead intercepts at x start x_{\\text{start}} , extracts per-person masks, and steers each individual independently (orange/blue dashed) toward distinct demographic attractors within the same image x 0 x_{0} . Several mitigation strategies have been proposed and they operate at different levels of the diffusion pipeline [ 37 ] : They modify the text embeddings [ 39 , 6 , 43 , 22 ] or fine-tune model weights [ 13 , 36 ] to shift the aggregate output distribution. While effective for scenes with a single person, global mitigation methods share a fundamental limitation: They apply identical steering to every person in a scene. A prompt like ”a group of nurses” receives one demographic vector, pushing all the persons in the image in the same direction and failing to diversify individuals independently. Figure 2 : Qualitative comparison across three profession types spanning different stereotype directions. Prompts contain no demographic descriptors. Base is demographically homogeneous; EA shifts everyone uniformly; FairImagen is statistically indistinguishable from baseline on FLUX; SGS steers each instance toward a distinct intersectional target while preserving occupational context and scene coherence. Rightmost column: segmentation masks (nearest-neighbor upsampled from 32 × 32 32\\times 32 ) with assigned demographic labels. This limitation is not merely theoretical: Wan and Chang [41] show that multi-person prompts expose a distinct, compounding class of bias that single-subject evaluations cannot capture. Co-occurring subjects amplify stereotypes even when the same model behaves anti-stereotypically on single-person prompts. Attempts to address this gap remain limited. Existing approaches either rewrite the generation prompt with a single corrective signal applied to the whole scene [ 41 , 8 ] , optimize demographic distributions at the aggregate level without per-instance control [ 18 ] , or require an explicit spatial layout as input [ 7 ] . To the best of our knowledge, no existing method localizes individuals from the model’s own internal representations and applies independent demographic steering, to achieve intra-image diversity. Figure 1 illustrates this gap: while global mitigation shifts all persons uniformly toward a single demographic mode, our approach steers each individual independently through their spatial mask, reaching distinct attractors within p data p_{\\text{data}} in a single denoising pass. We introduce Spatially Gated Steering (SGS) , a framework for per-instance demographic steering in multi-person T2I scene generation. SGS operates by 1) Identifying and generating the masks of instances of people during the intermediate denoising steps using a lightweight detector, 2) Steering the demographics of the detected individuals, while also maintaining concept coherence. Our contributions are as follows: • A trade-off in multi-person fairness. Global mitigation faces an inherent tension: improving aggregate balance requires collapsing intra-image diversity, sometimes below the unsteered baseline. Since any per-instance diversification trivially raises intra-image entropy, the meaningful result is high entropy at a competitive aggregate balance. SGS reaches high intra-image diversity with a competitive aggregate balance by steering per-instance without fine-tuning, flow-inversion or layout. • Instance segmentation from DiT features. We show that self-attention maps of DiTs at a critical denoising timestep encode spatially separable person instances, and train a lightweight DETR-style [ 4 ] segmentor on these frozen features that isolates individuals across crowd sizes and scene complexities. • Benchmark and analysis. We introduce a benchmark measuring fairness along both intra-image diversity and aggregate deviation, surfacing the homogenization failure mode of global methods and showing SGS is strong on both axes, on both FLUX.1-Dev and SD3.5-Large."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px1",
+        "heading": "Bias and Fairness in Text-to-Image Models.",
+        "level": 3,
+        "text": "T2I models have been extensively shown to amplify demographic stereotypes encoded in training data, producing outputs skewed by gender, race and cultural identity across a wide range of prompt types [ 1 , 5 , 35 , 28 ] . Beyond documenting these skews, a parallel line of work formalizes their measurement: Dehdashtian et al. [ 9 ] quantify stereotypical attributes in the generated set and trace their origin within the model, reporting that even high-fidelity systems such as FLUX retain strong stereotypical predispositions. Mitigation strategies operate at different points in the generation pipeline: prompt engineering injects demographic descriptors at inference [ 11 , 2 , 43 ] , embedding manipulation steers text representations prior to image generation [ 39 , 6 , 22 , 25 , 26 , 15 ] , and parameter-efficient fine-tuning edits model weights to shift output distributions [ 13 , 36 ] . Park et al.’s Entanglement-Free Attention [ 30 ] shares our goal of preserving non-target attributes during bias mitigation, training cross-attention predictors under a mask-constrained regularization loss so background edits are suppressed. However, like other global methods, it applies one scene-level attribute correction rather than steering each person independently. Despite this breadth, all existing methods treat the generated image as a single unit, applying one steering signal to the entire scene. This is sufficient when a prompt produces one person, but breaks down entirely for multi-person scenes where distinct individuals require independent control."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px2",
+        "heading": "Multi-person Bias and Instance-level Control.",
+        "level": 3,
+        "text": "This breakdown in multi-subject generation is primarily driven by semantic leakage, a phenomenon where the attention mechanisms of diffusion architectures inadvertently blend the visual and demographic features of different subjects during the denoising trajectory. Wan and Chang [41] demonstrate the consequences of this at scale: their Paired Stereotype Test shows that over 74% of DALL-E 3 images depicting two individuals with contrastive social identities display gender-occupational biases, even when the same model produces anti-stereotypical outputs for single-person prompts. Jung et al. [18] propose a Multi-Group Proportional Representation metric to measure and optimize demographic distributions across intersectional groups, but operate at the aggregate level without per-instance control. A related direction targets stereotypes that emerge from the co-occurrence of multiple concepts within a single prompt: Zhou et al. [47] show that pairing a demographic descriptor with an unrelated object can induce stereotypical associations invisible to single-concept audits, mitigated via a trained Sensitive Transformer that constrains the output distribution toward a stereotype-free target. This targets a distinct problem from ours, stereotyped associations between a subject and its surrounding context, corrected globally over the whole generation, rather than diversifying multiple people already explicitly present in a scene. Training-free inference methods such as Bounded Attention [ 7 ] attempt to prevent semantic leakage by confining attention flows within manually predefined spatial bounding boxes, but rely on rigid user-provided layouts rather than organic scene composition. Reinforcement learning approaches such as DisCo [ 3 ] directly fine-tune models to penalize intra-image facial similarity, but use face similarity as a proxy for demographic diversity rather than steering specific attribute vectors, and incur significant computational overhead. Global steering techniques such as Embedding Arithmetic [ 39 ] modify text embeddings uniformly, which fundamentally fails to produce heterogeneous intra-image diversity."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px3",
+        "heading": "Diffusion Features for Spatial Understanding.",
+        "level": 3,
+        "text": "Intermediate diffusion activations encode rich spatial structure without additional training: DIFT [ 38 ] shows mid-denoising U-Net features support zero-shot dense correspondence; ODISE [ 42 ] uses Stable Diffusion U-Net features for open-vocabulary panoptic segmentation. This extends to Diffusion Transformers only recently: ConceptAttention [ 16 ] shows DiT attention-layer projections yield sharper concept saliency than cross-attention alone; TRACE [ 17 ] shows diffusion models isolate object boundaries at a specific timestep, enabling spatial masks from internal attention. SGS extends this line of work to intra-image demographic fairness in multi-person scenes generated by T2I models."
+      },
+      {
+        "id": "S3.SS1",
+        "heading": "3.1 Rectified Flow Denoising",
+        "level": 2,
+        "text": "Rectified flow [ 27 ] learns a velocity field v θ v_{\\theta} (a neural network with parameters θ \\theta ) that transports samples from a Gaussian noise distribution to the data distribution along approximately straight trajectories. FLUX [ 24 ] adopts this formulation, initializing generation from x 1 ∼ 𝒩 ⁡ ( 0 , I ) x_{1}\\sim\\mathcal{N}(0,I) and iteratively denoising via: x t − Δ ​ t = x t − Δ ​ t ⋅ v θ ​ ( x t , t , 𝐜 ) , x_{t-\\Delta t}\\;=\\;x_{t}\\;-\\;\\Delta t\\cdot v_{\\theta}(x_{t},\\,t,\\,\\mathbf{c}), (1) where t ∈ [ 0 , 1 ] t\\in[0,1] decreases from 1 1 (pure noise) to 0 0 (clean image) over T T steps, Δ ​ t = 1 / T \\Delta t=1/T , and 𝐜 \\mathbf{c} is the encoded text condition [ 31 ] ."
+      },
+      {
+        "id": "S3.SS2",
+        "heading": "3.2 Multimodal Diffusion Transformer (MM-DiT)",
+        "level": 2,
+        "text": "The MM-DiT [ 10 ] architecture patchifies the noisy image latent x t ∈ ℝ H ​ W × d x_{t}\\in\\mathbb{R}^{HW\\times d} , where H ​ W HW are the latent height and width and d d is the token dimension, into image tokens, concatenates them with text conditioning tokens 𝐜 \\mathbf{c} [ 31 ] , and processes them through a stack of N N transformer layers, each applying joint image-text self-attention and a feedforward MLP. FLUX.1-Dev [ 24 ] uses N = 19 N{=}19 double-stream layers; SD3.5-Large [ 10 ] uses N = 38 N{=}38 joint transformer blocks."
+      },
+      {
+        "id": "S3.SS3",
+        "heading": "3.3 Embedding Arithmetic",
+        "level": 2,
+        "text": "Embedding Arithmetic [ 39 ] computes a demographic attribute vector as the mean difference between embeddings generated by a biased prompt ( p target p_{\\mathrm{target}} ) and neutral prompts ( p neutral p_{\\mathrm{neutral}} ) over a set of profession prompts 𝒫 \\mathcal{P} : 𝐯 A = 1 | 𝒫 | ​ ∑ p ∈ 𝒫 ( 𝐞 ⁡ ( p target ) − 𝐞 ⁡ ( p neutral ) ) , \\mathbf{v}_{A}=\\frac{1}{|\\mathcal{P}|}\\sum_{p\\in\\mathcal{P}}\\bigl(\\mathbf{e}(p_{\\mathrm{target}})-\\mathbf{e}(p_{\\mathrm{neutral}})\\bigr), (2) where 𝐞 ⁡ ( ⋅ ) ∈ ℝ D \\mathbf{e}(\\cdot)\\in\\mathbb{R}^{D} denotes the text embedding and A A indexes the target demographic attribute. FLUX conditions denoising on two text encoders: a pooled CLIP-L/14 embedding (768-dim) that modulates the network globally, and a T5-XXL sequence embedding that carries the prompt text via cross-attention. Embedding Arithmetic’s direction vectors are computed and validated in the CLIP pooled space – 𝐞 ⁡ ( ⋅ ) \\mathbf{e}(\\cdot) and 𝐜 \\mathbf{c} in Eq. ( 1 ) denote this pooled CLIP embedding, not the T5 sequence. p target p_{\\mathrm{target}} and p neutral p_{\\mathrm{neutral}} share an identical template except for an inserted demographic descriptor (e.g. “a photo of a {demographic} {profession}” vs. “a photo of a {profession}”), so 𝐯 A \\mathbf{v}_{A} isolates the demographic direction rather than any profession-specific signal. At inference, the original method shifts the conditioning vector globally as 𝐜 ~ = 𝐜 + α ⋅ 𝐯 A \\tilde{\\mathbf{c}}=\\mathbf{c}+\\alpha\\cdot\\mathbf{v}_{A} , where α > 0 \\alpha>0 controls the steering strength."
+      },
+      {
+        "id": "S4",
+        "heading": "4 Methods",
+        "level": 1,
+        "text": "SGS performs per-instance demographic steering within the standard rectified flow denoising loop, requiring no model fine-tuning, no trajectory inversion, and no external spatial layout specification. Crucially, instance masks are predicted directly from the MM-DiT’s attention features at a critical denoising step, rather than decoding the noisy latents for an external segmentor - which would be unreliable while the latent is still far from x 0 x_{0} , and redundant since these features are already computed by the base pass. Figure 1 illustrates the intuition behind our approach and Algorithm 1 summarizes the complete inference procedure. The denoising loop is divided into three phases governed by two hyperparameters: t start t_{\\mathrm{start}} and t end t_{\\mathrm{end}} . Before t start t_{\\mathrm{start}} , generation proceeds without intervention. At t start t_{\\mathrm{start}} , instance masks are extracted and cached. Between t start t_{\\mathrm{start}} and t end t_{\\mathrm{end}} , a separate steered forward pass is run per detected instance at each denoising step, and the predictions are spatially accumulated. After t end t_{\\mathrm{end}} , standard denoising resumes to completion."
+      },
+      {
+        "id": "S4.SS1",
+        "heading": "4.1 Instance Detection",
+        "level": 2,
+        "text": "At step t = t start t=t_{\\mathrm{start}} , the base forward pass is run with attention extraction enabled, returning the MM-DiT self-attention maps { SA t ℓ } ℓ = 1 N \\{\\mathrm{SA}_{t}^{\\ell}\\}_{\\ell=1}^{N} ."
+      },
+      {
+        "id": "S4.SS1.SSS0.Px1",
+        "heading": "Self-attention maps.",
+        "level": 3,
+        "text": "The self-attention map for layer ℓ \\ell is computed independently for each attention head and averaged across heads, capturing pairwise spatial affinities between image tokens [ 17 ] ; the full expression is given in supplementary Section B ."
+      },
+      {
+        "id": "S4.SS1.SSS0.Px2",
+        "heading": "Layer binning.",
+        "level": 3,
+        "text": "In order to save compute and memory usage, rather than operating on all N N transformer layers independently, we partition them into B = 4 B{=}4 non-overlapping bins of approximately 5 consecutive layers each for FLUX.1-Dev and 9–11 layers each for SD3.5-Large. We then compute the layer-wise mean of the self-attention maps within each bin, yielding four spatially resolved feature maps { SA ^ t b } b = 1 4 \\{\\widehat{\\mathrm{SA}}_{t}^{b}\\}_{b=1}^{4} per timestep. Through an ablation study over all bin combinations (Section 5.3 ), we find that concatenating bins b = 3 b{=}3 and b = 4 b{=}4 yields the best instance segmentation performance. We therefore define the feature representation as: 𝐅 t = SA ^ t 3 | SA ^ t 4 ∈ ℝ H ​ W × 2 ​ H ​ W , \\mathbf{F}_{t}=\\widehat{\\mathrm{SA}}_{t}^{3}\\|\\widehat{\\mathrm{SA}}_{t}^{4}\\in\\mathbb{R}^{HW\\times 2HW}, (3) where ∥ \\| denotes channel-wise concatenation. 𝐅 t \\mathbf{F}_{t} is passed directly to the instance segmentor described below. Algorithm 1 SGS Inference 1: Noisy image latent x 1 x_{1} , prompt embeddings ( 𝐜 ) (\\mathbf{c}) , attribute vectors { 𝐯 A } \\{\\mathbf{v}_{A}\\} , strength α \\alpha , λ \\lambda , window [ t start , t end ) [t_{\\mathrm{start}},t_{\\mathrm{end}}) 2: for t = 0 , … , T − 1 t=0,\\ldots,T-1 do 3: v ^ base ← v θ ​ ( x t , t , 𝐜 ) \\hat{v}^{\\mathrm{base}}\\leftarrow v_{\\theta}(x_{t},t,\\mathbf{c}) ⊳ \\triangleright base pass 4: if t = t start t=t_{\\mathrm{start}} then 5: 𝐅 t ← BinAttn ⁡ ( { SA t ℓ } ) \\mathbf{F}_{t}\\leftarrow\\mathrm{BinAttn}(\\{\\mathrm{SA}_{t}^{\\ell}\\}) ⊳ \\triangleright Eq. ( 3 ) 6: { M t } , K ← Segmentor ⁡ ( 𝐅 t ) \\{M_{t}\\},K\\leftarrow\\mathrm{Segmentor}(\\mathbf{F}_{t}) ⊳ \\triangleright Eq. ( 4 ) 7: { A t } ← AssignDemographics ⁡ ( K ) \\{A_{t}\\}\\leftarrow\\mathrm{AssignDemographics}(K) 8: end if 9: if t start ≤ t < t end t_{\\mathrm{start}}\\leq t<t_{\\mathrm{end}} and K > 0 K>0 then 10: v ^ final ← v ^ base \\hat{v}^{\\mathrm{final}}\\leftarrow\\hat{v}^{\\mathrm{base}} 11: for i = 1 , … , K i=1,\\ldots,K do 12: 𝐜 ~ ( i ) ← 𝐜 ( i ) + α ⋅ 𝐯 A i \\tilde{\\mathbf{c}}^{(i)}\\leftarrow\\mathbf{c}^{(i)}+\\alpha\\cdot\\mathbf{v}_{A_{i}} ⊳ \\triangleright Eq. ( 6 ) 13: v ^ ( i ) ← v θ ​ ( x t , t , 𝐜 ~ ( i ) ) \\hat{v}^{(i)}\\leftarrow v_{\\theta}(x_{t},t,\\tilde{\\mathbf{c}}^{(i)}) ⊳ \\triangleright Eq. ( 7 ) 14: v ^ final + = λ ⁡ ( v ^ ( i ) − v ^ base ) ⊙ M i \\hat{v}^{\\mathrm{final}}\\mathrel{+}=\\lambda\\,(\\hat{v}^{(i)}-\\hat{v}^{\\mathrm{base}})\\odot M_{i} ⊳ \\triangleright Eq. ( 9 ) 15: end for 16: else 17: v ^ final ← v ^ base \\hat{v}^{\\mathrm{final}}\\leftarrow\\hat{v}^{\\mathrm{base}} 18: end if 19: x t − Δ ​ t ← x t + ( t prev − t curr ) ⋅ v ^ final x_{t-\\Delta t}\\leftarrow x_{t}+(t_{\\mathrm{prev}}-t_{\\mathrm{curr}})\\cdot\\hat{v}^{\\mathrm{final}} ⊳ \\triangleright Eq. ( 10 ) 20: end for 21: return x 0 x_{0}"
+      },
+      {
+        "id": "S4.SS1.SSS0.Px3",
+        "heading": "Segmentor Architecture.",
+        "level": 3,
+        "text": "𝐅 t \\mathbf{F}_{t} is passed to a DETR-style [ 4 ] instance segmentor. The model comprises a three-layer CNN backbone that projects 𝐅 t ∈ ℝ H ​ W × 2 ​ H ​ W \\mathbf{F}_{t}\\in\\mathbb{R}^{HW\\times 2HW} into a spatial feature map, followed by a linear pixel projection that yields a sequence of pixel embeddings 𝐏 ∈ ℝ H ​ W × D e \\mathbf{P}\\in\\mathbb{R}^{HW\\times D_{e}} where D e D_{e} is the transformer embedding dimension. A set of N q N_{q} learnable instance queries 𝐐 ∈ ℝ N q × D e \\mathbf{Q}\\in\\mathbb{R}^{N_{q}\\times D_{e}} are refined by a L L -layer transformer decoder attending over 𝐏 \\mathbf{P} . The denoising timestep t t is incorporated via a sinusoidal embedding concatenated to the input features, conditioning the segmentor on the noise level at which features were extracted. Each refined query produces three outputs via dedicated linear heads: conf i ∈ [ 0 , 1 ] , center i ∈ [ 0 , 32 ] 2 , M i ∈ [ 0 , 1 ] 32 × 32 , \\mathrm{conf}_{i}\\in[0,1],\\quad\\mathrm{center}_{i}\\in[0,32]^{2},\\quad M_{i}\\in[0,1]^{32\\times 32}, (4) where conf i \\mathrm{conf}_{i} is the instance confidence, center i \\mathrm{center}_{i} is the predicted center coordinate, and M i M_{i} is the instance mask produced via a dot product between the query mask embedding and the pixel embedding sequence. Queries with confidence below a threshold τ \\tau are discarded, yielding K ≤ N q K\\leq N_{q} active instances. More details, along with the hyperparameters of the segmentor can be found in the supplementary material (Section B )."
+      },
+      {
+        "id": "S4.SS1.SSS0.Px4",
+        "heading": "Training Data.",
+        "level": 3,
+        "text": "The segmentor is trained on a purpose-built dataset of 1440 1440 generated multi-person images spanning k ∈ { 2 , 3 , 4 , 5 } k{\\in}\\{2,3,4,5\\} persons across 9 scene types and 3 difficulty levels, with instance pseudo-labels produced by SAM2 [ 32 ] automatic mask generation. Full dataset details and the train/val split are provided in the supplementary material."
+      },
+      {
+        "id": "S4.SS1.SSS0.Px5",
+        "heading": "Training.",
+        "level": 3,
+        "text": "The segmentor is trained with a Hungarian matching loss [ 4 ] . For each image, N q N_{q} predicted queries are optimally assigned to K K ground-truth instances by minimising a cost matrix. 𝒞 i ​ j = w c ​ | c ^ i − c j | 2 32 − log ⁡ p ^ i + w m ​ ( 1 − Dice ⁡ ( M ^ i , M j ) ) \\mathcal{C}_{ij}=w_{c}\\frac{|\\hat{c}_{i}-c_{j}|_{2}}{32}-\\log\\hat{p}_{i}+w_{m}\\,(1-\\mathrm{Dice}(\\hat{M}_{i},M_{j})) where c ^ i \\hat{c}_{i} , p ^ i \\hat{p}_{i} , M ^ i \\hat{M}_{i} are the predicted center, confidence, and mask for query i i , c j c_{j} , M j M_{j} are the ground-truth center and mask, and w c w_{c} , w m w_{m} weight the center and mask loss terms (values in supplementary Section B ). Unmatched queries are supervised with a no-instance label. The mask head is trained with Dice loss [ 29 ] and binary cross-entropy on the matched pairs."
+      },
+      {
+        "id": "S4.SS1.SSS0.Px6",
+        "heading": "Mask caching and demographic assignment.",
+        "level": 3,
+        "text": "The K K binary masks { M i } i = 1 K \\{M_{i}\\}_{i=1}^{K} are cached and reused for all subsequent steps in the steering window without re-extraction. Each instance i i is assigned a target demographic attribute A i A_{i} by uniform sampling over the intersection of gender and racial attribute categories, which can be overridden at inference time to reflect user-specified fairness targets."
+      },
+      {
+        "id": "S4.SS2",
+        "heading": "4.2 Per-Instance Steering",
+        "level": 2,
+        "text": "For each timestep t t in the window t start ≤ t ≤ t end t_{\\mathrm{start}}\\leq t\\leq t_{\\mathrm{end}} , the base velocity prediction v ^ θ \\hat{v}_{\\theta} is first obtained from the standard forward process: v ^ θ base = v θ ​ ( x t , t , 𝐜 ) \\hat{v}_{\\theta}^{\\mathrm{base}}=v_{\\theta}(x_{t},\\,t,\\,\\mathbf{c}) (5) where 𝐜 \\mathbf{c} is the conditional embeddings from the text encoder. Rather than the single global shift Embedding Arithmetic applies (Section 3.3 ), SGS shifts the conditioning vector independently per detected instance: 𝐜 ~ ( i ) = 𝐜 ( i ) + α ⋅ 𝐯 A i , \\tilde{\\mathbf{c}}^{(i)}=\\mathbf{c}^{(i)}+\\alpha\\cdot\\mathbf{v}_{A_{i}}, (6) where α > 0 \\alpha>0 controls the steering strength and A i A_{i} is the demographic attribute assigned to the instance i i . SGS pre-computes { 𝐯 A } \\{\\mathbf{v}_{A}\\} offline for a set of gender and racial attributes and applies Eq. 6 independently per detected person within the steering window described in Section 5.4 ."
+      },
+      {
+        "id": "S4.SS2.SSS0.Px1",
+        "heading": "Fair Forward Pass.",
+        "level": 3,
+        "text": "For each instance i ∈ { 1 , … , K } i\\in\\{1,\\ldots,K\\} , a separate fair forward pass is run with the conditioning embedding c ~ \\tilde{c} steered via Eq. ( 6 ): v ^ θ ( i ) = v θ ​ ( x t , t , 𝐜 ~ ( i ) ) \\hat{v}_{\\theta}^{(i)}=v_{\\theta}\\!\\left(x_{t},\\,t,\\,\\tilde{\\mathbf{c}}^{(i)}\\right) (7)"
+      },
+      {
+        "id": "S4.SS2.SSS0.Px2",
+        "heading": "Spatially Gated Accumulation",
+        "level": 3,
+        "text": "The per-instance steering vector is the difference between the fair and base predictions: δ ( i ) = v ^ θ ( i ) − v ^ θ base \\delta^{(i)}=\\hat{v}_{\\theta}^{(i)}-\\hat{v}_{\\theta}^{\\mathrm{base}} (8) The steered velocity is accumulated across all K K instances, with each steering vector spatially gated by the corresponding cached mask M i M_{i} of the instance: v ^ θ final = v ^ θ base + λ ​ ∑ i = 1 K δ ( i ) ⊙ M i \\hat{v}_{\\theta}^{\\mathrm{final}}=\\hat{v}_{\\theta}^{\\mathrm{base}}+\\lambda\\sum_{i=1}^{K}\\delta^{(i)}\\odot M_{i} (9) where λ > 0 \\lambda>0 is the diversity strength and ⊙ \\odot denotes the element-wise multiplication with M i M_{i} broadcast over the feature dimension. The latent is then updated via Eq. ( 1 ). x t − Δ ​ t = x t + ( t prev − t curr ) ⋅ v ^ θ final . x_{t-\\Delta t}=x_{t}+(t_{\\mathrm{prev}}-t_{\\mathrm{curr}})\\cdot\\hat{v}_{\\theta}^{\\mathrm{final}}. (10) Outside the steering window, the latent is updated using the base prediction only and no attention extraction, fair forward pass, or mask application occurs."
+      },
+      {
+        "id": "S5.SS1.SSS0.Px1",
+        "heading": "Model and Hardware Configurations.",
+        "level": 3,
+        "text": "Our primary experiments use FLUX.1-Dev 1 1 1 https://huggingface.co/black-forest-labs/FLUX.1-dev in bfloat16 precision [ 19 ] on a single NVIDIA A6000 GPU (48GB VRAM), with 21 denoising steps and a guidance scale of 4.5. To evaluate cross-architecture generalization, we additionally port SGS and all four baselines to SD3.5-Large 2 2 2 https://huggingface.co/stabilityai/stable-diffusion-3.5-large in bfloat16 precision, run on a single NVIDIA A100 GPU (39GB MIG slice), at 1024 × 1024 1024{\\times}1024 resolution (its native training resolution) with 28 denoising steps and a guidance scale of 3.5. SGS’s instance-detection and per-instance steering mechanism (Section 4.1 , Section 3.3 ) makes no FLUX-specific assumption beyond the existence of a joint image-text self-attention map inside the denoising transformer, which SD3.5’s MM-DiT also provides. SD3.5-Large’s EA direction vectors live in the joint pooled embedding of its two CLIP encoders (CLIP-L and CLIP-G, concatenated to 2048-dim), rather than FLUX’s single 768-dim CLIP-L pooled space; T5 remains excluded from vector construction in both cases. Figure 3 : Instance segmentation analysis ( n = 720 n{=}720 ): segmentation performance across the FLUX denoising trajectory for four architectures. All methods peak around t ≈ 0.7 t{\\approx}0.7 – 0.8 0.8 ; DETR consistently outperforms all baselines. Layer bin ablation motivating our choice of Bins 3+4 as 𝐅 t \\mathbf{F}_{t} (Eq. ( 3 )) is in supplementary Section B ."
+      },
+      {
+        "id": "S5.SS2.SSS0.Px1",
+        "heading": "Intersectional Entropy ( H i ​ x H_{ix} )",
+        "level": 3,
+        "text": "Let 𝒢 = ℛ × 𝒮 \\mathcal{G}{=}\\mathcal{R}\\times\\mathcal{S} denote the set of intersectional demographic groups over racial categories ℛ = { white , black , asian , indian } \\mathcal{R}{=}\\{\\text{white},\\text{black},\\text{asian},\\text{indian}\\} and genders 𝒮 = { male , female } \\mathcal{S}=\\{\\text{male},\\text{female}\\} , giving | 𝒢 | = 8 |\\mathcal{G}|=8 groups 3 3 3 We acknowledge that Broader gender and racial spectra exist; we restrict to these for classifier reliability and existing dataset label coverage. . For a single generated image with n n detected faces, let p g p_{g} be the ratio of faces classified as group g g . We compute per-image intersectional entropy as: H i ​ x = − 1 log ⁡ min ⁡ ( n , | 𝒢 | ) ∑ g ∈ 𝒢 p g log p g ∈ [ 0 , 1 ] , H_{ix}=-\\frac{1}{\\log\\min(n,\\,|\\mathcal{G}|)}\\sum_{g\\in\\mathcal{G}}p_{g}\\log p_{g}\\;\\in[0,1], (11) and report its mean over all generated images. Normalizing the entropy with log ⁡ min ⁡ ( n , | 𝒢 | ) \\log\\min(n,|\\mathcal{G}|) ensures that a k = 2 k{=}2 image in which both persons belong to a distinct intersectional groups achieves H i ​ x = 1.0 H_{ix}{=}1.0 , independent of k k . This captures intra-image demographic diversity which is the core objective of Spatially Gated demographic Steering, rather than aggregated statistics."
+      },
+      {
+        "id": "S5.SS2.SSS0.Px2",
+        "heading": "Deviation Ratio ( D ​ R DR )",
+        "level": 3,
+        "text": "Following [ 40 , 25 ] , for an attribute with category set 𝒞 \\mathcal{C} let N c N_{c} be the total number of detected faces classified as category c c and N = ∑ c N c N=\\sum_{c}N_{c} : D ​ R = max c ∈ 𝒞 ⁡ | N c / N − 1 / | 𝒞 | | 1 − 1 / | 𝒞 | , DR=\\max_{c\\in\\mathcal{C}}\\;\\frac{\\bigl|\\,N_{c}/N-1/|\\mathcal{C}|\\,\\bigr|}{1-1/|\\mathcal{C}|}, (12) where D ​ R = 0 DR{=}0 is perfectly balanced and D ​ R = 1 DR{=}1 is maximally skewed. We report D ​ R race DR_{\\text{race}} ( | 𝒞 | = 4 |\\mathcal{C}|{=}4 : white, black, asian, indian) and D ​ R gender DR_{\\text{gender}} ( | 𝒞 | = 2 |\\mathcal{C}|{=}2 : male, female). Unlike the original single-person formulation, we aggregate face-level counts across all k k persons per image, which we find more appropriate for multi-person generation."
+      },
+      {
+        "id": "S5.SS2.SSS0.Px3",
+        "heading": "Image Quality",
+        "level": 3,
+        "text": "We report CLIP score [ 31 ] for prompt fidelity and aesthetic score delta ( A ​ e ​ s ​ Δ Aes\\Delta ) relative to the unsteered baseline [ 33 ] . Face crops from the generated images are extracted using MTCNN [ 44 ] . Similar to prior works [ 39 , 41 ] , Demographic labels are produced by FairFace [ 20 ] detector, which we validate directly against known ground truth rather than assuming its accuracy (supplementary Section E )."
+      },
+      {
+        "id": "S5.SS3.SSS0.Px1",
+        "heading": "Evaluation Protocol.",
+        "level": 3,
+        "text": "We evaluate instance segmentation on a held-out test set of our dataset as described in Section 4.1 . The test set has n = 720 n{=}720 images across all k ∈ { 2 , 3 , 4 , 5 } k\\in\\{2,3,4,5\\} person counts and three difficulty levels. We report mean intersection-over-union (mIoU), average precision at IoU threshold (AP50) and average precision averaged over thresholds 50%–95% (AP50-95). Features are extracted at each denoising timestep t ∈ [ 0 , 1 ] t\\in[0,1] and we report performance across the full temporal sweep."
+      },
+      {
+        "id": "S5.SS3.SSS0.Px2",
+        "heading": "Architectural Comparison",
+        "level": 3,
+        "text": "We compare four segmentation approaches of increasing supervisory complexity: K-Means (naive unsupervised baseline), Spectral clustering (following MaskDiffusion [ 21 ] ), CenterNet [ 48 ] (supervised, lightweight), and our DETR-style model (Section 4.1 ). TRACE [ 17 ] , which also extracts instance boundaries from diffusion self-attention maps, is a natural comparison, but its authors had not released training or inference code at submission time, precluding a faithful reproduction. Figure 3 reports performance across FLUX denoising timesteps. All methods improve as denoising progresses toward t ≈ 0.7 t{\\approx}0.7 – 0.8 0.8 (step 4 of 21), then plateau or degrade as features shift toward fine-grained texture, confirming MM-DiT features become instance-discriminative at intermediate timesteps [ 17 , 38 ] ; together with the steering-window ablation (Section 5.4 ), this motivates t start = 4 t_{\\mathrm{start}}{=}4 . DETR outperforms all baselines at every timestep, peaking at mIoU 0.664 , AP50 0.797 , AP50–95 0.416 (vs. CenterNet’s 0.618/0.762/0.337), reflecting the gap between supervised and unsupervised instance separation from DiT features. A DETR trained analogously on SD3.5-Large reaches a comparable peak (Section F ), so this timestep-localized discriminability is not FLUX-specific. Per-difficulty and qualitative detail: supplementary Sections C , G ; Section D shows the segmentor is not the bottleneck behind SGS’s steering accuracy at K ≤ 3 K{\\leq}3 , but shows weaker performance at K = 4 K{=}4 ."
+      },
+      {
+        "id": "S5.SS3.SSS0.Px3",
+        "heading": "Layer Bin Ablation.",
+        "level": 3,
+        "text": "Performance improves monotonically from Bin 1 to Bin 4, reflecting the progression of spatial structure across MM-DiT layer depth - earlier layers encode coarse layout while later layers capture fine-grained instance boundaries. Concatenating Bins 3 and 4 achieves the best performance across all metrics (mIoU: 0.631, AP50: 0.747, AP50-95: 0.368, averaged across all timesteps), outperforming other bin configurations (full per-bin table in supplementary Section B ). This result directly motivates our choice of 𝐅 t = SA ^ t 3 | SA ^ t 4 \\mathbf{F}_{t}=\\widehat{\\mathrm{SA}}_{t}^{3}\\|\\widehat{\\mathrm{SA}}_{t}^{4} in Eq. ( 3 )."
+      },
+      {
+        "id": "S5.SS4",
+        "heading": "5.4 Steering Parameters Ablation",
+        "level": 2,
+        "text": "We evaluate on a set of 8 occupations: 4 male-skewed ( lawyer, physician, developer, politician ) and 4 female-skewed ( social worker, hairdresser, cashier, receptionist ), generating 10 images per occupation for k ∈ { 2 , 3 } k{\\in}\\{2,3\\} persons with randomly assigned target demographics per detected instance. We report five metrics: race and gender steering accuracy ( Acc race \\mathrm{Acc}_{\\mathrm{race}} , Acc gender \\mathrm{Acc}_{\\mathrm{gender}} ) against the assigned target; aesthetic score delta ( A ​ e ​ s ​ Δ Aes\\Delta ) [ 33 ] relative to the unsteered baseline; background preservation ( LPIPS bg \\mathrm{LPIPS}_{\\mathrm{bg}} [ 45 ] ) outside the instance masks; and prompt–image CLIP similarity delta ( CLIP ​ Δ \\mathrm{CLIP}\\Delta ), where values closer to zero indicate less semantic drift."
+      },
+      {
+        "id": "S5.SS4.SSS0.Px1",
+        "heading": "Steering Hyperparameters.",
+        "level": 3,
+        "text": "We ablate EA strength α ∈ { 1.5 , 2.0 , 2.5 , 3.0 , 3.5 } \\alpha\\in\\{1.5,2.0,2.5,3.0,3.5\\} and spatial diversity strength λ ∈ { 3.0 , 4.0 , 5.0 , 6.0 , 7.0 } \\lambda\\in\\{3.0,4.0,5.0,6.0,7.0\\} , reporting steering accuracy, aesthetic delta, background preservation, and CLIP similarity delta. We select α = 2.0 \\alpha{=}2.0 and λ = 4.0 \\lambda{=}4.0 as our steering parameters; full sensitivity analysis is provided in Table S5 of the supplementary material. Table 1: Quantitative results on the extended WinoBias occupation benchmark (30 occupations × \\times 5 templates × \\times k ∈ { 2 , 3 , 4 } k\\in\\{2,3,4\\} × \\times 10 seeds, n = 4,500 n{=}4{,}500 /method/architecture), on FLUX.1-Dev and SD3.5-Large. H i ​ x H_{ix} : intra-image intersectional entropy. DR: deviation ratio from uniform (lower is better). Bold and Underlined values represent the best and second-best methods per metric, within each architecture. FLUX.1-Dev SD3.5-Large Method H i ​ x H_{ix} ↑ \\uparrow CLIP ↑ \\uparrow A ​ e ​ s ​ Δ Aes\\Delta ↑ \\uparrow DR race {}_{\\text{race}} ↓ \\downarrow DR gender {}_{\\text{gender}} ↓ \\downarrow H i ​ x H_{ix} ↑ \\uparrow CLIP ↑ \\uparrow A ​ e ​ s ​ Δ Aes\\Delta ↑ \\uparrow DR race {}_{\\text{race}} ↓ \\downarrow DR gender {}_{\\text{gender}} ↓ \\downarrow Baseline 0.524 ± \\pm 0.016 0.321 ± \\pm 0.001 – 0.748 ± \\pm 0.015 0.608 ± \\pm 0.022 0.549 ± \\pm 0.015 0.325 ± \\pm 0.001 – 0.615 ± \\pm 0.018 0.367 ± \\pm 0.026 EA [ 39 ] 0.285 ± \\pm 0.013 0.236 ± \\pm 0.002 +0.336 ± \\pm 0.011 0.079 ± \\pm 0.016 0.434 ± \\pm 0.027 0.319 ± \\pm 0.012 0.323 ± \\pm 0.001 +0.163 ± \\pm 0.010 0.069 ± \\pm 0.016 0.303 ± \\pm 0.029 SDID [ 25 ] 0.515 ± \\pm 0.016 0.314 ± \\pm 0.001 +0.118 ± \\pm 0.008 0.797 ± \\pm 0.013 0.593 ± \\pm 0.023 0.573 ± \\pm 0.015 0.322 ± \\pm 0.001 +0.006 ± \\pm 0.015 0.628 ± \\pm 0.017 0.456 ± \\pm 0.026 RespoDiff [ 40 ] 0.540 ± \\pm 0.017 0.315 ± \\pm 0.001 − - 0.055 ± \\pm 0.006 0.737 ± \\pm 0.017 0.624 ± \\pm 0.022 0.575 ± \\pm 0.015 0.326 ± \\pm 0.001 − - 0.042 ± \\pm 0.009 0.584 ± \\pm 0.018 0.458 ± \\pm 0.025 FairImagen [ 12 ] 0.534 ± \\pm 0.016 0.320 ± \\pm 0.001 +0.004 ± \\pm 0.005 0.744 ± \\pm 0.015 0.574 ± \\pm 0.025 0.539 ± \\pm 0.015 0.319 ± \\pm 0.001 +0.057 ± \\pm 0.011 0.385 ± \\pm 0.019 0.293 ± \\pm 0.028 SGS (ours) 0.794 ± \\pm 0.014 0.318 ± \\pm 0.001 − - 0.000 ± \\pm 0.007 0.299 ± \\pm 0.007 0.504 ± \\pm 0.025 0.832 ± \\pm 0.011 0.324 ± \\pm 0.001 − - 0.037 ± \\pm 0.010 0.306 ± \\pm 0.006 0.233 ± \\pm 0.028"
+      },
+      {
+        "id": "S5.SS4.SSS0.Px2",
+        "heading": "Steering Window.",
+        "level": 3,
+        "text": "We additionally sweep detection/steering start step t start ∈ { 2 , 4 , 6 } t_{\\mathrm{start}}\\in\\{2,4,6\\} and end step t end t_{\\mathrm{end}} , with α = 2.0 \\alpha{=}2.0 and λ = 4.0 \\lambda{=}4.0 fixed (full grid and discussion in supplementary Section H , Table S6 ). Early detection ( t start = 2 t_{\\mathrm{start}}{=}2 ) yields the highest steering accuracy but degrades background preservation and aesthetic quality, since MM-DiT features this early are insufficiently structured for reliable instance segmentation. Late detection ( t start = 6 t_{\\mathrm{start}}{=}6 ) preserves background coherence but leaves too short a window to shift demographics effectively. We select t start = 4 t_{\\mathrm{start}}{=}4 , t end = 10 t_{\\mathrm{end}}{=}10 as our operating point for FLUX, balancing steering accuracy against background preservation and semantic drift. Similar Hyperparameter testing was done for SD3.5-Large and the results can be found in Section I ."
+      },
+      {
+        "id": "S5.SS5",
+        "heading": "5.5 Benchmark Comparison",
+        "level": 2,
+        "text": "We evaluate on 30 held-out WinoBias occupations (disjoint from the 10 used to fit EA’s direction vectors) × \\times 5 prompt templates × \\times k ∈ { 2 , 3 , 4 } k\\in\\{2,3,4\\} × \\times 10 seeds, on both FLUX.1-Dev and SD3.5-Large (Section 5.1 ; full list in supplementary Section J ), yielding 4,500 images/method/architecture. We compare against Embedding Arithmetic [ 39 ] , SDID [ 25 ] , RespoDiff [ 40 ] , and FairImagen [ 12 ] ; DisCo [ 3 ] targets a related goal but requires fine-tuning and has no public implementation, precluding a faithful comparison. Each baseline was originally designed for UNet-based diffusion models; how we faithfully reimplemented them for MM-DiT is detailed in supplementary Section N . H i ​ x H_{ix} , CLIP, and A ​ e ​ s ​ Δ Aes\\Delta are mean ± 95 % \\pm 95\\% CI (normal approximation); DR uses a percentile bootstrap (1000 resamples), since it is a population-level statistic rather than a per-image mean. Table 1 reports intra-image diversity ( H i ​ x H_{ix} ) against aggregate balance ( D ​ R DR ) on both architectures under one protocol. Since H i ​ x H_{ix} rewards any per-instance diversification, the two must be read jointly: global methods steer every person identically and so cannot raise intra-image diversity. Embedding Arithmetic reaches the lowest D ​ R r ​ a ​ c ​ e DR_{race} on both models, but its H i ​ x H_{ix} falls well below the unsteered baseline on both – a single demographic vector pushes everyone toward the same group, improving aggregate counts while erasing intra-image variation. SDID, RespoDiff, and FairImagen leave D ​ R DR close to baseline on both architectures, confirming that global latent and text-embedding projections do not transfer to either model’s joint-attention formulation. SGS is the only method to break this trade-off on both: highest H i ​ x H_{ix} by a wide margin, D ​ R r ​ a ​ c ​ e DR_{race} second only to EA, and prompt fidelity near baseline throughout. This pattern replicates on a second, architecturally distinct diffusion transformer, not just FLUX."
+      },
+      {
+        "id": "S5.SS6",
+        "heading": "5.6 Human Evaluation",
+        "level": 2,
+        "text": "The metrics above rely on an automatic race/gender classifier (Section 5.1 ). To check that SGS’s gains are also visible to real people, not just to one automatic tool, we ran a small anonymous online study. Raters were shown two images side by side, one from SGS and one from a baseline, and asked which has more diverse people and which better matches the prompt, plus an overall preference. We collected 65 completed sessions (657 screens, 1971 judgments in total), comparing SGS against all five baselines. Table 2 shows the share of judgments that favored SGS. Raters preferred SGS on diversity by a wide margin against every baseline (88–90%, all differences statistically significant). On matching the prompt, results are mostly a tie, except SGS is clearly preferred over EA (89%). The overall preference question shows the same pattern: SGS is clearly favored over EA (76%) and roughly tied with the rest. Agreement between raters (Krippendorff’s alpha, where 1.0 means perfect agreement and 0 means no better than chance) was 0.73 for diversity – strong agreement – and lower, 0.43–0.44, for the more subjective faithfulness/preference questions, which is expected for personal-taste judgments. Full study design, recruiting, and per-question detail are in the supplementary material (Section O ). Table 2: Human evaluation : share of judgments preferring SGS over each baseline ( n = 65 n{=}65 raters). ∗ : statistically significant preference ( p < 0.05 p{<}0.05 ). vs. Diversity Faithful. Preference Baseline 88.5% ∗ 46.2% 47.4% EA 90.5% ∗ 89.4% ∗ 75.6% ∗ FairImagen 88.8% ∗ 45.8% 46.8% RespoDiff 89.0% ∗ 51.9% 51.3% SDID 90.5% ∗ 52.3% 55.1%"
+      },
+      {
+        "id": "S5.SS7",
+        "heading": "5.7 Qualitative Analysis",
+        "level": 2,
+        "text": "Figure 2 ’s three occupations span orthogonal stereotype directions (nurses female-skewed; CEOs, farmers male-skewed), yet base outputs are homogeneous in all three. EA’s unifordm shift is clearest for nurses, where all four figures converge on one demographic, eliminating the intra-image variation that drives its H i ​ x H_{ix} below baseline. SGS instead maintains scene coherence across all three directions, confining steering to person regions rather than leaking into occupational cues like attire or background. Additional results are in the supplementary material (Section L ). Table 3 : Inference time per-image (A6000 GPU, 512 × \\times 512, 21 denoising steps). FPs: total forward passes through the DiT per image. Overhead relative to unsteered baseline. Method FPs Time (s) Overhead Baseline 21 7.8 ± \\pm 0.1 1.0 EA 21 7.9 ± \\pm 0.0 1.0 SGS (K=2) 33 12.3 ± \\pm 0.0 1.6 SGS (K=3) 39 14.6 ± \\pm 0.0 1.9 SGS (K=4) 45 16.8 ± \\pm 0.0 2.2"
+      },
+      {
+        "id": "S5.SS8",
+        "heading": "5.8 Compute Cost",
+        "level": 2,
+        "text": "Table 3 reports per-image denoising time measured on a single A6000 GPU (48GB) across 10 runs after 3 warm-up passes. EA introduces no additional forward passes and is within measurement noise of the baseline. SGS incurs a deterministic overhead of exactly K × ( t end − t start ) = 6 ​ K K\\times(t_{\\text{end}}-t_{\\text{start}})=6K additional forward passes. For K = 3 K=3 the generation takes 14.6s versus 7.8s for the baseline. This cost is proportional to the scene complexity and can be reduced by narrowing the steering window at the expense of steering accuracy (Table S6 , supplementary Section H )."
+      },
+      {
+        "id": "S6",
+        "heading": "6 Limitations",
+        "level": 1,
+        "text": "Three limitations bound the current system. First, segmentor accuracy degrades for k ≥ 4 k{\\geq}4 persons in heavily occluded scenes, this also impacts the steering accuracy. Second, the per-instance forward pass introduces a compute overhead proportional to K K . Batching would reduce wall-clock time at the cost of VRAM, a trade-off we could not explore within our hardware budget. Third, SGS applies steering regardless of prompt intent; a query such as “four male doctors” will still redistribute demographics. A lightweight prompt parser that zeroes the steering signal for explicitly constrained slots could address this."
+      },
+      {
+        "id": "S7",
+        "heading": "7 Conclusion",
+        "level": 1,
+        "text": "We presented SGS, a per-instance demographic steering framework for multi-person T2I generation requiring no fine-tuning, inversion, or layout input. Global steering improves aggregate balance only by driving intra-image diversity below the unsteered baseline; SGS is the only evaluated method to break this trade-off, raising intersectional entropy to 0.794 (from 0.524) on FLUX.1-Dev and to 0.832 (from 0.549) on SD3.5-Large, while recovering near-best aggregate balance and preserving semantic coherence on both architectures. Per-instance spatial steering thus emerges as a necessary step toward fair multi-person text-to-image generation, generalizing across architecturally distinct diffusion transformers rather than being a property of any single model."
+      },
+      {
+        "id": "bib",
+        "heading": "References",
+        "level": 1,
+        "text": "[1] F. Bianchi, P. Kalluri, E. Durmus, F. Ladhak, M. Cheng, D. Nozza, T. Hashimoto, D. Jurafsky, J. Zou, and A. Caliskan (2023) Easily accessible text-to-image generation amplifies demographic stereotypes at large scale . In Proceedings of the 2023 ACM conference on fairness, accountability, and transparency , pp. 1493–1504 . Cited by: §2 . [2] S. Bonna, Y. Huang, E. Novozhilova, S. Paik, Z. Shan, M. Y. Feng, G. Gao, Y. Tayal, R. Kulkarni, J. Yu, et al. (2024) DebiasPI: inference-time debiasing by prompt iteration of a text-to-image generative model . In European Conference on Computer Vision , pp. 68–83 . Cited by: §2 . [3] S. Borse, F. Farhadzadeh, M. Hayat, and F. Porikli (2025) Disco: reinforcement with diversity constraints for multi-human generation . arXiv preprint arXiv:2510.01399 . Cited by: §2 , §5.5 . [4] N. Carion, F. Massa, G. Synnaeve, N. Usunier, A. Kirillov, and S. Zagoruyko (2020) End-to-end object detection with transformers . In European conference on computer vision , pp. 213–229 . Cited by: 2nd item , §4.1 , §4.1 . [5] J. Cho, A. Zala, and M. Bansal (2023) Dall-eval: probing the reasoning skills and social biases of text-to-image generation models . In Proceedings of the IEEE/CVF international conference on computer vision , pp. 3043–3054 . Cited by: §2 . [6] C. Chuang, V. Jampani, Y. Li, A. Torralba, and S. Jegelka (2023) Debiasing vision-language models via biased prompts . arXiv preprint arXiv:2302.00070 . Cited by: §1 , §2 . [7] O. Dahary, O. Patashnik, K. Aberman, and D. Cohen-Or (2024) Be yourself: bounded attention for multi-subject text-to-image generation . In European Conference on Computer Vision , pp. 432–448 . Cited by: §1 , §2 . [8] F. Davoodi, P. Safaei, S. Harighi, P. Gholami, A. Amini, K. Vanaei, E. Firoozi, P. A. Azad, B. Khalaj, S. Ahmadi, et al. (2026) KG-fairdiff: knowledge graph-guided prompt refinement for demographically fair text-to-image generation . In Culture x AI: Evaluating AI as a Cultural Technology (ICML 2026) , Cited by: §1 . [9] S. Dehdashtian, G. Sreekumar, and V. Boddeti (2025) OASIS uncovers: high-quality t2i models, same old stereotypes . In The Thirteenth International Conference on Learning Representations , Cited by: §1 , §2 . [10] P. Esser, S. Kulal, A. Blattmann, R. Entezari, J. Müller, H. Saini, Y. Levi, D. Lorenz, A. Sauer, F. Boesel, D. Podell, T. Dockhorn, Z. English, and R. Rombach (2024) Scaling rectified flow transformers for high-resolution image synthesis . In Proceedings of the 41st International Conference on Machine Learning , R. Salakhutdinov, Z. Kolter, K. Heller, A. Weller, N. Oliver, J. Scarlett, and F. Berkenkamp (Eds.) , Proceedings of Machine Learning Research , Vol. 235 , pp. 12606–12633 . External Links: Link Cited by: §1 , §3.2 . [11] F. Friedrich, M. Brack, L. Struppek, D. Hintersdorf, P. Schramowski, S. Luccioni, and K. Kersting (2025) Auditing and instructing text-to-image generation models on fairness . AI and Ethics 5 ( 3 ), pp. 2103–2123 . Cited by: §2 . [12] Z. Fu, R. Brown, S. Shao, K. Rawal, E. Delaney, and C. Russell (2026) Fairimagen: post-processing for bias mitigation in text-to-image models . Advances in Neural Information Processing Systems 38 , pp. 29488–29512 . Cited by: Appendix N , §5.5 , Table 1 . [13] R. Gandikota, H. Orgad, Y. Belinkov, J. Materzyńska, and D. Bau (2024) Unified concept editing in diffusion models . In Proceedings of the IEEE/CVF winter conference on applications of computer vision , pp. 5111–5120 . Cited by: §1 , §2 . [14] D. Guilbeault, S. Delecourt, T. Hull, B. S. Desikan, M. Chu, and E. Nadler (2024) Online images amplify gender bias . Nature 626 ( 8001 ), pp. 1049–1055 . Cited by: §1 . [15] B. Han, Q. Xu, S. Bao, Z. Yang, K. Zi, and Q. Huang (2026) Lightfair: towards an efficient alternative for fair t2i diffusion via debiasing pre-trained text encoders . Advances in Neural Information Processing Systems 38 , pp. 22671–22724 . Cited by: §2 . [16] A. Helbling, T. H. S. Meral, B. Hoover, P. Yanardag, and D. H. Chau (2025) ConceptAttention: diffusion transformers learn highly interpretable features . In Forty-second International Conference on Machine Learning , Cited by: §2 . [17] S. Jo, Z. Lee, W. Lee, J. Choi, J. Park, and K. Kim (2025) TRACE: your diffusion model is secretly an instance edge detector . arXiv preprint arXiv:2503.07982 . Cited by: §2 , §4.1 , §5.3 , §5.3 . [18] S. Jung, A. Oesterling, C. M. Verdun, S. Vithana, T. Moon, and F. P. Calmon (2025) Multi-group proportional representations for text-to-image models . In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , Cited by: §1 , §2 . [19] D. Kalamkar, D. Mudigere, N. Mellempudi, D. Das, K. Banerjee, S. Avancha, D. T. Vooturi, N. Jammalamadaka, J. Huang, H. Yuen, et al. (2019) A study of bfloat16 for deep learning training . arXiv preprint arXiv:1905.12322 . Cited by: §5.1 . [20] K. Kärkkäinen and J. Joo (2019) Fairface: face attribute dataset for balanced race, gender, and age . arXiv preprint arXiv:1908.04913 . Cited by: Appendix E , §5.2 . [21] Y. Kawano and Y. Aoki (2024) Maskdiffusion: exploiting pre-trained diffusion models for semantic segmentation . IEEE Access 12 , pp. 127283–127293 . Cited by: §5.3 . [22] E. Kim, S. Kim, M. Park, R. Entezari, and S. Yoon (2025) Rethinking training for de-biasing text-to-image generation: unlocking the potential of stable diffusion . In Proceedings of the Computer Vision and Pattern Recognition Conference , pp. 13361–13370 . Cited by: §1 , §2 . [23] K. Krippendorff (2004) Measuring the reliability of qualitative text analysis data . Quality and quantity 38 ( 6 ), pp. 787–800 . Cited by: Appendix O . [24] B. F. Labs (2024) FLUX . Note: https://github.com/black-forest-labs/flux Cited by: §1 , §3.1 , §3.2 . [25] H. Li, C. Shen, P. Torr, V. Tresp, and J. Gu (2024) Self-discovering interpretable diffusion latent directions for responsible text-to-image generation . In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , Cited by: Appendix N , §2 , §5.2 , §5.5 , Table 1 . [26] J. Li, L. Hu, J. Zhang, T. Zheng, H. Zhang, and D. Wang (2025) Fair text-to-image diffusion via fair mapping . In Proceedings of the AAAI Conference on Artificial Intelligence , Vol. 39 , pp. 26256–26264 . Cited by: §2 . [27] X. Liu C. Gong et al. (2022) Flow straight and fast: learning to generate and transfer data with rectified flow . In The Eleventh International Conference on Learning Representations , Cited by: §3.1 . [28] S. Luccioni, C. Akiki, M. Mitchell, and Y. Jernite (2023) Stable bias: evaluating societal representations in diffusion models . Advances in Neural Information Processing Systems 36 , pp. 56338–56351 . Cited by: §1 , §2 . [29] F. Milletari, N. Navab, and S. Ahmadi (2016) V-net: fully convolutional neural networks for volumetric medical image segmentation . In 2016 fourth international conference on 3D vision (3DV) , pp. 565–571 . Cited by: §4.1 . [30] J. Park, J. Lee, C. Chung, J. Lee, J. Choo, and J. Gu (2025) Fair generation without unfair distortions: debiasing text-to-image generation with entanglement-free attention . In 2025 IEEE/CVF International Conference on Computer Vision (ICCV) , pp. 17567–17576 . Cited by: §2 . [31] A. Radford, J. W. Kim, C. Hallacy, A. Ramesh, G. Goh, S. Agarwal, G. Sastry, A. Askell, P. Mishkin, J. Clark, et al. (2021) Learning transferable visual models from natural language supervision . In International conference on machine learning , pp. 8748–8763 . Cited by: Appendix E , §3.1 , §3.2 , §5.2 . [32] N. Ravi, V. Gabeur, Y. Hu, R. Hu, C. Ryali, T. Ma, H. Khedr, R. Rädle, C. Rolland, L. Gustafson, et al. (2025) Sam 2: segment anything in images and videos . In International Conference on Learning Representations , Vol. 2025 , pp. 28085–28128 . Cited by: Appendix A , §4.1 . [33] C. Schuhmann, R. Beaumont, R. Vencu, C. Gordon, R. Wightman, M. Cherti, T. Coombes, A. Katta, C. Mullis, M. Wortsman, et al. (2022) Laion-5b: an open large-scale dataset for training next generation image-text models . Advances in neural information processing systems 35 , pp. 25278–25294 . Cited by: §5.2 , §5.4 . [34] S. I. Serengil and A. Ozpinar (2026) Boosted lightface: a hybrid dnn and gbm model for boosted facial recognition . Gazi University Journal of Science 39 ( 1 ), pp. 452–466 . External Links: Document , Link Cited by: Appendix E . [35] P. Seshadri, S. Singh, and Y. Elazar (2024) The bias amplification paradox in text-to-image generation . In Proceedings of the 2024 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies (Volume 1: Long Papers) , pp. 6367–6384 . Cited by: §2 . [36] X. Shen, C. Du, T. Pang, M. Lin, Y. Wong, and M. Kankanhalli (2024) Finetuning text-to-image diffusion models for fairness . In The Twelfth International Conference on Learning Representations , Cited by: Appendix E , §1 , §2 . [37] M. Smith, V. T. Sambandham, F. Richter, M. Uhl, L. Crompton, and T. Schön (2026) Operationalizing fairness in text-to-image models: a survey of bias, fairness audits and mitigation strategies . In ICLR 2026 Workshop on Algorithmic Fairness Across Alignment Procedures and Agentic Systems , Cited by: §1 . [38] L. Tang, M. Jia, Q. Wang, C. P. Phoo, and B. Hariharan (2023) Emergent correspondence from image diffusion . In Thirty-seventh Conference on Neural Information Processing Systems , External Links: Link Cited by: §2 , §5.3 . [39] V. Thirugnana Sambandham and T. Schön (2026) Embedding arithmetic: a lightweight, tuning-free framework for post-hoc bias mitigation in text-to-image models . In International Conference on Pattern Recognition , pp. 308–323 . Cited by: Appendix E , Figure 1 , Figure 1 , §1 , §2 , §2 , §3.3 , §5.2 , §5.5 , Table 1 . [40] S. Vadakkeeveetil Sreelatha, S. Nag, M. Awais, S. Belongie, and A. Dutta (2025) RespoDiff: dual-module bottleneck transformation for responsible & faithful t2i generation . In Advances in Neural Information Processing Systems , D. Belgrave, C. Zhang, H. Lin, R. Pascanu, P. Koniusz, M. Ghassemi, and N. Chen (Eds.) , Vol. 38 , pp. 42551–42583 . External Links: Link Cited by: Appendix N , §5.2 , §5.5 , Table 1 . [41] Y. Wan and K. Chang (2025) The male ceo and the female assistant: evaluation and mitigation of gender biases in text-to-image generation of dual subjects . In Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pp. 9174–9190 . Cited by: §1 , §1 , §2 , §5.2 . [42] J. Xu, S. Liu, A. Vahdat, W. Byeon, X. Wang, and S. De Mello (2023) Open-vocabulary panoptic segmentation with text-to-image diffusion models . In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pp. 2955–2966 . Cited by: §2 . [43] C. Zhang, X. Chen, S. Chai, C. H. Wu, D. Lagun, T. Beeler, and F. De la Torre (2023) Iti-gen: inclusive text-to-image generation . In Proceedings of the IEEE/CVF International Conference on Computer Vision , pp. 3969–3980 . Cited by: §1 , §2 . [44] K. Zhang, Z. Zhang, Z. Li, and Y. Qiao (2016) Joint face detection and alignment using multitask cascaded convolutional networks . IEEE Signal Processing Letters 23 ( 10 ), pp. 1499–1503 . External Links: Document , ISSN 1070-9908 Cited by: §5.2 . [45] R. Zhang, P. Isola, A. A. Efros, E. Shechtman, and O. Wang (2018) The unreasonable effectiveness of deep features as a perceptual metric . In Proceedings of the IEEE conference on computer vision and pattern recognition , pp. 586–595 . Cited by: §5.4 . [46] J. Zhao, T. Wang, M. Yatskar, V. Ordonez, and K. Chang (2018) Gender bias in coreference resolution: evaluation and debiasing methods . In Proceedings of the 2018 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies, Volume 2 (Short Papers) , pp. 15–20 . Cited by: Appendix J . [47] J. Zhou, J. Gao, X. Zhao, X. Yao, and X. Wei (2024) Association of objects may engender stereotypes: mitigating association-engendered stereotypes in text-to-image generation . Advances in Neural Information Processing Systems 37 , pp. 51754–51786 . Cited by: §2 . [48] X. Zhou, D. Wang, and P. Krähenbühl (2019) Objects as points . arXiv preprint arXiv:1904.07850 . Cited by: §5.3 ."
+      },
+      {
+        "id": "A1",
+        "heading": "Appendix A Segmentor - Training Dataset Details",
+        "level": 1,
+        "text": "The segmentor is trained on a purpose-built dataset of 1440 generated multi-person images spanning k ∈ { 2 , 3 , 4 , 5 } k\\in\\{2,3,4,5\\} persons across 9 scene types and 3 difficulty levels. The 9 scene types are: market, bus stop, city landmark, outdoor concert, train station, backyard barbecue, city park, street food fair, and mountain trail . Difficulty encodes camera framing and occlusion: easy uses a wide shot with subjects standing apart facing the camera; medium uses a medium shot with subjects side by side; hard uses tight close-up shots with partial occlusion among subjects. All images were generated using FLUX.1-Dev at 512 × 512 512\\times 512 resolution with guidance scale 4.5 and 21 denoising steps."
+      },
+      {
+        "id": "A1.SS0.SSS0.Px1",
+        "heading": "Train/val/test split",
+        "level": 3,
+        "text": "The 1440 training images are split into 80% training and 20% validation images, stratified by k k and difficulty level. The test set ( n = 720 n{=}720 ) is generated from a disjoint set of 9 out-of-distribution scene types with different framing protocol to evaluate generalisation beyond the training distribution."
+      },
+      {
+        "id": "A1.SS0.SSS0.Px2",
+        "heading": "Pseudo-label generation",
+        "level": 3,
+        "text": "Instance segmentation masks are produced by SAM2 [ 32 ] automatic mask generation applied to each generated image. Predicted masks are filtered by minimum area and matched to ground-truth person count k k via Hungarian matching on mask centroid distance. Duplicate predictions with pairwise IoU > 0.5 >0.5 are suppressed by retaining the higher confidence mask."
+      },
+      {
+        "id": "A2",
+        "heading": "Appendix B Segmentor - Architecture",
+        "level": 1,
+        "text": "We describe each component of the instance segmentor with exact hyper-parameter values as used in all reported experiments."
+      },
+      {
+        "id": "A2.SS0.SSS0.Px1",
+        "heading": "Input Features.",
+        "level": 3,
+        "text": "The segmentor receives the binned self-attention feature map 𝐅 t \\mathbf{F}_{t} , formed by concatenating layer bins b = 3 b{=}3 and b = 4 b{=}4 of the MM-DiT self-attention at the detection timestep t start t_{\\mathrm{start}} . Features are min-max normalized per channel before being passed to the backbone. This choice of bins is itself the result of an ablation (Table S1 , moved here from the main paper’s Section 5.3 for space): performance improves monotonically from Bin 1 to Bin 4 as layer depth increases, and concatenating Bins 3+4 outperforms every single-bin or other-pair configuration tested. Table S1: Layer bin ablation ( n = 720 n{=}720 ). Mean mIoU, AP50, and AP50-95 averaged across all denoising timesteps using DETR. Best in bold . Bin mIoU AP50 AP50-95 Bin 1 0.539 0.581 0.225 Bin 2 0.583 0.661 0.287 Bin 3 0.606 0.710 0.333 Bin 4 0.626 0.736 0.360 3+4 0.631 0.747 0.368"
+      },
+      {
+        "id": "A2.SS0.SSS0.Px2",
+        "heading": "Timestep Conditioning",
+        "level": 3,
+        "text": "The continuous FLUX timestep t ∈ [ 0 , 1 ] t\\in[0,1] is encoded via a sinusoidal embedding followed by a learned linear projection with SiLU activation. The embedding is spatially broadcast and concatenated channel-wise to 𝐅 t \\mathbf{F}_{t} before the backbone, conditioning the segmentor on the noise level at which features were extracted."
+      },
+      {
+        "id": "A2.SS0.SSS0.Px3",
+        "heading": "CNN Backbone",
+        "level": 3,
+        "text": "Three ConvBnReLU blocks (Conv2d, BatchNorm2d, ReLU, same-padding) progressively compress the high-dimensional attention channels into a compact spatial feature map while preserving the 32 × 32 32{\\times}32 resolution throughout. A final 1 × 1 1{\\times}1 convolution projects to the transformer embedding dimension D e = 128 D_{e}{=}128 , yielding pixel embeddings 𝐏 ∈ ℝ 1,024 × 128 \\mathbf{P}\\in\\mathbb{R}^{1{,}024\\times 128} after spatial flattening."
+      },
+      {
+        "id": "A2.SS0.SSS0.Px4",
+        "heading": "Transformer decoder.",
+        "level": 3,
+        "text": "N q = 8 N_{q}{=}8 learnable instance queries are refined by L = 2 L{=}2 decoder layers. Each layer applies self-attention among the queries, cross-attention from queries to 𝐏 \\mathbf{P} , and a two-layer FFN with GELU activation, all with residual connections and LayerNorm ( H = 4 H{=}4 attention heads throughout)."
+      },
+      {
+        "id": "A2.SS0.SSS0.Px5",
+        "heading": "Output heads.",
+        "level": 3,
+        "text": "Each refined query produces three outputs via dedicated linear heads: a scalar confidence conf i ∈ [ 0 , 1 ] \\mathrm{conf}_{i}\\in[0,1] a center coordinate center i ∈ [ 0 , 32 ] 2 \\mathrm{center}_{i}\\in[0,32]^{2} , and an instance mask M i ∈ [ 0 , 1 ] 32 × 32 M_{i}\\in[0,1]^{32\\times 32} computed as a dot-product between a per-query mask embedding and 𝐏 \\mathbf{P} , reshaped to 32 × 32 32\\times 32 . center i \\mathrm{center}_{i} is used only during training to stabilize the Hungarian matching."
+      },
+      {
+        "id": "A2.SS0.SSS0.Px6",
+        "heading": "Inference",
+        "level": 3,
+        "text": "Queries with conf i < τ = 0.5 \\mathrm{conf}_{i}<\\tau{=}0.5 are discarded and the retained masks are binarized at > 0.5 >0.5 , yielding K ≤ 8 K\\leq 8 binary instance masks. No NMS is applied - K K is determined by the confidence threshold."
+      },
+      {
+        "id": "A2.SS0.SSS0.Px7",
+        "heading": "Training.",
+        "level": 3,
+        "text": "The model is trained for 50 epochs with Adam ( lr = 10 − 4 \\mathrm{lr}{=}10^{-4} , batch size 8, 5 linear warm-up epochs). The 1,440 training images are split 80/20 into 1,152 training and 288 validation samples, stratified by k k and difficulty. Loss weights: w c = 2.0 w_{c}{=}2.0 , w m = 2.0 w_{m}{=}2.0 . The complete segmentor has 1.2M parameters, lightweight relative to the FLUX DiT backbone it operates on. Figure 4 : Segmentation performance of the SGS instance segmentor (DETR variant) broken down by scene difficulty ( left ) and person count K K ( right ). Left: mIoU, AP50, and AP50-95 averaged over all K K for easy, medium, and hard scenes. Performance degrades with difficulty primarily due to increased occlusion and smaller per-person regions. Right: The same metrics averaged over difficulty levels per K K . All three metrics decline as K K increases, reflecting the greater spatial competition among instances at higher person counts. Results are reported at denoising step t = 4 t=4 ."
+      },
+      {
+        "id": "A3",
+        "heading": "Appendix C Segmentor Results - Per Difficulty",
+        "level": 1,
+        "text": "Figure 4 breaks down DETR segmentor performance across scene difficulty ( left ) and person count K K ( right ). AP50 remains consistently high across all cases, while AP50-95 drops substantially, indicating that instances are reliably detected but mask boundaries lack the precision required at stricter IoU thresholds. This gap widens at higher K K , where spatial competition between instances further degrades boundary delineation. Figure 5 : Qualitative comparison of instance segmentation methods across four scenes of increasing difficulty. Each row shows the generated image, SAM2 oracle masks, and predictions from K-Means, Spectral clustering, CenterNet, and our DETR-based segmentor. K-Means and Spectral produce fragmented, noisy masks in complex scenes ( rows 3–4 ), while CenterNet sometimes over-predicts the instance count under occlusion. DETR consistently recovers the correct number of instances with coherent boundaries across all difficulty levels."
+      },
+      {
+        "id": "A4",
+        "heading": "Appendix D Steering Performance by Person Count and Oracle-Mask Validation",
+        "level": 1,
+        "text": "Figure 4 above shows that segmentor detection quality (mIoU/AP) degrades with K K ; here we ask the downstream question directly: does that degradation propagate into steering accuracy, and how much of any remaining error is attributable to the segmentor rather than the steering mechanism. Both experiments below use FLUX.1-Dev only, at the operating point α = 2.0 \\alpha{=}2.0 , λ = 4.0 \\lambda{=}4.0 , window [ 4 , 10 ) [4,10) ."
+      },
+      {
+        "id": "A4.SS0.SSS0.Px1",
+        "heading": "Steering accuracy by K K , at the operating point.",
+        "level": 3,
+        "text": "Table S2 slices the steering-window ablation (Section H ) by person count at t start = 4 t_{\\mathrm{start}}{=}4 , t end = 10 t_{\\mathrm{end}}{=}10 . This ablation’s evaluation set covers k ∈ { 2 , 3 } k\\in\\{2,3\\} only, the same scope as the original steering-hyperparameter ablation it is drawn from; it does not include k = 4 k{=}4 . Table S2: Steering accuracy by person count at the selected operating point ( n = 80 n{=}80 /K). K K Acc race \\mathrm{Acc}_{\\mathrm{race}} Acc gender \\mathrm{Acc}_{\\mathrm{gender}} K detected K_{\\mathrm{detected}} (mean) H i ​ x H_{ix} 2 0.733 0.748 2.050 0.662 3 0.683 0.766 3.075 0.861"
+      },
+      {
+        "id": "A4.SS0.SSS0.Px2",
+        "heading": "Oracle-mask (SAM2) vs. DETR segmentor, matched pairs.",
+        "level": 3,
+        "text": "To isolate the segmentor’s contribution specifically, we re-run SGS with SAM2-derived masks (extracted from the finished, unsteered baseline image) in place of the DETR segmentor, on the same 445 images for both (identical occupation/ K K /template/seed; only the mask source differs). Table S3: DETR vs. oracle (SAM2) masks , matched pairs, n = 445 n{=}445 overall (149/148/148 at K = 2 / 3 / 4 K{=}2/3/4 ). K K Mask source Acc race \\mathrm{Acc}_{\\mathrm{race}} Acc gender \\mathrm{Acc}_{\\mathrm{gender}} H i ​ x H_{ix} LPIPS bg \\mathrm{LPIPS}_{\\mathrm{bg}} 2 DETR 0.843 0.896 0.792 0.743 Oracle 0.812 0.849 0.799 0.750 3 DETR 0.722 0.806 0.835 0.738 Oracle 0.705 0.776 0.902 0.740 4 DETR 0.643 0.720 0.834 0.756 Oracle 0.701 0.764 0.874 0.753 Overall DETR 0.714 0.808 0.820 0.746 Oracle 0.740 0.796 0.858 0.748 The DETR segmentor matches or exceeds oracle-mask race accuracy at K = 2 K{=}2 and K = 3 K{=}3 (0.843 vs. 0.812; 0.722 vs. 0.705), but falls behind it at K = 4 K{=}4 (0.643 vs. 0.701, a gap of 0.058). The Oracle SAM2 masks recover the race-steering accuracy that DETR loses once scenes become more crowded. Gender accuracy shows a related but smaller pattern: DETR leads at K = 2 K=2 and K = 3 K=3 (0.896 vs. 0.849; 0.806 vs. 0.776) while the oracle mask lead at K = 4 K=4 by 0.04 (0.764 vs. 0.720). Background preservation ( LPIPS bg \\mathrm{LPIPS}_{\\mathrm{bg}} ) is flat across mask source at every K K , so this K = 4 K{=}4 gap is not a fidelity tradeoff. Taken together, these results indicate the live segmentor is not the limiting factor behind SGS’s residual steering error at K = 2 K{=}2 and K = 3 K{=}3 . The gap to perfect accuracy comes from elsewhere in the pipeline (steering strength, classifier noise)."
+      },
+      {
+        "id": "A5",
+        "heading": "Appendix E Classifier Validation",
+        "level": 1,
+        "text": "All race/gender numbers in this paper depend on one automatic tool, FairFace [ 20 ] . To read demographics off a generated face, before trusting it, we check how accurate it actually is against a set of images where the true demographic is known for certain, and we also check two other classifiers (a CLIP [ 31 ] zero-shot classifier, and DeepFace [ 34 ] ) for comparison."
+      },
+      {
+        "id": "A5.SS0.SSS0.Px1",
+        "heading": "Building a set of images with known demographics.",
+        "level": 3,
+        "text": "We generate images where every person in the group is asked for the same demographic (e.g. “a group of three Black women”), so the prompt itself has a cue for every face in that image. This is done for both FLUX.1-Dev and SD3.5-Large, across all 8 race × \\times gender combinations and group sizes k ∈ { 2 , 3 , 4 } k\\in\\{2,3,4\\} . We keep only images where a face detector actually finds exactly k k faces, to avoid mixing in blank or wrong-count images; this leaves 1,832 individual face crops with a known-correct label."
+      },
+      {
+        "id": "A5.SS0.SSS0.Px2",
+        "heading": "Results.",
+        "level": 3,
+        "text": "Table S4 reports accuracy for each classifier on this set. FairFace and CLIP are both highly accurate on race (95–96%) and near-perfect on gender ( > > 99%); DeepFace is noticeably weaker on race (88%) and gender (93%). “Abstain” means the classifier’s raw output fell into a category we do not use (e.g. Middle Eastern, Latino/Hispanic, dropped due to high confusion with other categories reported in several previous works [ 39 , 36 ] ); this happens occasionally for FairFace and DeepFace and never for CLIP, which only ever outputs one of our four race categories directly. Table S4: Classifier validation against known-correct labels ( n = 1,832 n{=}1{,}832 face crops, both FLUX.1-Dev and SD3.5-Large). Race Gender Classifier Accuracy Abstain Accuracy Abstain FairFace 95.7% 2.5% 99.7% 0.0% CLIP 95.3% 0.0% 99.9% 0.0% DeepFace 87.7% 7.5% 92.7% 0.0%"
+      },
+      {
+        "id": "A5.SS0.SSS0.Px3",
+        "heading": "Do the three classifiers agree with each other?",
+        "level": 3,
+        "text": "Separately from whether each classifier is correct, we check how often the three classifiers agree with each other (Krippendorff’s alpha, where 1.0 means perfect agreement and 0 means no better than chance). Agreement is high on race (0.94) and on gender (0.94), and every pairwise comparison between two classifiers also shows strong agreement (Cohen’s kappa between 0.85 and 1.00 in every case). This gives an independent check on the results above: it is not just that FairFace happens to agree with the ground-truth labels we built, three separately-built tools broadly agree with each other too."
+      },
+      {
+        "id": "A6",
+        "heading": "Appendix F Segmentor Timestep Sweep – SD3.5-Large",
+        "level": 1,
+        "text": "We repeat the segmentor timestep sweep of Section 5.3 on SD3.5-Large, training a separate DETR-style segmentor on SD3.5’s own self-attention features at 1024 × 1024 1024{\\times}1024 resolution (same architecture and training recipe as the FLUX segmentor, Section B ), and evaluating on a held-out validation split ( n = 288 n{=}288 ) of SD3.5-generated images. Across SD3.5’s 28-step denoising schedule, segmentation quality peaks at timestep index 17, reaching mIoU of 0.664 , AP50 of 0.841 , and AP50-95 of 0.413 which is comparable to FLUX’s own peak (mIoU 0.664, AP50 0.797, AP50-95 0.416, Section 5.3 ), indicating that MM-DiT self-attention features become instance-discriminative at an analogous point in SD3.5’s denoising trajectory as well. Figure 6 : SD3.5-Large DETR segmentor, timestep sweep (val split, n = 288 n{=}288 ). mIoU, AP50, and AP50-95 across SD3.5’s 28-step denoising schedule, mirroring Figure 3 ’s FLUX sweep. Performance peaks at timestep index 17 and plateaus around it, the same qualitative shape as FLUX’s own sweep."
+      },
+      {
+        "id": "A7",
+        "heading": "Appendix G Segmentor Results - Qualitative",
+        "level": 1,
+        "text": "Figure 5 compares instance segmentation predictions across four scenes spanning easy to hard difficulty. In the simpler market and tourist scenes ( rows 1–2 ), all methods recover the correct instance count, though K-Means and Spectral clustering exhibit scattered noise pixels caused by high-frequency variation in the attention feature space. The gap widens in the close-up street scene and the outdoor hikers scene ( rows 3–4 ): K-Means and Spectral produce heavily fragmented masks that merge or split individuals, while CenterNet over-estimates the instance count due to ambiguous overlap regions. DETR-based segmentor produces coherent per-person masks with the correct instance counts, demonstrating that the cross-attention mechanism of DETR learns to separate spatially proximate instances that confound clustering-based approaches. Table S5: Steering hyperparameter ablation. Bold = selected configuration. Aes ​ Δ \\mathrm{Aes}\\Delta : aesthetic score delta vs. unsteered baseline (higher = = better quality). LPIPS bg \\mathrm{LPIPS}_{\\mathrm{bg}} : background preservation. CLIP ​ Δ \\mathrm{CLIP}\\Delta : prompt–image CLIP similarity delta (closer to 0 = = less semantic drift). Acc race \\mathrm{Acc}_{\\mathrm{race}} ↑ \\uparrow Acc gender \\mathrm{Acc}_{\\mathrm{gender}} ↑ \\uparrow Aes ​ Δ \\mathrm{Aes}\\Delta ↑ \\uparrow LPIPS bg \\mathrm{LPIPS}_{\\mathrm{bg}} ↑ \\uparrow CLIP ​ Δ \\mathrm{CLIP}\\Delta ( → 0 ) (\\rightarrow 0) (a) EA strength α \\alpha [ λ = 4.0 \\lambda{=}4.0 fixed] 1.5 0.573 0.722 +0.009 0.916 − - 0.026 2.0 0.708 0.757 +0.027 0.900 − - 0.033 2.5 0.723 0.740 +0.010 0.890 − - 0.042 3.0 0.636 0.738 − - 0.134 0.876 − - 0.052 3.5 0.438 0.566 − - 0.762 0.842 − - 0.104 (b) Spatial strength λ \\lambda [ α = 2.0 \\alpha{=}2.0 fixed] 3.0 0.644 0.734 +0.020 0.914 − - 0.028 4.0 0.708 0.757 +0.027 0.900 − - 0.033 5.0 0.736 0.742 +0.034 0.889 − - 0.039 6.0 0.767 0.746 − - 0.019 0.876 − - 0.046 7.0 0.758 0.742 − - 0.120 0.864 − - 0.053"
+      },
+      {
+        "id": "A8",
+        "heading": "Appendix H Steering Hyperparameter Sensitivity",
+        "level": 1,
+        "text": "Table S5 reports the full sensitivity analysis for EA strength α \\alpha and spatial diversity strength λ \\lambda , using the evaluation setup described in Section 5.4 of the main paper. For α \\alpha (panel a), steering accuracy and aesthetic quality improve from α = 1.5 \\alpha{=}1.5 to α = 2.0 \\alpha{=}2.0 , then degrade at higher values. α = 2.5 \\alpha{=}2.5 achieves marginally higher race accuracy (0.723 vs. 0.708) but at the cost of gender accuracy, aesthetic quality, background preservation, and semantic coherence. At α ≥ 3.0 \\alpha{\\geq}3.0 , aesthetic quality falls below the unsteered baseline and CLIP similarity drops sharply, indicating the shifted embedding has diverged from the original prompt semantics. For λ \\lambda (panel b), λ = 4.0 \\lambda{=}4.0 achieves the best joint performance. Higher values improve race accuracy marginally but incur increasing aesthetic degradation and semantic drift; λ = 7.0 \\lambda{=}7.0 produces a negative aesthetic delta ( − - 0.120) and a CLIP drop of − - 0.053. We select α = 2.0 \\alpha{=}2.0 and λ = 4.0 \\lambda{=}4.0 as our operating point. Table S6: Steering window placement ablation (FLUX.1-Dev, α = 2.0 \\alpha{=}2.0 , λ = 4.0 \\lambda{=}4.0 ). Bold = selected operating point. CLIP Δ \\Delta : prompt–image similarity delta vs. baseline. S ​ t ​ a ​ r ​ t Start E ​ n ​ d End Acc race \\mathrm{Acc}_{\\mathrm{race}} ↑ \\uparrow Acc gender \\mathrm{Acc}_{\\mathrm{gender}} ↑ \\uparrow Aes ​ Δ \\mathrm{Aes}\\Delta ↑ \\uparrow LPIPS bg \\mathrm{LPIPS}_{\\mathrm{bg}} ↑ \\uparrow CLIP ​ Δ \\mathrm{CLIP}\\Delta → 0 \\rightarrow 0 2 8 0.713 0.784 − - 0.097 0.760 − - 0.097 10 0.718 0.783 − - 0.123 0.759 − - 0.102 12 0.749 0.791 − - 0.179 0.758 − - 0.105 14 0.754 0.783 − - 0.237 0.757 − - 0.106 4 8 0.632 0.744 +0.008 0.904 − - 0.029 10 0.708 0.757 +0.027 0.900 − - 0.033 12 0.741 0.743 +0.036 0.899 − - 0.038 14 0.769 0.745 +0.036 0.898 − - 0.041 6 10 0.476 0.649 − - 0.001 0.961 − - 0.013 12 0.545 0.652 +0.002 0.958 − - 0.016 14 0.594 0.649 +0.007 0.956 − - 0.018"
+      },
+      {
+        "id": "A8.SS0.SSS0.Px1",
+        "heading": "Steering window",
+        "level": 3,
+        "text": "Early detection and steering at t start = 2 t_{\\mathrm{start}}{=}2 yields the highest steering accuracy across all end points but produces consistently negative aesthetic deltas and poor background preservation (LPIPS bg ≤ 0.759 {}_{\\mathrm{bg}}{\\leq}0.759 ), indicating that MM-DiT features at step 2 are insufficiently structured for reliable instance segmentation, causing the steering signal to leak beyond the intended mask regions. Late detection and steering at t start = 6 t_{\\mathrm{start}}{=}{6} preserves background coherence well (LPIPS bg ≥ 0.956 {}_{\\mathrm{bg}}{\\geq}0.956 ) but achieves substantially lower steering accuracy ( Acc race ≤ 0.594 \\mathrm{Acc}_{\\mathrm{race}}{\\leq}0.594 , Acc gender ≤ 0.652 \\mathrm{Acc}_{\\mathrm{gender}}{\\leq}0.652 ), as the remaining steering window is too short to shift demographics effectively. t start = 4 t_{\\mathrm{start}}{=}4 achieves the best balance across all metrics: extending the end step from 8 to 10 improves steering accuracy (0.632 → \\to 0.708 race, 0.744 → \\to 0.757 gender) with only marginal reductions in background preservation, while further extension to t end = 12 t_{\\mathrm{end}}{=}12 or 14 14 offers diminishing accuracy gains at the cost of increasing semantic drift. We therefore select t start = 4 t_{\\mathrm{start}}{=}4 and t end = 10 t_{\\mathrm{end}}{=}10 as our operating point, corresponding to steps 4–10 of the 21-step denoising trajectory."
+      },
+      {
+        "id": "A9",
+        "heading": "Appendix I Steering Hyperparameter and Window Ablation – SD3.5-Large",
+        "level": 1,
+        "text": "We repeat the steering-strength and steering-window ablations on SD3.5-Large. Table S7: SD3.5-Large steering-strength ablation. LPIPS bg \\mathrm{LPIPS}_{\\mathrm{bg}} : background preservation. α \\alpha λ \\lambda Acc race \\mathrm{Acc}_{\\mathrm{race}} ↑ \\uparrow Acc gender \\mathrm{Acc}_{\\mathrm{gender}} ↑ \\uparrow LPIPS bg \\mathrm{LPIPS}_{\\mathrm{bg}} ↑ \\uparrow 1.0 1.0 0.443 0.620 0.958 1.0 2.0 0.526 0.646 0.938 1.0 4.0 0.707 0.693 0.904 1.5 1.0 0.561 0.653 0.946 1.5 2.0 0.694 0.677 0.912 1.5 4.0 0.809 0.722 0.877 2.0 1.0 0.658 0.660 0.931 2.0 2.0 0.752 0.682 0.893 2.0 4.0 0.800 0.759 0.855 Table S7 sweeps α ∈ { 1.0 , 1.5 , 2.0 } \\alpha\\in\\{1.0,1.5,2.0\\} and λ ∈ { 1.0 , 2.0 , 4.0 } \\lambda\\in\\{1.0,2.0,4.0\\} . Unlike FLUX, accuracy improves monotonically across the tested range on both parameters, with α = 2.0 \\alpha{=}2.0 , λ = 4.0 \\lambda{=}4.0 the best-performing configuration tested; we select this as SD3.5’s operating point. Table S8: SD3.5-Large steering-window ablation , α = 2.0 \\alpha{=}2.0 , λ = 4.0 \\lambda{=}4.0 . S ​ t ​ a ​ r ​ t Start E ​ n ​ d End Acc race \\mathrm{Acc}_{\\mathrm{race}} Acc gender \\mathrm{Acc}_{\\mathrm{gender}} LPIPS bg \\mathrm{LPIPS}_{\\mathrm{bg}} 3 10 0.391 0.624 0.921 12 0.402 0.624 0.920 14 0.427 0.642 0.919 4 11 0.378 0.623 0.945 13 0.397 0.617 0.944 16 0.424 0.617 0.944 19 0.453 0.626 0.944 24 0.514 0.622 0.944 5 10 0.338 0.610 0.964 12 0.357 0.613 0.963 14 0.386 0.613 0.962 6 10 0.293 0.590 0.977 12 0.310 0.590 0.976 14 0.340 0.595 0.975 Table S8 sweeps detection/steering start step ∈ { 3 , 4 , 5 , 6 } \\in\\{3,4,5,6\\} and end step, out of SD3.5’s 28-step schedule. start = 4 \\mathrm{start}{=}4 , end = 24 \\mathrm{end}{=}24 achieves the highest accuracy among the configurations tested. Table S9: Per-occupation demographic metrics, baseline vs. SGS (FLUX.1-Dev, extended benchmark, n = 150 n{=}150 /occupation). H i ​ x H_{ix} : intra-image intersectional entropy (higher = more diverse). D ​ R race DR_{\\mathrm{race}} , D ​ R gender DR_{\\mathrm{gender}} : deviation ratio from uniform (lower = more balanced). Left block: male-skewed occupations. Right block: female-skewed occupations. Baseline SGS Occupation H i ​ x H_{ix} D ​ R r DR_{r} D ​ R g DR_{g} H i ​ x H_{ix} D ​ R r DR_{r} D ​ R g DR_{g} Driver 0.480 0.544 1.000 0.578 0.324 0.680 Mover 0.406 0.486 0.920 0.717 0.297 0.627 Developer 0.482 0.794 0.987 0.843 0.279 0.787 Farmer 0.426 0.759 0.987 0.761 0.324 0.587 Guard 0.503 0.333 0.813 0.661 0.270 0.720 Chief 0.505 0.116 0.707 0.859 0.315 0.267 Janitor 0.547 0.674 0.800 0.810 0.306 0.600 Lawyer 0.582 0.866 0.840 0.735 0.289 0.880 Cook 0.489 0.687 0.893 0.858 0.421 0.267 Physician 0.598 0.640 0.640 0.862 0.280 0.587 CEO 0.385 0.907 0.987 0.793 0.288 0.987 Analyst 0.563 0.850 1.000 0.852 0.297 0.947 Manager 0.469 0.916 0.987 0.859 0.280 0.840 Supervisor 0.472 0.935 0.973 0.852 0.289 0.867 Salesperson 0.748 0.917 0.733 0.888 0.387 0.627 Baseline SGS Occupation H i ​ x H_{ix} D ​ R r DR_{r} D ​ R g DR_{g} H i ​ x H_{ix} D ​ R r DR_{r} D ​ R g DR_{g} Editor 0.605 0.872 0.573 0.772 0.298 0.387 Designer 0.603 0.732 0.147 0.777 0.333 0.133 Accountant 0.642 0.927 0.813 0.869 0.374 0.853 Auditor 0.492 0.816 0.973 0.758 0.324 0.813 Writer 0.622 0.813 0.440 0.826 0.306 0.200 Baker 0.420 0.621 0.787 0.806 0.298 0.280 Clerk 0.534 0.890 0.947 0.857 0.289 0.760 Cashier 0.514 0.854 0.440 0.783 0.270 0.040 Counselor 0.623 0.937 0.080 0.824 0.279 0.200 Attendant 0.686 0.841 0.413 0.922 0.289 0.347 Tailor 0.395 0.756 0.973 0.861 0.324 0.653 Librarian 0.515 0.776 0.467 0.722 0.494 0.040 Assistant 0.566 0.757 0.080 0.805 0.324 0.107 Cleaner 0.507 0.569 0.360 0.650 0.297 0.520 Hairdresser 0.355 0.911 0.547 0.667 0.391 0.333"
+      },
+      {
+        "id": "A10",
+        "heading": "Appendix J Extended Benchmark – Occupations and Prompt Templates",
+        "level": 1,
+        "text": "Table 1 in the main paper (Section 5.5 ) evaluates on 30 WinoBias occupations [ 46 ] , disjoint from the 10 occupations used to fit the EA direction vectors ( carpenter, mechanic, construction worker, laborer, sheriff, teacher, nurse, housekeeper, flight attendant, librarian ), so all baselines are evaluated out-of-distribution with respect to their own calibration set."
+      },
+      {
+        "id": "A10.SS0.SSS0.Px1",
+        "heading": "Occupations.",
+        "level": 3,
+        "text": "15 male-skewed: driver, mover, developer, farmer, guard, chief, janitor, lawyer, cook, physician, CEO, analyst, manager, supervisor, salesperson . 15 female-skewed: editor, designer, accountant, auditor, writer, baker, clerk, cashier, counselor, attendant, tailor, librarian, assistant, cleaner, hairdresser ."
+      },
+      {
+        "id": "A10.SS0.SSS0.Px2",
+        "heading": "Prompt templates.",
+        "level": 3,
+        "text": "Each occupation is instantiated under 5 templates, with { k } \\{k\\} and {occupation} substituted as in the main paper: 1. ”A portrait photo of { k } \\{k\\} { occupation } s” 2. ”A photo of { k } \\{k\\} { occupation } s” 3. ”A group of { k } \\{k\\} { occupation } s” 4. ”A realistic image of { k } \\{k\\} { occupation } s at work” 5. ” { k } \\{k\\} { occupation } s standing together” Combined with k ∈ { 2 , 3 , 4 } k\\in\\{2,3,4\\} and 10 seeds, this yields 30 × 5 × 3 × 10 = 4,500 30\\times 5\\times 3\\times 10=4{,}500 images per method."
+      },
+      {
+        "id": "A11",
+        "heading": "Appendix K Per-Occupation Demographic Distribution",
+        "level": 1,
+        "text": "Table S9 breaks down intra-image intersectional entropy ( H i ​ x H_{ix} ) and aggregate deviation ratio ( D ​ R race DR_{\\mathrm{race}} , D ​ R gender DR_{\\mathrm{gender}} ) per occupation, for the baseline and SGS, across all 30 occupations of the extended WinoBias benchmark (Section 5.5 of the main paper; FLUX.1-Dev). Occupations are grouped by the male-skewed/female-skewed split used to construct the benchmark (Section J )."
+      },
+      {
+        "id": "A11.SS0.SSS0.Px1",
+        "heading": "Entropy.",
+        "level": 3,
+        "text": "SGS raises H i ​ x H_{ix} over the baseline for every one of the 30 occupations without exception – the smallest gain is Driver (0.480 → \\to 0.578) and the largest is Tailor (0.395 → \\to 0.861), with no occupation where SGS’s per-instance steering fails to increase intra-image diversity relative to the unsteered model."
+      },
+      {
+        "id": "A11.SS0.SSS0.Px2",
+        "heading": "Aggregate deviation.",
+        "level": 3,
+        "text": "D ​ R race DR_{\\mathrm{race}} drops for every occupation under SGS, typically substantially (e.g. Manager: 0.916 → \\to 0.280; CEO: 0.907 → \\to 0.288), confirming the aggregate race-balance improvement seen in Table 1 holds occupation-by-occupation, not just on average. D ​ R gender DR_{\\mathrm{gender}} is noisier at the per-occupation level and does not improve uniformly – most occupations move closer to balance (e.g. Chief: 0.707 → \\to 0.267; Cashier: 0.440 → \\to 0.040) but five of the 30 move further from it (Lawyer: 0.840 → \\to 0.880; Accountant: 0.813 → \\to 0.853; Counselor: 0.080 → \\to 0.200; Assistant: 0.080 → \\to 0.107; Cleaner: 0.360 → \\to 0.520) – consistent with gender assignment being a coarser 2-category balancing problem where per-occupation sample size ( n = 150 n{=}150 ) leaves more room for variance than the pooled Table 1 figures show."
+      },
+      {
+        "id": "A11.SS0.SSS0.Px3",
+        "heading": "Intersectional Observation.",
+        "level": 3,
+        "text": "Taken together, Table S9 confirms the core motivation for H i ​ x H_{ix} holds at the level of individual occupations, not only in aggregate: the baseline is both gender-stereotyped and racially homogeneous on essentially every occupation tested, and SGS’s per-instance steering raises intra-image diversity consistently across all of them."
+      },
+      {
+        "id": "A12",
+        "heading": "Appendix L Extended Qualitative Analysis",
+        "level": 1,
+        "text": "Figure 7 presents an extended qualitative comparison across four occupations spanning both stereotype directions and three person counts k ∈ { 2 , 3 , 4 } k\\in\\{2,3,4\\} . Occupations include two female-dominated professions (Nurse, Housekeeping) and two male-dominated professions (Sheriffs, Construction Workers)."
+      },
+      {
+        "id": "A12.SS0.SSS0.Px1",
+        "heading": "Baseline.",
+        "level": 3,
+        "text": "Across all four occupations and all values of k k , the unsteered baseline produces demographically homogeneous outputs that reflect occupational stereotypes; Nurses and Housekeepers are consistently female-presenting or White, while Sheriffs and Construction workers are consistently male-presenting and White. This homogeneity persists regardless of k k , confirming that the stereotyping is driven by the text prompt rather than any scene composition effect introduced by specifying multiple persons."
+      },
+      {
+        "id": "A12.SS0.SSS0.Px2",
+        "heading": "SGS across person counts.",
+        "level": 3,
+        "text": "SGS consistently produces intersectional demographic diversity across all k k values. At k = 2 k=2 , each pair contains two persons steered to distinct intersectional targets– for example, a Black male nurse is paired with an Asian female nurse, or an Indian male housekeeper paired with an Asian female housekeeper. At k = 3 k=3 and k = 4 k=4 , the segmentor reliably separates all persons and assigns independent demographic vectors to each, with the resulting groups spanning multiple racial categories and both genders within the same image. The consistency across k k values demonstrates that the instance segmentor remains reliable as scene complexity increases."
+      },
+      {
+        "id": "A12.SS0.SSS0.Px3",
+        "heading": "Occupational context preservation.",
+        "level": 3,
+        "text": "A key requirement of practical fairness steering is that demographic edits do not disrupt occupational cues. Across all conditions, SGS preserves the visual markers of each profession: nurses retain scrubs and stethoscopes, sheriffs retain badges and hats, housekeepers retain aprons, and construction workers retain safety helmets and reflective vests. This confirms that the spatially gated steering is confined to person regions via the instance masks, preventing demographic steering from leaking into occupational attire or scene background."
+      },
+      {
+        "id": "A13",
+        "heading": "Appendix M Qualitative Comparison – SD3.5-Large",
+        "level": 1,
+        "text": "Figure 8 repeats the main paper’s qualitative comparison (Figure 2 ) on SD3.5-Large, across four prompts and all five baselines. Images from Base, EA, FairImagen, RespoDiff, and SDID remain demographically homogeneous or only mildly shifted across all four scenes, while SGS diversifies every scene independently per person while preserving occupational context (aprons, rice-field setting, formal attire). This confirms the pattern shown quantitatively in Table 1 holds qualitatively on a second architecture as well. Figure 7 : Extended qualitative comparison across four occupations and three person counts k ∈ { 2 , 3 , 4 } k\\in\\{2,3,4\\} . Left : baseline FLUX outputs. Right : SGS outputs. Rows show female-dominant (Nurses, Housekeepers) and male-dominant (Sheriffs, Construction Workers) professions. Baseline outputs are demographically homogeneous across all k k values and both stereotype directions. SGS consistently produces intersectional demographic diversity — each person within the same scene is steered to a distinct demographic target — while also preserving occupational context (uniform, apron, badge, hard hat) and scene coherence across all conditions. Performance is consistent across k ∈ { 2 , 3 , 4 } k\\in\\{2,3,4\\} , demonstrating that the segmentor reliably separates and independently steers two, three, and four persons within the same image. Figure 8 : Qualitative comparison on SD3.5-Large , mirroring Figure 2 . Base, EA, FairImagen, RespoDiff, and SDID remain homogeneous or only mildly shifted across all four prompts; SGS independently diversifies each detected person while preserving occupational context."
+      },
+      {
+        "id": "A14",
+        "heading": "Appendix N Baseline Adaptation to Diffusion Transformers",
+        "level": 1,
+        "text": "FairImagen [ 12 ] , SDID [ 25 ] , and RespoDiff [ 40 ] were each designed and released against older UNet-based diffusion models – FairImagen against SD1.5 and SDXL, RespoDiff against SDXL, and SDID against a UNet-based Stable Diffusion pipeline – where generation is driven by a single-stream convolutional UNet with cross-attention to a text encoder. FLUX and SD3.5-Large instead use a Multimodal Diffusion Transformer (MM-DiT, Section 3.2 ): image and text tokens are processed jointly through a stack of self-attention blocks, with no UNet and no single bottleneck layer. None of the three methods’ released implementations run on this architecture family as-is. We faithfully reimplemented each method’s core mechanism for MM-DiT, verified directly against its own released code, rather than mechanically porting UNet-specific hooks."
+      },
+      {
+        "id": "A14.SS0.SSS0.Px1",
+        "heading": "FairImagen.",
+        "level": 3,
+        "text": "The original method operates on the model’s pooled text-conditioning vector. For each demographic group g g , it defines an empirical bias direction ν g = 1 | X ( g ) | ​ ∑ E ¯ p ∈ X ( g ) E ¯ p − E ¯ , \\nu_{g}=\\frac{1}{|X^{(g)}|}\\sum_{\\bar{E}_{p}\\in X^{(g)}}\\bar{E}_{p}-\\bar{E}, (13) and obtains a projector P P by solving min P ⊤ ​ P = I − Tr ⁡ ( P ⊤ ​ Σ X ​ P ) + λ ​ ∥ B ​ P ∥ F 2 , \\min_{P^{\\top}P=I}\\;-\\mathrm{Tr}(P^{\\top}\\Sigma_{X}P)+\\lambda\\lVert BP\\rVert_{F}^{2}, (14) where B = Z ⊤ ​ X ∈ ℝ G × D B=Z^{\\top}X\\in\\mathbb{R}^{G\\times D} collects the per-group mean directions and Z ∈ { 0 , 1 } n × G Z\\in\\{0,1\\}^{n\\times G} is a one-hot group indicator; P P thus spans the top-variance directions within the null space of the group-dependent signal B B . At inference, the projector is applied orthogonally to the pooled embedding, E ¯ p ′ = P ​ P ⊤ ​ E ¯ p \\bar{E}_{p}^{\\prime}=PP^{\\top}\\bar{E}_{p} , before it conditions the UNet. MM-DiT models expose an analogous pooled conditioning vector alongside their token-level sequence conditioning, so we fit and apply this same projector on this real pooled vector, leaving the token sequence untouched."
+      },
+      {
+        "id": "A14.SS0.SSS0.Px2",
+        "heading": "SDID.",
+        "level": 3,
+        "text": "The original method learns a single concept offset c ∈ ℝ D c\\in\\mathbb{R}^{D} per demographic direction by c ∗ = arg ⁡ min c ​ ∑ x , y ∼ 𝒟 ∑ t ∼ [ 0 , T ] ∥ ϵ − ϵ θ ​ ( x t + , t , π ⁡ ( y − ) , c ) ∥ 2 , c^{*}=\\arg\\min_{c}\\sum_{x,y\\sim\\mathcal{D}}\\sum_{t\\sim[0,T]}\\lVert\\epsilon-\\epsilon_{\\theta}(x_{t}^{+},t,\\pi(y^{-}),c)\\rVert^{2}, (15) where x + x^{+} is an image generated from a concept-inclusive prompt and y − y^{-} is the same prompt with the concept term removed, with the base model ϵ θ \\epsilon_{\\theta} kept frozen throughout. At inference, the offset is added directly to the UNet’s image-latent bottleneck activation, h ← h + c h\\leftarrow h+c , a single injection point on the image side of the network. MM-DiT has no UNet bottleneck to target, so we carry the same design principle over: the learned offset is added to the hidden state of one representative block within the joint-transformer stack, preserving a single image-side injection point rather than broadcasting the offset into the text-token stream."
+      },
+      {
+        "id": "A14.SS0.SSS0.Px3",
+        "heading": "RespoDiff.",
+        "level": 3,
+        "text": "The original method decomposes its responsible transformation as f ^ ​ ( y neu ) = g ⁡ ( T θ resp , s ​ ( h neu ) + T θ sem , s ​ ( h neu ) ) , \\hat{f}(y_{\\mathrm{neu}})=g\\bigl(T_{\\theta}^{\\mathrm{resp},s}(h_{\\mathrm{neu}})+T_{\\theta}^{\\mathrm{sem},s}(h_{\\mathrm{neu}})\\bigr), (16) training its Responsible Concept Alignment Module T θ resp , s T_{\\theta}^{\\mathrm{resp},s} (our race-aware/gender-aware modules) and Semantic Alignment Module T θ sem , s T_{\\theta}^{\\mathrm{sem},s} with ℒ resp = 𝔼 z t , neu ​ [ ∥ ϵ f resp ​ ( z t , neu , y neu ) − ϵ f ​ ( z t , neu , y tar s ) ∥ 2 2 ] , \\mathcal{L}_{\\mathrm{resp}}=\\mathbb{E}_{z_{t,\\mathrm{neu}}}\\bigl[\\lVert\\epsilon_{f_{\\mathrm{resp}}}(z_{t,\\mathrm{neu}},y_{\\mathrm{neu}})-\\epsilon_{f}(z_{t,\\mathrm{neu}},y_{\\mathrm{tar}}^{s})\\rVert_{2}^{2}\\bigr], (17) ℒ sem = 𝔼 z t , neu ​ [ ∥ ϵ f ^ ​ ( z t , neu , y neu ) − ϵ f ​ ( z t , neu , y neu ) ∥ 2 2 ] , \\mathcal{L}_{\\mathrm{sem}}=\\mathbb{E}_{z_{t,\\mathrm{neu}}}\\bigl[\\lVert\\epsilon_{\\hat{f}}(z_{t,\\mathrm{neu}},y_{\\mathrm{neu}})-\\epsilon_{f}(z_{t,\\mathrm{neu}},y_{\\mathrm{neu}})\\rVert_{2}^{2}\\bigr], (18) and injects their combined residual once at the UNet’s bottleneck hidden state h h . Our first attempt at reimplementing this for MM-DiT broadcast the same residual across every block of the joint-transformer stack; this reliably broke generation, producing incoherent output regardless of prompt or seed. Injecting the residual at a single representative block instead resolved this and produced coherent, steerable output. This also brings the reimplementation closer to the original method’s own single-bottleneck design than the all-block version we started from."
+      },
+      {
+        "id": "A14.SS0.SSS0.Px4",
+        "heading": "Shared adaptations.",
+        "level": 3,
+        "text": "All three methods are applied only to the conditional half of the classifier-free-guidance batch, never the unconditional branch, consistent with how each was originally deployed. Training uses each target architecture’s own native noise parametrization and scheduler rather than a generic substitute."
+      },
+      {
+        "id": "A14.SS0.SSS0.Px5",
+        "heading": "Code Availability.",
+        "level": 3,
+        "text": "Reference implementations of all three adapted baselines are included in the supplementary code ( baselines/flux/ and baselines/sd35/ ): fairimagen.py , sdid.py , and respodiff.py , each containing the fit/training function and manipulation function described above with inline comments matching this section. SGS itself is in sgs/ (FLUX) and sgs_sd3/ (SD3.5-Large)."
+      },
+      {
+        "id": "A15",
+        "heading": "Appendix O Human Evaluation Protocol",
+        "level": 1,
+        "text": "Automatic demographic classifiers may not fully capture how a human observer perceives diversity, prompt fidelity and preference. So we conducted a blind pairwise human evaluation comparing SGS against five baselines (Baseline, EA, FairImagen, RespoDiff and SDID) across 33 scenes spanning WinoBias occupations at K ∈ { 2 , 3 , 4 } K\\in\\{2,3,4\\} people per image, using a fixed seed per scene shared across all six methods. Each rater was shown two images side by side from the same scene, generated by two different methods (one always SGS), with method identity withheld (labeled only ’Image A’/’Image B’) and left – right placement randomized per pair. For each pair, raters answered three questions (refer Figure 9 ): 1. Which image shows more diversity in race and gender? 2. Which image better matches the caption above? 3. Given a choice, which image would you prefer? The first two questions offered a three way choice (Image A / about equal / Image B), while the last was a forced binary choice used to obtain a holistic preference signal. Each participants rated 10 pairs, two per comparison, ensuring balanced coverage across all five comparisons within a session. Sessions in which a rater selected the identical response to every question throughout were excluded prior to analysis. For each comparison and question, we report the percentage of judgments preferring SGS (ties counted as half a preference) with a 95% Wilson score confidence interval and a two-sided exact binomial test against the 50% chance level (ties excluded from the significance test), alongside Krippendorff’s α \\alpha (nominal) as a measure of inter-rater reliability [ 23 ] ; results are reported in Table 2 . Figure 9 : The human evaluation interface. Raters see a captioned imagepair with method identity and position blinded, and answer three questions per pair: perceived diversity, prompt faithfulness, and overall preference."
+      }
+    ]
+  },
+  "text": "Spatially Gated Demographic Steering for Debiasing Multi-Person Text-to-Image Generation Skip to main content Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: Why HTML? Report Issue Back to Abstract Download PDF Contents Reading mode Colour theme License: CC BY 4.0 arXiv:2610.29651v1 [cs.CV] 21 Oct 2026 Spatially Gated Demographic Steering for Debiasing Multi-Person Text-to-Image Generation Venkatesh Thirugnana Sambandham Affiliation: Technische Hochschule Ingolstadt Affiliation: Ingolstadt, Germany Email: venkatesh.thirugnanasambandham@thi.de Torsten Schön Affiliation: Technische Hochschule Ingolstadt Affiliation: Ingolstadt, Germany Email: torsten.schoen@thi.de Abstract Text-to-Image models reproduce societal stereotypes, and existing mitigation applies one demographic correction to the whole scene. In multi-person scene generation this creates a trade-off: global steering improves aggregate balance only by homogenizing the people within an image. Steering-based methods like Embedding Arithmetic drive the intra-image diversity below the unsteered baseline. Text- and latent-projection approaches shift the aggregate skew with only marginal gains in intra-image diversity. We present Spatially Gated Steering (SGS), which steers the demographics of each person independently by extracting per-person masks from the Diffusion Transformer’s (DiT) internal attention maps at a critical denoising timestep and applying a distinct demographic vector within each mask for the remaining steps. SGS needs no fine-tuning, inversion or layout specifications, and uses a lightweight segmentor over frozen DiT attention features to localize subjects at early timesteps. On skewed occupational prompts, SGS reaches high intra-image racial and gender diversity while keeping aggregate balance competitive and image quality near baseline, a result we validate on two architecturally distinct diffusion transformers, FLUX.1-Dev and SD3.5-Large. Codebase and model weights are available at https://github.com/cvims/spatially-gated-steering 1 Introduction Text-to-Image (T2I) generation has transformed digital content creation, yet foundational models such as FLUX [ 24 ] and Stable Diffusion [ 10 ] systematically reproduce societal stereotypes [ 9 ] . Gender-neutral prompts like a carpenter yield predominantly male-presenting images; a nurse yields predominantly female-presenting images [ 28 ] . Studies show these outputs shift user beliefs about real-world distributions [ 14 ] , making fairness mitigation essential for responsible deployment. Figure 1 : SGS intuition. The base trajectory (black) reaches x 0 base x_{0}^{\\text{base}} in a stereotyped region of p data p_{\\text{data}} ; global mitigation [ 39 ] (brown dashed) shifts it to one alternative mode. SGS instead intercepts at x start x_{\\text{start}} , extracts per-person masks, and steers each individual independently (orange/blue dashed) toward distinct demographic attractors within the same image x 0 x_{0} . Several mitigation strategies have been proposed and they operate at different levels of the diffusion pipeline [ 37 ] : They modify the text embeddings [ 39 , 6 , 43 , 22 ] or fine-tune model weights [ 13 , 36 ] to shift the aggregate output distribution. While effective for scenes with a single person, global mitigation methods share a fundamental limitation: They apply identical steering to every person in a scene. A prompt like ”a group of nurses” receives one demographic vector, pushing all the persons in the image in the same direction and failing to diversify individuals independently. Figure 2 : Qualitative comparison across three profession types spanning different stereotype directions. Prompts contain no demographic descriptors. Base is demographically homogeneous; EA shifts everyone uniformly; FairImagen is statistically indistinguishable from baseline on FLUX; SGS steers each instance toward a distinct intersectional target while preserving occupational context and scene coherence. Rightmost column: segmentation masks (nearest-neighbor upsampled from 32 × 32 32\\times 32 ) with assigned demographic labels. This limitation is not merely theoretical: Wan and Chang [41] show that multi-person prompts expose a distinct, compounding class of bias that single-subject evaluations cannot capture. Co-occurring subjects amplify stereotypes even when the same model behaves anti-stereotypically on single-person prompts. Attempts to address this gap remain limited. Existing approaches either rewrite the generation prompt with a single corrective signal applied to the whole scene [ 41 , 8 ] , optimize demographic distributions at the aggregate level without per-instance control [ 18 ] , or require an explicit spatial layout as input [ 7 ] . To the best of our knowledge, no existing method localizes individuals from the model’s own internal representations and applies independent demographic steering, to achieve intra-image diversity. Figure 1 illustrates this gap: while global mitigation shifts all persons uniformly toward a single demographic mode, our approach steers each individual independently through their spatial mask, reaching distinct attractors within p data p_{\\text{data}} in a single denoising pass. We introduce Spatially Gated Steering (SGS) , a framework for per-instance demographic steering in multi-person T2I scene generation. SGS operates by 1) Identifying and generating the masks of instances of people during the intermediate denoising steps using a lightweight detector, 2) Steering the demographics of the detected individuals, while also maintaining concept coherence. Our contributions are as follows: • A trade-off in multi-person fairness. Global mitigation faces an inherent tension: improving aggregate balance requires collapsing intra-image diversity, sometimes below the unsteered baseline. Since any per-instance diversification trivially raises intra-image entropy, the meaningful result is high entropy at a competitive aggregate balance. SGS reaches high intra-image diversity with a competitive aggregate balance by steering per-instance without fine-tuning, flow-inversion or layout. • Instance segmentation from DiT features. We show that self-attention maps of DiTs at a critical denoising timestep encode spatially separable person instances, and train a lightweight DETR-style [ 4 ] segmentor on these frozen features that isolates individuals across crowd sizes and scene complexities. • Benchmark and analysis. We introduce a benchmark measuring fairness along both intra-image diversity and aggregate deviation, surfacing the homogenization failure mode of global methods and showing SGS is strong on both axes, on both FLUX.1-Dev and SD3.5-Large. 2 Related Works Bias and Fairness in Text-to-Image Models. T2I models have been extensively shown to amplify demographic stereotypes encoded in training data, producing outputs skewed by gender, race and cultural identity across a wide range of prompt types [ 1 , 5 , 35 , 28 ] . Beyond documenting these skews, a parallel line of work formalizes their measurement: Dehdashtian et al. [ 9 ] quantify stereotypical attributes in the generated set and trace their origin within the model, reporting that even high-fidelity systems such as FLUX retain strong stereotypical predispositions. Mitigation strategies operate at different points in the generation pipeline: prompt engineering injects demographic descriptors at inference [ 11 , 2 , 43 ] , embedding manipulation steers text representations prior to image generation [ 39 , 6 , 22 , 25 , 26 , 15 ] , and parameter-efficient fine-tuning edits model weights to shift output distributions [ 13 , 36 ] . Park et al.’s Entanglement-Free Attention [ 30 ] shares our goal of preserving non-target attributes during bias mitigation, training cross-attention predictors under a mask-constrained regularization loss so background edits are suppressed. However, like other global methods, it applies one scene-level attribute correction rather than steering each person independently. Despite this breadth, all existing methods treat the generated image as a single unit, applying one steering signal to the entire scene. This is sufficient when a prompt produces one person, but breaks down entirely for multi-person scenes where distinct individuals require independent control. Multi-person Bias and Instance-level Control. This breakdown in multi-subject generation is primarily driven by semantic leakage, a phenomenon where the attention mechanisms of diffusion architectures inadvertently blend the visual and demographic features of different subjects during the denoising trajectory. Wan and Chang [41] demonstrate the consequences of this at scale: their Paired Stereotype Test shows that over 74% of DALL-E 3 images depicting two individuals with contrastive social identities display gender-occupational biases, even when the same model produces anti-stereotypical outputs for single-person prompts. Jung et al. [18] propose a Multi-Group Proportional Representation metric to measure and optimize demographic distributions across intersectional groups, but operate at the aggregate level without per-instance control. A related direction targets stereotypes that emerge from the co-occurrence of multiple concepts within a single prompt: Zhou et al. [47] show that pairing a demographic descriptor with an unrelated object can induce stereotypical associations invisible to single-concept audits, mitigated via a trained Sensitive Transformer that constrains the output distribution toward a stereotype-free target. This targets a distinct problem from ours, stereotyped associations between a subject and its surrounding context, corrected globally over the whole generation, rather than diversifying multiple people already explicitly present in a scene. Training-free inference methods such as Bounded Attention [ 7 ] attempt to prevent semantic leakage by confining attention flows within manually predefined spatial bounding boxes, but rely on rigid user-provided layouts rather than organic scene composition. Reinforcement learning approaches such as DisCo [ 3 ] directly fine-tune models to penalize intra-image facial similarity, but use face similarity as a proxy for demographic diversity rather than steering specific attribute vectors, and incur significant computational overhead. Global steering techniques such as Embedding Arithmetic [ 39 ] modify text embeddings uniformly, which fundamentally fails to produce heterogeneous intra-image diversity. Diffusion Features for Spatial Understanding. Intermediate diffusion activations encode rich spatial structure without additional training: DIFT [ 38 ] shows mid-denoising U-Net features support zero-shot dense correspondence; ODISE [ 42 ] uses Stable Diffusion U-Net features for open-vocabulary panoptic segmentation. This extends to Diffusion Transformers only recently: ConceptAttention [ 16 ] shows DiT attention-layer projections yield sharper concept saliency than cross-attention alone; TRACE [ 17 ] shows diffusion models isolate object boundaries at a specific timestep, enabling spatial masks from internal attention. SGS extends this line of work to intra-image demographic fairness in multi-person scenes generated by T2I models. 3 Preliminaries 3.1 Rectified Flow Denoising Rectified flow [ 27 ] learns a velocity field v θ v_{\\theta} (a neural network with parameters θ \\theta ) that transports samples from a Gaussian noise distribution to the data distribution along approximately straight trajectories. FLUX [ 24 ] adopts this formulation, initializing generation from x 1 ∼ 𝒩 ⁡ ( 0 , I ) x_{1}\\sim\\mathcal{N}(0,I) and iteratively denoising via: x t − Δ ​ t = x t − Δ ​ t ⋅ v θ ​ ( x t , t , 𝐜 ) , x_{t-\\Delta t}\\;=\\;x_{t}\\;-\\;\\Delta t\\cdot v_{\\theta}(x_{t},\\,t,\\,\\mathbf{c}), (1) where t ∈ [ 0 , 1 ] t\\in[0,1] decreases from 1 1 (pure noise) to 0 0 (clean image) over T T steps, Δ ​ t = 1 / T \\Delta t=1/T , and 𝐜 \\mathbf{c} is the encoded text condition [ 31 ] . 3.2 Multimodal Diffusion Transformer (MM-DiT) The MM-DiT [ 10 ] architecture patchifies the noisy image latent x t ∈ ℝ H ​ W × d x_{t}\\in\\mathbb{R}^{HW\\times d} , where H ​ W HW are the latent height and width and d d is the token dimension, into image tokens, concatenates them with text conditioning tokens 𝐜 \\mathbf{c} [ 31 ] , and processes them through a stack of N N transformer layers, each applying joint image-text self-attention and a feedforward MLP. FLUX.1-Dev [ 24 ] uses N = 19 N{=}19 double-stream layers; SD3.5-Large [ 10 ] uses N = 38 N{=}38 joint transformer blocks. 3.3 Embedding Arithmetic Embedding Arithmetic [ 39 ] computes a demographic attribute vector as the mean difference between embeddings generated by a biased prompt ( p target p_{\\mathrm{target}} ) and neutral prompts ( p neutral p_{\\mathrm{neutral}} ) over a set of profession prompts 𝒫 \\mathcal{P} : 𝐯 A = 1 | 𝒫 | ​ ∑ p ∈ 𝒫 ( 𝐞 ⁡ ( p target ) − 𝐞 ⁡ ( p neutral ) ) , \\mathbf{v}_{A}=\\frac{1}{|\\mathcal{P}|}\\sum_{p\\in\\mathcal{P}}\\bigl(\\mathbf{e}(p_{\\mathrm{target}})-\\mathbf{e}(p_{\\mathrm{neutral}})\\bigr), (2) where 𝐞 ⁡ ( ⋅ ) ∈ ℝ D \\mathbf{e}(\\cdot)\\in\\mathbb{R}^{D} denotes the text embedding and A A indexes the target demographic attribute. FLUX conditions denoising on two text encoders: a pooled CLIP-L/14 embedding (768-dim) that modulates the network globally, and a T5-XXL sequence embedding that carries the prompt text via cross-attention. Embedding Arithmetic’s direction vectors are computed and validated in the CLIP pooled space – 𝐞 ⁡ ( ⋅ ) \\mathbf{e}(\\cdot) and 𝐜 \\mathbf{c} in Eq. ( 1 ) denote this pooled CLIP embedding, not the T5 sequence. p target p_{\\mathrm{target}} and p neutral p_{\\mathrm{neutral}} share an identical template except for an inserted demographic descriptor (e.g. “a photo of a {demographic} {profession}” vs. “a photo of a {profession}”), so 𝐯 A \\mathbf{v}_{A} isolates the demographic direction rather than any profession-specific signal. At inference, the original method shifts the conditioning vector globally as 𝐜 ~ = 𝐜 + α ⋅ 𝐯 A \\tilde{\\mathbf{c}}=\\mathbf{c}+\\alpha\\cdot\\mathbf{v}_{A} , where α > 0 \\alpha>0 controls the steering strength. 4 Methods SGS performs per-instance demographic steering within the standard rectified flow denoising loop, requiring no model fine-tuning, no trajectory inversion, and no external spatial layout specification. Crucially, instance masks are predicted directly from the MM-DiT’s attention features at a critical denoising step, rather than decoding the noisy latents for an external segmentor - which would be unreliable while the latent is still far from x 0 x_{0} , and redundant since these features are already computed by the base pass. Figure 1 illustrates the intuition behind our approach and Algorithm 1 summarizes the complete inference procedure. The denoising loop is divided into three phases governed by two hyperparameters: t start t_{\\mathrm{start}} and t end t_{\\mathrm{end}} . Before t start t_{\\mathrm{start}} , generation proceeds without intervention. At t start t_{\\mathrm{start}} , instance masks are extracted and cached. Between t start t_{\\mathrm{start}} and t end t_{\\mathrm{end}} , a separate steered forward pass is run per detected instance at each denoising step, and the predictions are spatially accumulated. After t end t_{\\mathrm{end}} , standard denoising resumes to completion. 4.1 Instance Detection At step t = t start t=t_{\\mathrm{start}} , the base forward pass is run with attention extraction enabled, returning the MM-DiT self-attention maps { SA t ℓ } ℓ = 1 N \\{\\mathrm{SA}_{t}^{\\ell}\\}_{\\ell=1}^{N} . Self-attention maps. The self-attention map for layer ℓ \\ell is computed independently for each attention head and averaged across heads, capturing pairwise spatial affinities between image tokens [ 17 ] ; the full expression is given in supplementary Section B . Layer binning. In order to save compute and memory usage, rather than operating on all N N transformer layers independently, we partition them into B = 4 B{=}4 non-overlapping bins of approximately 5 consecutive layers each for FLUX.1-Dev and 9–11 layers each for SD3.5-Large. We then compute the layer-wise mean of the self-attention maps within each bin, yielding four spatially resolved feature maps { SA ^ t b } b = 1 4 \\{\\widehat{\\mathrm{SA}}_{t}^{b}\\}_{b=1}^{4} per timestep. Through an ablation study over all bin combinations (Section 5.3 ), we find that concatenating bins b = 3 b{=}3 and b = 4 b{=}4 yields the best instance segmentation performance. We therefore define the feature representation as: 𝐅 t = SA ^ t 3 | SA ^ t 4 ∈ ℝ H ​ W × 2 ​ H ​ W , \\mathbf{F}_{t}=\\widehat{\\mathrm{SA}}_{t}^{3}\\|\\widehat{\\mathrm{SA}}_{t}^{4}\\in\\mathbb{R}^{HW\\times 2HW}, (3) where ∥ \\| denotes channel-wise concatenation. 𝐅 t \\mathbf{F}_{t} is passed directly to the instance segmentor described below. Algorithm 1 SGS Inference 1: Noisy image latent x 1 x_{1} , prompt embeddings ( 𝐜 ) (\\mathbf{c}) , attribute vectors { 𝐯 A } \\{\\mathbf{v}_{A}\\} , strength α \\alpha , λ \\lambda , window [ t start , t end ) [t_{\\mathrm{start}},t_{\\mathrm{end}}) 2: for t = 0 , … , T − 1 t=0,\\ldots,T-1 do 3: v ^ base ← v θ ​ ( x t , t , 𝐜 ) \\hat{v}^{\\mathrm{base}}\\leftarrow v_{\\theta}(x_{t},t,\\mathbf{c}) ⊳ \\triangleright base pass 4: if t = t start t=t_{\\mathrm{start}} then 5: 𝐅 t ← BinAttn ⁡ ( { SA t ℓ } ) \\mathbf{F}_{t}\\leftarrow\\mathrm{BinAttn}(\\{\\mathrm{SA}_{t}^{\\ell}\\}) ⊳ \\triangleright Eq. ( 3 ) 6: { M t } , K ← Segmentor ⁡ ( 𝐅 t ) \\{M_{t}\\},K\\leftarrow\\mathrm{Segmentor}(\\mathbf{F}_{t}) ⊳ \\triangleright Eq. ( 4 ) 7: { A t } ← AssignDemographics ⁡ ( K ) \\{A_{t}\\}\\leftarrow\\mathrm{AssignDemographics}(K) 8: end if 9: if t start ≤ t < t end t_{\\mathrm{start}}\\leq t<t_{\\mathrm{end}} and K > 0 K>0 then 10: v ^ final ← v ^ base \\hat{v}^{\\mathrm{final}}\\leftarrow\\hat{v}^{\\mathrm{base}} 11: for i = 1 , … , K i=1,\\ldots,K do 12: 𝐜 ~ ( i ) ← 𝐜 ( i ) + α ⋅ 𝐯 A i \\tilde{\\mathbf{c}}^{(i)}\\leftarrow\\mathbf{c}^{(i)}+\\alpha\\cdot\\mathbf{v}_{A_{i}} ⊳ \\triangleright Eq. ( 6 ) 13: v ^ ( i ) ← v θ ​ ( x t , t , 𝐜 ~ ( i ) ) \\hat{v}^{(i)}\\leftarrow v_{\\theta}(x_{t},t,\\tilde{\\mathbf{c}}^{(i)}) ⊳ \\triangleright Eq. ( 7 ) 14: v ^ final + = λ ⁡ ( v ^ ( i ) − v ^ base ) ⊙ M i \\hat{v}^{\\mathrm{final}}\\mathrel{+}=\\lambda\\,(\\hat{v}^{(i)}-\\hat{v}^{\\mathrm{base}})\\odot M_{i} ⊳ \\triangleright Eq. ( 9 ) 15: end for 16: else 17: v ^ final ← v ^ base \\hat{v}^{\\mathrm{final}}\\leftarrow\\hat{v}^{\\mathrm{base}} 18: end if 19: x t − Δ ​ t ← x t + ( t prev − t curr ) ⋅ v ^ final x_{t-\\Delta t}\\leftarrow x_{t}+(t_{\\mathrm{prev}}-t_{\\mathrm{curr}})\\cdot\\hat{v}^{\\mathrm{final}} ⊳ \\triangleright Eq. ( 10 ) 20: end for 21: return x 0 x_{0} Segmentor Architecture. 𝐅 t \\mathbf{F}_{t} is passed to a DETR-style [ 4 ] instance segmentor. The model comprises a three-layer CNN backbone that projects 𝐅 t ∈ ℝ H ​ W × 2 ​ H ​ W \\mathbf{F}_{t}\\in\\mathbb{R}^{HW\\times 2HW} into a spatial feature map, followed by a linear pixel projection that yields a sequence of pixel embeddings 𝐏 ∈ ℝ H ​ W × D e \\mathbf{P}\\in\\mathbb{R}^{HW\\times D_{e}} where D e D_{e} is the transformer embedding dimension. A set of N q N_{q} learnable instance queries 𝐐 ∈ ℝ N q × D e \\mathbf{Q}\\in\\mathbb{R}^{N_{q}\\times D_{e}} are refined by a L L -layer transformer decoder attending over 𝐏 \\mathbf{P} . The denoising timestep t t is incorporated via a sinusoidal embedding concatenated to the input features, conditioning the segmentor on the noise level at which features were extracted. Each refined query produces three outputs via dedicated linear heads: conf i ∈ [ 0 , 1 ] , center i ∈ [ 0 , 32 ] 2 , M i ∈ [ 0 , 1 ] 32 × 32 , \\mathrm{conf}_{i}\\in[0,1],\\quad\\mathrm{center}_{i}\\in[0,32]^{2},\\quad M_{i}\\in[0,1]^{32\\times 32}, (4) where conf i \\mathrm{conf}_{i} is the instance confidence, center i \\mathrm{center}_{i} is the predicted center coordinate, and M i M_{i} is the instance mask produced via a dot product between the query mask embedding and the pixel embedding sequence. Queries with confidence below a threshold τ \\tau are discarded, yielding K ≤ N q K\\leq N_{q} active instances. More details, along with the hyperparameters of the segmentor can be found in the supplementary material (Section B ). Training Data. The segmentor is trained on a purpose-built dataset of 1440 1440 generated multi-person images spanning k ∈ { 2 , 3 , 4 , 5 } k{\\in}\\{2,3,4,5\\} persons across 9 scene types and 3 difficulty levels, with instance pseudo-labels produced by SAM2 [ 32 ] automatic mask generation. Full dataset details and the train/val split are provided in the supplementary material. Training. The segmentor is trained with a Hungarian matching loss [ 4 ] . For each image, N q N_{q} predicted queries are optimally assigned to K K ground-truth instances by minimising a cost matrix. 𝒞 i ​ j = w c ​ | c ^ i − c j | 2 32 − log ⁡ p ^ i + w m ​ ( 1 − Dice ⁡ ( M ^ i , M j ) ) \\mathcal{C}_{ij}=w_{c}\\frac{|\\hat{c}_{i}-c_{j}|_{2}}{32}-\\log\\hat{p}_{i}+w_{m}\\,(1-\\mathrm{Dice}(\\hat{M}_{i},M_{j})) where c ^ i \\hat{c}_{i} , p ^ i \\hat{p}_{i} , M ^ i \\hat{M}_{i} are the predicted center, confidence, and mask for query i i , c j c_{j} , M j M_{j} are the ground-truth center and mask, and w c w_{c} , w m w_{m} weight the center and mask loss terms (values in supplementary Section B ). Unmatched queries are supervised with a no-instance label. The mask head is trained with Dice loss [ 29 ] and binary cross-entropy on the matched pairs. Mask caching and demographic assignment. The K K binary masks { M i } i = 1 K \\{M_{i}\\}_{i=1}^{K} are cached and reused for all subsequent steps in the steering window without re-extraction. Each instance i i is assigned a target demographic attribute A i A_{i} by uniform sampling over the intersection of gender and racial attribute categories, which can be overridden at inference time to reflect user-specified fairness targets. 4.2 Per-Instance Steering For each timestep t t in the window t start ≤ t ≤ t end t_{\\mathrm{start}}\\leq t\\leq t_{\\mathrm{end}} , the base velocity prediction v ^ θ \\hat{v}_{\\theta} is first obtained from the standard forward process: v ^ θ base = v θ ​ ( x t , t , 𝐜 ) \\hat{v}_{\\theta}^{\\mathrm{base}}=v_{\\theta}(x_{t},\\,t,\\,\\mathbf{c}) (5) where 𝐜 \\mathbf{c} is the conditional embeddings from the text encoder. Rather than the single global shift Embedding Arithmetic applies (Section 3.3 ), SGS shifts the conditioning vector independently per detected instance: 𝐜 ~ ( i ) = 𝐜 ( i ) + α ⋅ 𝐯 A i , \\tilde{\\mathbf{c}}^{(i)}=\\mathbf{c}^{(i)}+\\alpha\\cdot\\mathbf{v}_{A_{i}}, (6) where α > 0 \\alpha>0 controls the steering strength and A i A_{i} is the demographic attribute assigned to the instance i i . SGS pre-computes { 𝐯 A } \\{\\mathbf{v}_{A}\\} offline for a set of gender and racial attributes and applies Eq. 6 independently per detected person within the steering window described in Section 5.4 . Fair Forward Pass. For each instance i ∈ { 1 , … , K } i\\in\\{1,\\ldots,K\\} , a separate fair forward pass is run with the conditioning embedding c ~ \\tilde{c} steered via Eq. ( 6 ): v ^ θ ( i ) = v θ ​ ( x t , t , 𝐜 ~ ( i ) ) \\hat{v}_{\\theta}^{(i)}=v_{\\theta}\\!\\left(x_{t},\\,t,\\,\\tilde{\\mathbf{c}}^{(i)}\\right) (7) Spatially Gated Accumulation The per-instance steering vector is the difference between the fair and base predictions: δ ( i ) = v ^ θ ( i ) − v ^ θ base \\delta^{(i)}=\\hat{v}_{\\theta}^{(i)}-\\hat{v}_{\\theta}^{\\mathrm{base}} (8) The steered velocity is accumulated across all K K instances, with each steering vector spatially gated by the corresponding cached mask M i M_{i} of the instance: v ^ θ final = v ^ θ base + λ ​ ∑ i = 1 K δ ( i ) ⊙ M i \\hat{v}_{\\theta}^{\\mathrm{final}}=\\hat{v}_{\\theta}^{\\mathrm{base}}+\\lambda\\sum_{i=1}^{K}\\delta^{(i)}\\odot M_{i} (9) where λ > 0 \\lambda>0 is the diversity strength and ⊙ \\odot denotes the element-wise multiplication with M i M_{i} broadcast over the feature dimension. The latent is then updated via Eq. ( 1 ). x t − Δ ​ t = x t + ( t prev − t curr ) ⋅ v ^ θ final . x_{t-\\Delta t}=x_{t}+(t_{\\mathrm{prev}}-t_{\\mathrm{curr}})\\cdot\\hat{v}_{\\theta}^{\\mathrm{final}}. (10) Outside the steering window, the latent is updated using the base prediction only and no attention extraction, fair forward pass, or mask application occurs. 5 Experiments 5.1 Implementation Details Model and Hardware Configurations. Our primary experiments use FLUX.1-Dev 1 1 1 https://huggingface.co/black-forest-labs/FLUX.1-dev in bfloat16 precision [ 19 ] on a single NVIDIA A6000 GPU (48GB VRAM), with 21 denoising steps and a guidance scale of 4.5. To evaluate cross-architecture generalization, we additionally port SGS and all four baselines to SD3.5-Large 2 2 2 https://huggingface.co/stabilityai/stable-diffusion-3.5-large in bfloat16 precision, run on a single NVIDIA A100 GPU (39GB MIG slice), at 1024 × 1024 1024{\\times}1024 resolution (its native training resolution) with 28 denoising steps and a guidance scale of 3.5. SGS’s instance-detection and per-instance steering mechanism (Section 4.1 , Section 3.3 ) makes no FLUX-specific assumption beyond the existence of a joint image-text self-attention map inside the denoising transformer, which SD3.5’s MM-DiT also provides. SD3.5-Large’s EA direction vectors live in the joint pooled embedding of its two CLIP encoders (CLIP-L and CLIP-G, concatenated to 2048-dim), rather than FLUX’s single 768-dim CLIP-L pooled space; T5 remains excluded from vector construction in both cases. Figure 3 : Instance segmentation analysis ( n = 720 n{=}720 ): segmentation performance across the FLUX denoising trajectory for four architectures. All methods peak around t ≈ 0.7 t{\\approx}0.7 – 0.8 0.8 ; DETR consistently outperforms all baselines. Layer bin ablation motivating our choice of Bins 3+4 as 𝐅 t \\mathbf{F}_{t} (Eq. ( 3 )) is in supplementary Section B . 5.2 Evaluation Metrics Intersectional Entropy ( H i ​ x H_{ix} ) Let 𝒢 = ℛ × 𝒮 \\mathcal{G}{=}\\mathcal{R}\\times\\mathcal{S} denote the set of intersectional demographic groups over racial categories ℛ = { white , black , asian , indian } \\mathcal{R}{=}\\{\\text{white},\\text{black},\\text{asian},\\text{indian}\\} and genders 𝒮 = { male , female } \\mathcal{S}=\\{\\text{male},\\text{female}\\} , giving | 𝒢 | = 8 |\\mathcal{G}|=8 groups 3 3 3 We acknowledge that Broader gender and racial spectra exist; we restrict to these for classifier reliability and existing dataset label coverage. . For a single generated image with n n detected faces, let p g p_{g} be the ratio of faces classified as group g g . We compute per-image intersectional entropy as: H i ​ x = − 1 log ⁡ min ⁡ ( n , | 𝒢 | ) ∑ g ∈ 𝒢 p g log p g ∈ [ 0 , 1 ] , H_{ix}=-\\frac{1}{\\log\\min(n,\\,|\\mathcal{G}|)}\\sum_{g\\in\\mathcal{G}}p_{g}\\log p_{g}\\;\\in[0,1], (11) and report its mean over all generated images. Normalizing the entropy with log ⁡ min ⁡ ( n , | 𝒢 | ) \\log\\min(n,|\\mathcal{G}|) ensures that a k = 2 k{=}2 image in which both persons belong to a distinct intersectional groups achieves H i ​ x = 1.0 H_{ix}{=}1.0 , independent of k k . This captures intra-image demographic diversity which is the core objective of Spatially Gated demographic Steering, rather than aggregated statistics. Deviation Ratio ( D ​ R DR ) Following [ 40 , 25 ] , for an attribute with category set 𝒞 \\mathcal{C} let N c N_{c} be the total number of detected faces classified as category c c and N = ∑ c N c N=\\sum_{c}N_{c} : D ​ R = max c ∈ 𝒞 ⁡ | N c / N − 1 / | 𝒞 | | 1 − 1 / | 𝒞 | , DR=\\max_{c\\in\\mathcal{C}}\\;\\frac{\\bigl|\\,N_{c}/N-1/|\\mathcal{C}|\\,\\bigr|}{1-1/|\\mathcal{C}|}, (12) where D ​ R = 0 DR{=}0 is perfectly balanced and D ​ R = 1 DR{=}1 is maximally skewed. We report D ​ R race DR_{\\text{race}} ( | 𝒞 | = 4 |\\mathcal{C}|{=}4 : white, black, asian, indian) and D ​ R gender DR_{\\text{gender}} ( | 𝒞 | = 2 |\\mathcal{C}|{=}2 : male, female). Unlike the original single-person formulation, we aggregate face-level counts across all k k persons per image, which we find more appropriate for multi-person generation. Image Quality We report CLIP score [ 31 ] for prompt fidelity and aesthetic score delta ( A ​ e ​ s ​ Δ Aes\\Delta ) relative to the unsteered baseline [ 33 ] . Face crops from the generated images are extracted using MTCNN [ 44 ] . Similar to prior works [ 39 , 41 ] , Demographic labels are produced by FairFace [ 20 ] detector, which we validate directly against known ground truth rather than assuming its accuracy (supplementary Section E ). 5.3 Instance Segmentation Evaluation Protocol. We evaluate instance segmentation on a held-out test set of our dataset as described in Section 4.1 . The test set has n = 720 n{=}720 images across all k ∈ { 2 , 3 , 4 , 5 } k\\in\\{2,3,4,5\\} person counts and three difficulty levels. We report mean intersection-over-union (mIoU), average precision at IoU threshold (AP50) and average precision averaged over thresholds 50%–95% (AP50-95). Features are extracted at each denoising timestep t ∈ [ 0 , 1 ] t\\in[0,1] and we report performance across the full temporal sweep. Architectural Comparison We compare four segmentation approaches of increasing supervisory complexity: K-Means (naive unsupervised baseline), Spectral clustering (following MaskDiffusion [ 21 ] ), CenterNet [ 48 ] (supervised, lightweight), and our DETR-style model (Section 4.1 ). TRACE [ 17 ] , which also extracts instance boundaries from diffusion self-attention maps, is a natural comparison, but its authors had not released training or inference code at submission time, precluding a faithful reproduction. Figure 3 reports performance across FLUX denoising timesteps. All methods improve as denoising progresses toward t ≈ 0.7 t{\\approx}0.7 – 0.8 0.8 (step 4 of 21), then plateau or degrade as features shift toward fine-grained texture, confirming MM-DiT features become instance-discriminative at intermediate timesteps [ 17 , 38 ] ; together with the steering-window ablation (Section 5.4 ), this motivates t start = 4 t_{\\mathrm{start}}{=}4 . DETR outperforms all baselines at every timestep, peaking at mIoU 0.664 , AP50 0.797 , AP50–95 0.416 (vs. CenterNet’s 0.618/0.762/0.337), reflecting the gap between supervised and unsupervised instance separation from DiT features. A DETR trained analogously on SD3.5-Large reaches a comparable peak (Section F ), so this timestep-localized discriminability is not FLUX-specific. Per-difficulty and qualitative detail: supplementary Sections C , G ; Section D shows the segmentor is not the bottleneck behind SGS’s steering accuracy at K ≤ 3 K{\\leq}3 , but shows weaker performance at K = 4 K{=}4 . Layer Bin Ablation. Performance improves monotonically from Bin 1 to Bin 4, reflecting the progression of spatial structure across MM-DiT layer depth - earlier layers encode coarse layout while later layers capture fine-grained instance boundaries. Concatenating Bins 3 and 4 achieves the best performance across all metrics (mIoU: 0.631, AP50: 0.747, AP50-95: 0.368, averaged across all timesteps), outperforming other bin configurations (full per-bin table in supplementary Section B ). This result directly motivates our choice of 𝐅 t = SA ^ t 3 | SA ^ t 4 \\mathbf{F}_{t}=\\widehat{\\mathrm{SA}}_{t}^{3}\\|\\widehat{\\mathrm{SA}}_{t}^{4} in Eq. ( 3 ). 5.4 Steering Parameters Ablation We evaluate on a set of 8 occupations: 4 male-skewed ( lawyer, physician, developer, politician ) and 4 female-skewed ( social worker, hairdresser, cashier, receptionist ), generating 10 images per occupation for k ∈ { 2 , 3 } k{\\in}\\{2,3\\} persons with randomly assigned target demographics per detected instance. We report five metrics: race and gender steering accuracy ( Acc race \\mathrm{Acc}_{\\mathrm{race}} , Acc gender \\mathrm{Acc}_{\\mathrm{gender}} ) against the assigned target; aesthetic score delta ( A ​ e ​ s ​ Δ Aes\\Delta ) [ 33 ] relative to the unsteered baseline; background preservation ( LPIPS bg \\mathrm{LPIPS}_{\\mathrm{bg}} [ 45 ] ) outside the instance masks; and prompt–image CLIP similarity delta ( CLIP ​ Δ \\mathrm{CLIP}\\Delta ), where values closer to zero indicate less semantic drift. Steering Hyperparameters. We ablate EA strength α ∈ { 1.5 , 2.0 , 2.5 , 3.0 , 3.5 } \\alpha\\in\\{1.5,2.0,2.5,3.0,3.5\\} and spatial diversity strength λ ∈ { 3.0 , 4.0 , 5.0 , 6.0 , 7.0 } \\lambda\\in\\{3.0,4.0,5.0,6.0,7.0\\} , reporting steering accuracy, aesthetic delta, background preservation, and CLIP similarity delta. We select α = 2.0 \\alpha{=}2.0 and λ = 4.0 \\lambda{=}4.0 as our steering parameters; full sensitivity analysis is provided in Table S5 of the supplementary material. Table 1: Quantitative results on the extended WinoBias occupation benchmark (30 occupations × \\times 5 templates × \\times k ∈ { 2 , 3 , 4 } k\\in\\{2,3,4\\} × \\times 10 seeds, n = 4,500 n{=}4{,}500 /method/architecture), on FLUX.1-Dev and SD3.5-Large. H i ​ x H_{ix} : intra-image intersectional entropy. DR: deviation ratio from uniform (lower is better). Bold and Underlined values represent the best and second-best methods per metric, within each architecture. FLUX.1-Dev SD3.5-Large Method H i ​ x H_{ix} ↑ \\uparrow CLIP ↑ \\uparrow A ​ e ​ s ​ Δ Aes\\Delta ↑ \\uparrow DR race {}_{\\text{race}} ↓ \\downarrow DR gender {}_{\\text{gender}} ↓ \\downarrow H i ​ x H_{ix} ↑ \\uparrow CLIP ↑ \\uparrow A ​ e ​ s ​ Δ Aes\\Delta ↑ \\uparrow DR race {}_{\\text{race}} ↓ \\downarrow DR gender {}_{\\text{gender}} ↓ \\downarrow Baseline 0.524 ± \\pm 0.016 0.321 ± \\pm 0.001 – 0.748 ± \\pm 0.015 0.608 ± \\pm 0.022 0.549 ± \\pm 0.015 0.325 ± \\pm 0.001 – 0.615 ± \\pm 0.018 0.367 ± \\pm 0.026 EA [ 39 ] 0.285 ± \\pm 0.013 0.236 ± \\pm 0.002 +0.336 ± \\pm 0.011 0.079 ± \\pm 0.016 0.434 ± \\pm 0.027 0.319 ± \\pm 0.012 0.323 ± \\pm 0.001 +0.163 ± \\pm 0.010 0.069 ± \\pm 0.016 0.303 ± \\pm 0.029 SDID [ 25 ] 0.515 ± \\pm 0.016 0.314 ± \\pm 0.001 +0.118 ± \\pm 0.008 0.797 ± \\pm 0.013 0.593 ± \\pm 0.023 0.573 ± \\pm 0.015 0.322 ± \\pm 0.001 +0.006 ± \\pm 0.015 0.628 ± \\pm 0.017 0.456 ± \\pm 0.026 RespoDiff [ 40 ] 0.540 ± \\pm 0.017 0.315 ± \\pm 0.001 − - 0.055 ± \\pm 0.006 0.737 ± \\pm 0.017 0.624 ± \\pm 0.022 0.575 ± \\pm 0.015 0.326 ± \\pm 0.001 − - 0.042 ± \\pm 0.009 0.584 ± \\pm 0.018 0.458 ± \\pm 0.025 FairImagen [ 12 ] 0.534 ± \\pm 0.016 0.320 ± \\pm 0.001 +0.004 ± \\pm 0.005 0.744 ± \\pm 0.015 0.574 ± \\pm 0.025 0.539 ± \\pm 0.015 0.319 ± \\pm 0.001 +0.057 ± \\pm 0.011 0.385 ± \\pm 0.019 0.293 ± \\pm 0.028 SGS (ours) 0.794 ± \\pm 0.014 0.318 ± \\pm 0.001 − - 0.000 ± \\pm 0.007 0.299 ± \\pm 0.007 0.504 ± \\pm 0.025 0.832 ± \\pm 0.011 0.324 ± \\pm 0.001 − - 0.037 ± \\pm 0.010 0.306 ± \\pm 0.006 0.233 ± \\pm 0.028 Steering Window. We additionally sweep detection/steering start step t start ∈ { 2 , 4 , 6 } t_{\\mathrm{start}}\\in\\{2,4,6\\} and end step t end t_{\\mathrm{end}} , with α = 2.0 \\alpha{=}2.0 and λ = 4.0 \\lambda{=}4.0 fixed (full grid and discussion in supplementary Section H , Table S6 ). Early detection ( t start = 2 t_{\\mathrm{start}}{=}2 ) yields the highest steering accuracy but degrades background preservation and aesthetic quality, since MM-DiT features this early are insufficiently structured for reliable instance segmentation. Late detection ( t start = 6 t_{\\mathrm{start}}{=}6 ) preserves background coherence but leaves too short a window to shift demographics effectively. We select t start = 4 t_{\\mathrm{start}}{=}4 , t end = 10 t_{\\mathrm{end}}{=}10 as our operating point for FLUX, balancing steering accuracy against background preservation and semantic drift. Similar Hyperparameter testing was done for SD3.5-Large and the results can be found in Section I . 5.5 Benchmark Comparison We evaluate on 30 held-out WinoBias occupations (disjoint from the 10 used to fit EA’s direction vectors) × \\times 5 prompt templates × \\times k ∈ { 2 , 3 , 4 } k\\in\\{2,3,4\\} × \\times 10 seeds, on both FLUX.1-Dev and SD3.5-Large (Section 5.1 ; full list in supplementary Section J ), yielding 4,500 images/method/architecture. We compare against Embedding Arithmetic [ 39 ] , SDID [ 25 ] , RespoDiff [ 40 ] , and FairImagen [ 12 ] ; DisCo [ 3 ] targets a related goal but requires fine-tuning and has no public implementation, precluding a faithful comparison. Each baseline was originally designed for UNet-based diffusion models; how we faithfully reimplemented them for MM-DiT is detailed in supplementary Section N . H i ​ x H_{ix} , CLIP, and A ​ e ​ s ​ Δ Aes\\Delta are mean ± 95 % \\pm 95\\% CI (normal approximation); DR uses a percentile bootstrap (1000 resamples), since it is a population-level statistic rather than a per-image mean. Table 1 reports intra-image diversity ( H i ​ x H_{ix} ) against aggregate balance ( D ​ R DR ) on both architectures under one protocol. Since H i ​ x H_{ix} rewards any per-instance diversification, the two must be read jointly: global methods steer every person identically and so cannot raise intra-image diversity. Embedding Arithmetic reaches the lowest D ​ R r ​ a ​ c ​ e DR_{race} on both models, but its H i ​ x H_{ix} falls well below the unsteered baseline on both – a single demographic vector pushes everyone toward the same group, improving aggregate counts while erasing intra-image variation. SDID, RespoDiff, and FairImagen leave D ​ R DR close to baseline on both architectures, confirming that global latent and text-embedding projections do not transfer to either model’s joint-attention formulation. SGS is the only method to break this trade-off on both: highest H i ​ x H_{ix} by a wide margin, D ​ R r ​ a ​ c ​ e DR_{race} second only to EA, and prompt fidelity near baseline throughout. This pattern replicates on a second, architecturally distinct diffusion transformer, not just FLUX. 5.6 Human Evaluation The metrics above rely on an automatic race/gender classifier (Section 5.1 ). To check that SGS’s gains are also visible to real people, not just to one automatic tool, we ran a small anonymous online study. Raters were shown two images side by side, one from SGS and one from a baseline, and asked which has more diverse people and which better matches the prompt, plus an overall preference. We collected 65 completed sessions (657 screens, 1971 judgments in total), comparing SGS against all five baselines. Table 2 shows the share of judgments that favored SGS. Raters preferred SGS on diversity by a wide margin against every baseline (88–90%, all differences statistically significant). On matching the prompt, results are mostly a tie, except SGS is clearly preferred over EA (89%). The overall preference question shows the same pattern: SGS is clearly favored over EA (76%) and roughly tied with the rest. Agreement between raters (Krippendorff’s alpha, where 1.0 means perfect agreement and 0 means no better than chance) was 0.73 for diversity – strong agreement – and lower, 0.43–0.44, for the more subjective faithfulness/preference questions, which is expected for personal-taste judgments. Full study design, recruiting, and per-question detail are in the supplementary material (Section O ). Table 2: Human evaluation : share of judgments preferring SGS over each baseline ( n = 65 n{=}65 raters). ∗ : statistically significant preference ( p < 0.05 p{<}0.05 ). vs. Diversity Faithful. Preference Baseline 88.5% ∗ 46.2% 47.4% EA 90.5% ∗ 89.4% ∗ 75.6% ∗ FairImagen 88.8% ∗ 45.8% 46.8% RespoDiff 89.0% ∗ 51.9% 51.3% SDID 90.5% ∗ 52.3% 55.1% 5.7 Qualitative Analysis Figure 2 ’s three occupations span orthogonal stereotype directions (nurses female-skewed; CEOs, farmers male-skewed), yet base outputs are homogeneous in all three. EA’s unifordm shift is clearest for nurses, where all four figures converge on one demographic, eliminating the intra-image variation that drives its H i ​ x H_{ix} below baseline. SGS instead maintains scene coherence across all three directions, confining steering to person regions rather than leaking into occupational cues like attire or background. Additional results are in the supplementary material (Section L ). Table 3 : Inference time per-image (A6000 GPU, 512 × \\tim",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Skip to main content",
+      "url": "https://arxiv.org/html/2610.29651v1#infobox"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/IgnoreMe"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "Why HTML?",
+      "url": "https://info.arxiv.org/about/accessible_HTML.html"
+    },
+    {
+      "text": "Back to Abstract",
+      "url": "https://arxiv.org/abs/2610.29651v1"
+    },
+    {
+      "text": "Download PDF",
+      "url": "https://arxiv.org/pdf/2610.29651v1"
+    },
+    {
+      "text": "License: CC BY 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "https://github.com/cvims/spatially-gated-steering",
+      "url": "https://github.com/cvims/spatially-gated-steering"
+    },
+    {
+      "text": "24",
+      "url": "https://arxiv.org/html/2610.29651v1#bib.bib1"
+    },
+    {
+      "text": "10",
+      "url": "https://arxiv.org/html/2610.29651v1#bib.bib2"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2610.29651v1#bib.bib43"
+    },
+    {
+      "text": "28",
+      "url": "https://arxiv.org/html/2610.29651v1#bib.bib3"
+    },
+    {
+      "text": "14",
+      "url": "https://arxiv.org/html/2610.29651v1#bib.bib4"
+    },
+    {
+      "text": "39",
+      "url": "https://arxiv.org/html/2610.29651v1#bib.bib5"
+    },
+    {
+      "text": "37",
+      "url": "https://arxiv.org/html/2610.29651v1#bib.bib6"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2610.29651v1#bib.bib7"
+    },
+    {
+      "text": "43",
+      "url": "https://arxiv.org/html/2610.29651v1#bib.bib38"
+    },
+    {
+      "text": "22",
+      "url": "https://arxiv.org/html/2610.29651v1#bib.bib39"
+    },
+    {
+      "text": "13",
+      "url": "https://arxiv.org/html/2610.29651v1#bib.bib8"
+    },
+    {
+      "text": "36",
+      "url": "https://arxiv.org/html/2610.29651v1#bib.bib9"
+    },
+    {
+      "text": "Wan and Chang [41]",
+      "url": "https://arxiv.org/html/2610.29651v1#bib.bib34"
+    },
+    {
+      "text": "8",
+      "url": "https://arxiv.org/html/2610.29651v1#bib.bib40"
+    },
+    {
+      "text": "18",
+      "url": "https://arxiv.org/html/2610.29651v1#bib.bib10"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2610.29651v1#bib.bib16"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2610.29651v1#S1.F1"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2610.29651v1#bib.bib24"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2610.29651v1#bib.bib11"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2610.29651v1#bib.bib13"
+    },
+    {
+      "text": "35",
+      "url": "https://arxiv.org/html/2610.29651v1#bib.bib12"
+    },
+    {
+      "text": "11",
+      "url": "https://arxiv.org/html/2610.29651v1#bib.bib14"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2610.29651v1#bib.bib15"
+    },
+    {
+      "text": "25",
+      "url": "https://arxiv.org/html/2610.29651v1#bib.bib31"
+    },
+    {
+      "text": "26",
+      "url": "https://arxiv.org/html/2610.29651v1#bib.bib41"
+    },
+    {
+      "text": "15",
+      "url": "https://arxiv.org/html/2610.29651v1#bib.bib42"
+    },
+    {
+      "text": "30",
+      "url": "https://arxiv.org/html/2610.29651v1#bib.bib46"
+    },
+    {
+      "text": "Zhou et al. [47]",
+      "url": "https://arxiv.org/html/2610.29651v1#bib.bib45"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2610.29651v1#bib.bib17"
+    },
+    {
+      "text": "38",
+      "url": "https://arxiv.org/html/2610.29651v1#bib.bib20"
+    },
+    {
+      "text": "42",
+      "url": "https://arxiv.org/html/2610.29651v1#bib.bib21"
+    },
+    {
+      "text": "16",
+      "url": "https://arxiv.org/html/2610.29651v1#bib.bib19"
+    },
+    {
+      "text": "17",
+      "url": "https://arxiv.org/html/2610.29651v1#bib.bib18"
+    },
+    {
+      "text": "27",
+      "url": "https://arxiv.org/html/2610.29651v1#bib.bib23"
+    },
+    {
+      "text": "31",
+      "url": "https://arxiv.org/html/2610.29651v1#bib.bib22"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2610.29651v1#S3.E1"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2610.29651v1#alg1"
+    },
+    {
+      "text": "B",
+      "url": "https://arxiv.org/html/2610.29651v1#A2"
+    },
+    {
+      "text": "5.3",
+      "url": "https://arxiv.org/html/2610.29651v1#S5.SS3"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2610.29651v1#S4.E3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2610.29651v1#S4.E4"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2610.29651v1#S4.E6"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2610.29651v1#S4.E7"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2610.29651v1#S4.E9"
+    },
+    {
+      "text": "10",
+      "url": "https://arxiv.org/html/2610.29651v1#S4.E10"
+    },
+    {
+      "text": "32",
+      "url": "https://arxiv.org/html/2610.29651v1#bib.bib25"
+    },
+    {
+      "text": "29",
+      "url": "https://arxiv.org/html/2610.29651v1#bib.bib44"
+    },
+    {
+      "text": "3.3",
+      "url": "https://arxiv.org/html/2610.29651v1#S3.SS3"
+    },
+    {
+      "text": "5.4",
+      "url": "https://arxiv.org/html/2610.29651v1#S5.SS4"
+    },
+    {
+      "text": "19",
+      "url": "https://arxiv.org/html/2610.29651v1#bib.bib36"
+    },
+    {
+      "text": "4.1",
+      "url": "https://arxiv.org/html/2610.29651v1#S4.SS1"
+    },
+    {
+      "text": "40",
+      "url": "https://arxiv.org/html/2610.29651v1#bib.bib30"
+    }
+  ],
+  "matching_link_count": 144,
+  "links_truncated": true,
+  "invalid_links": []
+}

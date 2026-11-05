@@ -1,0 +1,437 @@
+{
+  "url": "https://arxiv.org/html/2606.18451v1",
+  "final_url": "https://arxiv.org/html/2606.18451v1",
+  "status": 200,
+  "title": "A Cross-Model VLM-Judge Protocol for Single-Image 3D Mesh Quality (and Why Cheap Proxies Fall Short)",
+  "metadata": {},
+  "paper": {
+    "title": "A Cross-Model VLM-Judge Protocol for Single-Image 3D Mesh Quality\n(and Why Cheap Proxies Fall Short)",
+    "title_warning": null,
+    "abstract": "Abstract Single-image-to-3D generators are improving quickly, but there is no agreed,\nhuman-free way to tell whether one generated mesh is better than another.\nPractitioners commonly rely on cheap automatic proxies (render-space CLIP\nsimilarity and mesh geometry-validity statistics), yet how well these track\nperceived quality is unestablished. We make two contributions. First, we propose\nand validate a reproducible VLM-judge evaluation protocol : a fixed\n24-view headless render rig, two independent vision-language judge\nfamilies, and a mandatory position-bias correction that queries both\npresentation orders and keeps only order-consistent verdicts. The two judge families agree substantially with each other (Cohen’s κ = 0.66 \\kappa{=}0.66 ), well above the chance-agreement floor. Second, using this protocol as the reference, we show the cheap proxies do not substitute for it. Geometry validity is only a weak signal on\naverage (because, as we show, it is bimodal) and stays below our pre-registered\ntarget, while render-CLIP is at chance . A learned Bradley–Terry head collapses onto a single manifoldness statistic\n(giving render-CLIP a negative weight) and matches geometry-only exactly, so\nlearning the feature weights buys nothing. The proxy is also bimodal : it is significantly above chance on contrasts\nwith visible geometric defects but at chance on ambiguous contrasts, consistent with geometry validity tracking the judge only when the defect is\nvisually salient. We therefore recommend the VLM-judge protocol as a reliable, reproducible\nevaluator under the conditions tested (two feed-forward generators on\nGoogle Scanned Objects, with a face-drop degradation regime) and advise against\ngeometry/CLIP proxies as optimization targets.",
+    "authors": [
+      {
+        "name": "Ali Asaria",
+        "affiliations": [
+          "Affiliation: Transformer Lab"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Tony Salomone",
+        "affiliations": [
+          "Affiliation: Transformer Lab"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Deep Gandhi",
+        "affiliations": [
+          "Affiliation: Transformer Lab"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Ali Asaria Affiliation: Transformer Lab Tony Salomone Affiliation: Transformer Lab Deep Gandhi † † thanks: Corresponding author: deep@lab.cloud Affiliation: Transformer Lab",
+    "arxiv_version": "2606.18451v1",
+    "arxiv_version_date": "2026-06-16",
+    "sections": [
+      {
+        "id": "S1",
+        "heading": "1  Introduction",
+        "level": 1,
+        "text": "Single-image-to-3D generators now produce plausible textured meshes from one photo, but evaluating them remains ad hoc. Cherry-picked demos look strong; quantitative comparison defaults to render-space CLIP similarity or to mesh geometry-validity statistics (watertightness, manifoldness, normal consistency), because both are cheap and need no human labels. Whether these proxies actually track perceived mesh quality, the thing a downstream user, ranker, or training signal cares about, has not been carefully measured. We take the position that the right reference for “is this mesh good?” is a vision-language-model judge applied to a fixed multi-view render of the asset, and that the central engineering questions are how to make such a judge reliable and how to test whether cheaper proxies can stand in for it. We build a protocol around two independent open VLM judge families (an oracle and a separate validation judge) on a fixed 24-view headless render rig, with a position-bias correction that turns out to be essential. We then use the validated judge as the reference against which the cheap proxies (geometry validity, render-CLIP, their composite, and a learned combination) are scored on strictly held-out objects. Our finding is that the protocol is reliable (substantial cross-model agreement) while the proxies are weak, and that the proxies fail in a specifically misleading way: they are significantly above chance only on contrasts where the geometric defect is visible in the render (telling two generators apart, or a clearly-holed mesh from an intact one) and fall to chance on the more ambiguous quality calls that matter for ranking or optimizing a single model."
+      },
+      {
+        "id": "S1.SS0.SSS0.Px1",
+        "heading": "Contributions.",
+        "level": 3,
+        "text": "1. A validated VLM-judge evaluation protocol for single-image-to-3D mesh quality (fixed render rig, two independent judge families, and a swap-and-keep-consistent position-bias correction), whose judge families agree at 0.83 0.83 (Cohen’s κ = 0.66 \\kappa{=}0.66 , substantial; chance floor 0.51 0.51 ), well above a trivial-agreement baseline (Table 1 ). 2. Evidence that position bias is large and must be corrected : about 26 % 26\\% of raw verdicts flip with presentation order (and this fraction is itself sample-dependent); as one illustrative baseline, correcting it moved an agreement estimate from 0.333 0.333 to 0.714 0.714 (§ 3 ). 3. A demonstration that cheap proxies do not substitute for the judge : geometry validity is significantly above chance but weak ( 0.62 0.62 , [ 0.55 , 0.69 ] [0.55,0.69] ) and below our target; render-CLIP is at chance ( 0.48 0.48 ); and a learned head collapses onto a single manifoldness statistic, so learning the weights buys nothing (Table 1 ). 4. A subgroup/error analysis showing the proxy is bimodal: it is significantly above chance on visible-defect contrasts (cross-generator 0.91 0.91 , within-TripoSR 0.80 0.80 ) but at chance on ambiguous ones (cross-generator-mixed 0.53 0.53 ; z = 5.06 z{=}5.06 for the gap), which we interpret as geometry validity tracking the judge only when the defect is visually salient (§ 5 , § 6 )."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px1",
+        "heading": "Single-image and multi-view 3D generation.",
+        "level": 3,
+        "text": "Fast feed-forward single-image-to-3D pipelines such as Unique3D [ 1 ] and asset pipelines like Meta 3D Gen [ 2 ] have made per-object generation cheap enough to evaluate at scale, and studies of 3D representations [ 3 ] and photorealistic generation [ 4 ] highlight how differently generators behave. We treat such generators as black boxes and focus on how to judge their outputs."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px2",
+        "heading": "Evaluating 3D generation.",
+        "level": 3,
+        "text": "Benchmarks for multi-view generation [ 5 ] and rethinking of point-cloud generation metrics [ 6 ] both note that standard automatic metrics correlate weakly with perceived quality; curated-quality datasets [ 7 ] and large object corpora [ 8 ] provide inputs but not a quality oracle. Empirical studies of memorization in 3D shape generation [ 9 ] and robust shape generation [ 10 ] further motivate evaluation that looks at the rendered asset rather than at a single scalar. Our protocol contributes a reusable, human-free reference and a direct measurement of how far the cheap proxies fall short of it."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px3",
+        "heading": "VLM-as-judge.",
+        "level": 3,
+        "text": "Using vision-language models as judges is now common for image generation [ 11 ] , but their reliability is contested: Kumar et al. [12] report that even frontier VLMs are imperfect judges on grounded multimodal tasks, and presentation-order (position) bias is a known failure mode of LLM/VLM judges [ 13 , 14 ] . Our contribution is not these techniques in the abstract but a validated instantiation for the 3D-render setting: cross-model agreement between two different judge families together with swap-consistency position-bias correction, quantified by Cohen’s κ \\kappa against a chance-agreement baseline, and a measurement of how far cheap proxies fall short of it."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px4",
+        "heading": "Aligning 3D generators with rewards.",
+        "level": 3,
+        "text": "A growing line uses reward or preference signals to align 3D generators: simulation feedback for physical soundness [ 15 ] , 2D-reward diffusion alignment [ 16 ] , and direct preference optimization from human preferences [ 17 ] , with related preference-optimization [ 18 ] and parameter-efficient adaptation [ 19 ] machinery. Our results bear directly on this line: we find that the cheap automatic proxies one might use as such a reward are a weak quality signal (geometry significantly above chance but well below target; render-CLIP at chance), so reward-based specialization should be driven by the (de-biased) VLM-judge preferences themselves rather than by a proxy. We treat generator specialization as out of scope and future work."
+      },
+      {
+        "id": "S3.SS0.SSS0.Px1",
+        "heading": "The evaluation protocol.",
+        "level": 3,
+        "text": "Given a generated mesh, we normalize it to a unit bounding box and render a fixed 24 24 -view turntable rig with a headless offscreen rasterizer. Quality is a pairwise judgment between two meshes generated from the same input image. We use two different open VLM families: an oracle judge X X (Qwen2.5-VL-7B-Instruct [ 20 ] ) and an independent validation judge Y Y (InternVL3-8B [ 21 ] ). Keeping X ≠ Y X\\neq Y lets us report cross-model agreement as a reliability check rather than trusting a single model."
+      },
+      {
+        "id": "S3.SS0.SSS0.Px2",
+        "heading": "Position-bias correction.",
+        "level": 3,
+        "text": "VLM judges exhibit a presentation-order bias. For each pair we query the judge in both orders ( A , B A,B and B , A B,A ) and keep the verdict only if it is consistent across the swap; order-dependent verdicts are discarded as position-biased. This is not optional: about 26 % 26\\% of raw verdicts are inconsistent (a fraction that is itself sample-dependent, 0.58 0.58 – 0.63 0.63 consistent at smaller N N ); as one illustrative baseline, the uncorrected agreement reads 0.333 0.333 versus 0.714 0.714 after correction."
+      },
+      {
+        "id": "S3.SS0.SSS0.Px3",
+        "heading": "Proxy rewards under test.",
+        "level": 3,
+        "text": "We score the same renders/meshes with the cheap proxies a practitioner might use. For a mesh we extract five features: watertightness, manifoldness, non-self-intersection, normal consistency, and render-CLIP similarity (CLIP [ 22 ] , open_clip ViT-B-32 [ 23 ] ). From these we form: (i) a geometry-only score, (ii) a render-CLIP-only score, (iii) a fixed-weight composite, and (iv) a learned pairwise Bradley–Terry head [ 24 ] fit on judge- X X labels: P ⁡ ( a ≻ b ) = σ ⁡ ( w ⊤ ​ ( ϕ ⁡ ( a ) − ϕ ⁡ ( b ) ) ) , P(a\\succ b)=\\sigma\\!\\big(w^{\\top}(\\phi(a)-\\phi(b))\\big), (1) where ϕ ⁡ ( ⋅ ) \\phi(\\cdot) is the five-feature vector and w w is learned by logistic regression [ 25 ] . All proxies are evaluated against the independent judge Y Y ."
+      },
+      {
+        "id": "S4.SS0.SSS0.Px1",
+        "heading": "Data and generators.",
+        "level": 3,
+        "text": "Inputs are single-view photos from Google Scanned Objects [ 26 ] (public, CC-BY 4.0; 3,069 3{,}069 object directories available). Per object we form four candidates spanning a quality spectrum: meshes from two single-image-to-3D generators run as black boxes (Stable Fast 3D [ 27 ] and TripoSR [ 28 ] ), plus a face-dropped degraded variant of each. We sample N = 60 N{=}60 objects for the main evaluation."
+      },
+      {
+        "id": "S4.SS0.SSS0.Px2",
+        "heading": "Splits and determinism.",
+        "level": 3,
+        "text": "Splits are strictly by object so no object straddles train and test, and the oracle judge X X is never the validation judge Y Y . The render rig and candidate construction are deterministic given a fixed seed, and both judges use greedy (argmax) decoding. The full corpus is 262 262 position-consistent pairs at N = 60 N{=}60 . The rule-based signals (geometry, render-CLIP, the fixed composite) are not fit to any data, so we evaluate them descriptively over the full corpus; the strict by-object train/test split matters only for the learned head, which is trained on train-object pairs and compared on the held-out test-object pairs ( 98 98 pairs) against judge Y Y ."
+      },
+      {
+        "id": "S4.SS0.SSS0.Px3",
+        "heading": "Statistical analysis.",
+        "level": 3,
+        "text": "We report proportions with Wilson 95% confidence intervals [ 29 ] and test agreement against the chance rate 0.5 0.5 with a two-sided binomial test. Because the unit of observation (a pair) is clustered within objects (four candidates, hence six pairs, per object), the effective sample is the 60 60 objects rather than the 98 98 – 262 262 pairs; our headline intervals therefore use a cluster bootstrap [ 30 ] that resamples objects . Judge–judge agreement is additionally summarized by Cohen’s κ \\kappa [ 31 ] relative to the marginal-agreement baseline. The cluster bootstrap is used for the headline geometry and agreement intervals; the per-subgroup and CLIP CIs in Tables 1 – 2 are pair-level Wilson intervals, which are anti-conservative under clustering and so should be read together with the exploratory caveat below. The four subgroup cells ( n = 43 / 50 / 119 / 50 n{=}43/50/119/50 ) are exploratory ; we make a large family of accuracy-vs-chance comparisons and do not apply a formal multiple-comparison correction, so single-cell directional readings should be treated as hypothesis-generating."
+      },
+      {
+        "id": "S4.SS0.SSS0.Px4",
+        "heading": "Compute.",
+        "level": 3,
+        "text": "The study used ≈ 3.4 \\approx 3.4 H100-hours across 14 14 completed jobs (one further run discarded) on a single H100-class GPU (predominantly H100-SXM5)."
+      },
+      {
+        "id": "S5.SS0.SSS0.Px1",
+        "heading": "The judge protocol is reliable.",
+        "level": 3,
+        "text": "The two independent judge families agree with each other on 0.83 0.83 of 120 120 dual-labeled pairs (Wilson 95% CI [ 0.76 , 0.89 ] [0.76,0.89] ). Because a forced-choice verdict has a 0.5 0.5 chance rate (and the marginal agreement floor here is 0.51 0.51 ), we summarize agreement by Cohen’s κ = 0.66 \\kappa{=}0.66 , “substantial” on the usual scale [ 32 ] , confirming the agreement is not a trivial artifact of skewed marginals. Agreement is above chance in every subgroup, and higher on contrasts with a clear quality difference than on ambiguous ones ( 0.72 0.72 on cross-generator-mixed vs. 0.95 0.95 – 0.97 0.97 on the clearest cells; the 0.72 0.72 cell is above chance but not, on its own n n , distinguishable from the others) (Table 2 , Fig. 1 ). We did not run the optional human spot-check, so reliability here means cross-model consistency, not validated agreement with human raters."
+      },
+      {
+        "id": "S5.SS0.SSS0.Px2",
+        "heading": "The proxies do not substitute for the judge.",
+        "level": 3,
+        "text": "Geometry validity is a weak but real signal: across the full corpus it agrees with the judge on 0.62 0.62 of pairs (Wilson [ 0.56 , 0.68 ] [0.56,0.68] ; cluster-bootstrap over objects [ 0.55 , 0.69 ] [0.55,0.69] ; two-sided binomial p < 0.001 p{<}0.001 vs. 0.5 0.5 ), so it is significantly above chance yet far below our pre-registered target of ≈ ≥ 0.75 \\approx{\\geq}0.75 . Render-CLIP, by contrast, is at chance ( 0.48 0.48 , [ 0.42 , 0.54 ] [0.42,0.54] , p = 0.50 p{=}0.50 ); we therefore cannot claim it is anti-correlated, only that it carries no usable quality signal. The learned Bradley–Terry head does not help: it places almost all weight on manifoldness ( 2.16 2.16 ) and a negative weight on render-CLIP ( − 0.11 -0.11 ), and the resulting ranking matches geometry-only exactly (zero lift at both N = 30 N{=}30 and N = 60 N{=}60 ): given freedom to weight the features, it collapses onto a single geometry statistic. We read this as evidence that the limit lies in this feature set rather than in the model, though we cannot rule out that richer features would do better. On the strict held-out test subset ( 98 98 pairs) the same three rewards drop to 0.52 0.52 and render-CLIP to 0.40 0.40 ; this subset is smaller and noisier than the full corpus, and the downward shift from larger in-sample estimates ( 0.66 0.66 at N = 24 N{=}24 ) is consistent with small-sample optimism rather than a demonstrated trend. Table 1: Agreement with the independent validation judge Y Y , with Wilson 95% CIs. Geometry validity is significantly above chance but weak; render-CLIP is at chance. The geometry-only, learned, and composite rewards produce effectively the same ranking (the learned head collapses onto manifoldness), so they are not three independent corroborations. “Full corpus” = all 262 262 position-consistent pairs (the rule-based signals are untrained); “held-out” = the 98 98 test pairs used for the learned head. Target is our pre-registered directional goal, not a pass/fail gate. Reward Full corpus Held-out vs. target Geometry-only 0.62 ​ [ 0.56 , 0.68 ] 0.62\\ [0.56,0.68] 0.52 0.52 ≈ ≥ 0.75 \\approx{\\geq}0.75 Learned head (BT) ( ≡ \\equiv geometry) 0.52 0.52 ≈ ≥ 0.75 \\approx{\\geq}0.75 Fixed composite ( ≡ \\equiv geometry) 0.52 0.52 ≈ ≥ 0.75 \\approx{\\geq}0.75 Render-CLIP only 0.48 ​ [ 0.42 , 0.54 ] 0.48\\ [0.42,0.54] 0.40 0.40 ≈ ≥ 0.75 \\approx{\\geq}0.75 Judge X ↔ Y X\\leftrightarrow Y agreement 0.83 ​ [ 0.76 , 0.89 ] 0.83\\ [0.76,0.89] , κ = 0.66 \\kappa{=}0.66 n/a"
+      },
+      {
+        "id": "S5.SS0.SSS0.Px3",
+        "heading": "Why this is dangerous: a bimodal subgroup pattern.",
+        "level": 3,
+        "text": "Table 2 and Fig. 1 break accuracy down by pair type. Geometry validity is significantly above chance on the two contrasts with visible geometric defects: cross-generator (Stable Fast 3D vs. TripoSR, 0.91 0.91 , [ 0.78 , 0.96 ] [0.78,0.96] , p < 0.001 p{<}0.001 ) and within-TripoSR degradation ( 0.80 0.80 , [ 0.67 , 0.89 ] [0.67,0.89] , p < 0.001 p{<}0.001 ). It is only at chance on cross-generator-mixed pairs ( 0.53 0.53 , [ 0.44 , 0.62 ] [0.44,0.62] , p = 0.58 p{=}0.58 ). The cross-generator-vs-ambiguous gap is large and significant (two-proportion z = 5.06 z{=}5.06 , p < 0.0001 p{<}0.0001 ). The within-Stable-Fast-3D cell ( 0.40 0.40 , [ 0.28 , 0.54 ] [0.28,0.54] , p = 0.20 p{=}0.20 ) is not statistically below chance and is confounded (see Limitations), so we do not lean on it. Render-CLIP is weak throughout ( 0.37 0.37 – 0.70 0.70 ). The danger is that the easy, visible-defect regime (exactly the setting in which proxies are usually reported to “work”) hides the chance-level behavior on the more ambiguous calls that matter for ranking or optimizing a single model. Table 2: Per-subgroup geometry-proxy agreement with judge Y Y (Wilson 95% CIs). Geometry is significantly above chance only on the visible-defect contrasts (cross-generator-full, within-TripoSR); on cross-generator-mixed it is at chance, and the within-SF3D cell is not significantly below chance and is confounded. Cells are exploratory ( n n shown). Render-CLIP and judge agreement given for reference. Subgroup n n Geometry [95% CI] R-CLIP Judge X ↔ Y X{\\leftrightarrow}Y Cross-generator, full 43 43 0.91 ​ [ 0.78 , 0.96 ] 0.91\\ [0.78,0.96] 0.37 0.37 0.95 0.95 Within-TripoSR 50 50 0.80 ​ [ 0.67 , 0.89 ] 0.80\\ [0.67,0.89] 0.70 0.70 0.97 0.97 Cross-generator, mixed 119 119 0.53 ​ [ 0.44 , 0.62 ] 0.53\\ [0.44,0.62] 0.46 0.46 0.72 0.72 Within-Stable Fast 3D † 50 50 0.40 ​ [ 0.28 , 0.54 ] 0.40\\ [0.28,0.54] 0.38 0.38 0.82 0.82 † confounded: the judge’s own intact-vs-degraded call is itself at chance here ( 0.40 ​ [ 0.28 , 0.54 ] 0.40\\,[0.28,0.54] ), so this cell measures reference noise as much as proxy failure. Figure 1: Cheap proxies collapse on the ambiguous subgroups while the VLM judge stays reliable. Geometry-proxy accuracy (blue) is significantly above chance on the visible-defect contrasts (cross-generator-full, within-TripoSR) but at chance on cross-generator-mixed (within-SF3D is confounded; see text); render-CLIP (red) is weak throughout; cross-model judge agreement (green) stays 0.72 0.72 – 0.97 0.97 . Dashed line is chance ( 0.5 0.5 ); error bars / small n n mean single-cell readings are exploratory."
+      },
+      {
+        "id": "S5.SS0.SSS0.Px4",
+        "heading": "Error mechanism (interpretation).",
+        "level": 3,
+        "text": "The subgroup pattern is consistent with a visual-salience account. On within-Stable-Fast-3D pairs the judge prefers the intact mesh only 0.40 0.40 of the time ( [ 0.28 , 0.54 ] [0.28,0.54] , i.e. itself at chance), versus 0.80 0.80 for within-TripoSR, and prefers Stable Fast 3D over TripoSR only 0.09 0.09 of the time. Stable Fast 3D meshes are open shells, so dropping faces is plausibly not clearly visible in a rendered view, whereas TripoSR meshes are watertight and degradation shows up as holes. Geometry validity always penalizes the degraded mesh, but the judge appears to agree mainly when the geometric defect is visually salient . We did not run the controlled manipulation (e.g. re-rendering at higher resolution or measuring silhouette difference) that would turn this from an observational correlation into a tested mechanism, so we offer it as our interpretation rather than a demonstrated cause; either way, the within-SF3D cell is confounded by stimulus visibility and is excluded from our proxy-failure claim."
+      },
+      {
+        "id": "S5.SS0.SSS0.Px5",
+        "heading": "Calibration.",
+        "level": 3,
+        "text": "There is a hint that the geometry proxy is more often right on large-reward-gap pairs ( 0.67 0.67 ) than small-gap pairs ( 0.57 0.57 ) (Fig. 2 ), but with n ≈ 49 n{\\approx}49 per bin this difference is not statistically significant (overlapping CIs); we report it as directionally suggestive only. Figure 2: The geometry proxy is weakly but correctly calibrated: accuracy is higher when the reward gap between candidates is large. Dashed line is chance."
+      },
+      {
+        "id": "S6",
+        "heading": "6  Discussion and Limitations",
+        "level": 1,
+        "text": "The positive result is a usable, reproducible evaluator: a fixed render rig, two independent VLM judge families, and a position-bias correction together give cross-model agreement of 0.83 0.83 ( κ = 0.66 \\kappa{=}0.66 , substantial), with no human labels. The cautionary result is that the cheap proxies one might reach for instead are a weak signal at best ( 0.62 0.62 for geometry, render-CLIP at chance) and, more subtly, look deceptively good on the visible-defect contrasts that are most often reported while dropping to chance on the ambiguous ones. A practical recommendation follows for the reward-alignment literature [ 15 , 16 , 17 ] , within the regime we tested (two feed-forward generators on Google Scanned Objects with a face-drop degradation): drive specialization with the de-biased VLM-judge preferences directly rather than with a geometry/CLIP proxy reward, which a generator could satisfy (e.g. by maximizing manifoldness) without improving perceived quality."
+      },
+      {
+        "id": "S6.SS1.SSS0.Px1",
+        "heading": "The judge is the oracle.",
+        "level": 3,
+        "text": "We treat the VLM judge as ground truth, so “quality” is defined relative to these judges. We mitigate by requiring agreement between two independent families, correcting position bias, and reporting agreement rather than assuming a gold label, but VLM judges remain imperfect [ 12 ] ."
+      },
+      {
+        "id": "S6.SS1.SSS0.Px2",
+        "heading": "One subgroup is confounded.",
+        "level": 3,
+        "text": "On within-SF3D pairs the judge’s own intact-vs-degraded call is itself at chance (face-dropping an open shell is barely visible at 256 256 px), so we exclude that cell and rest the bimodality claim on the significant cross-generator and within-TripoSR cells."
+      },
+      {
+        "id": "S6.SS1.SSS0.Px3",
+        "heading": "Narrow regime.",
+        "level": 3,
+        "text": "The face-drop degradation injects exactly the missing-geometry defect geometry statistics detect and CLIP misses, so it may flatter geometry; and we test only two feed-forward generators, one object source (Google Scanned Objects), and N = 60 N{=}60 objects. Naturalistic failures (thin structures, transparency, multi-object inputs) and structurally different generators are future work; our intervals reflect object-level clustering but not generator or dataset transfer."
+      },
+      {
+        "id": "S7",
+        "heading": "7  Availability",
+        "level": 1,
+        "text": "The evaluation protocol and per-pair data are available from the authors on request. No model checkpoints are released; the generators and judges used are existing public models."
+      },
+      {
+        "id": "S8",
+        "heading": "8  Conclusion and Future Work",
+        "level": 1,
+        "text": "For single-image-to-3D, a cross-model, position-bias-corrected VLM-judge protocol is a reliable, reproducible human-free evaluator ( κ = 0.66 \\kappa{=}0.66 ) under the conditions we tested, while cheap geometry/CLIP proxies are weak (geometry 0.62 0.62 , below target; render-CLIP at chance) and misleading on the visible-defect contrasts where they are usually reported. Future work: richer learned visual representations over the render rig (rather than CLIP) as a candidate automatic reward, broader generator/object coverage and naturalistic failure modes, a human spot-check to validate the judge against people, and (in a separate effort) generator specialization driven directly by the de-biased judge preferences."
+      },
+      {
+        "id": "bib",
+        "heading": "References",
+        "level": 1,
+        "text": "[1] Kailu Wu, Fangfu Liu, Zhihan Cai, Runjie Yan, Hanyang Wang, Yating Hu, Yueqi Duan, and Kaisheng Ma. Unique3D: High-quality and efficient 3d mesh generation from a single image. 2024. URL https://arxiv.org/abs/2405.20343 . [2] Raphael Bensadoun, Tom Monnier, Yanir Kleiman, Filippos Kokkinos, Yawar Siddiqui, Mahendra Kariya, Omri Harosh, Roman Shapovalov, Benjamin Graham, Emilien Garreau, Animesh Karnewar, Ang Cao, Idan Azuri, Iurii Makarov, Eric-Tuan Le, Antoine Toisoul, David Novotny, Oran Gafni, Natalia Neverova, and Andrea Vedaldi. Meta 3D Gen. 2024. URL https://arxiv.org/abs/2407.02599 . [3] Nina Wiedemann, Sainan Liu, Quentin Leboutet, Katelyn Gao, Benjamin Ummenhofer, Michael Paulitsch, and Kai Yuan. Unifi3D: A study on 3d representations for generation and reconstruction in a common framework. 2025. URL https://arxiv.org/abs/2509.02474 . [4] Ido Sobol, Kihyuk Sohn, Yoav Blum, Egor Zakharov, Max Bluvstein, Andrea Vedaldi, and Or Litany. Realiz3D: 3d generation made photorealistic via domain-aware learning. 2026. URL https://arxiv.org/abs/2605.13852 . [5] Xianghui Xie, Chuhang Zou, Meher Gitika Karumuri, Jan Eric Lenssen, and Gerard Pons-Moll. MVGBench: Comprehensive benchmark for multi-view generation models. 2025. URL https://arxiv.org/abs/2507.00006 . [6] Matteo Bastico, David Ryckelynck, Laurent Corté, Yannick Tillier, and Etienne Decencière. Rethinking Metrics and Diffusion Architecture for 3D Point Cloud Generation. 2025. URL https://arxiv.org/abs/2511.05308 . [7] Chendi Lin, Heshan Liu, Qunshu Lin, Zachary Bright, Shitao Tang, Yihui He, Minghao Liu, Ling Zhu, and Cindy Le. Objaverse++: Curated 3d object dataset with quality annotations. 2025. URL https://arxiv.org/abs/2504.07334 . [8] Kaixuan Wang, Tianxing Chen, Jiawei Liu, Honghao Su, Shaolong Zhu, Minxuan Wang, Zixuan Li, Yue Chen, Huan ang Gao, Yusen Qin, Jiawei Wang, Qixuan Zhang, Lan Xu, Jingyi Yu, Yao Mu, and Ping Luo. ManiTwin: Scaling data-generation-ready digital object dataset to 100k. 2026. URL https://arxiv.org/abs/2603.16866 . [9] Shu Pu, Boya Zeng, Kaichen Zhou, Mengyu Wang, and Zhuang Liu. Memorization in 3D Shape Generation: An Empirical Study. 2025. URL https://arxiv.org/abs/2512.23628 . [10] Yawar Siddiqui, Duncan Frost, Samir Aroudj, Armen Avetisyan, Henry Howard-Jenkins, Daniel DeTone, Pierre Moulon, Qirui Wu, Zhengqin Li, Julian Straub, Richard Newcombe, and Jakob Engel. ShapeR: Robust conditional 3d shape generation from casual captures. 2026. URL https://arxiv.org/abs/2601.11514 . [11] Samin Mahdizadeh Sani, Max Ku, Nima Jamali, Matina Mahdizadeh Sani, Paria Khoshtab, Wei-Chieh Sun, Parnian Fazel, Zhi Rui Tam, Thomas Chong, Edisy Kin Wai Chan, Donald Wai Tong Tsang, Chiao-Wei Hsu, Ting Wai Lam, Ho Yin Sam Ng, Chiafeng Chu, Chak-Wing Mak, Keming Wu, Hiu Tung Wong, Yik Chun Ho, Chi Ruan, Zhuofeng Li, I-Sheng Fang, Shih-Ying Yeh, Ho Kei Cheng, Ping Nie, and Wenhu Chen. ImagenWorld: Stress-testing image generation models with explainable human evaluation on open-ended real-world tasks. 2026. URL https://arxiv.org/abs/2603.27862 . [12] Bhavesh Kumar, Dylan Feng, and Leonard Tang. MJ1: Multimodal Judgment via Grounded Verification. 2026. URL https://arxiv.org/abs/2603.07990 . [13] Lianmin Zheng, Wei-Lin Chiang, Ying Sheng, Siyuan Zhuang, Zhanghao Wu, Yonghao Zhuang, Zi Lin, Zhuohan Li, Dacheng Li, Eric P. Xing, Hao Zhang, Joseph E. Gonzalez, and Ion Stoica. Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena. 2023. URL https://arxiv.org/abs/2306.05685 . [14] Peiyi Wang, Lei Li, Liang Chen, Zefan Cai, Dawei Zhu, Binghuai Lin, Yunbo Cao, Qi Liu, Tianyu Liu, and Zhifang Sui. Large Language Models are not Fair Evaluators. 2023. URL https://arxiv.org/abs/2305.17926 . [15] Ruining Li, Chuanxia Zheng, Christian Rupprecht, and Andrea Vedaldi. DSO: Aligning 3d generators with simulation feedback for physical soundness. 2025. URL https://arxiv.org/abs/2503.22677 . [16] Qingming Liu, Zhen Liu, Dinghuai Zhang, and Kui Jia. Nabla-R2D3: Effective and efficient 3d diffusion alignment with 2d rewards. 2025. URL https://arxiv.org/abs/2506.15684 . [17] Zhenglin Zhou, Xiaobo Xia, Fan Ma, Hehe Fan, Yi Yang, and Tat-Seng Chua. DreamDPO: Aligning text-to-3d generation with human preferences via direct preference optimization. 2025. URL https://arxiv.org/abs/2502.04370 . [18] Chieh-Yun Chen, Zhonghao Wang, Qi Chen, Zhifan Ye, Min Shi, Yue Zhao, Yinan Zhao, Hui Qu, Wei-An Lin, Yiru Shen, Ajinkya Kale, Irfan Essa, and Humphrey Shi. MapReduce LoRA: Advancing the pareto front in multi-preference optimization for generative models. 2025. URL https://arxiv.org/abs/2511.20629 . [19] Anh Truong, Ahmed H. Mahmoud, Mina Konaković Luković, and Justin Solomon. Low-Rank Adaptation of Neural Fields. 2025. URL https://arxiv.org/abs/2504.15933 . [20] Shuai Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin Ge, Sibo Song, Kai Dang, Peng Wang, Shijie Wang, Jun Tang, Humen Zhong, Yuanzhi Zhu, Mingkun Yang, Zhaohai Li, Jianqiang Wan, Pengfei Wang, Wei Ding, Zheren Fu, Yiheng Xu, Jiabo Ye, Xi Zhang, Tianbao Xie, Zesen Cheng, Hang Zhang, Zhibo Yang, Haiyang Xu, and Junyang Lin. Qwen2.5-VL Technical Report. arXiv:2502.13923 [cs.CV], 2025. URL https://arxiv.org/abs/2502.13923 . [21] Jinguo Zhu, Weiyun Wang, Zhe Chen, Zhaoyang Liu, Shenglong Ye, Lixin Gu, Hao Tian, Yuchen Duan, Weijie Su, Jie Shao, Zhangwei Gao, Erfei Cui, Xuehui Wang, Yue Cao, Yangzhou Liu, Xingguang Wei, Hongjie Zhang, Haomin Wang, Weiye Xu, Hao Li, Jiahao Wang, Nianchen Deng, Songze Li, Yinan He, Tan Jiang, Jiapeng Luo, Yi Wang, Conghui He, Botian Shi, Xingcheng Zhang, Wenqi Shao, Junjun He, Yingtong Xiong, Wenwen Qu, Peng Sun, Penglong Jiao, Han Lv, Lijun Wu, Kaipeng Zhang, Huipeng Deng, Jiaye Ge, Kai Chen, Limin Wang, Min Dou, Lewei Lu, Xizhou Zhu, Tong Lu, Dahua Lin, Yu Qiao, Jifeng Dai, and Wenhai Wang. InternVL3: Exploring Advanced Training and Test-Time Recipes for Open-Source Multimodal Models. arXiv:2504.10479 [cs.CV], 2025. URL https://arxiv.org/abs/2504.10479 . [22] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, Gretchen Krueger, and Ilya Sutskever. Learning Transferable Visual Models From Natural Language Supervision. arXiv:2103.00020 [cs.CV], 2021. URL https://arxiv.org/abs/2103.00020 . [23] Gabriel Ilharco, Mitchell Wortsman, Ross Wightman, Cade Gordon, Nicholas Carlini, Rohan Taori, Achal Dave, Vaishaal Shankar, Hongseok Namkoong, John Miller, Hannaneh Hajishirzi, Ali Farhadi, and Ludwig Schmidt. OpenCLIP. Zenodo, software (version 0.1), 2021. URL https://doi.org/10.5281/zenodo.5143773 . [24] Ralph Allan Bradley and Milton E. Terry. Rank Analysis of Incomplete Block Designs: I. The Method of Paired Comparisons. Biometrika , 39(3/4):324–345, 1952. [25] Fabian Pedregosa, Gaël Varoquaux, Alexandre Gramfort, Vincent Michel, Bertrand Thirion, Olivier Grisel, Mathieu Blondel, Peter Prettenhofer, Ron Weiss, Vincent Dubourg, Jake Vanderplas, Alexandre Passos, David Cournapeau, Matthieu Brucher, Matthieu Perrot, and Édouard Duchesnay. Scikit-learn: Machine Learning in Python. Journal of Machine Learning Research , 12:2825–2830, 2011. [26] Laura Downs, Anthony Francis, Nate Koenig, Brandon Kinman, Ryan Hickman, Krista Reymann, Thomas B. McHugh, and Vincent Vanhoucke. Google Scanned Objects: A High-Quality Dataset of 3D Scanned Household Items. arXiv:2204.11918 [cs.RO], 2022. URL https://arxiv.org/abs/2204.11918 . [27] Mark Boss, Zixuan Huang, Aaryaman Vasishta, and Varun Jampani. SF3D: Stable Fast 3D Mesh Reconstruction with UV-unwrapping and Illumination Disentanglement. arXiv:2408.00653 [cs.CV], 2024. URL https://arxiv.org/abs/2408.00653 . [28] Dmitry Tochilkin, David Pankratz, Zexiang Liu, Zixuan Huang, Adam Letts, Yangguang Li, Ding Liang, Christian Laforte, Varun Jampani, and Yan-Pei Cao. TripoSR: Fast 3D Object Reconstruction from a Single Image. arXiv:2403.02151 [cs.CV], 2024. URL https://arxiv.org/abs/2403.02151 . [29] Edwin B. Wilson. Probable Inference, the Law of Succession, and Statistical Inference. Journal of the American Statistical Association , 22(158):209–212, 1927. [30] Bradley Efron. Bootstrap Methods: Another Look at the Jackknife. The Annals of Statistics , 7(1):1–26, 1979. [31] Jacob Cohen. A Coefficient of Agreement for Nominal Scales. Educational and Psychological Measurement , 20(1):37–46, 1960. [32] J. Richard Landis and Gary G. Koch. The Measurement of Observer Agreement for Categorical Data. Biometrics , 33(1):159–174, 1977."
+      }
+    ]
+  },
+  "text": "A Cross-Model VLM-Judge Protocol for Single-Image 3D Mesh Quality (and Why Cheap Proxies Fall Short) Skip to main content Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: Why HTML? Report Issue Back to Abstract Download PDF Contents Reading mode Colour theme License: CC BY 4.0 arXiv:2606.18451v1 [cs.LG] 16 Jun 2026 A Cross-Model VLM-Judge Protocol for Single-Image 3D Mesh Quality (and Why Cheap Proxies Fall Short) Ali Asaria Affiliation: Transformer Lab Tony Salomone Affiliation: Transformer Lab Deep Gandhi † † thanks: Corresponding author: deep@lab.cloud Affiliation: Transformer Lab Abstract Single-image-to-3D generators are improving quickly, but there is no agreed, human-free way to tell whether one generated mesh is better than another. Practitioners commonly rely on cheap automatic proxies (render-space CLIP similarity and mesh geometry-validity statistics), yet how well these track perceived quality is unestablished. We make two contributions. First, we propose and validate a reproducible VLM-judge evaluation protocol : a fixed 24-view headless render rig, two independent vision-language judge families, and a mandatory position-bias correction that queries both presentation orders and keeps only order-consistent verdicts. The two judge families agree substantially with each other (Cohen’s κ = 0.66 \\kappa{=}0.66 ), well above the chance-agreement floor. Second, using this protocol as the reference, we show the cheap proxies do not substitute for it. Geometry validity is only a weak signal on average (because, as we show, it is bimodal) and stays below our pre-registered target, while render-CLIP is at chance . A learned Bradley–Terry head collapses onto a single manifoldness statistic (giving render-CLIP a negative weight) and matches geometry-only exactly, so learning the feature weights buys nothing. The proxy is also bimodal : it is significantly above chance on contrasts with visible geometric defects but at chance on ambiguous contrasts, consistent with geometry validity tracking the judge only when the defect is visually salient. We therefore recommend the VLM-judge protocol as a reliable, reproducible evaluator under the conditions tested (two feed-forward generators on Google Scanned Objects, with a face-drop degradation regime) and advise against geometry/CLIP proxies as optimization targets. 1 Introduction Single-image-to-3D generators now produce plausible textured meshes from one photo, but evaluating them remains ad hoc. Cherry-picked demos look strong; quantitative comparison defaults to render-space CLIP similarity or to mesh geometry-validity statistics (watertightness, manifoldness, normal consistency), because both are cheap and need no human labels. Whether these proxies actually track perceived mesh quality, the thing a downstream user, ranker, or training signal cares about, has not been carefully measured. We take the position that the right reference for “is this mesh good?” is a vision-language-model judge applied to a fixed multi-view render of the asset, and that the central engineering questions are how to make such a judge reliable and how to test whether cheaper proxies can stand in for it. We build a protocol around two independent open VLM judge families (an oracle and a separate validation judge) on a fixed 24-view headless render rig, with a position-bias correction that turns out to be essential. We then use the validated judge as the reference against which the cheap proxies (geometry validity, render-CLIP, their composite, and a learned combination) are scored on strictly held-out objects. Our finding is that the protocol is reliable (substantial cross-model agreement) while the proxies are weak, and that the proxies fail in a specifically misleading way: they are significantly above chance only on contrasts where the geometric defect is visible in the render (telling two generators apart, or a clearly-holed mesh from an intact one) and fall to chance on the more ambiguous quality calls that matter for ranking or optimizing a single model. Contributions. 1. A validated VLM-judge evaluation protocol for single-image-to-3D mesh quality (fixed render rig, two independent judge families, and a swap-and-keep-consistent position-bias correction), whose judge families agree at 0.83 0.83 (Cohen’s κ = 0.66 \\kappa{=}0.66 , substantial; chance floor 0.51 0.51 ), well above a trivial-agreement baseline (Table 1 ). 2. Evidence that position bias is large and must be corrected : about 26 % 26\\% of raw verdicts flip with presentation order (and this fraction is itself sample-dependent); as one illustrative baseline, correcting it moved an agreement estimate from 0.333 0.333 to 0.714 0.714 (§ 3 ). 3. A demonstration that cheap proxies do not substitute for the judge : geometry validity is significantly above chance but weak ( 0.62 0.62 , [ 0.55 , 0.69 ] [0.55,0.69] ) and below our target; render-CLIP is at chance ( 0.48 0.48 ); and a learned head collapses onto a single manifoldness statistic, so learning the weights buys nothing (Table 1 ). 4. A subgroup/error analysis showing the proxy is bimodal: it is significantly above chance on visible-defect contrasts (cross-generator 0.91 0.91 , within-TripoSR 0.80 0.80 ) but at chance on ambiguous ones (cross-generator-mixed 0.53 0.53 ; z = 5.06 z{=}5.06 for the gap), which we interpret as geometry validity tracking the judge only when the defect is visually salient (§ 5 , § 6 ). 2 Related Work Single-image and multi-view 3D generation. Fast feed-forward single-image-to-3D pipelines such as Unique3D [ 1 ] and asset pipelines like Meta 3D Gen [ 2 ] have made per-object generation cheap enough to evaluate at scale, and studies of 3D representations [ 3 ] and photorealistic generation [ 4 ] highlight how differently generators behave. We treat such generators as black boxes and focus on how to judge their outputs. Evaluating 3D generation. Benchmarks for multi-view generation [ 5 ] and rethinking of point-cloud generation metrics [ 6 ] both note that standard automatic metrics correlate weakly with perceived quality; curated-quality datasets [ 7 ] and large object corpora [ 8 ] provide inputs but not a quality oracle. Empirical studies of memorization in 3D shape generation [ 9 ] and robust shape generation [ 10 ] further motivate evaluation that looks at the rendered asset rather than at a single scalar. Our protocol contributes a reusable, human-free reference and a direct measurement of how far the cheap proxies fall short of it. VLM-as-judge. Using vision-language models as judges is now common for image generation [ 11 ] , but their reliability is contested: Kumar et al. [12] report that even frontier VLMs are imperfect judges on grounded multimodal tasks, and presentation-order (position) bias is a known failure mode of LLM/VLM judges [ 13 , 14 ] . Our contribution is not these techniques in the abstract but a validated instantiation for the 3D-render setting: cross-model agreement between two different judge families together with swap-consistency position-bias correction, quantified by Cohen’s κ \\kappa against a chance-agreement baseline, and a measurement of how far cheap proxies fall short of it. Aligning 3D generators with rewards. A growing line uses reward or preference signals to align 3D generators: simulation feedback for physical soundness [ 15 ] , 2D-reward diffusion alignment [ 16 ] , and direct preference optimization from human preferences [ 17 ] , with related preference-optimization [ 18 ] and parameter-efficient adaptation [ 19 ] machinery. Our results bear directly on this line: we find that the cheap automatic proxies one might use as such a reward are a weak quality signal (geometry significantly above chance but well below target; render-CLIP at chance), so reward-based specialization should be driven by the (de-biased) VLM-judge preferences themselves rather than by a proxy. We treat generator specialization as out of scope and future work. 3 Method The evaluation protocol. Given a generated mesh, we normalize it to a unit bounding box and render a fixed 24 24 -view turntable rig with a headless offscreen rasterizer. Quality is a pairwise judgment between two meshes generated from the same input image. We use two different open VLM families: an oracle judge X X (Qwen2.5-VL-7B-Instruct [ 20 ] ) and an independent validation judge Y Y (InternVL3-8B [ 21 ] ). Keeping X ≠ Y X\\neq Y lets us report cross-model agreement as a reliability check rather than trusting a single model. Position-bias correction. VLM judges exhibit a presentation-order bias. For each pair we query the judge in both orders ( A , B A,B and B , A B,A ) and keep the verdict only if it is consistent across the swap; order-dependent verdicts are discarded as position-biased. This is not optional: about 26 % 26\\% of raw verdicts are inconsistent (a fraction that is itself sample-dependent, 0.58 0.58 – 0.63 0.63 consistent at smaller N N ); as one illustrative baseline, the uncorrected agreement reads 0.333 0.333 versus 0.714 0.714 after correction. Proxy rewards under test. We score the same renders/meshes with the cheap proxies a practitioner might use. For a mesh we extract five features: watertightness, manifoldness, non-self-intersection, normal consistency, and render-CLIP similarity (CLIP [ 22 ] , open_clip ViT-B-32 [ 23 ] ). From these we form: (i) a geometry-only score, (ii) a render-CLIP-only score, (iii) a fixed-weight composite, and (iv) a learned pairwise Bradley–Terry head [ 24 ] fit on judge- X X labels: P ⁡ ( a ≻ b ) = σ ⁡ ( w ⊤ ​ ( ϕ ⁡ ( a ) − ϕ ⁡ ( b ) ) ) , P(a\\succ b)=\\sigma\\!\\big(w^{\\top}(\\phi(a)-\\phi(b))\\big), (1) where ϕ ⁡ ( ⋅ ) \\phi(\\cdot) is the five-feature vector and w w is learned by logistic regression [ 25 ] . All proxies are evaluated against the independent judge Y Y . 4 Experimental Setup Data and generators. Inputs are single-view photos from Google Scanned Objects [ 26 ] (public, CC-BY 4.0; 3,069 3{,}069 object directories available). Per object we form four candidates spanning a quality spectrum: meshes from two single-image-to-3D generators run as black boxes (Stable Fast 3D [ 27 ] and TripoSR [ 28 ] ), plus a face-dropped degraded variant of each. We sample N = 60 N{=}60 objects for the main evaluation. Splits and determinism. Splits are strictly by object so no object straddles train and test, and the oracle judge X X is never the validation judge Y Y . The render rig and candidate construction are deterministic given a fixed seed, and both judges use greedy (argmax) decoding. The full corpus is 262 262 position-consistent pairs at N = 60 N{=}60 . The rule-based signals (geometry, render-CLIP, the fixed composite) are not fit to any data, so we evaluate them descriptively over the full corpus; the strict by-object train/test split matters only for the learned head, which is trained on train-object pairs and compared on the held-out test-object pairs ( 98 98 pairs) against judge Y Y . Statistical analysis. We report proportions with Wilson 95% confidence intervals [ 29 ] and test agreement against the chance rate 0.5 0.5 with a two-sided binomial test. Because the unit of observation (a pair) is clustered within objects (four candidates, hence six pairs, per object), the effective sample is the 60 60 objects rather than the 98 98 – 262 262 pairs; our headline intervals therefore use a cluster bootstrap [ 30 ] that resamples objects . Judge–judge agreement is additionally summarized by Cohen’s κ \\kappa [ 31 ] relative to the marginal-agreement baseline. The cluster bootstrap is used for the headline geometry and agreement intervals; the per-subgroup and CLIP CIs in Tables 1 – 2 are pair-level Wilson intervals, which are anti-conservative under clustering and so should be read together with the exploratory caveat below. The four subgroup cells ( n = 43 / 50 / 119 / 50 n{=}43/50/119/50 ) are exploratory ; we make a large family of accuracy-vs-chance comparisons and do not apply a formal multiple-comparison correction, so single-cell directional readings should be treated as hypothesis-generating. Compute. The study used ≈ 3.4 \\approx 3.4 H100-hours across 14 14 completed jobs (one further run discarded) on a single H100-class GPU (predominantly H100-SXM5). 5 Results The judge protocol is reliable. The two independent judge families agree with each other on 0.83 0.83 of 120 120 dual-labeled pairs (Wilson 95% CI [ 0.76 , 0.89 ] [0.76,0.89] ). Because a forced-choice verdict has a 0.5 0.5 chance rate (and the marginal agreement floor here is 0.51 0.51 ), we summarize agreement by Cohen’s κ = 0.66 \\kappa{=}0.66 , “substantial” on the usual scale [ 32 ] , confirming the agreement is not a trivial artifact of skewed marginals. Agreement is above chance in every subgroup, and higher on contrasts with a clear quality difference than on ambiguous ones ( 0.72 0.72 on cross-generator-mixed vs. 0.95 0.95 – 0.97 0.97 on the clearest cells; the 0.72 0.72 cell is above chance but not, on its own n n , distinguishable from the others) (Table 2 , Fig. 1 ). We did not run the optional human spot-check, so reliability here means cross-model consistency, not validated agreement with human raters. The proxies do not substitute for the judge. Geometry validity is a weak but real signal: across the full corpus it agrees with the judge on 0.62 0.62 of pairs (Wilson [ 0.56 , 0.68 ] [0.56,0.68] ; cluster-bootstrap over objects [ 0.55 , 0.69 ] [0.55,0.69] ; two-sided binomial p < 0.001 p{<}0.001 vs. 0.5 0.5 ), so it is significantly above chance yet far below our pre-registered target of ≈ ≥ 0.75 \\approx{\\geq}0.75 . Render-CLIP, by contrast, is at chance ( 0.48 0.48 , [ 0.42 , 0.54 ] [0.42,0.54] , p = 0.50 p{=}0.50 ); we therefore cannot claim it is anti-correlated, only that it carries no usable quality signal. The learned Bradley–Terry head does not help: it places almost all weight on manifoldness ( 2.16 2.16 ) and a negative weight on render-CLIP ( − 0.11 -0.11 ), and the resulting ranking matches geometry-only exactly (zero lift at both N = 30 N{=}30 and N = 60 N{=}60 ): given freedom to weight the features, it collapses onto a single geometry statistic. We read this as evidence that the limit lies in this feature set rather than in the model, though we cannot rule out that richer features would do better. On the strict held-out test subset ( 98 98 pairs) the same three rewards drop to 0.52 0.52 and render-CLIP to 0.40 0.40 ; this subset is smaller and noisier than the full corpus, and the downward shift from larger in-sample estimates ( 0.66 0.66 at N = 24 N{=}24 ) is consistent with small-sample optimism rather than a demonstrated trend. Table 1: Agreement with the independent validation judge Y Y , with Wilson 95% CIs. Geometry validity is significantly above chance but weak; render-CLIP is at chance. The geometry-only, learned, and composite rewards produce effectively the same ranking (the learned head collapses onto manifoldness), so they are not three independent corroborations. “Full corpus” = all 262 262 position-consistent pairs (the rule-based signals are untrained); “held-out” = the 98 98 test pairs used for the learned head. Target is our pre-registered directional goal, not a pass/fail gate. Reward Full corpus Held-out vs. target Geometry-only 0.62 ​ [ 0.56 , 0.68 ] 0.62\\ [0.56,0.68] 0.52 0.52 ≈ ≥ 0.75 \\approx{\\geq}0.75 Learned head (BT) ( ≡ \\equiv geometry) 0.52 0.52 ≈ ≥ 0.75 \\approx{\\geq}0.75 Fixed composite ( ≡ \\equiv geometry) 0.52 0.52 ≈ ≥ 0.75 \\approx{\\geq}0.75 Render-CLIP only 0.48 ​ [ 0.42 , 0.54 ] 0.48\\ [0.42,0.54] 0.40 0.40 ≈ ≥ 0.75 \\approx{\\geq}0.75 Judge X ↔ Y X\\leftrightarrow Y agreement 0.83 ​ [ 0.76 , 0.89 ] 0.83\\ [0.76,0.89] , κ = 0.66 \\kappa{=}0.66 n/a Why this is dangerous: a bimodal subgroup pattern. Table 2 and Fig. 1 break accuracy down by pair type. Geometry validity is significantly above chance on the two contrasts with visible geometric defects: cross-generator (Stable Fast 3D vs. TripoSR, 0.91 0.91 , [ 0.78 , 0.96 ] [0.78,0.96] , p < 0.001 p{<}0.001 ) and within-TripoSR degradation ( 0.80 0.80 , [ 0.67 , 0.89 ] [0.67,0.89] , p < 0.001 p{<}0.001 ). It is only at chance on cross-generator-mixed pairs ( 0.53 0.53 , [ 0.44 , 0.62 ] [0.44,0.62] , p = 0.58 p{=}0.58 ). The cross-generator-vs-ambiguous gap is large and significant (two-proportion z = 5.06 z{=}5.06 , p < 0.0001 p{<}0.0001 ). The within-Stable-Fast-3D cell ( 0.40 0.40 , [ 0.28 , 0.54 ] [0.28,0.54] , p = 0.20 p{=}0.20 ) is not statistically below chance and is confounded (see Limitations), so we do not lean on it. Render-CLIP is weak throughout ( 0.37 0.37 – 0.70 0.70 ). The danger is that the easy, visible-defect regime (exactly the setting in which proxies are usually reported to “work”) hides the chance-level behavior on the more ambiguous calls that matter for ranking or optimizing a single model. Table 2: Per-subgroup geometry-proxy agreement with judge Y Y (Wilson 95% CIs). Geometry is significantly above chance only on the visible-defect contrasts (cross-generator-full, within-TripoSR); on cross-generator-mixed it is at chance, and the within-SF3D cell is not significantly below chance and is confounded. Cells are exploratory ( n n shown). Render-CLIP and judge agreement given for reference. Subgroup n n Geometry [95% CI] R-CLIP Judge X ↔ Y X{\\leftrightarrow}Y Cross-generator, full 43 43 0.91 ​ [ 0.78 , 0.96 ] 0.91\\ [0.78,0.96] 0.37 0.37 0.95 0.95 Within-TripoSR 50 50 0.80 ​ [ 0.67 , 0.89 ] 0.80\\ [0.67,0.89] 0.70 0.70 0.97 0.97 Cross-generator, mixed 119 119 0.53 ​ [ 0.44 , 0.62 ] 0.53\\ [0.44,0.62] 0.46 0.46 0.72 0.72 Within-Stable Fast 3D † 50 50 0.40 ​ [ 0.28 , 0.54 ] 0.40\\ [0.28,0.54] 0.38 0.38 0.82 0.82 † confounded: the judge’s own intact-vs-degraded call is itself at chance here ( 0.40 ​ [ 0.28 , 0.54 ] 0.40\\,[0.28,0.54] ), so this cell measures reference noise as much as proxy failure. Figure 1: Cheap proxies collapse on the ambiguous subgroups while the VLM judge stays reliable. Geometry-proxy accuracy (blue) is significantly above chance on the visible-defect contrasts (cross-generator-full, within-TripoSR) but at chance on cross-generator-mixed (within-SF3D is confounded; see text); render-CLIP (red) is weak throughout; cross-model judge agreement (green) stays 0.72 0.72 – 0.97 0.97 . Dashed line is chance ( 0.5 0.5 ); error bars / small n n mean single-cell readings are exploratory. Error mechanism (interpretation). The subgroup pattern is consistent with a visual-salience account. On within-Stable-Fast-3D pairs the judge prefers the intact mesh only 0.40 0.40 of the time ( [ 0.28 , 0.54 ] [0.28,0.54] , i.e. itself at chance), versus 0.80 0.80 for within-TripoSR, and prefers Stable Fast 3D over TripoSR only 0.09 0.09 of the time. Stable Fast 3D meshes are open shells, so dropping faces is plausibly not clearly visible in a rendered view, whereas TripoSR meshes are watertight and degradation shows up as holes. Geometry validity always penalizes the degraded mesh, but the judge appears to agree mainly when the geometric defect is visually salient . We did not run the controlled manipulation (e.g. re-rendering at higher resolution or measuring silhouette difference) that would turn this from an observational correlation into a tested mechanism, so we offer it as our interpretation rather than a demonstrated cause; either way, the within-SF3D cell is confounded by stimulus visibility and is excluded from our proxy-failure claim. Calibration. There is a hint that the geometry proxy is more often right on large-reward-gap pairs ( 0.67 0.67 ) than small-gap pairs ( 0.57 0.57 ) (Fig. 2 ), but with n ≈ 49 n{\\approx}49 per bin this difference is not statistically significant (overlapping CIs); we report it as directionally suggestive only. Figure 2: The geometry proxy is weakly but correctly calibrated: accuracy is higher when the reward gap between candidates is large. Dashed line is chance. 6 Discussion and Limitations The positive result is a usable, reproducible evaluator: a fixed render rig, two independent VLM judge families, and a position-bias correction together give cross-model agreement of 0.83 0.83 ( κ = 0.66 \\kappa{=}0.66 , substantial), with no human labels. The cautionary result is that the cheap proxies one might reach for instead are a weak signal at best ( 0.62 0.62 for geometry, render-CLIP at chance) and, more subtly, look deceptively good on the visible-defect contrasts that are most often reported while dropping to chance on the ambiguous ones. A practical recommendation follows for the reward-alignment literature [ 15 , 16 , 17 ] , within the regime we tested (two feed-forward generators on Google Scanned Objects with a face-drop degradation): drive specialization with the de-biased VLM-judge preferences directly rather than with a geometry/CLIP proxy reward, which a generator could satisfy (e.g. by maximizing manifoldness) without improving perceived quality. 6.1 Limitations The judge is the oracle. We treat the VLM judge as ground truth, so “quality” is defined relative to these judges. We mitigate by requiring agreement between two independent families, correcting position bias, and reporting agreement rather than assuming a gold label, but VLM judges remain imperfect [ 12 ] . One subgroup is confounded. On within-SF3D pairs the judge’s own intact-vs-degraded call is itself at chance (face-dropping an open shell is barely visible at 256 256 px), so we exclude that cell and rest the bimodality claim on the significant cross-generator and within-TripoSR cells. Narrow regime. The face-drop degradation injects exactly the missing-geometry defect geometry statistics detect and CLIP misses, so it may flatter geometry; and we test only two feed-forward generators, one object source (Google Scanned Objects), and N = 60 N{=}60 objects. Naturalistic failures (thin structures, transparency, multi-object inputs) and structurally different generators are future work; our intervals reflect object-level clustering but not generator or dataset transfer. 7 Availability The evaluation protocol and per-pair data are available from the authors on request. No model checkpoints are released; the generators and judges used are existing public models. 8 Conclusion and Future Work For single-image-to-3D, a cross-model, position-bias-corrected VLM-judge protocol is a reliable, reproducible human-free evaluator ( κ = 0.66 \\kappa{=}0.66 ) under the conditions we tested, while cheap geometry/CLIP proxies are weak (geometry 0.62 0.62 , below target; render-CLIP at chance) and misleading on the visible-defect contrasts where they are usually reported. Future work: richer learned visual representations over the render rig (rather than CLIP) as a candidate automatic reward, broader generator/object coverage and naturalistic failure modes, a human spot-check to validate the judge against people, and (in a separate effort) generator specialization driven directly by the de-biased judge preferences. References [1] Kailu Wu, Fangfu Liu, Zhihan Cai, Runjie Yan, Hanyang Wang, Yating Hu, Yueqi Duan, and Kaisheng Ma. Unique3D: High-quality and efficient 3d mesh generation from a single image. 2024. URL https://arxiv.org/abs/2405.20343 . [2] Raphael Bensadoun, Tom Monnier, Yanir Kleiman, Filippos Kokkinos, Yawar Siddiqui, Mahendra Kariya, Omri Harosh, Roman Shapovalov, Benjamin Graham, Emilien Garreau, Animesh Karnewar, Ang Cao, Idan Azuri, Iurii Makarov, Eric-Tuan Le, Antoine Toisoul, David Novotny, Oran Gafni, Natalia Neverova, and Andrea Vedaldi. Meta 3D Gen. 2024. URL https://arxiv.org/abs/2407.02599 . [3] Nina Wiedemann, Sainan Liu, Quentin Leboutet, Katelyn Gao, Benjamin Ummenhofer, Michael Paulitsch, and Kai Yuan. Unifi3D: A study on 3d representations for generation and reconstruction in a common framework. 2025. URL https://arxiv.org/abs/2509.02474 . [4] Ido Sobol, Kihyuk Sohn, Yoav Blum, Egor Zakharov, Max Bluvstein, Andrea Vedaldi, and Or Litany. Realiz3D: 3d generation made photorealistic via domain-aware learning. 2026. URL https://arxiv.org/abs/2605.13852 . [5] Xianghui Xie, Chuhang Zou, Meher Gitika Karumuri, Jan Eric Lenssen, and Gerard Pons-Moll. MVGBench: Comprehensive benchmark for multi-view generation models. 2025. URL https://arxiv.org/abs/2507.00006 . [6] Matteo Bastico, David Ryckelynck, Laurent Corté, Yannick Tillier, and Etienne Decencière. Rethinking Metrics and Diffusion Architecture for 3D Point Cloud Generation. 2025. URL https://arxiv.org/abs/2511.05308 . [7] Chendi Lin, Heshan Liu, Qunshu Lin, Zachary Bright, Shitao Tang, Yihui He, Minghao Liu, Ling Zhu, and Cindy Le. Objaverse++: Curated 3d object dataset with quality annotations. 2025. URL https://arxiv.org/abs/2504.07334 . [8] Kaixuan Wang, Tianxing Chen, Jiawei Liu, Honghao Su, Shaolong Zhu, Minxuan Wang, Zixuan Li, Yue Chen, Huan ang Gao, Yusen Qin, Jiawei Wang, Qixuan Zhang, Lan Xu, Jingyi Yu, Yao Mu, and Ping Luo. ManiTwin: Scaling data-generation-ready digital object dataset to 100k. 2026. URL https://arxiv.org/abs/2603.16866 . [9] Shu Pu, Boya Zeng, Kaichen Zhou, Mengyu Wang, and Zhuang Liu. Memorization in 3D Shape Generation: An Empirical Study. 2025. URL https://arxiv.org/abs/2512.23628 . [10] Yawar Siddiqui, Duncan Frost, Samir Aroudj, Armen Avetisyan, Henry Howard-Jenkins, Daniel DeTone, Pierre Moulon, Qirui Wu, Zhengqin Li, Julian Straub, Richard Newcombe, and Jakob Engel. ShapeR: Robust conditional 3d shape generation from casual captures. 2026. URL https://arxiv.org/abs/2601.11514 . [11] Samin Mahdizadeh Sani, Max Ku, Nima Jamali, Matina Mahdizadeh Sani, Paria Khoshtab, Wei-Chieh Sun, Parnian Fazel, Zhi Rui Tam, Thomas Chong, Edisy Kin Wai Chan, Donald Wai Tong Tsang, Chiao-Wei Hsu, Ting Wai Lam, Ho Yin Sam Ng, Chiafeng Chu, Chak-Wing Mak, Keming Wu, Hiu Tung Wong, Yik Chun Ho, Chi Ruan, Zhuofeng Li, I-Sheng Fang, Shih-Ying Yeh, Ho Kei Cheng, Ping Nie, and Wenhu Chen. ImagenWorld: Stress-testing image generation models with explainable human evaluation on open-ended real-world tasks. 2026. URL https://arxiv.org/abs/2603.27862 . [12] Bhavesh Kumar, Dylan Feng, and Leonard Tang. MJ1: Multimodal Judgment via Grounded Verification. 2026. URL https://arxiv.org/abs/2603.07990 . [13] Lianmin Zheng, Wei-Lin Chiang, Ying Sheng, Siyuan Zhuang, Zhanghao Wu, Yonghao Zhuang, Zi Lin, Zhuohan Li, Dacheng Li, Eric P. Xing, Hao Zhang, Joseph E. Gonzalez, and Ion Stoica. Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena. 2023. URL https://arxiv.org/abs/2306.05685 . [14] Peiyi Wang, Lei Li, Liang Chen, Zefan Cai, Dawei Zhu, Binghuai Lin, Yunbo Cao, Qi Liu, Tianyu Liu, and Zhifang Sui. Large Language Models are not Fair Evaluators. 2023. URL https://arxiv.org/abs/2305.17926 . [15] Ruining Li, Chuanxia Zheng, Christian Rupprecht, and Andrea Vedaldi. DSO: Aligning 3d generators with simulation feedback for physical soundness. 2025. URL https://arxiv.org/abs/2503.22677 . [16] Qingming Liu, Zhen Liu, Dinghuai Zhang, and Kui Jia. Nabla-R2D3: Effective and efficient 3d diffusion alignment with 2d rewards. 2025. URL https://arxiv.org/abs/2506.15684 . [17] Zhenglin Zhou, Xiaobo Xia, Fan Ma, Hehe Fan, Yi Yang, and Tat-Seng Chua. DreamDPO: Aligning text-to-3d generation with human preferences via direct preference optimization. 2025. URL https://arxiv.org/abs/2502.04370 . [18] Chieh-Yun Chen, Zhonghao Wang, Qi Chen, Zhifan Ye, Min Shi, Yue Zhao, Yinan Zhao, Hui Qu, Wei-An Lin, Yiru Shen, Ajinkya Kale, Irfan Essa, and Humphrey Shi. MapReduce LoRA: Advancing the pareto front in multi-preference optimization for generative models. 2025. URL https://arxiv.org/abs/2511.20629 . [19] Anh Truong, Ahmed H. Mahmoud, Mina Konaković Luković, and Justin Solomon. Low-Rank Adaptation of Neural Fields. 2025. URL https://arxiv.org/abs/2504.15933 . [20] Shuai Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin Ge, Sibo Song, Kai Dang, Peng Wang, Shijie Wang, Jun Tang, Humen Zhong, Yuanzhi Zhu, Mingkun Yang, Zhaohai Li, Jianqiang Wan, Pengfei Wang, Wei Ding, Zheren Fu, Yiheng Xu, Jiabo Ye, Xi Zhang, Tianbao Xie, Zesen Cheng, Hang Zhang, Zhibo Yang, Haiyang Xu, and Junyang Lin. Qwen2.5-VL Technical Report. arXiv:2502.13923 [cs.CV], 2025. URL https://arxiv.org/abs/2502.13923 . [21] Jinguo Zhu, Weiyun Wang, Zhe Chen, Zhaoyang Liu, Shenglong Ye, Lixin Gu, Hao Tian, Yuchen Duan, Weijie Su, Jie Shao, Zhangwei Gao, Erfei Cui, Xuehui Wang, Yue Cao, Yangzhou Liu, Xingguang Wei, Hongjie Zhang, Haomin Wang, Weiye Xu, Hao Li, Jiahao Wang, Nianchen Deng, Songze Li, Yinan He, Tan Jiang, Jiapeng Luo, Yi Wang, Conghui He, Botian Shi, Xingcheng Zhang, Wenqi Shao, Junjun He, Yingtong Xiong, Wenwen Qu, Peng Sun, Penglong Jiao, Han Lv, Lijun Wu, Kaipeng Zhang, Huipeng Deng, Jiaye Ge, Kai Chen, Limin Wang, Min Dou, Lewei Lu, Xizhou Zhu, Tong Lu, Dahua Lin, Yu Qiao, Jifeng Dai, and Wenhai Wang. InternVL3: Exploring Advanced Training and Test-Time Recipes for Open-Source Multimodal Models. arXiv:2504.10479 [cs.CV], 2025. URL https://arxiv.org/abs/2504.10479 . [22] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, Gretchen Krueger, and Ilya Sutskever. Learning Transferable Visual Models From Natural Language Supervision. arXiv:2103.00020 [cs.CV], 2021. URL https://arxiv.org/abs/2103.00020 . [23] Gabriel Ilharco, Mitchell Wortsman, Ross Wightman, Cade Gordon, Nicholas Carlini, Rohan Taori, Achal Dave, Vaishaal Shankar, Hongseok Namkoong, John Miller, Hannaneh Hajishirzi, Ali Farhadi, and Ludwig Schmidt. OpenCLIP. Zenodo, software (version 0.1), 2021. URL https://doi.org/10.5281/zenodo.5143773 . [24] Ralph Allan Bradley and Milton E. Terry. Rank Analysis of Incomplete Block Designs: I. The Method of Paired Comparisons. Biometrika , 39(3/4):324–345, 1952. [25] Fabian Pedregosa, Gaël Varoquaux, Alexandre Gramfort, Vincent Michel, Bertrand Thirion, Olivier Grisel, Mathieu Blondel, Peter Prettenhofer, Ron Weiss, Vincent Dubourg, Jake Vanderplas, Alexandre Passos, David Cournapeau, Matthieu Brucher, Matthieu Perrot, and Édouard Duchesnay. Scikit-learn: Machine Learning in Python. Journal of Machine Learning Research , 12:2825–2830, 2011. [26] Laura Downs, Anthony Francis, Nate Koenig, Brandon Kinman, Ryan Hickman, Krista Reymann, Thomas B. McHugh, and Vincent Vanhoucke. Google Scanned Objects: A High-Quality Dataset of 3D Scanned Household Items. arXiv:2204.11918 [cs.RO], 2022. URL https://arxiv.org/abs/2204.11918 . [27] Mark Boss, Zixuan Huang, Aaryaman Vasishta, and Varun Jampani. SF3D: Stable Fast 3D Mesh Reconstruction with UV-unwrapping and Illumination Disentanglement. arXiv:2408.00653 [cs.CV], 2024. URL https://arxiv.org/abs/2408.00653 . [28] Dmitry Tochilkin, David Pankratz, Zexiang Liu, Zixuan Huang, Adam Letts, Yangguang Li, Ding Liang, Christian Laforte, Varun Jampani, and Yan-Pei Cao. TripoSR: Fast 3D Object Reconstruction from a Single Image. arXiv:2403.02151 [cs.CV], 2024. URL https://arxiv.org/abs/2403.02151 . [29] Edwin B. Wilson. Probable Inference, the Law of Succession, and Statistical Inference. Journal of the American Statistical Association , 22(158):209–212, 1927. [30] Bradley Efron. Bootstrap Methods: Another Look at the Jackknife. The Annals of Statistics , 7(1):1–26, 1979. [31] Jacob Cohen. A Coefficient of Agreement for Nominal Scales. Educational and Psychological Measurement , 20(1):37–46, 1960. [32] J. Richard Landis and Gary G. Koch. The Measurement of Observer Agreement for Categorical Data. Biometrics , 33(1):159–174, 1977.",
+  "text_truncated": false,
+  "links": [
+    {
+      "text": "Skip to main content",
+      "url": "https://arxiv.org/html/2606.18451v1#infobox"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/IgnoreMe"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "Why HTML?",
+      "url": "https://info.arxiv.org/about/accessible_HTML.html"
+    },
+    {
+      "text": "Back to Abstract",
+      "url": "https://arxiv.org/abs/2606.18451v1"
+    },
+    {
+      "text": "Download PDF",
+      "url": "https://arxiv.org/pdf/2606.18451v1"
+    },
+    {
+      "text": "License: CC BY 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2606.18451v1#S5.T1"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2606.18451v1#S3"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2606.18451v1#S5"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2606.18451v1#S6"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2606.18451v1#bib.bib1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2606.18451v1#bib.bib2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2606.18451v1#bib.bib3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2606.18451v1#bib.bib4"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2606.18451v1#bib.bib5"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2606.18451v1#bib.bib6"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2606.18451v1#bib.bib7"
+    },
+    {
+      "text": "8",
+      "url": "https://arxiv.org/html/2606.18451v1#bib.bib8"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2606.18451v1#bib.bib9"
+    },
+    {
+      "text": "10",
+      "url": "https://arxiv.org/html/2606.18451v1#bib.bib10"
+    },
+    {
+      "text": "11",
+      "url": "https://arxiv.org/html/2606.18451v1#bib.bib11"
+    },
+    {
+      "text": "Kumar et al. [12]",
+      "url": "https://arxiv.org/html/2606.18451v1#bib.bib12"
+    },
+    {
+      "text": "13",
+      "url": "https://arxiv.org/html/2606.18451v1#bib.bib13"
+    },
+    {
+      "text": "14",
+      "url": "https://arxiv.org/html/2606.18451v1#bib.bib14"
+    },
+    {
+      "text": "15",
+      "url": "https://arxiv.org/html/2606.18451v1#bib.bib15"
+    },
+    {
+      "text": "16",
+      "url": "https://arxiv.org/html/2606.18451v1#bib.bib16"
+    },
+    {
+      "text": "17",
+      "url": "https://arxiv.org/html/2606.18451v1#bib.bib17"
+    },
+    {
+      "text": "18",
+      "url": "https://arxiv.org/html/2606.18451v1#bib.bib18"
+    },
+    {
+      "text": "19",
+      "url": "https://arxiv.org/html/2606.18451v1#bib.bib19"
+    },
+    {
+      "text": "20",
+      "url": "https://arxiv.org/html/2606.18451v1#bib.bib20"
+    },
+    {
+      "text": "21",
+      "url": "https://arxiv.org/html/2606.18451v1#bib.bib21"
+    },
+    {
+      "text": "22",
+      "url": "https://arxiv.org/html/2606.18451v1#bib.bib22"
+    },
+    {
+      "text": "23",
+      "url": "https://arxiv.org/html/2606.18451v1#bib.bib23"
+    },
+    {
+      "text": "24",
+      "url": "https://arxiv.org/html/2606.18451v1#bib.bib24"
+    },
+    {
+      "text": "25",
+      "url": "https://arxiv.org/html/2606.18451v1#bib.bib25"
+    },
+    {
+      "text": "26",
+      "url": "https://arxiv.org/html/2606.18451v1#bib.bib26"
+    },
+    {
+      "text": "27",
+      "url": "https://arxiv.org/html/2606.18451v1#bib.bib27"
+    },
+    {
+      "text": "28",
+      "url": "https://arxiv.org/html/2606.18451v1#bib.bib28"
+    },
+    {
+      "text": "29",
+      "url": "https://arxiv.org/html/2606.18451v1#bib.bib29"
+    },
+    {
+      "text": "30",
+      "url": "https://arxiv.org/html/2606.18451v1#bib.bib30"
+    },
+    {
+      "text": "31",
+      "url": "https://arxiv.org/html/2606.18451v1#bib.bib31"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2606.18451v1#S5.T2"
+    },
+    {
+      "text": "32",
+      "url": "https://arxiv.org/html/2606.18451v1#bib.bib32"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2606.18451v1#S5.F1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2606.18451v1#S5.F2"
+    },
+    {
+      "text": "https://arxiv.org/abs/2405.20343",
+      "url": "https://arxiv.org/abs/2405.20343"
+    },
+    {
+      "text": "https://arxiv.org/abs/2407.02599",
+      "url": "https://arxiv.org/abs/2407.02599"
+    },
+    {
+      "text": "https://arxiv.org/abs/2509.02474",
+      "url": "https://arxiv.org/abs/2509.02474"
+    },
+    {
+      "text": "https://arxiv.org/abs/2605.13852",
+      "url": "https://arxiv.org/abs/2605.13852"
+    },
+    {
+      "text": "https://arxiv.org/abs/2507.00006",
+      "url": "https://arxiv.org/abs/2507.00006"
+    },
+    {
+      "text": "https://arxiv.org/abs/2511.05308",
+      "url": "https://arxiv.org/abs/2511.05308"
+    },
+    {
+      "text": "https://arxiv.org/abs/2504.07334",
+      "url": "https://arxiv.org/abs/2504.07334"
+    },
+    {
+      "text": "https://arxiv.org/abs/2603.16866",
+      "url": "https://arxiv.org/abs/2603.16866"
+    },
+    {
+      "text": "https://arxiv.org/abs/2512.23628",
+      "url": "https://arxiv.org/abs/2512.23628"
+    },
+    {
+      "text": "https://arxiv.org/abs/2601.11514",
+      "url": "https://arxiv.org/abs/2601.11514"
+    },
+    {
+      "text": "https://arxiv.org/abs/2603.27862",
+      "url": "https://arxiv.org/abs/2603.27862"
+    },
+    {
+      "text": "https://arxiv.org/abs/2603.07990",
+      "url": "https://arxiv.org/abs/2603.07990"
+    },
+    {
+      "text": "https://arxiv.org/abs/2306.05685",
+      "url": "https://arxiv.org/abs/2306.05685"
+    },
+    {
+      "text": "https://arxiv.org/abs/2305.17926",
+      "url": "https://arxiv.org/abs/2305.17926"
+    }
+  ],
+  "matching_link_count": 72,
+  "links_truncated": true,
+  "invalid_links": []
+}

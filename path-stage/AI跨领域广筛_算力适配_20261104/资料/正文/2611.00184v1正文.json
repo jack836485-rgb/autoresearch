@@ -1,0 +1,198 @@
+{
+  "url": "https://arxiv.org/html/2611.00184v1",
+  "final_url": "https://arxiv.org/html/2611.00184v1",
+  "status": 200,
+  "title": "Does Vendor Image Processing Matter? Learning Echocardiography Display Appearance from Native Beamspace Data",
+  "metadata": {},
+  "paper": {
+    "title": "Does Vendor Image Processing Matter? Learning Echocardiography Display Appearance from Native Beamspace Data",
+    "title_warning": null,
+    "abstract": "Abstract Most echocardiography datasets contain vendor-processed images, but processing is often undocumented and may affect model performance and robustness. To address this, we train a small convolutional neural network to reproduce General Electric display appearance from native beamspace brightness-mode ultrasound, using 8 406 8\\,406 recordings from 605 605 unique patients. The beamspace CNN reduces test mean absolute error by 43 % 43\\text{\\,}\\mathrm{\\%} over the optimal pointwise brightness map, outperforms an equivalent Cartesian CNN and runs in real time on a CPU. Across the EchoXFlow and CAMUS datasets, unfiltered training followed by filtered evaluation yields the lowest mean Dice for every class, suggesting filtering may be useful as augmentation when evaluation data are filtered or their processing is unknown. Code and pretrained weights: https://github.com/Ahus-AIM/EchoAppearance .",
+    "authors": [
+      {
+        "name": "Elias Stenhede",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Arian Ranjbar",
+        "affiliations": [],
+        "notes": []
+      }
+    ],
+    "author_block": "Elias Stenhede Arian Ranjbar Address: Medical Technology & E-Health, Akershus University Hospital, Norway",
+    "arxiv_version": "2611.00184v1",
+    "arxiv_version_date": "2026-10-30",
+    "sections": [
+      {
+        "id": "S1",
+        "heading": "1 Introduction",
+        "level": 1,
+        "text": "Images shown on a scanner’s screen are processed versions of the native scan lines, and different vendors and presets give different looks. Echocardiography datasets are often shared after vendor-specific image processing, with limited documentation of the operations applied. As these datasets are combined to train deep learning models, such processing may influence downstream performance and robustness across imaging environments. We study distillation of display appearance: native beamspace brightness-mode (B-mode) data in, the display frame of a General Electric (GE) scanner out. We then assess how domain shifts caused by display processing affect segmentation performance across two datasets."
+      },
+      {
+        "id": "S2",
+        "heading": "2 Methods",
+        "level": 1,
+        "text": "This section describes the three main parts of the article: frame registration, appearance filtering and downstream segmentation evaluation."
+      },
+      {
+        "id": "S2.SS1",
+        "heading": "2.1 Registration",
+        "level": 2,
+        "text": "We use recordings from the EchoXFlow dataset [ 1 ] , acquired during routine clinical examinations at Akershus University Hospital, Norway, with a GE Vivid E95 Ultra Edition and a 4Vc 4D volume phased-array probe. Each recording is exported as beamspace B-mode (polar samples with the sector geometry) and the GE display frame, available as a JPEG of the first frame. Pixel-wise learning needs sub-pixel agreement, so every recording is registered to its display frame: we fit the sector and measure a patch-shift table using locally upsampled Fourier correlation [ 2 ] . A recording is kept when its patch shifts stay below 0.25 px 0.25\\text{\\,}\\mathrm{px} , its fitted sector width is within 0.2 % 0.2\\text{\\,}\\mathrm{\\%} of the geometry. Recordings with colour flow or a doubtful frame match are excluded. Of 13 389 13\\,389 eligible B-mode recordings, 8 406 8\\,406 pass. Splits are by patient: 5 943 5\\,943 / 1 176 1\\,176 / 1 287 1\\,287 recordings. We scored the test split once, after freezing all models and hyper-parameters on validation."
+      },
+      {
+        "id": "S2.SS2",
+        "heading": "2.2 Filtering Network",
+        "level": 2,
+        "text": "A residual CNN [ 3 ] (32 channels, 6 blocks of 3 × 3 3\\text{\\times}3 convolutions with Gaussian error linear unit (GELU) activations [ 4 ] ) runs on the native beam frame. A fixed bilinear resampling maps its output onto the display grid, where a small residual head (16 channels, one block) follows; the model has 117k parameters. Initialised as the identity, it starts out as plain scan conversion ( Figure 1 ). The loss is L1 on the display grid over supported pixels, so targets keep their original resolution. We train on 128 px 128\\text{\\,}\\mathrm{px} patches with AdamMuon [ 5 , 6 ] , halve the learning rate at plateaus and keep the best validation checkpoint. The optimal pointwise map assigns each input grey level the median target value over the training recordings (monotone, 256 levels). It is the lowest mean absolute error (MAE) any brightness curve can reach ( Figure 3 ). The Cartesian twin has the same layers and parameters but applies them after scan conversion; only the order of resampling and convolution differs. We train three seeds of each. Metrics are masked MAE, peak signal-to-noise ratio (PSNR) and structural similarity (SSIM [ 7 ] ); intervals use 2 000 2\\,000 patient-bootstrap draws. With warmed batches of 32 32 frames (bfloat16), the 117k-parameter beamspace model processes 726 × 274 726\\text{\\times}274 frames at 22 22 frames per second on an AMD Ryzen Threadripper PRO 9965WX CPU (16 threads) and 665 665 frames per second on an NVIDIA RTX 5090 graphics processing unit (GPU)."
+      },
+      {
+        "id": "S2.SS3",
+        "heading": "2.3 Segmentation Network",
+        "level": 2,
+        "text": "We train separate MViT-v2-S [ 8 ] segmentation models on unfiltered and filtered Cartesian 256 × 256 256\\text{\\times}256 inputs, evaluating each checkpoint on both domains. The frozen appearance CNN operates in beamspace before scan conversion. Both conditions use identical clips, geometry, normalisation and training settings. EchoXFlow uses five patient-disjoint outer folds and three seeds, covering 1 125 1\\,125 clips from 324 324 examinations of 318 318 patients. CAMUS [ 9 ] uses its official 400/50/50 patient train/validation/test split and three seeds per condition. Training stops with validation patience 10 after at least 25 epochs; the best checkpoint is kept. We report spatiotemporal Dice [ 10 ] for the left ventricular (LV) cavity and myocardium, plus the left atrium on CAMUS. Scores are averaged within examinations and over seeds, then equally over EchoXFlow folds."
+      },
+      {
+        "id": "S3",
+        "heading": "3 Results",
+        "level": 1,
+        "text": "Scan conversion alone has a test MAE of 33.85 33.85 ; the optimal pointwise map reduces it to 5.42 5.42 ( Table 1 ), so most of the difference is a brightness mapping. The beamspace CNN is 43 % 43\\text{\\,}\\mathrm{\\%} lower than this map. The pointwise map darkens the input and keeps its spatial structure, while the beamspace CNN also changes the local texture ( Figure 2 , insets). Fitting the pointwise map to each recording separately changes the curve moderately, but still reaches an MAE of 5.0 5.0 on these 50 50 validation recordings, against 5.5 5.5 for the global map and 3.3 3.3 for the beamspace CNN. Table 1: Appearance fidelity on the held-out test set: recording means [ 95 % 95\\text{\\,}\\mathrm{\\%} patient-bootstrap interval]. Method MAE ↓ \\downarrow PSNR ( dB \\mathrm{dB} ) ↑ \\uparrow SSIM ↑ \\uparrow Scan conversion (input) 33. 8 [33.6, 34.1] 17. 1 [17.1, 17.2] 0. 512 [0.498, 0.525] Optimal pointwise map 5. 4 [5.2, 5.6] 29. 5 [29.3, 29.8] 0. 892 [0.887, 0.896] Cartesian CNN 3. 4 [3.2, 3.6] 34. 2 [33.9, 34.5] 0. 939 [0.934, 0.943] Beamspace CNN 3 . 1 [2.9 , 3.3] 35 . 2 [34.8 , 35.4] 0 . 945 [0.939 , 0.949] Figure 2: Five test recordings from different patients, selected at fixed CNN-error quantiles. Rows: input and beamspace CNN. Figure 3: The optimal pointwise map (median target per input level), fitted on the training recordings. With layers, parameters and optimiser held equal, the beamspace model has 9.3 % 9.3\\text{\\,}\\mathrm{\\%} lower MAE than its Cartesian twin, averaged over 3 3 seeds each ( 95 % 95\\text{\\,}\\mathrm{\\%} interval of the paired per-recording difference [ 8.8 , 9.6 ] [8.8,9.6] % \\mathrm{\\%} ; better on 99 % 99\\text{\\,}\\mathrm{\\%} of recordings). Inference uses the native beam data and the geometry. With matched training and evaluation, mean Dice differs by at most 0.3 0.3 percentage points ( Table 2 ). Filtering only at evaluation reduces EchoXFlow cavity and myocardium Dice by 4.3 4.3 and 11.4 11.4 points, respectively. Removing it only at evaluation reduces Dice by 1.0 1.0 and 2.0 2.0 points. CAMUS results are directionally similar but smaller, and not all changes are statistically significant. Table 2: Dice ( % \\mathrm{\\%} ) ↑ \\uparrow : mean ± \\pm conservative 95 % 95\\text{\\,}\\mathrm{\\%} CI. EchoXFlow CAMUS Filtering applied LV cavity Myocardium LV cavity Myocardium Left atrium None 93.5 ± 0.3 \\pm$0.3$ 76.0 ± 0.8 \\pm$0.8$ 93.8 ± 0.6 \\pm$0.6$ 88.1 ± 1.2 \\pm$1.2$ 92.2 ± 0.8 \\pm$0.8$ Training and evaluation 93.4 ± 0.3 \\pm$0.3$ 75.7 ± 0.8 \\pm$0.8$ 93.9 ± 0.6 \\pm$0.6$ 88.3 ± 1.1 \\pm$1.1$ 92.4 ± 0.9 \\pm$0.9$ Evaluation only 89.2 ± 0.6 \\pm$0.6$ 64.5 ± 1.1 \\pm$1.1$ 93.2 ± 1.0 \\pm$1.0$ 87.3 ± 1.5 \\pm$1.5$ 91.3 ± 1.0 \\pm$1.0$ Training only 92.4 ± 0.4 \\pm$0.4$ 73.7 ± 0.8 \\pm$0.8$ 93.6 ± 0.6 \\pm$0.6$ 87.9 ± 1.1 \\pm$1.1$ 92.4 ± 0.9 \\pm$0.9$ In the five CAMUS examples, filtering darkens the chambers and changes tissue texture ( Figure 4 ). Figure 4: External application to CAMUS: five patients. Top: input; bottom: beamspace CNN."
+      },
+      {
+        "id": "S4",
+        "heading": "4 Limitations and Future Directions",
+        "level": 1,
+        "text": "Targets are lossy JPEGs of one frame per recording from one scanner (GE Vivid E95 Ultra Edition) and probe (4Vc). The model reproduces observed appearance. Future work could evaluate appearance filtering in other echocardiographic tasks, including image-based probe guidance [ 11 ] and the training of foundation models [ 12 ] ."
+      },
+      {
+        "id": "S5",
+        "heading": "5 Conclusions",
+        "level": 1,
+        "text": "A small beamspace CNN approximates GE display appearance efficiently and improves fidelity over pointwise mapping and a matched Cartesian CNN. Segmentation degrades when preprocessing changes between training and evaluation, while matched training yields small differences. More broadly, this work highlights the need for considering postprocessing settings before feeding data into deep learning systems, and provides a CNN for approximating one kind of vendor-specific postprocessing."
+      },
+      {
+        "id": "bib",
+        "heading": "References",
+        "level": 1,
+        "text": "[1] Stenhede E, Sulkowska J, Orstad EB, Schirmer H, Ranjbar A. EchoXFlow: A Beamspace Echocardiography Dataset for Cardiac Motion, Flow, and Function; 2026. arXiv:2605.05447. [2] Guizar-Sicairos M, Thurman ST, Fienup JR. Efficient subpixel image registration algorithms. Optics Letters. 2008;33(2):156-8. doi: 10.1364/OL.33.000156 . [3] He K, Zhang X, Ren S, Sun J. Deep Residual Learning for Image Recognition. In: CVPR; 2016. p. 770-8. doi: 10.1109/CVPR.2016.90 . [4] Hendrycks D, Gimpel K. Gaussian Error Linear Units (GELUs); 2016. arXiv:1606.08415. [5] Jordan K. Muon: An optimizer for hidden layers in neural networks; 2024. https://kellerjordan.github.io/posts/muon/ . [6] Loshchilov I, Hutter F. Decoupled Weight Decay Regularization. In: ICLR; 2019. . [7] Wang Z, Bovik AC, Sheikh HR, Simoncelli EP. Image Quality Assessment: From Error Visibility to Structural Similarity. IEEE Transactions on Image Processing. 2004;13(4):600-12. [8] Li Y, Wu CY, Fan H, Mangalam K, Xiong B, Malik J, et al. MViTv2: Improved Multiscale Vision Transformers for Classification and Detection. In: CVPR; 2022. p. 4804-14. [9] Leclerc S, Smistad E, Pedrosa J, et al. Deep Learning for Segmentation Using an Open Large-Scale Dataset in 2D Echocardiography. IEEE Transactions on Medical Imaging. 2019;38(9):2198-210. doi: 10.1109/TMI.2019.2900516 . [10] Dice LR. Measures of the Amount of Ecologic Association Between Species. Ecology. 1945;26(3):297-302. doi: 10.2307/1932409 . [11] Stenhede E, Bjerke EG, Sulkowska J, Orstad EB, Elle OJ, Côté-Allard U, et al.. Echo-POSED: Geometric Self-Distillation for Echocardiography Guidance; 2026. arXiv:2606.02634. [12] Munim A, Fallahpour A, Szasz T, Attarpour A, Jiang R, Sooriyakanthan B, et al.. EchoJEPA: A Latent Predictive Foundation Model for Echocardiography; 2026. arXiv:2602.02603."
+      }
+    ]
+  },
+  "text": "Does Vendor Image Processing Matter? Learning Echocardiography Display Appearance from Native Beamspace Data Skip to main content Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: Why HTML? Report Issue Back to Abstract Download PDF Contents Reading mode Colour theme License: CC BY-SA 4.0 arXiv:2611.00184v1 [eess.IV] 30 Oct 2026 Does Vendor Image Processing Matter? Learning Echocardiography Display Appearance from Native Beamspace Data Elias Stenhede Arian Ranjbar Address: Medical Technology & E-Health, Akershus University Hospital, Norway Abstract Most echocardiography datasets contain vendor-processed images, but processing is often undocumented and may affect model performance and robustness. To address this, we train a small convolutional neural network to reproduce General Electric display appearance from native beamspace brightness-mode ultrasound, using 8 406 8\\,406 recordings from 605 605 unique patients. The beamspace CNN reduces test mean absolute error by 43 % 43\\text{\\,}\\mathrm{\\%} over the optimal pointwise brightness map, outperforms an equivalent Cartesian CNN and runs in real time on a CPU. Across the EchoXFlow and CAMUS datasets, unfiltered training followed by filtered evaluation yields the lowest mean Dice for every class, suggesting filtering may be useful as augmentation when evaluation data are filtered or their processing is unknown. Code and pretrained weights: https://github.com/Ahus-AIM/EchoAppearance . keywords ultrasound \\sep echocardiography \\sep data quality \\sep deep learning and Figure 1: Left: appearance learning against the vendor display. Right: the same frame without and with filtering. 1 Introduction Images shown on a scanner’s screen are processed versions of the native scan lines, and different vendors and presets give different looks. Echocardiography datasets are often shared after vendor-specific image processing, with limited documentation of the operations applied. As these datasets are combined to train deep learning models, such processing may influence downstream performance and robustness across imaging environments. We study distillation of display appearance: native beamspace brightness-mode (B-mode) data in, the display frame of a General Electric (GE) scanner out. We then assess how domain shifts caused by display processing affect segmentation performance across two datasets. 2 Methods This section describes the three main parts of the article: frame registration, appearance filtering and downstream segmentation evaluation. 2.1 Registration We use recordings from the EchoXFlow dataset [ 1 ] , acquired during routine clinical examinations at Akershus University Hospital, Norway, with a GE Vivid E95 Ultra Edition and a 4Vc 4D volume phased-array probe. Each recording is exported as beamspace B-mode (polar samples with the sector geometry) and the GE display frame, available as a JPEG of the first frame. Pixel-wise learning needs sub-pixel agreement, so every recording is registered to its display frame: we fit the sector and measure a patch-shift table using locally upsampled Fourier correlation [ 2 ] . A recording is kept when its patch shifts stay below 0.25 px 0.25\\text{\\,}\\mathrm{px} , its fitted sector width is within 0.2 % 0.2\\text{\\,}\\mathrm{\\%} of the geometry. Recordings with colour flow or a doubtful frame match are excluded. Of 13 389 13\\,389 eligible B-mode recordings, 8 406 8\\,406 pass. Splits are by patient: 5 943 5\\,943 / 1 176 1\\,176 / 1 287 1\\,287 recordings. We scored the test split once, after freezing all models and hyper-parameters on validation. 2.2 Filtering Network A residual CNN [ 3 ] (32 channels, 6 blocks of 3 × 3 3\\text{\\times}3 convolutions with Gaussian error linear unit (GELU) activations [ 4 ] ) runs on the native beam frame. A fixed bilinear resampling maps its output onto the display grid, where a small residual head (16 channels, one block) follows; the model has 117k parameters. Initialised as the identity, it starts out as plain scan conversion ( Figure 1 ). The loss is L1 on the display grid over supported pixels, so targets keep their original resolution. We train on 128 px 128\\text{\\,}\\mathrm{px} patches with AdamMuon [ 5 , 6 ] , halve the learning rate at plateaus and keep the best validation checkpoint. The optimal pointwise map assigns each input grey level the median target value over the training recordings (monotone, 256 levels). It is the lowest mean absolute error (MAE) any brightness curve can reach ( Figure 3 ). The Cartesian twin has the same layers and parameters but applies them after scan conversion; only the order of resampling and convolution differs. We train three seeds of each. Metrics are masked MAE, peak signal-to-noise ratio (PSNR) and structural similarity (SSIM [ 7 ] ); intervals use 2 000 2\\,000 patient-bootstrap draws. With warmed batches of 32 32 frames (bfloat16), the 117k-parameter beamspace model processes 726 × 274 726\\text{\\times}274 frames at 22 22 frames per second on an AMD Ryzen Threadripper PRO 9965WX CPU (16 threads) and 665 665 frames per second on an NVIDIA RTX 5090 graphics processing unit (GPU). 2.3 Segmentation Network We train separate MViT-v2-S [ 8 ] segmentation models on unfiltered and filtered Cartesian 256 × 256 256\\text{\\times}256 inputs, evaluating each checkpoint on both domains. The frozen appearance CNN operates in beamspace before scan conversion. Both conditions use identical clips, geometry, normalisation and training settings. EchoXFlow uses five patient-disjoint outer folds and three seeds, covering 1 125 1\\,125 clips from 324 324 examinations of 318 318 patients. CAMUS [ 9 ] uses its official 400/50/50 patient train/validation/test split and three seeds per condition. Training stops with validation patience 10 after at least 25 epochs; the best checkpoint is kept. We report spatiotemporal Dice [ 10 ] for the left ventricular (LV) cavity and myocardium, plus the left atrium on CAMUS. Scores are averaged within examinations and over seeds, then equally over EchoXFlow folds. 3 Results Scan conversion alone has a test MAE of 33.85 33.85 ; the optimal pointwise map reduces it to 5.42 5.42 ( Table 1 ), so most of the difference is a brightness mapping. The beamspace CNN is 43 % 43\\text{\\,}\\mathrm{\\%} lower than this map. The pointwise map darkens the input and keeps its spatial structure, while the beamspace CNN also changes the local texture ( Figure 2 , insets). Fitting the pointwise map to each recording separately changes the curve moderately, but still reaches an MAE of 5.0 5.0 on these 50 50 validation recordings, against 5.5 5.5 for the global map and 3.3 3.3 for the beamspace CNN. Table 1: Appearance fidelity on the held-out test set: recording means [ 95 % 95\\text{\\,}\\mathrm{\\%} patient-bootstrap interval]. Method MAE ↓ \\downarrow PSNR ( dB \\mathrm{dB} ) ↑ \\uparrow SSIM ↑ \\uparrow Scan conversion (input) 33. 8 [33.6, 34.1] 17. 1 [17.1, 17.2] 0. 512 [0.498, 0.525] Optimal pointwise map 5. 4 [5.2, 5.6] 29. 5 [29.3, 29.8] 0. 892 [0.887, 0.896] Cartesian CNN 3. 4 [3.2, 3.6] 34. 2 [33.9, 34.5] 0. 939 [0.934, 0.943] Beamspace CNN 3 . 1 [2.9 , 3.3] 35 . 2 [34.8 , 35.4] 0 . 945 [0.939 , 0.949] Figure 2: Five test recordings from different patients, selected at fixed CNN-error quantiles. Rows: input and beamspace CNN. Figure 3: The optimal pointwise map (median target per input level), fitted on the training recordings. With layers, parameters and optimiser held equal, the beamspace model has 9.3 % 9.3\\text{\\,}\\mathrm{\\%} lower MAE than its Cartesian twin, averaged over 3 3 seeds each ( 95 % 95\\text{\\,}\\mathrm{\\%} interval of the paired per-recording difference [ 8.8 , 9.6 ] [8.8,9.6] % \\mathrm{\\%} ; better on 99 % 99\\text{\\,}\\mathrm{\\%} of recordings). Inference uses the native beam data and the geometry. With matched training and evaluation, mean Dice differs by at most 0.3 0.3 percentage points ( Table 2 ). Filtering only at evaluation reduces EchoXFlow cavity and myocardium Dice by 4.3 4.3 and 11.4 11.4 points, respectively. Removing it only at evaluation reduces Dice by 1.0 1.0 and 2.0 2.0 points. CAMUS results are directionally similar but smaller, and not all changes are statistically significant. Table 2: Dice ( % \\mathrm{\\%} ) ↑ \\uparrow : mean ± \\pm conservative 95 % 95\\text{\\,}\\mathrm{\\%} CI. EchoXFlow CAMUS Filtering applied LV cavity Myocardium LV cavity Myocardium Left atrium None 93.5 ± 0.3 \\pm$0.3$ 76.0 ± 0.8 \\pm$0.8$ 93.8 ± 0.6 \\pm$0.6$ 88.1 ± 1.2 \\pm$1.2$ 92.2 ± 0.8 \\pm$0.8$ Training and evaluation 93.4 ± 0.3 \\pm$0.3$ 75.7 ± 0.8 \\pm$0.8$ 93.9 ± 0.6 \\pm$0.6$ 88.3 ± 1.1 \\pm$1.1$ 92.4 ± 0.9 \\pm$0.9$ Evaluation only 89.2 ± 0.6 \\pm$0.6$ 64.5 ± 1.1 \\pm$1.1$ 93.2 ± 1.0 \\pm$1.0$ 87.3 ± 1.5 \\pm$1.5$ 91.3 ± 1.0 \\pm$1.0$ Training only 92.4 ± 0.4 \\pm$0.4$ 73.7 ± 0.8 \\pm$0.8$ 93.6 ± 0.6 \\pm$0.6$ 87.9 ± 1.1 \\pm$1.1$ 92.4 ± 0.9 \\pm$0.9$ In the five CAMUS examples, filtering darkens the chambers and changes tissue texture ( Figure 4 ). Figure 4: External application to CAMUS: five patients. Top: input; bottom: beamspace CNN. 4 Limitations and Future Directions Targets are lossy JPEGs of one frame per recording from one scanner (GE Vivid E95 Ultra Edition) and probe (4Vc). The model reproduces observed appearance. Future work could evaluate appearance filtering in other echocardiographic tasks, including image-based probe guidance [ 11 ] and the training of foundation models [ 12 ] . 5 Conclusions A small beamspace CNN approximates GE display appearance efficiently and improves fidelity over pointwise mapping and a matched Cartesian CNN. Segmentation degrades when preprocessing changes between training and evaluation, while matched training yields small differences. More broadly, this work highlights the need for considering postprocessing settings before feeding data into deep learning systems, and provides a CNN for approximating one kind of vendor-specific postprocessing. References [1] Stenhede E, Sulkowska J, Orstad EB, Schirmer H, Ranjbar A. EchoXFlow: A Beamspace Echocardiography Dataset for Cardiac Motion, Flow, and Function; 2026. arXiv:2605.05447. [2] Guizar-Sicairos M, Thurman ST, Fienup JR. Efficient subpixel image registration algorithms. Optics Letters. 2008;33(2):156-8. doi: 10.1364/OL.33.000156 . [3] He K, Zhang X, Ren S, Sun J. Deep Residual Learning for Image Recognition. In: CVPR; 2016. p. 770-8. doi: 10.1109/CVPR.2016.90 . [4] Hendrycks D, Gimpel K. Gaussian Error Linear Units (GELUs); 2016. arXiv:1606.08415. [5] Jordan K. Muon: An optimizer for hidden layers in neural networks; 2024. https://kellerjordan.github.io/posts/muon/ . [6] Loshchilov I, Hutter F. Decoupled Weight Decay Regularization. In: ICLR; 2019. . [7] Wang Z, Bovik AC, Sheikh HR, Simoncelli EP. Image Quality Assessment: From Error Visibility to Structural Similarity. IEEE Transactions on Image Processing. 2004;13(4):600-12. [8] Li Y, Wu CY, Fan H, Mangalam K, Xiong B, Malik J, et al. MViTv2: Improved Multiscale Vision Transformers for Classification and Detection. In: CVPR; 2022. p. 4804-14. [9] Leclerc S, Smistad E, Pedrosa J, et al. Deep Learning for Segmentation Using an Open Large-Scale Dataset in 2D Echocardiography. IEEE Transactions on Medical Imaging. 2019;38(9):2198-210. doi: 10.1109/TMI.2019.2900516 . [10] Dice LR. Measures of the Amount of Ecologic Association Between Species. Ecology. 1945;26(3):297-302. doi: 10.2307/1932409 . [11] Stenhede E, Bjerke EG, Sulkowska J, Orstad EB, Elle OJ, Côté-Allard U, et al.. Echo-POSED: Geometric Self-Distillation for Echocardiography Guidance; 2026. arXiv:2606.02634. [12] Munim A, Fallahpour A, Szasz T, Attarpour A, Jiang R, Sooriyakanthan B, et al.. EchoJEPA: A Latent Predictive Foundation Model for Echocardiography; 2026. arXiv:2602.02603.",
+  "text_truncated": false,
+  "links": [
+    {
+      "text": "Skip to main content",
+      "url": "https://arxiv.org/html/2611.00184v1#infobox"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/IgnoreMe"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "Why HTML?",
+      "url": "https://info.arxiv.org/about/accessible_HTML.html"
+    },
+    {
+      "text": "Back to Abstract",
+      "url": "https://arxiv.org/abs/2611.00184v1"
+    },
+    {
+      "text": "Download PDF",
+      "url": "https://arxiv.org/pdf/2611.00184v1"
+    },
+    {
+      "text": "License: CC BY-SA 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "https://github.com/Ahus-AIM/EchoAppearance",
+      "url": "https://github.com/Ahus-AIM/EchoAppearance"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2611.00184v1#bib.bib1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2611.00184v1#bib.bib2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2611.00184v1#bib.bib3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2611.00184v1#bib.bib4"
+    },
+    {
+      "text": "Figure 1",
+      "url": "https://arxiv.org/html/2611.00184v1#S0.F1"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2611.00184v1#bib.bib5"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2611.00184v1#bib.bib6"
+    },
+    {
+      "text": "Figure 3",
+      "url": "https://arxiv.org/html/2611.00184v1#S3.F3"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2611.00184v1#bib.bib7"
+    },
+    {
+      "text": "8",
+      "url": "https://arxiv.org/html/2611.00184v1#bib.bib8"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2611.00184v1#bib.bib9"
+    },
+    {
+      "text": "10",
+      "url": "https://arxiv.org/html/2611.00184v1#bib.bib10"
+    },
+    {
+      "text": "Table 1",
+      "url": "https://arxiv.org/html/2611.00184v1#S3.T1"
+    },
+    {
+      "text": "Figure 2",
+      "url": "https://arxiv.org/html/2611.00184v1#S3.F2"
+    },
+    {
+      "text": "Table 2",
+      "url": "https://arxiv.org/html/2611.00184v1#S3.T2"
+    },
+    {
+      "text": "Figure 4",
+      "url": "https://arxiv.org/html/2611.00184v1#S3.F4"
+    },
+    {
+      "text": "11",
+      "url": "https://arxiv.org/html/2611.00184v1#bib.bib11"
+    },
+    {
+      "text": "12",
+      "url": "https://arxiv.org/html/2611.00184v1#bib.bib12"
+    },
+    {
+      "text": "https://kellerjordan.github.io/posts/muon/",
+      "url": "https://kellerjordan.github.io/posts/muon/"
+    }
+  ],
+  "matching_link_count": 27,
+  "links_truncated": false,
+  "invalid_links": []
+}

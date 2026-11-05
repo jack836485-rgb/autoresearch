@@ -1,0 +1,719 @@
+{
+  "url": "https://arxiv.org/html/2610.41736v1",
+  "final_url": "https://arxiv.org/html/2610.41736v1",
+  "status": 200,
+  "title": "Locality-Controlled Out-of-Distribution Guidance for Robust Regulatory DNA Sequence Design",
+  "metadata": {},
+  "paper": {
+    "title": "Locality-Controlled Out-of-Distribution Guidance for Robust Regulatory DNA Sequence Design",
+    "title_warning": null,
+    "abstract": "Abstract Designing regulatory DNA sequences for targeted gene-expression control is an important challenge.\nRecent approaches frame this task as property-conditioned generation, where diffusion models trained on natural sequences are guided toward high predicted activity through reward-based fine-tuning or sampling-time guidance.\nWe show that single-reward evaluation can obscure reward-hacking behavior.\nBy decomposing evaluation into property, novelty, and plausibility, we identify an empirically underexplored region of the evaluation space in which all three objectives are satisfied, but no existing baseline succeeds.\nWe postulate that this gap arises because prior methods treat guidance primarily as a matter of magnitude.\nIn regulatory DNA, however, sequence grammar is spatially nonuniform: motif positions are sensitive to perturbation, while background regions allow more exploration.\nWe therefore propose LocoGen by reformulating guidance as a problem of locality . LocoGen learns an invariant motif mask through sequence-level invariance learning to protect motif positions, while applying OOD damping only to background positions.\nIt operates at sampling time on a frozen diffusion backbone, without retraining the backbone.\nAcross HepG2, K562, and SK-N-SH, LocoGen reaches this previously underexplored region of the property–novelty–plausibility space.\nCode is available at https://github.com/Lotfollahi-lab/LocoGen .",
+    "authors": [
+      {
+        "name": "Dabin Jeong",
+        "affiliations": [
+          "Affiliation: Wellcome Sanger Institute"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Marwane Bourdim",
+        "affiliations": [
+          "Affiliation: Wellcome Sanger Institute"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Mo Lotfollahi",
+        "affiliations": [
+          "Affiliation: Wellcome Sanger Institute"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Dabin Jeong Affiliation: Wellcome Sanger Institute Email: dj16@sanger.ac.uk Marwane Bourdim Affiliation: Wellcome Sanger Institute Email: mb57@sanger.ac.uk Mo Lotfollahi Affiliation: Wellcome Sanger Institute Email: ml10@sanger.ac.uk",
+    "arxiv_version": "2610.41736v1",
+    "arxiv_version_date": "2026-10-30",
+    "sections": [
+      {
+        "id": "S1",
+        "heading": "1 Introduction",
+        "level": 1,
+        "text": "Diffusion models are powerful generative models used in many domains, including images, language, molecules, and biological sequences. Beyond unconditional generation, recent work increasingly focuses on property-conditioned generation, such as generating regulatory DNA sequences that optimize a target property (e.g. gene expression). These advances make diffusion models useful for de novo regulatory DNA design, where candidate sequences can be generated and tested in a lab-in-the-loop setting. We argue that the generated candidates must satisfy three axes simultaneously: (i) high target property , (ii) novelty , and (iii) plausibility —preservation of the natural grammar of regulatory DNA (e.g. motif usage diversity/density). No single axis suffices. High property without plausibility fails to reproduce in the wet lab; high novelty without plausibility drifts off the functional manifold; high property without novelty merely reproduces the training distribution. Only when all three axes are jointly satisfied is a candidate worth its wet-lab budget. To date, DNA sequence generative models have largely treated candidate generation as a single-objective problem: maximizing the target property. However, when evaluation is decomposed into property, novelty, and plausibility, methods that appear strong under single-axis evaluation reveal trade-offs on the remaining axes (Fig. 1 B). Moreover, their apparent property gains often arise not from targeted regulatory improvement, but from distortions of regulatory motif structure, exposing a common limitation of existing guidance methods (§ 5.3 ). Although these methods differ in their reward-hacking mechanisms, they all control optimization through a single scalar magnitude knob (e.g. guidance scale) without specifying where in the sequence the reward should act. This is problematic because regulatory DNA grammar is positional: motif sites are highly constrained, whereas intervening background regions are more permissive. Thus, in the property–novelty–plausibility design space, current baselines fall short of the desired regime: high activity on both readouts, high novelty, and low compositional deviation. We call this unoccupied region the empty corner , and ask whether guidance can shift the empirical trade-off landscape toward it. We propose LocoGen , a locality-controlled guidance method for de novo regulatory DNA generation (Fig. 1 A). Rather than increasing guidance globally, LocoGen controls where it acts. A masked separator model identifies foreground and background positions with an invariant mask; during sampling, out-of-distribution (OOD) guidance is applied only to background positions. This generates novel sequences in permissive regions while preserving regulatory motifs, thereby improving novelty without sacrificing enhancer-like composition or functional activity."
+      },
+      {
+        "id": "S1.SS0.SSS0.Px1",
+        "heading": "Contributions.",
+        "level": 4,
+        "text": "• Diagnostic framework. We introduce a three-axis evaluation framework for regulatory DNA generation: property, novelty, and compositional plausibility. It reveals two reward-hacking modes concealed by single-axis evaluation: predictor-specific motif concentration and global compositional drift in previous DNA sequence generative models. • Locality-controlled guidance. We reformulate sampling-time guidance as a locality problem and instantiate it as localized OOD control with an invariant subsequence mask. The method operates on a frozen backbone, requires no retraining, and exposes per-position spatial control absent from standard classifier-guidance methods. Figure 1 : LocoGen balances property, novelty, and plausibility."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px1",
+        "heading": "Discrete diffusion and flow matching on biological sequences.",
+        "level": 4,
+        "text": "Two frameworks have emerged for generative modeling of categorical sequences. Discrete diffusion operates directly on categorical sequences and learns to denoise progressively masked tokens ( Austin et al., 2021 ; Sahoo et al., 2024 ; Lou et al., 2024 ) . Continuous diffusion and flow matching instead work in a continuous relaxation of the categorical space, typically the probability simplex whose vertices correspond to the discrete tokens ( Stark et al., 2024 ; Davis et al., 2024 ) Both have been applied to regulatory DNA design ( Stark et al., 2024 ; DaSilva et al., 2026 ; Tang et al., 2025 ) . We build on the discrete diffusion line, using a pretrained masked discrete diffusion language model (MDLM) ( Sahoo et al., 2024 ) as a backbone and steering generation with inference-time guidance."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px2",
+        "heading": "Reward-based fine-tuning of diffusion backbones.",
+        "level": 4,
+        "text": "A first family of methods directly fine-tunes the backbone against a reward signal, often framed as reinforcement learning. DRAKES ( Wang et al., 2025 ) backpropagates a differentiable reward to pre-trained masked discrete diffusion model; DRaFT ( Clark et al., 2024 ) applies the same differentiable-reward principle in the continuous setting. When the reward is non-differentiable, policy-gradient or gradient-free alternatives are used instead ( Cao et al., 2025 ) . These methods can each optimize toward a particular property, but they do not expose a post-hoc control knob: changing the target reward generally requires re-specifying the training objective and running a separate fine-tuning pass, even when recent variants reduce its cost or handle multiple objectives jointly. Although recent methods reduce the cost of retraining ( Cao et al., 2025 ) , they inherently require backbone retraining for each new objective."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px3",
+        "heading": "Training-free guidance.",
+        "level": 4,
+        "text": "Classifier guidance instead allows the guidance signal to be adjusted entirely at inference time through an external scoring network ( Uehara et al., 2025 ; Rojas et al., 2026 ) . DNA-Diffusion ( DaSilva et al., 2026 ) , by contrast, conditions on cell-type labels rather than optimizing a reward, and therefore serves as a non-optimizing reference rather than a competing optimizer. Another method that bypasses backbone retraining is by sampling many candidates and selecting the highest-scoring ones. SVDD ( Li et al., 2024 ) performs soft value-based decoding, evaluating generated candidates at each step and resampling proportionally to a learned value."
+      },
+      {
+        "id": "S3.SS1",
+        "heading": "3.1 Notation",
+        "level": 2,
+        "text": "We consider DNA sequences of fixed length L L over the nucleotide alphabet 𝒜 = { A , T , G , C } \\mathcal{A}=\\{A,T,G,C\\} . A DNA sequence is denoted by X = ( x 1 , … , x L ) ∈ 𝒜 L X=(x_{1},\\ldots,x_{L})\\in\\mathcal{A}^{L} , where x ℓ ∈ 𝒜 x_{\\ell}\\in\\mathcal{A} represents the nucleotide at position ℓ \\ell . Its one-hot representation is denoted by 𝐱 ∈ { 0 , 1 } L × 4 \\mathbf{x}\\in\\{0,1\\}^{L\\times 4} , where each row 𝐱 ℓ ∈ { 0 , 1 } 4 \\mathbf{x}_{\\ell}\\in\\{0,1\\}^{4} satisfies ∑ k = 1 4 𝐱 ℓ , k = 1 \\sum_{k=1}^{4}\\mathbf{x}_{\\ell,k}=1 ."
+      },
+      {
+        "id": "S3.SS2",
+        "heading": "3.2 Problem formulation",
+        "level": 2,
+        "text": "We consider paired observations ( X , Y ) (X,Y) , where X ∈ 𝒳 = 𝒜 L X\\in\\mathcal{X}=\\mathcal{A}^{L} denotes a DNA sequence and Y ∈ 𝒴 ⊆ ℝ Y\\in\\mathcal{Y}\\subseteq\\mathbb{R} denotes an associated scalar property (e.g., target gene activity). Let p θ ​ ( X ) p_{\\theta}(X) denote a base generative model over DNA sequences, and let p ϕ ​ ( Y ∣ X ) p_{\\phi}(Y\\mid X) denote an auxiliary property predictor. For a target property value y ⋆ y^{\\star} , classifier-based guidance aims to reweight the base generative distribution according to the predicted property likelihood as follows, p guide ​ ( X ∣ y ⋆ ) ∝ p θ ​ ( X ) ​ p ϕ ​ ( y ⋆ ∣ X ) λ , p_{\\mathrm{guide}}(X\\mid y^{\\star})\\propto p_{\\theta}(X)\\,p_{\\phi}(y^{\\star}\\mid X)^{\\lambda}, (1) where λ ≥ 0 \\lambda\\geq 0 controls the guidance strength. Since our goal is to generate novel regulatory sequences, effective generation guidance must balance three objectives: (i) achieving the target property y ⋆ y^{\\star} , (ii) producing novel sequences that depart from the training distribution rather than memorizing it, and (iii) maintaining plausibility."
+      },
+      {
+        "id": "S3.SS3",
+        "heading": "3.3 Masked Discrete Diffusion Language Models",
+        "level": 2,
+        "text": "MDLM ( Sahoo et al., 2024 ) generates sequences by progressively denoising a fully masked input rather than autoregressively generating tokens. We extend the alphabet with an absorbing mask token [ 𝙼𝙰𝚂𝙺 ] \\mathtt{[MASK]} , defining 𝒜 mask = 𝒜 ∪ { [ 𝙼𝙰𝚂𝙺 ] } \\mathcal{A}_{\\mathrm{mask}}=\\mathcal{A}\\cup\\{\\mathtt{[MASK]}\\} . Its one-hot representation is denoted by 𝐦 ∈ { 0 , 1 } 5 \\mathbf{m}\\in\\{0,1\\}^{5} . The masked sequence at diffusion time t t is denoted by 𝐳 t ∈ { 0 , 1 } L × 5 \\mathbf{z}_{t}\\in\\{0,1\\}^{L\\times 5} . During training, MDLM learns to recover clean tokens from a masked sequence 𝐳 t ∈ { 0 , 1 } L × 5 \\mathbf{z}_{t}\\in\\{0,1\\}^{L\\times 5} . In the forward process, each clean token in 𝐱 \\mathbf{x} is independently replaced with 𝐦 \\mathbf{m} with probability 1 − α t 1-\\alpha_{t} , yielding 𝐳 t \\mathbf{z}_{t} , where α t \\alpha_{t} decreases monotonically from α 0 ≈ 1 \\alpha_{0}\\approx 1 (clean) to α 1 ≈ 0 \\alpha_{1}\\approx 0 (fully masked). In the reverse process, a denoising network x θ ​ ( 𝐳 t , t ) : { 0 , 1 } L × 5 × [ 0 , 1 ] → [ 0 , 1 ] L × 5 \\boldsymbol{\\textbf{x}}_{\\theta}(\\mathbf{z}_{t},t):\\{0,1\\}^{L\\times 5}\\times[0,1]\\to[0,1]^{L\\times 5} approximates the clean sequence 𝐱 \\mathbf{x} by predicting the categorical distribution over clean nucleotides at each position, assigning zero probability to the mask token. At inference time, generation proceeds by sampling a less-masked state 𝐳 s \\mathbf{z}_{s} from the current state 𝐳 t \\mathbf{z}_{t} , with s < t s<t : p θ ​ ( 𝐳 s , ℓ ∣ 𝐳 t ) = { δ 𝐳 t , ℓ ​ ( 𝐳 s , ℓ ) , 𝐳 t , ℓ ≠ 𝐦 , Categorical ⁡ ( 𝐳 s , ℓ , ( 1 − α s ) ​ 𝐦 + ( α s − α t ) ​ x θ , ℓ ​ ( 𝐳 t , t ) 1 − α t ) , 𝐳 t , ℓ = 𝐦 . p_{\\theta}(\\mathbf{z}_{s,\\ell}\\mid\\mathbf{z}_{t})=\\begin{cases}\\delta_{\\mathbf{z}_{t,\\ell}}(\\mathbf{z}_{s,\\ell}),&\\mathbf{z}_{t,\\ell}\\neq\\mathbf{m},\\\\[4.0pt] \\mathrm{Categorical}\\!\\left(\\mathbf{z}_{s,\\ell};\\,\\dfrac{(1-\\alpha_{s})\\,\\mathbf{m}+(\\alpha_{s}-\\alpha_{t})\\,\\boldsymbol{\\textbf{x}}_{\\theta,\\ell}(\\mathbf{z}_{t},t)}{1-\\alpha_{t}}\\right),&\\mathbf{z}_{t,\\ell}=\\mathbf{m}.\\end{cases} (2) Here, p θ ​ ( 𝐳 s , ℓ ∣ 𝐳 t ) p_{\\theta}(\\mathbf{z}_{s,\\ell}\\mid\\mathbf{z}_{t}) denotes the conditional distribution of the token at position ℓ \\ell in the next denoising step while δ 𝐳 t , ℓ ​ ( 𝐳 s , ℓ ) \\delta_{\\mathbf{z}_{t,\\ell}}(\\mathbf{z}_{s,\\ell}) denotes a point mass at the current token, ensuring that previously unmasked positions remain unchanged (See § S1.2.2 for details). The time s < t s<t corresponds to the next, less-masked diffusion state in the reverse process. Masked positions are either kept as 𝐦 \\mathbf{m} or filled in using the model’s prediction. Generation terminates when all positions are unmasked. In this work, we use a pretrained unconditional MDLM over fixed-length DNA sequences as the base model and guide its generation toward specific objectives."
+      },
+      {
+        "id": "S3.SS4",
+        "heading": "3.4 Classifier guidance with OOD control",
+        "level": 2,
+        "text": "MOOD ( Lee et al., 2023 ) is a score-based diffusion framework that combines OOD control with property guidance to generate novel molecules with desirable properties beyond the training distribution. It operates on continuous representations of molecular graphs. Let 𝐮 t ∈ 𝒢 \\mathbf{u}_{t}\\in\\mathcal{G} denote a noise-perturbed molecular graph representation at diffusion time t t , where 𝒢 \\mathcal{G} is the continuous space of molecular graph representations, and let f ϕ : 𝒢 → ℝ f_{\\phi}:\\mathcal{G}\\to\\mathbb{R} denote a differentiable property scorer trained on molecular data. In the score-based diffusion framework, classifier guidance modifies the reverse-time SDE drift by adding the gradient of p t ​ ( y p ∣ 𝐮 t ) ∝ exp ⁡ ( β t ​ f ϕ ​ ( 𝐮 t ) ) p_{t}(y_{p}\\mid\\mathbf{u}_{t})\\propto\\exp(\\beta_{t}f_{\\phi}(\\mathbf{u}_{t})) , d ​ 𝐮 t = [ f t ​ ( 𝐮 t ) − g t 2 ​ ( ∇ 𝐮 t ​ log ​ p t ​ ( 𝐮 t ) + β t ​ ∇ 𝐮 t f ϕ ​ ( 𝐮 t ) ) ] ​ d ​ t + g t ​ d ​ w ¯ t , d\\mathbf{u}_{t}=\\Bigl[f_{t}(\\mathbf{u}_{t})-g_{t}^{2}\\Bigl(\\nabla_{\\mathbf{u}_{t}}\\log p_{t}(\\mathbf{u}_{t})+\\beta_{t}\\nabla_{\\mathbf{u}_{t}}f_{\\phi}(\\mathbf{u}_{t})\\Bigr)\\Bigr]dt+g_{t}\\,d\\bar{w}_{t}, (3) where p t p_{t} denotes the marginal density of the forward diffusion process, f t f_{t} and g t g_{t} are its drift and diffusion coefficients, respectively, w ¯ t \\bar{w}_{t} is a reverse-time Wiener process, and β t ≥ 0 \\beta_{t}\\geq 0 controls the guidance strength. The SDE is integrated backward in time. MOOD additionally introduces an OOD-control coefficient γ ∈ [ 0 , 1 ) \\gamma\\in[0,1) that rescales the generative score: d ​ 𝐮 t = [ f t ​ ( 𝐮 t ) − ( 1 − γ ) ​ g t 2 ​ ∇ 𝐮 t ​ log ⁡ p t ​ ( 𝐮 t ) − β t ​ g t 2 ​ ∇ 𝐮 t f ϕ ​ ( 𝐮 t ) ] ​ d ​ t + g t ​ d ​ w ¯ t . d\\mathbf{u}_{t}=\\Bigl[f_{t}(\\mathbf{u}_{t})-(1-\\sqrt{\\gamma})\\,g_{t}^{2}\\nabla_{\\mathbf{u}_{t}}\\log p_{t}(\\mathbf{u}_{t})-\\beta_{t}g_{t}^{2}\\nabla_{\\mathbf{u}_{t}}f_{\\phi}(\\mathbf{u}_{t})\\Bigr]dt+g_{t}\\,d\\bar{w}_{t}. (4) where γ = 0 \\gamma=0 generates samples from property-guided diffusion without OOD control, and increasing γ \\gamma encourages exploration of lower-density regions, thus generating more OOD samples. MOOD applies a single global OOD-control coefficient γ \\gamma to the generative score across all graph components, without adapting this coefficient to their individual contributions to the target property."
+      },
+      {
+        "id": "S4",
+        "heading": "4 Method",
+        "level": 1,
+        "text": "We propose Locogen , a localized sequence generation framework that controls both the magnitude and locality of generated sequences. The uniform application of guidance and OOD control in Eq. 4 encodes an implicit assumption: that all sequence positions should be perturbed by the same amount. We argue this assumption is not perfectly suited for regulatory DNA. Functional motifs occupy a small fraction of each sequence and are highly constrained by sequence grammar, while the remaining background is comparatively unconstrained. Pushing motifs off-manifold destroys the very signal that makes a sequence functional, while pushing background off-manifold contributes novelty without sacrificing function."
+      },
+      {
+        "id": "S4.SS1.SSS0.Px1",
+        "heading": "Problem formulation.",
+        "level": 4,
+        "text": "We aim to identify subsequences whose contribution to activity is invariant across data subpopulations, i.e., positions whose predictive role does not change from one subpopulation to another. A straightforward approach is to train an activity predictor and use saliency, but such scores reflect what a single trained model happens to rely on, without explicitly accounting for invariance. We instead build this requirement into the learning objective: the selected positions are encouraged to predict activity equally well across subpopulations ."
+      },
+      {
+        "id": "S4.SS1.SSS0.Px2",
+        "heading": "Approach.",
+        "level": 4,
+        "text": "Inspired by the invariant-environment decomposition of chemical graphs ( Li et al., 2022 ) , we introduce a learned soft mask M ∈ [ 0 , 1 ] L M\\in[0,1]^{L} that splits each sequence into an invariant part x inv x^{\\text{inv}} and an environment part x env x^{\\text{env}} , with M ℓ M_{\\ell} close to 1 1 marking position ℓ \\ell as invariant and close to 0 0 as environment, jointly satisfying: (a) x inv x^{\\text{inv}} alone is sufficient to predict activity; (b) its prediction error remains consistent across auto-discovered environments; and (c) M M is sparse and contiguous."
+      },
+      {
+        "id": "S4.SS1.SSS0.Px3",
+        "heading": "Invariant learning for subsequence disentanglement.",
+        "level": 4,
+        "text": "We jointly train a separator S ϕ S_{\\phi} producing the soft mask M ∈ [ 0 , 1 ] L M\\in[0,1]^{L} and a predictor h ψ h_{\\psi} on the invariant subsequence with disjoint weights. The environment encoder g ω g_{\\omega} on the environment subsequence is randomly initialized and kept frozen. Keeping g ω g_{\\omega} frozen prevents the environment encoder itself from adapting to trivially collapse the environment representations, leaving the separator to determine the partition of sequence information. The environment is still not static since x env x^{\\text{env}} depends on the current mask. To prevent information leakage through masked positions, we fill them with a learnable token b ∈ ℝ K b\\in\\mathbb{R}^{K} , where K = 4 K=4 is the nucleotide alphabet size (initialized uniformly to 1 / K 1/K ): x inv = x ⊙ M K + b ¯ ⊙ ( 𝟏 − M K ) , x env = x ⊙ ( 𝟏 − M K ) + b ¯ ⊙ M K , x^{\\text{inv}}=x\\odot M_{K}+\\bar{b}\\odot(\\mathbf{1}{-}M_{K}),\\quad x^{\\text{env}}=x\\odot(\\mathbf{1}{-}M_{K})+\\bar{b}\\odot M_{K}, (5) where M K = M ⊗ 𝟏 K M_{K}=M\\otimes\\mathbf{1}_{K} and b ¯ = 𝟏 L ⊗ b \\bar{b}=\\mathbf{1}_{L}\\otimes b . The predictor and the environment encoder read out y ^ inv = h ψ ​ ( x inv ) \\hat{y}^{\\text{inv}}=h_{\\psi}(x^{\\text{inv}}) and h ψ h_{\\psi} ’s counterpart g ω ​ ( x env ) g_{\\omega}(x^{\\text{env}}) , respectively. Since environment labels are unavailable, we infer them via k k -means clustering with E = 3 E{=}3 clusters on g ω ​ ( x env ) g_{\\omega}(x^{\\text{env}}) , following GIL ( Li et al., 2022 ) . At the start of each epoch, we freeze a snapshot of g ω g_{\\omega} , encode a fixed reference batch, and refit the centroids, which are then cached and used to assign environment labels throughout that epoch. Deriving both the centroids and the embeddings from the same snapshot keeps the label assignment self-consistent. See § S1.3.3 for details."
+      },
+      {
+        "id": "S4.SS1.SSS0.Px4",
+        "heading": "Training objective.",
+        "level": 4,
+        "text": "ℒ = ℒ sta ⏟ Sufficiency + λ inv ​ ℒ inv ⏟ Invariance/necessity + λ reg ​ ℒ reg + λ smooth ​ ℒ smooth . \\mathcal{L}=\\underbrace{\\mathcal{L}_{\\text{sta}}}_{\\text{Sufficiency}}\\;+\\;\\lambda_{\\text{inv}}\\,\\underbrace{\\mathcal{L}_{\\text{inv}}}_{\\text{Invariance/necessity}}\\;+\\;\\lambda_{\\text{reg}}\\,\\mathcal{L}_{\\text{reg}}\\;+\\;\\lambda_{\\text{smooth}}\\,\\mathcal{L}_{\\text{smooth}}. (6) Our objective consists of four losses ℒ sta \\mathcal{L}_{\\text{sta}} for sufficiency, ℒ inv \\mathcal{L}_{\\text{inv}} for invariant learning via V-REx, ℒ reg \\mathcal{L}_{\\text{reg}} for density regularization, and ℒ smooth \\mathcal{L}_{\\text{smooth}} for total variation smoothing. ℒ sta \\mathcal{L}_{\\text{sta}} encourages the predictor to recover y y from invariant sequence alone, x inv x^{\\text{inv}} : ℒ sta = 1 B ​ ∑ n ( h ψ ​ ( x inv ​ ( n ) ) − y ( n ) ) 2 \\mathcal{L}_{\\text{sta}}=\\tfrac{1}{B}\\sum_{n}(h_{\\psi}(x^{\\text{inv}(n)})-y^{(n)})^{2} , where n n indexes the B B samples of a minibatch. For robust prediction, we adopt variance risk extrapolation (V-REx) ( Krueger et al., 2021 ) to encourage consistent predictive performance across inferred environments. Let ϵ ( n ) = ( y ^ inv ​ ( n ) − y ( n ) ) 2 \\epsilon^{(n)}=(\\hat{y}^{\\text{inv}(n)}-y^{(n)})^{2} and e ^ ( n ) ∈ { 1 , … , E } \\hat{e}^{(n)}\\in\\{1,\\dots,E\\} be the k k -means environment label of sample n n . With per-environment risk R e = 𝔼 n : e ^ ( n ) = e [ ϵ ( n ) ] R_{e}=\\mathbb{E}_{n:\\hat{e}^{(n)}=e}[\\epsilon^{(n)}] , ℒ inv = Var e ​ [ R e ] . \\mathcal{L}_{\\text{inv}}=\\mathrm{Var}_{e}[R_{e}]. (7) Together with ℒ sta \\mathcal{L}_{\\text{sta}} , this encourages the predictor to perform equally well in every environment : any environment-specific information leaking into x inv x^{\\text{inv}} would inflate the variance and incur a penalty. ℒ reg \\mathcal{L}_{\\text{reg}} keeps the average mask density near a target ρ \\rho , and ℒ smooth \\mathcal{L}_{\\text{smooth}} is a fused-lasso total variation penalty ( Javanmardi et al., 2016 ) encouraging contiguous selected blocks. See § S1.3.2 for details on loss definition. The trained separator and final centroids are saved and remain frozen during sampling."
+      },
+      {
+        "id": "S4.SS2.SSS0.Px1",
+        "heading": "Problem.",
+        "level": 4,
+        "text": "The MOOD framework (§ 3.4 ) promotes novel, high-scoring samples by combining sample-level OOD drift with property guidance. For regulatory DNA, this global control is too coarse: without distinguishing constrained motifs from permissive background regions, OOD drift can erase regulatory syntax and compromise activity."
+      },
+      {
+        "id": "S4.SS2.SSS0.Px2",
+        "heading": "Approach.",
+        "level": 4,
+        "text": "We let damping act only on positions the separator marks as environment. By restricting OOD control to environment positions, we aim to preserve activity-relevant sequence patterns while encouraging exploration in less constrained regions. This is the localization in LocoGen : a structural prior on where OOD pressure may act, instead of one global knob trading off the two objectives."
+      },
+      {
+        "id": "S4.SS2.SSS0.Px3",
+        "heading": "Reverse unmasking process.",
+        "level": 4,
+        "text": "At each step t → s t\\to s , the reverse process over nucleotide k k at position ℓ \\ell is p ~ θ ​ ( x s ∣ x t ) ℓ , k ∝ exp ⁡ ( d ℓ ​ ( γ ) ⋅ log ⁡ p θ ) ⏟ (a) localized OOD damping ⋅ Δ t → s ⏟ (b) MDLM unmask schedule ⋅ exp ( η t ∇ r ) ⏟ (c) property pull , \\tilde{p}_{\\theta}(x_{s}\\mid x_{t})_{\\ell,k}\\;\\propto\\;\\underbrace{\\exp\\!\\bigl(d_{\\ell}(\\gamma)\\cdot\\log p_{\\theta}\\bigr)}_{\\text{(a) localized OOD damping}}\\;\\cdot\\;\\underbrace{\\Delta_{t\\to s}}_{\\text{(b) MDLM unmask schedule}}\\;\\cdot\\;\\underbrace{\\exp(\\eta_{t}\\,\\nabla r)}_{\\text{(c) property pull}}, (8) where Δ t → s := ( α s − α t ) / ( 1 − α t ) \\Delta_{t\\to s}:=(\\alpha_{s}-\\alpha_{t})/(1-\\alpha_{t}) is the probability mass that MDLM assigns to the nucleotide channels at a masked position (Eq. 2 ), and ∇ r := ∇ x ^ 0 r ξ ​ ( x ^ 0 ) \\nabla r:=\\nabla_{\\hat{x}_{0}}r_{\\xi}(\\hat{x}_{0}) is the gradient of the activity guidance model r ξ r_{\\xi} evaluated on the current x 0 x_{0} -prediction x ^ 0 \\hat{x}_{0} obtained by softmaxing the nucleotide channels of log ⁡ p θ \\log p_{\\theta} , following the masked-diffusion parameterization of MDLM. The three factors push three forces in parallel: (a) flattens background nucleotide distributions toward uniform, (b) preserves MDLM’s prescribed unmasking rate, and (c) pulls toward high activity"
+      },
+      {
+        "id": "S4.SS2.SSS0.Px4",
+        "heading": "Where OOD control acts.",
+        "level": 4,
+        "text": "OOD control reduces log ⁡ p θ \\log p_{\\theta} by a factor d ℓ ​ ( γ ) < 1 d_{\\ell}(\\gamma)<1 , flattening the per-position categorical distribution toward uniform and thus injecting randomness. We apply OOD damping to positions identified as environment by the separator, using the predicted mask M t = S ϕ ​ ( x ^ 0 ) M_{t}=S_{\\phi}(\\hat{x}_{0}) : d ℓ , t ​ ( γ ) = { 1 − γ , M t , ℓ < τ M ​ and ​ t < τ time , 1 , otherwise . d_{\\ell,t}(\\gamma)=\\begin{cases}1-\\sqrt{\\gamma},&M_{t,\\ell}<\\tau_{M}\\;\\text{and}\\;t<\\tau_{\\text{time}},\\\\ 1,&\\text{otherwise}.\\end{cases} (9) Restricting damping to masked positions keeps already-decoded nucleotides untouched, consistent with the SUBS parameterisation of MDLM, and is activated only in the latter half of sampling, when x ^ 0 \\hat{x}_{0} provides a more reliable estimate for the separator. At invariant positions, d ℓ , t ​ ( γ ) = 1 d_{\\ell,t}(\\gamma)=1 , leaving the base nucleotide distribution unchanged before property guidance."
+      },
+      {
+        "id": "S4.SS2.SSS0.Px5",
+        "heading": "Auto-balanced property scale.",
+        "level": 4,
+        "text": "The two forces in Eq. ( 8 ), the model prior log ⁡ p θ \\log p_{\\theta} and the activity gradient ∇ r \\nabla r , live on different scales that drift across reverse steps, so a fixed η t \\eta_{t} either lets the property pull dominate (yielding unrealistic sequences) or lets it vanish (yielding low-activity sequences). Following Lee et al. (2023) , we set η t \\eta_{t} adaptively at each step so that the gradient magnitude matches the prior up to a user ratio c c : η t = min ⁡ ( η max , c ⋅ | log ⁡ p θ | ¯ valid / | ∇ r | ¯ ) , \\eta_{t}\\;=\\;\\min\\!\\Bigl(\\eta_{\\max},\\;c\\cdot\\overline{|\\log p_{\\theta}|}_{\\text{valid}}\\;/\\;\\overline{|\\nabla r|}\\Bigr), (10) where the bars denote means over the four nucleotide channels after excluding the DRAKES sentinel values ( ≤ − 10 5 \\leq-10^{5} ) at already-unmasked positions, and η max \\eta_{\\max} caps the scale when | ∇ r | |\\nabla r| is small. With c c fixed, the property pull stays at a constant fraction of the prior throughout sampling. To preserve the MDLM unmasking schedule, we add the scaled gradient only to the four nucleotide log-probabilities and renormalise them so that their total mass remains Δ t → s \\Delta_{t\\to s} ; the mask channel is left untouched. Property guidance therefore reshapes the categorical distribution within nucleotides without altering when MDLM chooses to unmask a position."
+      },
+      {
+        "id": "S5.SS1.SSS0.Px1",
+        "heading": "Dataset.",
+        "level": 4,
+        "text": "We follow the experimental setup of DRAKES ( Wang et al., 2025 ) to ensure direct comparability under an established benchmark protocol, adopting the same chromosomal train/test split. The benchmark is based on the publicly available large-scale enhancer dataset of Gosai et al. (2024) , consisting of approximately 700k 200-bp human enhancer sequences with expression measurements quantified in three human cell lines: HepG2, K562, and SK-N-SH."
+      },
+      {
+        "id": "S5.SS1.SSS0.Px2",
+        "heading": "Generation protocol and evaluation.",
+        "level": 4,
+        "text": "We follow the DRAKES evaluation scheme ( Wang et al., 2025 ) : each method generates N = 640 N{=}640 sequences (20 batches × \\times 32), which are then re-scored by independent held-out oracle to avoid circularity between guidance and evaluation. This oracle has three MPRA readouts (HepG2, K562, SK-N-SH), is never used for any method’s guidance or fine-tuning, and serves as our canonical MPRA-property axis. As a second, MPRA-independent functional readout, we additionally report chromatin accessibility from the binary ATAC classifier ( Wang et al., 2025 ) . For more detailed evaluation protocol, see § S2 ."
+      },
+      {
+        "id": "S5.SS1.SSS0.Px3",
+        "heading": "Baselines.",
+        "level": 4,
+        "text": "We compare LocoGen with baselines spanning three categories of regulatory sequence generative models: (1) non-optimizing references: MDLM ( Sahoo et al., 2024 ) (2) Reward-based fine-tuning: DRAKES ( Wang et al., 2025 ) , and (3) Training-free guidance: MDLM with classifier guidance (MDLM+CG), SVDD ( Li et al., 2024 ) , and DNA-diffusion ( DaSilva et al., 2026 ) . All baselines are run with their authors’ released checkpoints and original decoding hyperparameters. We acknowledge concurrent DNA generative models, e.g GLID2E ( Cao et al., 2025 ) , Ctrl-DNA ( Chen et al., 2025 ) , and GFlowNet ( Bengio et al., 2021 ) , but do not include them as baselines since no public checkpoints are available and retraining their upstream models is out of scope. Computation resource requirements are reported in § S1.5 ."
+      },
+      {
+        "id": "S5.SS2",
+        "heading": "5.2 Three-axis evaluation framework",
+        "level": 2,
+        "text": "We evaluate a generated set 𝒳 ∗ = { x ∗ ( i ) } i = 1 N \\mathcal{X}^{*}=\\{x^{*(i)}\\}_{i=1}^{N} against the training set 𝒳 = { x ( j ) } j = 1 M \\mathcal{X}=\\{x^{(j)}\\}_{j=1}^{M} along three axes, (1) property, (2) novelty, and (3) compositional plausibility under a fixed protocol decoupled from each method’s training or guidance loop. All metrics are reported as mean ± \\pm standard deviation across three sampling seeds."
+      },
+      {
+        "id": "S5.SS2.SSS1",
+        "heading": "5.2.1 Property axis.",
+        "level": 3,
+        "text": "We assess functional activity using two complementary held-out predictors from Wang et al. (2025) : regulatory potency, measured by target gene expression, and chromatin accessibility, which is required for transcription factors to bind regulatory sequences and modulate gene expression. See § S2.2 for details."
+      },
+      {
+        "id": "S5.SS2.SSS1.Px1",
+        "heading": "Pred-activity",
+        "level": 4,
+        "text": "We use an independently released oracle that maps a sequence to a scalar prediction of gene expression, with separate heads for cell lines c ∈ { HepG2 , K562 , SK ​ - ​ N ​ - ​ SH } c\\in\\{\\mathrm{HepG2},\\mathrm{K562},\\mathrm{SK\\text{-}N\\text{-}SH}\\} . For each cell line, we report the median predicted activity over generated samples."
+      },
+      {
+        "id": "S5.SS2.SSS1.Px2",
+        "heading": "ATAC_acc.",
+        "level": 4,
+        "text": "We use an independently released classifier that maps each sequence to a predicted probability of chromatin accessibility, formulated as a binary classification task distinguishing accessible from inaccessible sequences. We report the mean predicted accessibility over generated samples."
+      },
+      {
+        "id": "S5.SS2.SSS2.Px1",
+        "heading": "Authenticity ( Alaa et al., 2022 ) .",
+        "level": 4,
+        "text": "We report authenticity score to measure novelty and explicitly diagnose training-set memorization. For each generated sequence x ∗ ( i ) x^{*(i)} , let x ( j i ) x^{(j_{i})} be its nearest training neighbour under Euclidean distance d ⁡ ( ⋅ , ⋅ ) d(\\cdot,\\cdot) in 4-mer frequency space, and let d self ​ ( x ( j i ) ) d_{\\mathrm{self}}(x^{(j_{i})}) be that neighbour’s leave-one-out 1-NN distance within the training set. We report the fraction of samples that lie farther from their nearest neighbour than the neighbour’s natural spacing, Authenticity = 1 N ∑ i = 1 N [ d ( x ∗ ( i ) , x ( j i ) ) > d self ( x ( j i ) ) ] , \\mathrm{Authenticity}=\\frac{1}{N}\\sum_{i=1}^{N}\\mathbf{1}\\!\\left[d(x^{*(i)},x^{(j_{i})})>d_{\\mathrm{self}}(x^{(j_{i})})\\right], with higher values indicating less memorisation."
+      },
+      {
+        "id": "S5.SS2.SSS2.Px2",
+        "heading": "Rarity ( Han et al., 2023 ) .",
+        "level": 4,
+        "text": "For each training sample x ( j ) x^{(j)} , let NN k ​ ( x ( j ) ) \\mathrm{NN}_{k}(x^{(j)}) be its distance to its k k -th nearest neighbour in 4-mer frequency space, defining a training k k -NN ball B k ​ ( x ( j ) ) B_{k}(x^{(j)}) of that radius. The per-sample rarity of an on-manifold generated sequence x ∗ ( i ) x^{*(i)} is the radius of the smallest ball containing it, r ( x ∗ ( i ) ) = min j : x ∗ ( i ) ∈ B k ​ ( x ( j ) ) NN k ( x ( j ) ) , r(x^{*(i)})=\\min_{\\,j\\,:\\,x^{*(i)}\\in B_{k}(x^{(j)})}\\!\\mathrm{NN}_{k}(x^{(j)}), with off-manifold samples (outside every B k B_{k} ) excluded so that r r isolates on-manifold rarity. To remove dependence on feature scale and sample size, we report r r in IQR units relative to the leave-one-out training rarity r train r^{\\mathrm{train}} . Thus r ~ = 0 \\widetilde{r}=0 at the training median and r ~ = 1 \\widetilde{r}=1 at p 75 p_{75} , with larger values marking samples in rarer training-density regions."
+      },
+      {
+        "id": "S5.SS2.SSS3",
+        "heading": "5.2.3 Compositional plausibility axis.",
+        "level": 3,
+        "text": "We assess preservation of the natural compositional grammar of regulatory DNA using two sub-metrics, reported as absolute deviations from the training set, Δ = | method − train | \\Delta=|\\,\\text{method}-\\text{train}\\,| . Smaller deviations indicate better preservation."
+      },
+      {
+        "id": "S5.SS2.SSS3.Px1",
+        "heading": "Δ \\Delta Gini.",
+        "level": 4,
+        "text": "Motif-usage diversity is measured by the Gini index G G over motif counts from JASPAR scans of generated and training sequences ( Rauluseviciute et al., 2024 ) . G = 0 G=0 denotes uniform motif usage, while G → 1 G\\to 1 indicates domination by a small subset of motifs. For sorted per-motif counts f = ( f 1 , … , f R ) f=(f_{1},\\ldots,f_{R}) , G ⁡ ( f ) = 1 R ​ ( R + 1 − 2 ​ ∑ r ( R + 1 − r ) ​ f ( r ) ∑ r f ( r ) ) ∈ [ 0 , 1 ] . G(f)=\\tfrac{1}{R}\\!\\left(R+1-2\\,\\tfrac{\\sum_{r}(R+1-r)\\,f_{(r)}}{\\sum_{r}f_{(r)}}\\right)\\in[0,1]. See § S2.1 for more details."
+      },
+      {
+        "id": "S5.SS2.SSS3.Px2",
+        "heading": "Δ \\Delta hits.",
+        "level": 4,
+        "text": "To measure motif density, we compute hits/seq, the mean number of above-threshold motif occurrences per generated sequence, hits / seq = N − 1 ​ ∑ i h i \\mathrm{hits}/\\mathrm{seq}=N^{-1}\\!\\sum_{i}h_{i} , where h i h_{i} is the motif hit count for x ∗ ( i ) x^{*(i)} . Given hits / seq \\mathrm{hits}/\\mathrm{seq} of natural sequences, deviation in either direction indicates motif under- or over-insertion."
+      },
+      {
+        "id": "S5.SS3",
+        "heading": "5.3 Diagnostic: two structurally distinct hacking modes",
+        "level": 2,
+        "text": "Among baselines, both SVDD and DRAKES successfully push predicted activity upward, but along distinct non-natural directions. Natural enhancers rely on the combinatorial cooperation of multiple TFs, with motifs distributed at a characteristic density. Beyond previously reported metrics, we assess how closely the functional motif composition of generated sequences approaches that of natural regulatory sequences by measuring motif usage diversity and density via Δ \\Delta Gini and Δ \\Delta hits. A large Δ \\Delta Gini indicates that generated sequences are dominated by a few repeated motifs, while a large Δ \\Delta hits indicates stuffed motif within a sequence. In either case, predictor scores can remain high even as the sequence drifts away from natural enhancer composition. Figure 2 : Diagnostics of existing sequence design baselines."
+      },
+      {
+        "id": "S5.SS3.SSS0.Px1",
+        "heading": "SVDD: motif inflation.",
+        "level": 4,
+        "text": "In SVDD, motif density per sequence inflates to 1.44 × 1.44\\times the natural baseline ( Δ ​ hits = 0.248 \\Delta\\,\\text{hits}=0.248 , from 0.561 0.561 to 0.809 0.809 ; Tab. 1 , Fig. 2 A1), while motif usage concentrates on a narrow subset of the JASPAR repertoire ( Δ ​ Gini = 0.231 \\Delta\\,\\text{Gini}=0.231 , from 0.308 0.308 to 0.539 0.539 ; Tab. 1 ,Fig. 2 A2). Repeated use of functionally important motifs is itself biologically plausible; the pathology of SVDD, rather, is that it repeats a single motif up to saturation within a single sequence. Together, these observations suggest that SVDD raises predicted activity by repeatedly stuffing a small set of presumably activity-driving motifs into sequence, rather than by employing the diverse motif vocabulary characteristic of natural enhancers."
+      },
+      {
+        "id": "S5.SS3.SSS0.Px2",
+        "heading": "DRAKES: GC-rich composition drift.",
+        "level": 4,
+        "text": "Unlike SVDD, DRAKES does not overpack motifs ( Δ ​ hits = 0.06 \\Delta\\,\\text{hits}=0.06 ; Tab. 1 , Fig. 2 A1-2), but its motif usage is still skewed toward a narrow subset of the JASPAR repertoire ( Δ ​ Gini = 0.261 \\Delta\\,\\text{Gini}=0.261 ; Tab. 1 ). To understand which motifs DRAKES preferentially favors, we examined the over-represented entries and found that they are predominantly GC-rich (Fig. 2 B1). The composition of the generated sequences depart substantially from the natural compositional baseline (Fig. 2 B2). Together, these observations suggest that DRAKES inflates predicted activity by drifting toward a generic GC-rich background, rather than by concentrating on the functionally relevant motifs of the target cell line."
+      },
+      {
+        "id": "S5.SS4",
+        "heading": "5.4 Reaching the empty corner with LocoGen",
+        "level": 2,
+        "text": "Table 1 : Three axis benchmark in HepG2 cell line. 1st , 2nd , and 3rd best results are highlighted. Property Novelty Plausibility Method Pred-activity ↑ \\uparrow ATAC_acc ↑ \\uparrow Authenticity ↑ \\uparrow Rarity (IQR) ↑ \\uparrow | Δ ​ Gini | ↓ |\\Delta\\,\\text{Gini}|\\,\\downarrow | Δ ​ hits | ↓ |\\Delta\\,\\text{hits}|\\,\\downarrow Train 2.406 0.244 0.728 - - - MDLM 0.157 ± \\pm 0.024 0.329 ± \\pm 0.198 0.777 ± \\pm 0.033 − 0.15 -0.15 ± \\pm 0.03 0.051 ± \\pm 0.006 0.071 ± \\pm 0.001 MDLM+CG 4.516 ± \\pm 0.151 0.481 ± \\pm 0.022 0.809 ± \\pm 0.014 + 0.21 +0.21 ± \\pm 0.02 0.169 ± \\pm 0.013 0.043 ± \\pm 0.007 DNA-Diff 2.595 ± \\pm 0.087 0.688 ± \\pm 0.293 0.821 ± \\pm 0.015 − 0.07 -0.07 ± \\pm 0.03 0.002 ± \\pm 0.002 0.010 ± \\pm 0.002 DRAKES 5.610 ± \\pm 0.070 0.804 ± \\pm 0.159 0.873 ± \\pm 0.004 + 1.08 +1.08 ± \\pm 0.09 0.261 ± \\pm 0.007 0.060 ± \\pm 0.010 SVDD 6.830 ± \\pm 0.024 0.442 ± \\pm 0.375 0.894 ± \\pm 0.008 + 0.84 +0.84 ± \\pm 0.03 0.231 ± \\pm 0.010 0.248 ± \\pm 0.008 LocoGen 4.679 ± \\pm 0.021 0.716 ± \\pm 0.019 0.906 ± \\pm 0.006 + 0.71 +0.71 ± \\pm 0.00 0.055 ± \\pm 0.005 0.057 ± \\pm 0.003 Note. For natural sequences (Train), Δ ​ Gini = 0.308 \\Delta\\,\\text{Gini}=0.308 and Δ ​ hits = 0.561 \\Delta\\,\\text{hits}=0.561 . Tables 1 , S4 , S5 , and Figure 1 show that LocoGen occupies a distinct region of the three-axis benchmark space. Single-axis optimization leads to clear trade-offs: SVDD and DRAKES obtain the strongest property scores but incur large plausibility shifts, whereas DNA-Diff closely matches the training distribution but yields weaker property optimization and limited rarity. LocoGen avoids both failure modes. It achieves competitive property optimization, the best authenticity, positive rarity, and top-three performance on both plausibility metrics. Thus, our claim is not that LocoGen is absolutely superior on every metric, but that it is the property-optimizing method that fills the empty corner of the design space: maintaining acceptable performance on property, novelty, and plausibility simultaneously. We further verify that the masked separator learns a meaningful invariant/environmental decomposition rather than an arbitrary partition. The invariant subsequence remains close to the natural baseline, is enriched for activity-associated JASPAR motifs, and has a larger functional impact under ablation than random regions; see § S3.2 for details."
+      },
+      {
+        "id": "S5.SS4.SSS1",
+        "heading": "5.4.1 Ablation study",
+        "level": 3,
+        "text": "To better understand what drives LocoGen ’s performance, we investigate two complementary questions: (i) Which components of LocoGen contribute to its performance? (ii) Can a non-generative approach based on localization and shuffling achieve comparable results?"
+      },
+      {
+        "id": "S5.SS4.SSS1.Px1",
+        "heading": "(i)",
+        "level": 4,
+        "text": "Table 2 disentangles the contributions of guidance and locality in LocoGen . CG applies classifier guidance alone ( γ = 0 \\gamma=0 ), while Loc. OOD ( Learnt ) represents the full model, restricting OOD damping to the mask separator-identified background. Glob. OOD control positions at random rather than from the masked separator signal with minimal overlap with the invariant region (Fig. S2 ). In contrast, Attack reverses property guidance at invariant positions, actively disrupting the regions identified by the masked separator. Disabling CG substantially reduces both property optimization and novelty while leaving plausibility largely unaffected, highlighting the critical role of classifier guidance in property optimization (rows 1-3 vs. the last row). With CG enabled, replacing Loc. OOD ( Learnt ) with Glob. OOD mildly but consistently degrades property and novelty metrics (row 5 vs. the last row), providing additional evidence that the separator identifies activity-sensitive positions. Meanwhile, the comparison against global OOD damping supports a modest but consistent benefit from localizing OOD control. Removing OOD control substantially degrades all metrics except | Δ ​ hits | |\\Delta\\text{hits}| (row 4 vs. the last row). Thus, classifier guidance with OOD control helps discover sequences with stronger properties and greater novelty, while concentrating motif usage on a narrower subset of motifs; the total number of motif hits remains close to the reference distribution. We further examine the effect of OOD control strength γ \\gamma to assess how strongly to apply distributional calibration during sampling. See Appendix § S3.3.1 for the full results. Table 2 : Locality ablation on HepG2 cell line. Component Property Novelty Plausibility CG Glob. OOD Loc. OOD Pred-activity ↑ \\uparrow ATAC_acc ↑ \\uparrow Authenticity ↑ \\uparrow Rarity (IQR) ↑ \\uparrow | Δ ​ Gini | ↓ |\\Delta\\,\\text{Gini}|\\,\\downarrow | Δ ​ hits | ↓ |\\Delta\\,\\text{hits}|\\,\\downarrow – 0.157 ± \\pm 0.024 0.329 ± \\pm 0.198 0.777 ± \\pm 0.033 − 0.15 -0.15 ± \\pm 0.03 0.051 ± \\pm 0.006 0.071 ± \\pm 0.001 ✓ – 0.300 ± \\pm 0.028 0.314 ± \\pm 0.008 0.946 ± \\pm 0.002 + 0.46 +0.46 ± \\pm 0.03 0.246 ± \\pm 0.002 0.167 ± \\pm 0.007 Learnt 0.309 ± \\pm 0.020 0.311 ± \\pm 0.009 0.947 ± \\pm 0.003 + 0.46 +0.46 ± \\pm 0.03 0.244 ± \\pm 0.004 0.166 ± \\pm 0.006 ✓ – 4.516 ± \\pm 0.151 0.481 ± \\pm 0.022 0.809 ± \\pm 0.014 + 0.21 +0.21 ± \\pm 0.02 0.169 ± \\pm 0.013 0.043 ± \\pm 0.007 ✓ ✓ – 4.608 ± \\pm 0.061 0.691 ± \\pm 0.041 0.887 ± \\pm 0.012 + 0.62 +0.62 ± \\pm 0.11 0.065 ± \\pm 0.021 0.044 ± \\pm 0.015 ✓ Attack 3.881 ± \\pm 0.038 0.656 ± \\pm 0.004 0.887 ± \\pm 0.012 + 0.64 +0.64 ± \\pm 0.06 0.025 ± \\pm 0.007 0.083 ± \\pm 0.006 ✓ Learnt 4.679 ± \\pm 0.021 0.716 ± \\pm 0.019 0.906 ± \\pm 0.006 + 0.71 +0.71 ± \\pm 0.00 0.055 ± \\pm 0.005 0.057 ± \\pm 0.003"
+      },
+      {
+        "id": "S5.SS4.SSS1.Px2",
+        "heading": "(ii)",
+        "level": 4,
+        "text": "To distinguish the contribution of learned localization from that of generative optimization, we conducted a non-generative control experiment based on a segment-and-shuffle strategy (Tab. S7 ). See details in § S3.3.2 . LearnedMask outperformed heuristic segmentation methods (e.g., predicted activity of 0.442 vs. 0.359 for GC-content masking under uniform shuffling), suggesting that learned localization better identifies activity-relevant regions. Nevertheless, preserving these regions while shuffling the background remained substantially less effective than full LocoGen (predicted activity: 0.442 vs. 4.679; ATAC accessibility: 0.280 vs. 0.716). These results suggest that localization alone is insufficient to reproduce LocoGen’s performance, highlighting the importance of combining learned localization with a property-guided generative model."
+      },
+      {
+        "id": "S5.SS5",
+        "heading": "5.5 Robustness to evaluation configuration",
+        "level": 2,
+        "text": "To verify that the balanced three-axis profile is not an artifact of our evaluation setup, we evaluated LocoGen under (1) independent oracles and (2) a hyperparameter sweep. We first re-evaluated all methods with two publicly available alternative oracles released by prior work ( Li et al., 2024 ; Genentech, 2025 ) . See § S3.4 for details. Swapping in these oracles leaves most of the ranking intact (Tab. S8 , S9 , S10 ). Its three-axis profile is therefore not tied to a specific oracle. Next, we swept LocoGen and every baseline over the ranges given in each method’s paper or official repository; see § S3.5 for details. Across these sweeps, LocoGen retains its balanced three-axis advantage, confirming that the result does not rely on a cherry-picked hyperparameter configuration."
+      },
+      {
+        "id": "S6",
+        "heading": "6 Conclusion",
+        "level": 1,
+        "text": "We studied sampling-time guidance for regulatory DNA generation and showed that single-axis evaluation can obscure distinct reward-hacking modes. By decomposing evaluation into property, novelty, and plausibility, we identified a desirable region that existing baselines fail to reach. We showed that this gap can be addressed by treating guidance as a problem of locality (which positions to modify) rather than scalar strength. Implemented as localized OOD control with an invariant motif mask, this approach improves the three-axis balance on a frozen backbone without retraining. More broadly, our results suggest that locality-aware guidance may be useful in other structured domains with spatially or functionally nonuniform grammars. See § S4 for further discussions on limitations and impact of this work."
+      },
+      {
+        "id": "Sx1",
+        "heading": "Acknowledgments and Disclosure of Funding",
+        "level": 1,
+        "text": "We acknowledge core funding from the Wellcome Trust (WT220540/Z/20/A), as well as funding and support from Open Targets."
+      },
+      {
+        "id": "bib",
+        "heading": "References",
+        "level": 1,
+        "text": "Alaa et al. (2022) A. Alaa, B. Van Breugel, E. S. Saveliev, and M. Van Der Schaar How faithful is your synthetic data? sample-level metrics for evaluating and auditing generative models . In International conference on machine learning , pp. 290–306 . Cited by: §5.2.2 . Altschul and Erickson (1985) S. F. Altschul and B. W. Erickson Significance of nucleotide sequence alignments: a method for random sequence permutation that preserves dinucleotide and codon usage. . Molecular biology and evolution 2 ( 6 ), pp. 526–538 . Cited by: 2nd item . Austin et al. (2021) J. Austin, D. D. Johnson, J. Ho, D. Tarlow, and R. Van Den Berg Structured denoising diffusion models in discrete state-spaces . Advances in neural information processing systems 34 , pp. 17981–17993 . Cited by: §2 . Bengio et al. (2021) E. Bengio, M. Jain, M. Korablyov, D. Precup, and Y. Bengio Flow network based generative models for non-iterative diverse candidate generation . Advances in neural information processing systems 34 , pp. 27381–27394 . Cited by: §5.1 . Cao et al. (2025) H. Cao, H. Shi, C. Wang, S. J. Pan, and P. Heng GLID2E: a gradient-free lightweight fine-tune approach for discrete biological sequence design . In The Thirty-ninth Annual Conference on Neural Information Processing Systems , Cited by: §2 , §5.1 . Chen et al. (2025) X. Chen, S. Ma, R. Lin, J. Lin, and B. Wang Ctrl-DNA: controllable cell-type-specific regulatory DNA design via constrained RL . In Advances in Neural Information Processing Systems , Note: Spotlight Cited by: §5.1 . Clark et al. (2024) K. Clark, P. Vicol, K. Swersky, and D. J. Fleet Directly fine-tuning diffusion models on differentiable rewards . In The Twelfth International Conference on Learning Representations , Cited by: §2 . DaSilva et al. (2026) L. F. DaSilva, S. Senan, J. F. Kribelbauer-Swietek, Z. M. Patel, L. K. Louis, A. J. Reddy, S. Gabbita, J. D. Rosen, Z. Nussbaum, C. M. V. Córdova, et al. Designing synthetic regulatory elements using the generative ai framework dna-diffusion . Nature Genetics 58 ( 1 ), pp. 180–194 . Cited by: Table S5 , §2 , §2 , §5.1 . Davis et al. (2024) O. Davis, S. Kessler, M. Petrache, İ. İ. Ceylan, M. Bronstein, and A. J. Bose Fisher flow matching for generative modeling over discrete data . Advances in Neural Information Processing Systems 37 , pp. 139054–139084 . Cited by: §2 . Genentech (2025) Genentech Human-atac-catlas-model . Hugging Face . Note: https://huggingface.co/Genentech/human-atac-catlas-model Enformer fine-tuned with gReLU on the human ATAC CATlas dataset; accessed 2026-10-26 External Links: Document Cited by: 2nd item , §S3.4 , §5.5 . Gosai et al. (2024) S. J. Gosai, R. I. Castro, N. Fuentes, J. C. Butts, K. Mouri, M. Alasoadura, S. Kales, T. T. L. Nguyen, R. R. Noche, A. S. Rao, et al. Machine-guided design of cell-type-targeting cis-regulatory elements . Nature 634 ( 8036 ), pp. 1211–1220 . Cited by: §S2.1 , §5.1 . Han et al. (2023) J. Han, H. Choi, Y. Choi, J. Kim, J. Ha, and J. Choi Rarity score: a new metric to evaluate the uncommonness of synthesized images . In International Conference on Learning Representations (ICLR) , Cited by: §5.2.2 . Javanmardi et al. (2016) M. Javanmardi, M. Sajjadi, T. Liu, and T. Tasdizen Unsupervised total variation loss for semi-supervised deep learning of semantic segmentation . arXiv preprint arXiv:1605.01368 . Cited by: §S1.3.2 , §4.1 . Krueger et al. (2021) D. Krueger, E. Caballero, J. Jacobsen, A. Zhang, J. Binas, D. Zhang, R. Le Priol, and A. Courville Out-of-distribution generalization via risk extrapolation (rex) . In International conference on machine learning , pp. 5815–5826 . Cited by: §4.1 . Lee et al. (2023) S. Lee, J. Jo, and S. J. Hwang Exploring chemical space with score-based out-of-distribution generation . In International Conference on Machine Learning , pp. 18872–18892 . Cited by: §3.4 , §4.2 . Li et al. (2022) H. Li, Z. Zhang, X. Wang, and W. Zhu Learning invariant graph representations for out-of-distribution generalization . Advances in Neural Information Processing Systems 35 , pp. 11828–11841 . Cited by: §S1.3.3 , §4.1 , §4.1 . Li et al. (2024) X. Li, Y. Zhao, C. Wang, G. Scalia, G. Eraslan, S. Nair, T. Biancalani, A. Regev, S. Levine, and M. Uehara Derivative-free guidance in continuous and discrete diffusion models with soft value-based decoding . In Advances in Neural Information Processing Systems , Cited by: 1st item , §S3.4 , §2 , §5.1 , §5.5 . Lloyd (1982) S. Lloyd Least squares quantization in pcm . IEEE transactions on information theory 28 ( 2 ), pp. 129–137 . Cited by: §S1.3.3 . Lou et al. (2024) A. Lou, C. Meng, and S. Ermon Discrete diffusion modeling by estimating the ratios of the data distribution . In Proceedings of the 41st International Conference on Machine Learning , pp. 32819–32848 . Cited by: §2 . Louizos et al. (2017) C. Louizos, M. Welling, and D. P. Kingma Learning sparse neural networks through L ​ _ ​ 0 L\\_0 regularization . arXiv preprint arXiv:1712.01312 . Cited by: §S1.3.2 . Rauluseviciute et al. (2024) I. Rauluseviciute, R. Riudavets-Puig, R. Blanc-Mathieu, J. A. Castro-Mondragon, K. Ferenc, V. Kumar, R. B. Lemma, J. Lucas, J. Chèneby, D. Baranasic, et al. JASPAR 2024: 20th anniversary of the open-access database of transcription factor binding profiles . Nucleic Acids Research 52 ( D1 ), pp. D174–D182 . Cited by: §S2.1 , §5.2.3 . Rojas et al. (2026) K. Rojas, Y. He, C. Lai, Y. Takida, Y. Mitsufuji, and M. Tao Improving classifier-free guidance in masked diffusion: low-dim theoretical insights with high-dim impact . In The Fourteenth International Conference on Learning Representations , Cited by: §2 . Sahoo et al. (2024) S. S. Sahoo, M. Arriola, Y. Schiff, A. Gokaslan, E. Marroquin, J. T. Chiu, A. Rush, and V. Kuleshov Simple and effective masked diffusion language models . Advances in Neural Information Processing Systems 37 , pp. 130136–130184 . Cited by: §2 , §3.3 , §5.1 . Stark et al. (2024) H. Stark, B. Jing, C. Wang, G. Corso, B. Berger, R. Barzilay, and T. Jaakkola Dirichlet flow matching with applications to dna sequence design . In International Conference on Machine Learning , pp. 46495–46513 . Cited by: §2 . Tang et al. (2025) S. Tang, Y. Zhang, A. Tong, and P. Chatterjee Gumbel-softmax flow matching with straight-through guidance for controllable biological sequence generation . ArXiv , pp. arXiv–2503 . Cited by: §2 . Uehara et al. (2025) M. Uehara, Y. Zhao, C. Wang, X. Li, A. Regev, S. Levine, and T. Biancalani Inference-time alignment in diffusion models with reward-guided generation: tutorial and review . arXiv preprint arXiv:2501.09685 . Cited by: §2 . Wang et al. (2025) C. Wang, M. Uehara, Y. He, A. Wang, T. Biancalani, A. Lal, T. Jaakkola, S. Levine, H. Wang, and A. Regev Fine-tuning discrete diffusion models via reward optimization with applications to DNA and protein design . In International Conference on Learning Representations , Cited by: §S1.3.1 , §S1.4 , §S1.4 , §S2.2 , §2 , §5.1 , §5.1 , §5.1 , §5.2.1 . Zhang et al. (2021) K. Zhang, J. D. Hocker, M. Miller, X. Hou, J. Chiou, O. B. Poirion, Y. Qiu, Y. E. Li, K. J. Gaulton, A. Wang, et al. A single-cell atlas of chromatin accessibility in the human genome . Cell 184 ( 24 ), pp. 5985–6001 . Cited by: 2nd item ."
+      },
+      {
+        "id": "A1",
+        "heading": "Appendix S1 Supplementary methods",
+        "level": 1,
+        "text": "This section fixes the notation used throughout the paper (§ S1.1 , Table S1 ), gives the derivation details of the MDLM reverse step omitted from § 3.3 (§ S1.2 ), and then documents the two LocoGen modules in the order in which they are introduced in § 4 : the masked separator (§ S1.3 ) and the localization-guided sampler (§ S1.4 )."
+      },
+      {
+        "id": "A1.SS1",
+        "heading": "S1.1 Notation",
+        "level": 2,
+        "text": "Table S1 : Summary of notation. Symbols are grouped by the section in which they are introduced. Symbol Description Sequences and diffusion (§ 3 ) 𝒜 \\mathcal{A} Nucleotide alphabet { A , T , G , C } \\{A,T,G,C\\} K = 4 K=4 Alphabet size L L DNA sequence length ( L = 200 L=200 in all experiments) ℓ , k \\ell,\\,k Position index and nucleotide-channel index n , B n,\\,B Sample index within a minibatch and minibatch size X ∈ 𝒜 L X\\in\\mathcal{A}^{L} Discrete DNA sequence x ℓ ∈ 𝒜 x_{\\ell}\\in\\mathcal{A} Nucleotide at position ℓ \\ell 𝐱 ∈ { 0 , 1 } L × K \\mathbf{x}\\in\\{0,1\\}^{L\\times K} One-hot encoded DNA sequence; 𝐱 ℓ \\mathbf{x}_{\\ell} its row at position ℓ \\ell [ 𝙼𝙰𝚂𝙺 ] , 𝐦 \\mathtt{[MASK]},\\ \\mathbf{m} Mask symbol and its one-hot representation in { 0 , 1 } K + 1 \\{0,1\\}^{K+1} 𝐳 t ∈ { 0 , 1 } L × ( K + 1 ) \\mathbf{z}_{t}\\in\\{0,1\\}^{L\\times(K+1)} Masked sequence (diffusion state) at diffusion time t t s < t s<t Next, less-masked diffusion time in the reverse process α t \\alpha_{t} MDLM masking schedule Δ t → s \\Delta_{t\\to s} Unmasking mass ( α s − α t ) / ( 1 − α t ) (\\alpha_{s}-\\alpha_{t})/(1-\\alpha_{t}) (Eq. 2 ) p θ p_{\\theta} Frozen base (MDLM) generative model p ϕ ​ ( Y ∣ X ) p_{\\phi}(Y\\mid X) Auxiliary property predictor y ⋆ y^{\\star} Target property value λ \\lambda Property guidance strength in the guided distribution 𝐮 t , f ϕ , β t \\mathbf{u}_{t},\\ f_{\\phi},\\ \\beta_{t} MOOD diffusion state, property scorer, and guidance strength γ ∈ [ 0 , 1 ) \\gamma\\in[0,1) OOD-control strength Masked separator (§ 4.1 ) S ϕ S_{\\phi} Separator producing the soft mask h ψ , g ω h_{\\psi},\\ g_{\\omega} Invariant predictor and frozen environment encoder M ∈ [ 0 , 1 ] L M\\in[0,1]^{L} Soft invariance mask; M K = M ⊗ 𝟏 K M_{K}=M\\otimes\\mathbf{1}_{K} its channel-broadcast form x inv , x env x^{\\text{inv}},\\ x^{\\text{env}} Invariant and environment subsequences (Eq. 5 ) b ∈ ℝ K , b ¯ b\\in\\mathbb{R}^{K},\\ \\bar{b} Learnable fill token and its sequence-broadcast form E = 3 E=3 Number of auto-discovered environments e ^ ( n ) , R e , c e \\hat{e}^{(n)},\\ R_{e},\\ c_{e} Environment label, per-environment risk, and centroid ρ \\rho Target mask density λ inv , λ reg , λ smooth \\lambda_{\\text{inv}},\\lambda_{\\text{reg}},\\lambda_{\\text{smooth}} Loss weights in Eq. 6 Localization-guided sampler (§ 4.2 ) r ξ , ∇ r r_{\\xi},\\ \\nabla r Activity guidance model and its gradient w.r.t. x ^ 0 \\hat{x}_{0} x ^ 0 \\hat{x}_{0} Current x 0 x_{0} -prediction obtained by softmaxing the nucleotide channels M t = S ϕ ​ ( x ^ 0 ) M_{t}=S_{\\phi}(\\hat{x}_{0}) Mask predicted at diffusion time t t d ℓ , t ​ ( γ ) d_{\\ell,t}(\\gamma) Localized OOD damping factor (Eq. 9 ) τ M , τ time \\tau_{M},\\ \\tau_{\\text{time}} Mask and diffusion-time thresholds gating the damping η t , η max , c \\eta_{t},\\ \\eta_{\\max},\\ c Property-pull scale, its cap, and the target magnitude ratio (Eq. 10 )"
+      },
+      {
+        "id": "A1.SS2.SSS1",
+        "heading": "S1.2.1 Factorization over positions",
+        "level": 3,
+        "text": "The per-position transition in Eq. 2 is applied independently at every position, so the reverse transition of the whole sequence factorizes as p θ ​ ( 𝐳 s ∣ 𝐳 t ) = ∏ ℓ = 1 L p θ ​ ( 𝐳 s , ℓ ∣ 𝐳 t ) . p_{\\theta}(\\mathbf{z}_{s}\\mid\\mathbf{z}_{t})=\\prod_{\\ell=1}^{L}p_{\\theta}(\\mathbf{z}_{s,\\ell}\\mid\\mathbf{z}_{t}). (S1)"
+      },
+      {
+        "id": "A1.SS2.SSS2",
+        "heading": "S1.2.2 Point mass at already-decoded positions",
+        "level": 3,
+        "text": "At diffusion time t t , let a t , ℓ ∈ 𝒜 mask a_{t,\\ell}\\in\\mathcal{A}_{\\mathrm{mask}} denote the categorical token at position ℓ \\ell , with one-hot representation 𝐳 t , ℓ = onehot ⁡ ( a t , ℓ ) ∈ { 0 , 1 } 5 , ∑ k = 1 5 [ 𝐳 t , ℓ ] k = 1 . \\mathbf{z}_{t,\\ell}=\\operatorname{onehot}(a_{t,\\ell})\\in\\{0,1\\}^{5},\\qquad\\sum_{k=1}^{5}[\\mathbf{z}_{t,\\ell}]_{k}=1. (S2) The first branch of Eq. 2 is then the point mass δ 𝐳 t , ℓ ​ ( 𝐳 s , ℓ ) = { 1 , 𝐳 s , ℓ = 𝐳 t , ℓ , 0 , otherwise , \\delta_{\\mathbf{z}_{t,\\ell}}(\\mathbf{z}_{s,\\ell})=\\begin{cases}1,&\\mathbf{z}_{s,\\ell}=\\mathbf{z}_{t,\\ell},\\\\ 0,&\\text{otherwise},\\end{cases} (S3) which freezes every position whose token has already been decoded; only positions still carrying 𝐦 \\mathbf{m} are resampled. This is the SUBS parameterization that LocoGen inherits, and it is the reason the damping in § S1.4 can act only on still-masked positions."
+      },
+      {
+        "id": "A1.SS3.SSS1",
+        "heading": "S1.3.1 Backbone architecture",
+        "level": 3,
+        "text": "Each of the three networks S ϕ S_{\\phi} , h ψ h_{\\psi} , and g ω g_{\\omega} is a stack of dilated 1D convolutions of identical capacity to the DRAKES classifier [ Wang et al., 2025 ] , with the hyperparameters of Table S2 : 5 stacks of 5 dilations with rates { 1 , 1 , 4 , 16 , 64 } \\{1,1,4,16,64\\} , kernel size 9, hidden width H = 128 H=128 , residual connections within each stack, and ReLU activations. The input is the one-hot tensor 𝐱 ∈ { 0 , 1 } L × K \\mathbf{x}\\in\\{0,1\\}^{L\\times K} with L = 200 L=200 and K = 4 K=4 . The separator head applies a position-wise sigmoid to produce M ∈ [ 0 , 1 ] L M\\in[0,1]^{L} , with its output bias initialized at logit ⁡ ( ρ ) \\mathrm{logit}(\\rho) so that 𝔼 ⁡ [ M ] ≈ ρ \\mathbb{E}[M]\\approx\\rho at the start of training. The predictor reads out the invariant subsequence through a 2-layer head on global mean pooling, y ^ inv = W 2 ​ ReLU ​ ( W 1 ​ 1 L ​ ∑ ℓ = 1 L h ψ ​ ( x inv ) ℓ ) , W 1 ∈ ℝ H × H , W 2 ∈ ℝ 1 × H , \\hat{y}^{\\text{inv}}\\;=\\;W_{2}\\,\\mathrm{ReLU}\\!\\Bigl(W_{1}\\,\\tfrac{1}{L}\\textstyle\\sum_{\\ell=1}^{L}h_{\\psi}(x^{\\text{inv}})_{\\ell}\\Bigr),\\qquad W_{1}\\in\\mathbb{R}^{H\\times H},\\;W_{2}\\in\\mathbb{R}^{1\\times H}, (S4) while the environment encoder produces a single embedding per sequence, g ω ​ ( x env ) = 1 L ​ ∑ ℓ = 1 L g ~ ω ​ ( x env ) ℓ ∈ ℝ H , g_{\\omega}(x^{\\text{env}})\\;=\\;\\tfrac{1}{L}\\textstyle\\sum_{\\ell=1}^{L}\\tilde{g}_{\\omega}(x^{\\text{env}})_{\\ell}\\;\\in\\;\\mathbb{R}^{H}, (S5) where g ~ ω \\tilde{g}_{\\omega} denotes the convolutional trunk before pooling. We write g ω ​ ( x env ) g_{\\omega}(x^{\\text{env}}) for the pooled embedding throughout, as in § 4.1 . The three networks share architecture but not weights, and only S ϕ S_{\\phi} and h ψ h_{\\psi} are trained: g ω g_{\\omega} is randomly initialized and kept frozen. A trainable environment encoder can lower ℒ inv \\mathcal{L}_{\\text{inv}} by collapsing the embedding space itself rather than by improving the partition; tying g ω g_{\\omega} to h ψ h_{\\psi} has the same effect, since the predictor’s collapse attractor ( x inv → b ¯ x^{\\text{inv}}\\!\\to\\!\\bar{b} , y ^ inv \\hat{y}^{\\text{inv}} constant) would then corrupt the embedding space used for k k -means (§ S1.3.3 ). Freezing g ω g_{\\omega} leaves the separator as the only route by which the environment partition can change, which is what makes the V-REx penalty informative about the mask."
+      },
+      {
+        "id": "A1.SS3.SSS2.Px1",
+        "heading": "Mask anchoring ( ℒ reg \\mathcal{L}_{\\text{reg}} ).",
+        "level": 4,
+        "text": "A symmetric quadratic penalty pulling the average mask density to the target ρ \\rho , with an optional bimodal sub-term: ℒ reg = ( M ¯ − ρ ) 2 + λ bim ​ M ⁡ ( 1 − M ) ¯ , M ¯ = 1 B ​ L ​ ∑ n , ℓ M ℓ ( n ) . \\mathcal{L}_{\\text{reg}}\\;=\\;(\\bar{M}-\\rho)^{2}\\;+\\;\\lambda_{\\text{bim}}\\,\\overline{M(1-M)},\\qquad\\bar{M}\\;=\\;\\tfrac{1}{BL}\\textstyle\\sum_{n,\\ell}M^{(n)}_{\\ell}. (S6) The first term is expected- L 0 L_{0} anchoring [ Louizos et al., 2017 ] . We set λ bim = 0 \\lambda_{\\text{bim}}\\!=\\!0 : with λ bim > 0 \\lambda_{\\text{bim}}\\!>\\!0 the { 0 , 1 } \\{0,1\\} valleys become attractors and combine with the mean term to collapse the separator within the first epoch. The target density ρ \\rho is held as a frozen buffer rather than a trainable parameter; when made learnable it gets pulled toward M ¯ \\bar{M} , which hollows out the penalty whenever the mask collapses."
+      },
+      {
+        "id": "A1.SS3.SSS2.Px2",
+        "heading": "Spatial smoothness ( ℒ smooth \\mathcal{L}_{\\text{smooth}} ).",
+        "level": 4,
+        "text": "A fused-lasso total-variation penalty on adjacent mask values [ Javanmardi et al., 2016 ] : ℒ smooth = 1 B ⁡ ( L − 1 ) ​ ∑ n ∑ ℓ = 1 L − 1 | M ℓ + 1 ( n ) − M ℓ ( n ) | . \\mathcal{L}_{\\text{smooth}}\\;=\\;\\tfrac{1}{B(L-1)}\\textstyle\\sum_{n}\\sum_{\\ell=1}^{L-1}\\bigl|M^{(n)}_{\\ell+1}-M^{(n)}_{\\ell}\\bigr|. (S7) This encourages contiguous selected blocks rather than scattered single positions, consistent with the cis-regulatory grammar in which functional elements occupy short contiguous motifs."
+      },
+      {
+        "id": "A1.SS3.SSS2.Px3",
+        "heading": "V-REx variance estimator.",
+        "level": 4,
+        "text": "ℒ inv \\mathcal{L}_{\\text{inv}} in Eq. 7 is computed in its biased form. Environments containing fewer than two samples are dropped from the variance estimate; if fewer than two environments survive, we set ℒ inv = 0 \\mathcal{L}_{\\text{inv}}\\!=\\!0 for that batch."
+      },
+      {
+        "id": "A1.SS3.SSS3",
+        "heading": "S1.3.3 Environment inference by k k -means",
+        "level": 3,
+        "text": "Because x env x^{\\text{env}} is defined by the current mask, the inferred environments shift as S ϕ S_{\\phi} is updated. We therefore refit k k -means at the start of every epoch, so that the V-REx penalty is always measured against the partition induced by the current mask, and hold the labels fixed within the epoch, which prevents the separator from lowering Var e ​ [ R e ] \\mathrm{Var}_{e}[R_{e}] by reshuffling the environments themselves (the standard GIL alternating optimization [ Li et al., 2022 ] ). Writing j j for the epoch index, one round proceeds as follows."
+      },
+      {
+        "id": "A1.SS3.SSS3.Px1",
+        "heading": "Step 1 — Snapshot collection.",
+        "level": 4,
+        "text": "At the start of each epoch j ≥ t warmup j\\geq t_{\\text{warmup}} , a copy Θ j \\Theta_{j} of the current parameters is frozen; since g ω g_{\\omega} is already frozen, the snapshot pins the separator, and hence the mask that defines x env x^{\\text{env}} . Up to N km = 8192 N_{\\text{km}}\\!=\\!8192 samples are drawn from the train loader and their environment embeddings g ω ​ ( x env , Θ j ) g_{\\omega}(x^{\\text{env}};\\Theta_{j}) are collected. For this pass alone we use hard-input mixing: the fill token b b is not injected, so k k -means clusters on actual background nucleotide content rather than on a b b -contaminated mixture."
+      },
+      {
+        "id": "A1.SS3.SSS3.Px2",
+        "heading": "Step 2 — k k -means fit.",
+        "level": 4,
+        "text": "Lloyd’s algorithm [ Lloyd, 1982 ] is run with E = 3 E\\!=\\!3 clusters and T km = 20 T_{\\text{km}}\\!=\\!20 iterations, initialized by random-sample seeding indexed by the epoch number. The resulting centroids { c e } e = 1 E ⊂ ℝ H \\{c_{e}\\}_{e=1}^{E}\\subset\\mathbb{R}^{H} are cached."
+      },
+      {
+        "id": "A1.SS3.SSS3.Px3",
+        "heading": "Step 3 — Minibatch assignment.",
+        "level": 4,
+        "text": "During each training step within the epoch, samples are assigned to the nearest cached centroid under squared ℓ 2 \\ell_{2} distance: e ^ ( n ) = arg ⁡ min e ∈ { 1 , … , E } ⁡ ‖ g ω ​ ( x env ​ ( n ) , Θ j ) − c e ‖ 2 2 . \\hat{e}^{(n)}\\;=\\;\\arg\\min_{e\\in\\{1,\\dots,E\\}}\\bigl\\|g_{\\omega}(x^{\\text{env}(n)};\\Theta_{j})-c_{e}\\bigr\\|_{2}^{2}. (S8) These labels feed ℒ inv \\mathcal{L}_{\\text{inv}} (Eq. 7 ). Because both the centroids and the embeddings are taken from the same frozen snapshot Θ j \\Theta_{j} , environment labels and centroids stay mutually consistent for the whole epoch."
+      },
+      {
+        "id": "A1.SS3.SSS3.Px4",
+        "heading": "Warmup.",
+        "level": 4,
+        "text": "For the first t warmup = 1 t_{\\text{warmup}}\\!=\\!1 epoch no centroids exist; we set ℒ inv = 0 \\mathcal{L}_{\\text{inv}}\\!=\\!0 and train as pure ERM on x inv x^{\\text{inv}} . Subsequently the refit runs at the start of every epoch."
+      },
+      {
+        "id": "A1.SS3.SSS3.Px5",
+        "heading": "Persistence.",
+        "level": 4,
+        "text": "The final centroids { c e } \\{c_{e}\\} are saved with the model checkpoint for reproducibility and for the environment diagnostics of § S3.2 . The sampler of § S1.4 consumes only the separator output M t = S ϕ ​ ( x ^ 0 ) M_{t}=S_{\\phi}(\\hat{x}_{0}) and does not consult the centroids. Table S2 : Hyperparameters for the masked separator (§ S1.3 ). Symbol Value Description Source H H 128 hidden dim of CNN backbones model.hidden_dim stacks 5 dilated-CNN stack depth model.num_cnn_stacks dropout 0.1 per-conv dropout model.dropout ρ \\rho 0.3 target invariant mask density init_rho λ inv \\lambda_{\\text{inv}} 1.0 V-REx weight config λ reg \\lambda_{\\text{reg}} 5.0 mask-anchoring weight config λ smooth \\lambda_{\\text{smooth}} 0.1 fused-lasso TV weight config λ bim \\lambda_{\\text{bim}} 0.0 bimodal sub-term weight (disabled) config E E 3 number of k k -means environments num_envs T km T_{\\text{km}} 20 k k -means Lloyd iterations kmeans_iters N km N_{\\text{km}} 8192 k k -means subsample cap kmeans_samples t warmup t_{\\text{warmup}} 1 epoch ERM-only warmup warmup_epochs optimiser Adam lr 10 − 4 10^{-4} , grad-clip max-norm 1.0 train.lr"
+      },
+      {
+        "id": "A1.SS4",
+        "heading": "S1.4 Localization-guided sampler",
+        "level": 2,
+        "text": "The sampler operates entirely at inference time on frozen components: the MDLM prior p θ p_{\\theta} , the separator S ϕ S_{\\phi} , and the activity guidance model r ξ r_{\\xi} . At each reverse step t → s t\\!\\to\\!s it evaluates p θ p_{\\theta} once, forms the x 0 x_{0} -prediction x ^ 0 \\hat{x}_{0} , queries the separator to obtain M t = S ϕ ​ ( x ^ 0 ) M_{t}=S_{\\phi}(\\hat{x}_{0}) , and combines the three factors of Eq. 8 : the localized damping d ℓ , t ​ ( γ ) d_{\\ell,t}(\\gamma) of Eq. 9 , the MDLM unmasking mass Δ t → s \\Delta_{t\\to s} , and the auto-balanced property pull η t ∇ r \\eta_{t}\\nabla r of Eq. 10 . Damping is gated by two thresholds: it acts only where M t , ℓ < τ M M_{t,\\ell}<\\tau_{M} , i.e. on environment positions, and only for t < τ time t<\\tau_{\\text{time}} , i.e. in the second half of sampling, where x ^ 0 \\hat{x}_{0} is informative enough for S ϕ S_{\\phi} to classify positions reliably. Because already-decoded positions are frozen by the point mass of § S1.2.2 , damping is in effect restricted to still-masked positions."
+      },
+      {
+        "id": "A1.SS4.SSS0.Px1",
+        "heading": "Sentinel-aware normalization.",
+        "level": 4,
+        "text": "The auto-balance of Eq. 10 normalizes the property pull by the mean magnitude of the prior log-probabilities. DRAKES [ Wang et al., 2025 ] writes a large negative sentinel at positions whose token has already been determined, in order to block re-sampling. Taken without filtering, these sentinel entries dominate | log ⁡ p θ | ¯ \\overline{|\\log p_{\\theta}|} , inflate the ratio, and pin η t \\eta_{t} at its cap η max \\eta_{\\max} at every step, which silently disables auto-balance. We therefore restrict the mean to non-sentinel entries ( log ⁡ p θ > − 10 5 \\log p_{\\theta}>-10^{5} ). The same correction is applied when running the classifier-guided baselines, so that no method is penalized by this implementation detail."
+      },
+      {
+        "id": "A1.SS4.SSS0.Px2",
+        "heading": "Finalization.",
+        "level": 4,
+        "text": "Tokens are drawn from the renormalized categorical distribution over the four nucleotide channels, with the copy rule of MDLM keeping already unmasked positions fixed. After the final reverse step, one additional forward pass with per-position arg ⁡ max \\arg\\max removes any residual mask tokens, as in DRAKES [ Wang et al., 2025 ] . Remaining architecture and configuration details are provided in the code; hyperparameter settings are summarized in Table S3 . Table S3 : Hyperparameters for the localization-guided sampler (§ S1.4 ). Symbol Value Description γ \\gamma 0.7 OOD damping strength ( d ℓ , t = − γ d_{\\ell,t}\\!=\\!1\\!-\\!\\sqrt{\\gamma} , Eq. 9 ) τ M \\tau_{M} 0.5 mask threshold; damping acts where M t , ℓ < τ M M_{t,\\ell}\\!<\\!\\tau_{M} τ time \\tau_{\\text{time}} 0.5 damping time threshold (active only for t < τ time t\\!<\\!\\tau_{\\text{time}} ) c c 3.0 target property-pull-to-prior magnitude ratio (Eq. 10 ) η max \\eta_{\\max} 20 cap on η t \\eta_{t} when | ∇ r | |\\nabla r| is small sentinel cutoff − 10 5 -10^{5} threshold below which log ⁡ p θ \\log p_{\\theta} is excluded from the norm batch / seeds 32 / 3 sampling batch size and number of seeds N N 640 sequences per method per cell line per seed ( × 32 20\\!\\times\\!32 )"
+      },
+      {
+        "id": "A1.SS5",
+        "heading": "S1.5 Computational cost",
+        "level": 2,
+        "text": "All experiments were run on a single NVIDIA H200 GPU per job, with 16 CPU cores and 40 GB of host RAM. Training the masked separator required approximately 5.5 hours per epoch, with peak host-side RAM usage of 4.6 GB. For sequence generation, sampling 640 sequences with 128 reverse-diffusion steps took 191 wall-clock seconds per random seed, with peak host-side RAM usage of 3.5 GB."
+      },
+      {
+        "id": "A2",
+        "heading": "Appendix S2 Evaluation protocol",
+        "level": 1,
+        "text": "This section presents further details omitted from the main text due to space constraints."
+      },
+      {
+        "id": "A2.SS1.SSS0.Px1",
+        "heading": "Δ \\Delta Gini.",
+        "level": 4,
+        "text": "We scan generated/training sequences against the JASPAR motif database TF position-specific scoring matrices [ Rauluseviciute et al., 2024 ] , thresholded at false positive rate 10 − 3 10^{-3} under a uniform ACGT background. Following Gosai et al. [2024] , motifs are restricted to those whose constituent TF subunits are all expressed at TPM > 1 \\mathrm{TPM}>1 in the target cell type. The Gini coefficient over per-motif counts f = ( f 1 , … , f R ) f=(f_{1},\\ldots,f_{R}) sorted by ascending order is G ⁡ ( f ) = 1 R ​ ( R + 1 − 2 ​ ∑ r ( R + 1 − r ) ​ f ( r ) ∑ r f ( r ) ) ∈ [ 0 , 1 ] . G(f)=\\tfrac{1}{R}\\!\\left(R+1-2\\,\\tfrac{\\sum_{r}(R+1-r)\\,f_{(r)}}{\\sum_{r}f_{(r)}}\\right)\\in[0,1]."
+      },
+      {
+        "id": "A2.SS2",
+        "heading": "S2.2 Baseline re-scoring and the DRAKES oracle",
+        "level": 2,
+        "text": "To avoid circularity from using the same predictor for both classifier-guided generation and evaluation, we used separate independent oracles for generation guidance and sequence evaluation, following the DRAKES protocol [ Wang et al., 2025 ] . Specifically, reward_oracle_ft.ckpt is used only for guidance or reward-based fine-tuning, whereas evaluation is performed using the separately distributed reward_oracle_eval.ckpt . This held-out evaluator is a gReLU EnformerPretrainedModel with three MPRA readouts corresponding to HepG2, K562, and SK-N-SH, and never contributes to the guidance or fine-tuning signal of any method. As a second functional readout independent of MPRA, we additionally report chromatin accessibility from the binary ATAC classifier binary_atac_cell_lines.ckpt [ Wang et al., 2025 ] ; the two predictors are trained independently."
+      },
+      {
+        "id": "A3.SS1",
+        "heading": "S3.1 Benchmark analysis on other cell lines.",
+        "level": 2,
+        "text": "Table S4 : Three axis benchmark in K562 cell line ( n = 640 × 3 n{=}640\\times 3 seeds, mean ± \\pm std). 1st , 2nd , and 3rd best results are highlighted. Property Novelty Plausibility Method Pred-activity ↑ \\uparrow ATAC_acc ↑ \\uparrow Authenticity ↑ \\uparrow Rarity (IQR) ↑ \\uparrow | Δ ​ Gini | ↓ |\\Delta\\,\\text{Gini}|\\,\\downarrow | Δ ​ hits | ↓ |\\Delta\\,\\text{hits}|\\,\\downarrow Train 2.700 0.281 0.717 - - - MDLM 0.106 ± \\pm 0.028 0.367 ± \\pm 0.227 0.777 ± \\pm 0.033 − 0.03 -0.03 ± \\pm 0.03 0.049 ± \\pm 0.005 0.067 ± \\pm 0.001 MDLM+CG 6.433 ± \\pm 0.052 0.852 ± \\pm 0.196 0.810 ± \\pm 0.006 + 0.41 +0.41 ± \\pm 0.03 0.260 ± \\pm 0.007 0.093 ± \\pm 0.005 DNA-Diff 2.979 ± \\pm 0.046 0.479 ± \\pm 0.311 0.841 ± \\pm 0.007 + 0.13 +0.13 ± \\pm 0.03 0.028 ± \\pm 0.020 0.038 ± \\pm 0.008 DRAKES 6.493 ± \\pm 0.155 0.863 ± \\pm 0.140 0.873 ± \\pm 0.004 + 1.07 +1.07 ± \\pm 0.08 0.251 ± \\pm 0.008 0.069 ± \\pm 0.011 SVDD 9.479 ± \\pm 0.055 0.928 ± \\pm 0.012 0.848 ± \\pm 0.031 + 0.77 +0.77 ± \\pm 0.03 0.305 ± \\pm 0.002 0.241 ± \\pm 0.005 LocoGen 6.285 ± \\pm 0.064 0.900 ± \\pm 0.012 0.893 ± \\pm 0.010 + 0.77 +0.77 ± \\pm 0.01 0.094 ± \\pm 0.003 0.033 ± \\pm 0.002 Note. For natural sequences (Train), Δ ​ Gini = 0.312 \\Delta\\,\\text{Gini}=0.312 and Δ ​ hits = 0.555 \\Delta\\,\\text{hits}=0.555 Table S5 : Three axis benchmark in SK-N-SH cell line ( n = 640 × 3 n{=}640\\times 3 seeds, mean ± \\pm std). 1st , 2nd , and 3rd best results are highlighted. Property Novelty Plausibility Method Pred-activity ↑ \\uparrow ATAC_acc ↑ \\uparrow Authenticity ↑ \\uparrow Rarity (IQR) ↑ \\uparrow | Δ ​ Gini | ↓ |\\Delta\\,\\text{Gini}|\\,\\downarrow | Δ ​ hits | ↓ |\\Delta\\,\\text{hits}|\\,\\downarrow Train 2.376 0.212 0.713 - - - MDLM 0.112 ± \\pm 0.026 0.391 ± \\pm 0.217 0.777 ± \\pm 0.033 − 0.09 -0.09 ± \\pm 0.03 0.071 ± \\pm 0.006 0.080 ± \\pm 0.001 MDLM+CG 5.047 ± \\pm 0.101 0.429 ± \\pm 0.295 0.828 ± \\pm 0.010 + 0.23 +0.23 ± \\pm 0.06 0.120 ± \\pm 0.003 0.007 ± \\pm 0.005 DNA-Diff † 0.033 ± \\pm 0.015 0.079 ± \\pm 0.087 0.821 ± \\pm 0.015 + 0.09 +0.09 ± \\pm 0.03 0.024 ± \\pm 0.000 0.034 ± \\pm 0.000 DRAKES 6.992 ± \\pm 0.169 0.879 ± \\pm 0.145 0.873 ± \\pm 0.004 + 1.07 +1.07 ± \\pm 0.09 0.241 ± \\pm 0.008 0.095 ± \\pm 0.011 SVDD 7.989 ± \\pm 0.041 0.356 ± \\pm 0.025 0.868 ± \\pm 0.021 + 1.25 +1.25 ± \\pm 0.06 0.260 ± \\pm 0.001 0.213 ± \\pm 0.004 LocoGen 5.304 ± \\pm 0.186 0.747 ± \\pm 0.048 0.897 ± \\pm 0.016 + 0.69 +0.69 ± \\pm 0.06 0.012 ± \\pm 0.006 0.081 ± \\pm 0.004 Note. For natural sequences (train set), Δ ​ Gini = 0.321 \\Delta\\,\\text{Gini}=0.321 and Δ ​ hits = 0.572 \\Delta\\,\\text{hits}=0.572 . † \\dagger :DNA-Diff [ DaSilva et al., 2026 ] trained on GM12878, HepG2, hESCT0, K562; SK-N-SH not in label set. K562-anchored seqs scored under SK-N-SH oracle head."
+      },
+      {
+        "id": "A3.SS2",
+        "heading": "S3.2 Masked separator faithfully disentangles invariant and environmental subsequences.",
+        "level": 2,
+        "text": "We next asked whether the masked separator module recovers a meaningful invariant/environmental decomposition. Three lines of evidence support that it does (Fig. S1 ). First, the three environmental subsequences exhibit clearly distinct GC-content distributions while the invariant subsequence sits near the natural baseline (Fig. S1 A), and the same separation holds in 3-mer PCA space, where each environment forms a distinct cluster around its own centroid (Fig. S1 B). Second, the invariant subsequence is enriched for canonical activity-driving JASPAR motifs, predominantly ETS-family factors (Fig. S1 C). Third, ablating only the invariant subsequence causes a substantially larger drop in oracle-predicted activity than ablating an equally-sized random region (Fig. S1 D), showing that the invariant region is functionally responsible for the predicted activity rather than being an arbitrary partition. Figure S1 : Sequence-level invariance learning recovers regulatory grammar."
+      },
+      {
+        "id": "A3.SS3",
+        "heading": "S3.3 Ablation study",
+        "level": 2,
+        "text": "To better interpret the global-OOD setting in § 5.4.1 , we conducted an additional experiment in which the same number of masked positions was distributed uniformly at random across the sequence (Fig. S2 ). We confirmed that these randomly selected positions exhibited minimal overlap with the invariant region. Figure S2 : The learnt invariant region is not a random subset of positions. (A) For ten HepG2 enhancers, the learnt invariant mask (dark) and a count-matched random mask (purple) along the 200bp window; the light band is the OOD-damped background. Both masks select the same number of positions, so any difference in the ablation is attributable to which positions are spared rather than how many. (B) Per-sequence Jaccard index between the two masks."
+      },
+      {
+        "id": "A3.SS3.SSS1",
+        "heading": "S3.3.1 Effect of OOD control strength",
+        "level": 3,
+        "text": "Table S6 studies the effect of the OOD control strength γ \\gamma . Without OOD control the model achieves reasonable predicted activity but shows weak ATAC accessibility, low authenticity, limited rarity, and a large deviation in | Δ ​ Gini | |\\Delta\\text{Gini}| . Increasing γ \\gamma to 0.3 substantially improves ATAC accessibility, authenticity, rarity, and both plausibility metrics, indicating that moderate OOD control leads to generate more plausible sequences. At γ = 0.7 \\gamma=0.7 , LocoGen achieves the best authenticity, rarity, and | Δ ​ Gini | |\\Delta\\text{Gini}| , while also maintaining strong predicted activity and the highest ATAC accessibility. Although γ = 0.3 \\gamma=0.3 gives slightly higher pred-activity and the lowest | Δ ​ hits | |\\Delta\\text{hits}| , the γ = 0.7 \\gamma=0.7 setting provides the most balanced operating point across property, novelty, and plausibility. These results support the role of OOD control as a calibration mechanism that controls the trade-off between aggressive property optimization and distributional realism. Table S6 : OOD strength sweep on HepG2. γ \\gamma Pred-activity ↑ \\textrm{Pred-activity}\\uparrow ATAC a ​ c ​ c ↑ {}_{acc}\\uparrow Auth. ↑ \\uparrow Rarity (IQR) ↑ \\uparrow | Δ ​ Gini | ↓ |\\Delta\\text{Gini}|\\downarrow | Δ ​ hits | ↓ |\\Delta\\text{hits}|\\downarrow 0.0 0.0 4.516 ± 0.151 4.516\\pm 0.151 0.481 ± 0.022 0.481\\pm 0.022 0.809 ± 0.011 0.809\\pm 0.011 + 0.22 ± 0.01 +0.22\\pm 0.01 0.169 ± 0.010 0.169\\pm 0.010 0.043 ± 0.005 0.043\\pm 0.005 0.3 0.3 4.738 ± 0.061 4.738\\pm 0.061 0.651 ± 0.007 0.651\\pm 0.007 0.870 ± 0.004 0.870\\pm 0.004 + 0.53 ± 0.03 +0.53\\pm 0.03 0.095 ± 0.003 0.095\\pm 0.003 0.027 ± 0.002 0.027\\pm 0.002 0.7 0.7 4.679 ± 0.0 4.679\\pm 0.0 0.716 ± 0.019 0.716\\pm 0.019 0.906 ± 0.005 0.906\\pm 0.005 + 0.71 ± 0.00 +0.71\\pm 0.00 0.055 ± 0.004 0.055\\pm 0.004 0.057 ± 0.002 0.057\\pm 0.002"
+      },
+      {
+        "id": "A3.SS3.SSS2",
+        "heading": "S3.3.2 Segment and shuffle baseline",
+        "level": 3,
+        "text": "We uniformly sampled regulatory sequences from the training set, preserved positions designated as foreground, and shuffled the remaining background positions. Here, foreground and background refer to regions selected for preservation and modification, respectively, rather than the invariant and environment components defined in LocoGen . We evaluated combinations of three foreground segmentation methods × \\times two background replacement strategies. • Foreground segmentation – Position-specific scoring matrix (PSSM) motif scan – GC content-based segmentation – Predictor saliency • Background replacement – Uniform random replacement – Altschul-Erikson dinucleotide shuffle (i.e., dinucleotide-preserving) [ Altschul and Erickson, 1985 ] Table S7 : Comparison with non-generative segment-and-shuffle controls on HepG2. Segmentation Replacement Property Novelty Plausibility Pred-act. ↑ \\uparrow ATAC acc ↑ \\uparrow Authent. ↑ \\uparrow Rarity (IQR) ↑ \\uparrow | Δ ​ Gini | |\\Delta\\mathrm{Gini}| ↓ \\downarrow | Δ ​ hits | |\\Delta\\mathrm{hits}| ↓ \\downarrow JASPAR PSSM Uniform random 0.275 0.206 0.928 + 0.25 +0.25 0.155 0.114 JASPAR PSSM Dinuc.-preserving 0.122 0.092 0.815 − 0.12 -0.12 0.069 0.066 GC content Uniform random 0.359 0.252 0.907 + 0.13 +0.13 0.148 0.129 GC content Dinuc.-preserving 0.078 0.086 0.809 − 0.16 -0.16 0.054 0.076 Saliency Uniform random 0.288 0.249 0.961 + 0.30 +0.30 0.167 0.138 Saliency Dinuc.-preserving 0.199 0.129 0.840 − 0.03 -0.03 0.101 0.095 LearnedMask Uniform random 0.442 0.280 0.955 + 0.38 +0.38 0.166 0.171 LearnedMask Dinuc.-preserving 0.287 0.109 0.823 − 0.05 -0.05 0.067 0.113 LocoGen 4.679 0.716 0.906 + 0.71 +0.71 0.055 0.057"
+      },
+      {
+        "id": "A3.SS4",
+        "heading": "S3.4 Robust to choice of oracle",
+        "level": 2,
+        "text": "To demonstrate the generalizability of LocoGen across different experimental settings, we evaluated robustness to different oracles for activity and accessibility evaluation. We evaluated our method using two publicly available alternative oracles released by prior work [ Li et al., 2024 , Genentech, 2025 ] . • Activity oracle [ Li et al., 2024 ] : an independent Enformer-based predictor trained on the same Gosai dataset, but with a different train/test split and substantially more training data than the DRAKES oracle. • Accessibility oracle [ Genentech, 2025 ] : an independent Enformer-based predictor trained on the Human ATAC Atlas [ Zhang et al., 2021 ] , a different dataset for chromatin accessibility prediction. Overall, LocoGen consistently maintains strong property performance across independent evaluation oracles, demonstrating that our conclusions are not tied to a specific oracle. Table S8: Robustness to oracle choice (HepG2). Beyond the DRAKES evaluation oracles used in the main text, we add two predictors that differ in training split and in data source, respectively. Rank across the six methods in parentheses; values are mean ± \\pm s.d. where seed replicates are available. Activity Accessibility Method DRAKES Pred-activity SVDD DNA_evaluation alternative training split DRAKES ATAC_acc human-atac-catlas different data source MDLM 0.157 (6) 0.408 ± 0.013 0.408\\pm 0.013 (6) 0.329 (6) 0.050 ± 0.009 0.050\\pm 0.009 (6) MDLM+CG 4.516 (4) 4.434 ± 0.097 4.434\\pm 0.097 (4) 0.481 (4) 0.459 ± 0.014 0.459\\pm 0.014 (5) DNA-Diff 2.595 (5) 2.721 ± 0.046 2.721\\pm 0.046 (5) 0.688 (3) 0.517 ± 0.020 0.517\\pm 0.020 (4) DRAKES 5.610 (2) 5.135 ± 0.076 5.135\\pm 0.076 (2) 0.804 (1) 0.829 ± 0.006 0.829\\pm 0.006 (1) SVDD 6.830 (1) 6.187 ± 0.018 6.187\\pm 0.018 (1) 0.442 (5) 0.547 ± 0.010 0.547\\pm 0.010 (3) LocoGen 4.679 (3) 4.660 ± 0.011 \\mathbf{4.660\\pm 0.011} (3) 0.716 (2) 0.729 ± 0.002 \\mathbf{0.729\\pm 0.002} (2) Table S9: Robustness to oracle choice (K562). Same four oracles and conventions as Table S8 ; rank across the six methods in parentheses, values are mean ± \\pm s.d. where seed replicates are available. Activity Accessibility Method DRAKES Pred-activity SVDD DNA_evaluation alternative training split DRAKES ATAC_acc human-atac-catlas different data source MDLM 0.106 (6) 0.381 ± 0.031 0.381\\pm 0.031 (6) 0.367 (6) 0.055 ± 0.006 0.055\\pm 0.006 (6) MDLM+CG 6.433 (3) 6.191 ± 0.042 6.191\\pm 0.042 (2) 0.852 (4) 0.688 ± 0.022 0.688\\pm 0.022 (4) DNA-Diff 2.979 (5) 3.038 ± 0.036 3.038\\pm 0.036 (5) 0.479 (5) 0.359 ± 0.009 0.359\\pm 0.009 (5) DRAKES 6.493 (2) 6.031 ± 0.114 6.031\\pm 0.114 (4) 0.863 (3) 0.837 ± 0.005 0.837\\pm 0.005 (3) SVDD 9.479 (1) 8.490 ± 0.064 8.490\\pm 0.064 (1) 0.928 (1) 0.899 ± 0.005 0.899\\pm 0.005 (1) LocoGen 6.285 (4) 6.085 ± 0.014 \\mathbf{6.085\\pm 0.014} (3) 0.900 (2) 0.846 ± 0.002 \\mathbf{0.846\\pm 0.002} (2) Table S10: Robustness to oracle choice (SK-N-SH). Same four oracles and conventions as Table S8 ; rank across the six methods in parentheses, values are mean ± \\pm s.d. where seed replicates are available. Activity Accessibility Method DRAKES Pred-activity SVDD DNA_evaluation alternative training split DRAKES ATAC_acc human-atac-catlas different data source MDLM 0.112 (5) 0.340 ± 0.033 0.340\\pm 0.033 (6) 0.391 (4) 0.030 ± 0.005 0.030\\pm 0.005 (6) MDLM+CG 5.047 (4) 4.970 ± 0.104 4.970\\pm 0.104 (4) 0.429 (3) 0.377 ± 0.020 0.377\\pm 0.020 (3) DNA-Diff 0.033 (6) 0.720 ± 0.021 0.720\\pm 0.021 (5) 0.079 (6) 0.040 ± 0.002 0.040\\pm 0.002 (5) DRAKES 6.992 (2) 6.132 ± 0.153 6.132\\pm 0.153 (2) 0.879 (1) 0.839 ± 0.007 0.839\\pm 0.007 (1) SVDD 7.989 (1) 6.714 ± 0.103 6.714\\pm 0.103 (1) 0.356 (5) 0.192 ± 0.004 0.192\\pm 0.004 (4) LocoGen 5.304 (3) 5.294 ± 0.156 \\mathbf{5.294\\pm 0.156} (3) 0.747 (2) 0.629 ± 0.020 \\mathbf{0.629\\pm 0.020} (2)"
+      },
+      {
+        "id": "A3.SS5",
+        "heading": "S3.5 Robust to hyperparameter sweep",
+        "level": 2,
+        "text": "We ran a hyperparameter sweep of both our method and the baselines, sweeping each over the range specified in its paper or official repository. Across these sweeps, LOCOGEN retains its balanced three-axis advantage, confirming that the result does not rely on a cherry-picked configuration. Figure S3 : (A). Balanced score over three evaluation axis where LocoGen achieves the highest balanced score across sweep points. (B) Evaluation metrics across the sweep, with one row per hyperparameter setting. The value in parentheses indicates each method’s strength setting: γ \\gamma denotes OOD/calibration strength ( ood_lambda ); r r denotes the property-pull ratio ( alpha_ratio ) at γ = 0.7 \\gamma=0.7 (the paper default r = 3.0 r=3.0 corresponds to the γ = 0.7 \\gamma=0.7 row, while r = 1 , 2 r=1,2 are lower-pull variants); cap \\mathrm{cap} denotes the MDLM+CG classifier-guidance α \\alpha -cap ( alpha_cap ); M M denotes the number of SVDD candidates per step (Tweedie/SVDD-PM); α TDS \\alpha_{\\mathrm{TDS}} denotes the SVDD-TDS importance-resampling temperature; and gs \\mathrm{gs} denotes the DNA-Diff classifier-free guidance scale ( cond_weight ; author default 1.0 1.0 ). DRAKES fine-tunes model weights for a fixed reward rather than steering generation at inference time, and is therefore included as a retraining reference rather than a directly comparable operating point."
+      },
+      {
+        "id": "A4.SS1",
+        "heading": "S4.1 Limitations.",
+        "level": 2,
+        "text": "Our experiments are conducted on a single backbone, MDLM, to isolate the effect of localized OOD guidance from backbone-dependent variation. Validation on alternative backbones, such as flow matching or autoregressive models, and a full comparison across backbones are left to future work. Computational evaluation alone, while standard in this domain, cannot substitute for in vivo experimental validation of generated sequences, a precondition for treating any sampling-time guidance method as practically useful."
+      },
+      {
+        "id": "A4.SS2",
+        "heading": "S4.2 Social Impact",
+        "level": 2,
+        "text": "Our work may contribute to bioengineering by improving the ability to generate novel biological sequences beyond the training distribution. Such capability can expand the searchable design space and accelerate the discovery of sequences with useful properties. In practical settings, this could reduce the cost and time required for experimental screening, while supporting applications in therapeutic development, enzyme engineering, antibody design, and synthetic biology. However, the broader impact of biological sequence generation depends on how the technology is used. Since generative models can produce sequences that differ substantially from naturally observed examples, they may also introduce biosafety and dual-use risks. For example, the same methods that help design beneficial proteins or regulatory elements could potentially be misused to explore harmful biological functions. Therefore, responsible use requires careful consideration of dataset provenance, model access, downstream experimental validation, and risk assessment tailored to the intended application."
+      }
+    ]
+  },
+  "text": "Locality-Controlled Out-of-Distribution Guidance for Robust Regulatory DNA Sequence Design Skip to main content Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: Why HTML? Report Issue Back to Abstract Download PDF Contents Reading mode Colour theme License: CC BY-NC-SA 4.0 arXiv:2610.41736v1 [cs.LG] 30 Oct 2026 Locality-Controlled Out-of-Distribution Guidance for Robust Regulatory DNA Sequence Design Dabin Jeong Affiliation: Wellcome Sanger Institute Email: dj16@sanger.ac.uk Marwane Bourdim Affiliation: Wellcome Sanger Institute Email: mb57@sanger.ac.uk Mo Lotfollahi Affiliation: Wellcome Sanger Institute Email: ml10@sanger.ac.uk Abstract Designing regulatory DNA sequences for targeted gene-expression control is an important challenge. Recent approaches frame this task as property-conditioned generation, where diffusion models trained on natural sequences are guided toward high predicted activity through reward-based fine-tuning or sampling-time guidance. We show that single-reward evaluation can obscure reward-hacking behavior. By decomposing evaluation into property, novelty, and plausibility, we identify an empirically underexplored region of the evaluation space in which all three objectives are satisfied, but no existing baseline succeeds. We postulate that this gap arises because prior methods treat guidance primarily as a matter of magnitude. In regulatory DNA, however, sequence grammar is spatially nonuniform: motif positions are sensitive to perturbation, while background regions allow more exploration. We therefore propose LocoGen by reformulating guidance as a problem of locality . LocoGen learns an invariant motif mask through sequence-level invariance learning to protect motif positions, while applying OOD damping only to background positions. It operates at sampling time on a frozen diffusion backbone, without retraining the backbone. Across HepG2, K562, and SK-N-SH, LocoGen reaches this previously underexplored region of the property–novelty–plausibility space. Code is available at https://github.com/Lotfollahi-lab/LocoGen . 1 Introduction Diffusion models are powerful generative models used in many domains, including images, language, molecules, and biological sequences. Beyond unconditional generation, recent work increasingly focuses on property-conditioned generation, such as generating regulatory DNA sequences that optimize a target property (e.g. gene expression). These advances make diffusion models useful for de novo regulatory DNA design, where candidate sequences can be generated and tested in a lab-in-the-loop setting. We argue that the generated candidates must satisfy three axes simultaneously: (i) high target property , (ii) novelty , and (iii) plausibility —preservation of the natural grammar of regulatory DNA (e.g. motif usage diversity/density). No single axis suffices. High property without plausibility fails to reproduce in the wet lab; high novelty without plausibility drifts off the functional manifold; high property without novelty merely reproduces the training distribution. Only when all three axes are jointly satisfied is a candidate worth its wet-lab budget. To date, DNA sequence generative models have largely treated candidate generation as a single-objective problem: maximizing the target property. However, when evaluation is decomposed into property, novelty, and plausibility, methods that appear strong under single-axis evaluation reveal trade-offs on the remaining axes (Fig. 1 B). Moreover, their apparent property gains often arise not from targeted regulatory improvement, but from distortions of regulatory motif structure, exposing a common limitation of existing guidance methods (§ 5.3 ). Although these methods differ in their reward-hacking mechanisms, they all control optimization through a single scalar magnitude knob (e.g. guidance scale) without specifying where in the sequence the reward should act. This is problematic because regulatory DNA grammar is positional: motif sites are highly constrained, whereas intervening background regions are more permissive. Thus, in the property–novelty–plausibility design space, current baselines fall short of the desired regime: high activity on both readouts, high novelty, and low compositional deviation. We call this unoccupied region the empty corner , and ask whether guidance can shift the empirical trade-off landscape toward it. We propose LocoGen , a locality-controlled guidance method for de novo regulatory DNA generation (Fig. 1 A). Rather than increasing guidance globally, LocoGen controls where it acts. A masked separator model identifies foreground and background positions with an invariant mask; during sampling, out-of-distribution (OOD) guidance is applied only to background positions. This generates novel sequences in permissive regions while preserving regulatory motifs, thereby improving novelty without sacrificing enhancer-like composition or functional activity. Contributions. • Diagnostic framework. We introduce a three-axis evaluation framework for regulatory DNA generation: property, novelty, and compositional plausibility. It reveals two reward-hacking modes concealed by single-axis evaluation: predictor-specific motif concentration and global compositional drift in previous DNA sequence generative models. • Locality-controlled guidance. We reformulate sampling-time guidance as a locality problem and instantiate it as localized OOD control with an invariant subsequence mask. The method operates on a frozen backbone, requires no retraining, and exposes per-position spatial control absent from standard classifier-guidance methods. Figure 1 : LocoGen balances property, novelty, and plausibility. 2 Related Work Discrete diffusion and flow matching on biological sequences. Two frameworks have emerged for generative modeling of categorical sequences. Discrete diffusion operates directly on categorical sequences and learns to denoise progressively masked tokens ( Austin et al., 2021 ; Sahoo et al., 2024 ; Lou et al., 2024 ) . Continuous diffusion and flow matching instead work in a continuous relaxation of the categorical space, typically the probability simplex whose vertices correspond to the discrete tokens ( Stark et al., 2024 ; Davis et al., 2024 ) Both have been applied to regulatory DNA design ( Stark et al., 2024 ; DaSilva et al., 2026 ; Tang et al., 2025 ) . We build on the discrete diffusion line, using a pretrained masked discrete diffusion language model (MDLM) ( Sahoo et al., 2024 ) as a backbone and steering generation with inference-time guidance. Reward-based fine-tuning of diffusion backbones. A first family of methods directly fine-tunes the backbone against a reward signal, often framed as reinforcement learning. DRAKES ( Wang et al., 2025 ) backpropagates a differentiable reward to pre-trained masked discrete diffusion model; DRaFT ( Clark et al., 2024 ) applies the same differentiable-reward principle in the continuous setting. When the reward is non-differentiable, policy-gradient or gradient-free alternatives are used instead ( Cao et al., 2025 ) . These methods can each optimize toward a particular property, but they do not expose a post-hoc control knob: changing the target reward generally requires re-specifying the training objective and running a separate fine-tuning pass, even when recent variants reduce its cost or handle multiple objectives jointly. Although recent methods reduce the cost of retraining ( Cao et al., 2025 ) , they inherently require backbone retraining for each new objective. Training-free guidance. Classifier guidance instead allows the guidance signal to be adjusted entirely at inference time through an external scoring network ( Uehara et al., 2025 ; Rojas et al., 2026 ) . DNA-Diffusion ( DaSilva et al., 2026 ) , by contrast, conditions on cell-type labels rather than optimizing a reward, and therefore serves as a non-optimizing reference rather than a competing optimizer. Another method that bypasses backbone retraining is by sampling many candidates and selecting the highest-scoring ones. SVDD ( Li et al., 2024 ) performs soft value-based decoding, evaluating generated candidates at each step and resampling proportionally to a learned value. 3 Preliminary 3.1 Notation We consider DNA sequences of fixed length L L over the nucleotide alphabet 𝒜 = { A , T , G , C } \\mathcal{A}=\\{A,T,G,C\\} . A DNA sequence is denoted by X = ( x 1 , … , x L ) ∈ 𝒜 L X=(x_{1},\\ldots,x_{L})\\in\\mathcal{A}^{L} , where x ℓ ∈ 𝒜 x_{\\ell}\\in\\mathcal{A} represents the nucleotide at position ℓ \\ell . Its one-hot representation is denoted by 𝐱 ∈ { 0 , 1 } L × 4 \\mathbf{x}\\in\\{0,1\\}^{L\\times 4} , where each row 𝐱 ℓ ∈ { 0 , 1 } 4 \\mathbf{x}_{\\ell}\\in\\{0,1\\}^{4} satisfies ∑ k = 1 4 𝐱 ℓ , k = 1 \\sum_{k=1}^{4}\\mathbf{x}_{\\ell,k}=1 . 3.2 Problem formulation We consider paired observations ( X , Y ) (X,Y) , where X ∈ 𝒳 = 𝒜 L X\\in\\mathcal{X}=\\mathcal{A}^{L} denotes a DNA sequence and Y ∈ 𝒴 ⊆ ℝ Y\\in\\mathcal{Y}\\subseteq\\mathbb{R} denotes an associated scalar property (e.g., target gene activity). Let p θ ​ ( X ) p_{\\theta}(X) denote a base generative model over DNA sequences, and let p ϕ ​ ( Y ∣ X ) p_{\\phi}(Y\\mid X) denote an auxiliary property predictor. For a target property value y ⋆ y^{\\star} , classifier-based guidance aims to reweight the base generative distribution according to the predicted property likelihood as follows, p guide ​ ( X ∣ y ⋆ ) ∝ p θ ​ ( X ) ​ p ϕ ​ ( y ⋆ ∣ X ) λ , p_{\\mathrm{guide}}(X\\mid y^{\\star})\\propto p_{\\theta}(X)\\,p_{\\phi}(y^{\\star}\\mid X)^{\\lambda}, (1) where λ ≥ 0 \\lambda\\geq 0 controls the guidance strength. Since our goal is to generate novel regulatory sequences, effective generation guidance must balance three objectives: (i) achieving the target property y ⋆ y^{\\star} , (ii) producing novel sequences that depart from the training distribution rather than memorizing it, and (iii) maintaining plausibility. 3.3 Masked Discrete Diffusion Language Models MDLM ( Sahoo et al., 2024 ) generates sequences by progressively denoising a fully masked input rather than autoregressively generating tokens. We extend the alphabet with an absorbing mask token [ 𝙼𝙰𝚂𝙺 ] \\mathtt{[MASK]} , defining 𝒜 mask = 𝒜 ∪ { [ 𝙼𝙰𝚂𝙺 ] } \\mathcal{A}_{\\mathrm{mask}}=\\mathcal{A}\\cup\\{\\mathtt{[MASK]}\\} . Its one-hot representation is denoted by 𝐦 ∈ { 0 , 1 } 5 \\mathbf{m}\\in\\{0,1\\}^{5} . The masked sequence at diffusion time t t is denoted by 𝐳 t ∈ { 0 , 1 } L × 5 \\mathbf{z}_{t}\\in\\{0,1\\}^{L\\times 5} . During training, MDLM learns to recover clean tokens from a masked sequence 𝐳 t ∈ { 0 , 1 } L × 5 \\mathbf{z}_{t}\\in\\{0,1\\}^{L\\times 5} . In the forward process, each clean token in 𝐱 \\mathbf{x} is independently replaced with 𝐦 \\mathbf{m} with probability 1 − α t 1-\\alpha_{t} , yielding 𝐳 t \\mathbf{z}_{t} , where α t \\alpha_{t} decreases monotonically from α 0 ≈ 1 \\alpha_{0}\\approx 1 (clean) to α 1 ≈ 0 \\alpha_{1}\\approx 0 (fully masked). In the reverse process, a denoising network x θ ​ ( 𝐳 t , t ) : { 0 , 1 } L × 5 × [ 0 , 1 ] → [ 0 , 1 ] L × 5 \\boldsymbol{\\textbf{x}}_{\\theta}(\\mathbf{z}_{t},t):\\{0,1\\}^{L\\times 5}\\times[0,1]\\to[0,1]^{L\\times 5} approximates the clean sequence 𝐱 \\mathbf{x} by predicting the categorical distribution over clean nucleotides at each position, assigning zero probability to the mask token. At inference time, generation proceeds by sampling a less-masked state 𝐳 s \\mathbf{z}_{s} from the current state 𝐳 t \\mathbf{z}_{t} , with s < t s<t : p θ ​ ( 𝐳 s , ℓ ∣ 𝐳 t ) = { δ 𝐳 t , ℓ ​ ( 𝐳 s , ℓ ) , 𝐳 t , ℓ ≠ 𝐦 , Categorical ⁡ ( 𝐳 s , ℓ , ( 1 − α s ) ​ 𝐦 + ( α s − α t ) ​ x θ , ℓ ​ ( 𝐳 t , t ) 1 − α t ) , 𝐳 t , ℓ = 𝐦 . p_{\\theta}(\\mathbf{z}_{s,\\ell}\\mid\\mathbf{z}_{t})=\\begin{cases}\\delta_{\\mathbf{z}_{t,\\ell}}(\\mathbf{z}_{s,\\ell}),&\\mathbf{z}_{t,\\ell}\\neq\\mathbf{m},\\\\[4.0pt] \\mathrm{Categorical}\\!\\left(\\mathbf{z}_{s,\\ell};\\,\\dfrac{(1-\\alpha_{s})\\,\\mathbf{m}+(\\alpha_{s}-\\alpha_{t})\\,\\boldsymbol{\\textbf{x}}_{\\theta,\\ell}(\\mathbf{z}_{t},t)}{1-\\alpha_{t}}\\right),&\\mathbf{z}_{t,\\ell}=\\mathbf{m}.\\end{cases} (2) Here, p θ ​ ( 𝐳 s , ℓ ∣ 𝐳 t ) p_{\\theta}(\\mathbf{z}_{s,\\ell}\\mid\\mathbf{z}_{t}) denotes the conditional distribution of the token at position ℓ \\ell in the next denoising step while δ 𝐳 t , ℓ ​ ( 𝐳 s , ℓ ) \\delta_{\\mathbf{z}_{t,\\ell}}(\\mathbf{z}_{s,\\ell}) denotes a point mass at the current token, ensuring that previously unmasked positions remain unchanged (See § S1.2.2 for details). The time s < t s<t corresponds to the next, less-masked diffusion state in the reverse process. Masked positions are either kept as 𝐦 \\mathbf{m} or filled in using the model’s prediction. Generation terminates when all positions are unmasked. In this work, we use a pretrained unconditional MDLM over fixed-length DNA sequences as the base model and guide its generation toward specific objectives. 3.4 Classifier guidance with OOD control MOOD ( Lee et al., 2023 ) is a score-based diffusion framework that combines OOD control with property guidance to generate novel molecules with desirable properties beyond the training distribution. It operates on continuous representations of molecular graphs. Let 𝐮 t ∈ 𝒢 \\mathbf{u}_{t}\\in\\mathcal{G} denote a noise-perturbed molecular graph representation at diffusion time t t , where 𝒢 \\mathcal{G} is the continuous space of molecular graph representations, and let f ϕ : 𝒢 → ℝ f_{\\phi}:\\mathcal{G}\\to\\mathbb{R} denote a differentiable property scorer trained on molecular data. In the score-based diffusion framework, classifier guidance modifies the reverse-time SDE drift by adding the gradient of p t ​ ( y p ∣ 𝐮 t ) ∝ exp ⁡ ( β t ​ f ϕ ​ ( 𝐮 t ) ) p_{t}(y_{p}\\mid\\mathbf{u}_{t})\\propto\\exp(\\beta_{t}f_{\\phi}(\\mathbf{u}_{t})) , d ​ 𝐮 t = [ f t ​ ( 𝐮 t ) − g t 2 ​ ( ∇ 𝐮 t ​ log ​ p t ​ ( 𝐮 t ) + β t ​ ∇ 𝐮 t f ϕ ​ ( 𝐮 t ) ) ] ​ d ​ t + g t ​ d ​ w ¯ t , d\\mathbf{u}_{t}=\\Bigl[f_{t}(\\mathbf{u}_{t})-g_{t}^{2}\\Bigl(\\nabla_{\\mathbf{u}_{t}}\\log p_{t}(\\mathbf{u}_{t})+\\beta_{t}\\nabla_{\\mathbf{u}_{t}}f_{\\phi}(\\mathbf{u}_{t})\\Bigr)\\Bigr]dt+g_{t}\\,d\\bar{w}_{t}, (3) where p t p_{t} denotes the marginal density of the forward diffusion process, f t f_{t} and g t g_{t} are its drift and diffusion coefficients, respectively, w ¯ t \\bar{w}_{t} is a reverse-time Wiener process, and β t ≥ 0 \\beta_{t}\\geq 0 controls the guidance strength. The SDE is integrated backward in time. MOOD additionally introduces an OOD-control coefficient γ ∈ [ 0 , 1 ) \\gamma\\in[0,1) that rescales the generative score: d ​ 𝐮 t = [ f t ​ ( 𝐮 t ) − ( 1 − γ ) ​ g t 2 ​ ∇ 𝐮 t ​ log ⁡ p t ​ ( 𝐮 t ) − β t ​ g t 2 ​ ∇ 𝐮 t f ϕ ​ ( 𝐮 t ) ] ​ d ​ t + g t ​ d ​ w ¯ t . d\\mathbf{u}_{t}=\\Bigl[f_{t}(\\mathbf{u}_{t})-(1-\\sqrt{\\gamma})\\,g_{t}^{2}\\nabla_{\\mathbf{u}_{t}}\\log p_{t}(\\mathbf{u}_{t})-\\beta_{t}g_{t}^{2}\\nabla_{\\mathbf{u}_{t}}f_{\\phi}(\\mathbf{u}_{t})\\Bigr]dt+g_{t}\\,d\\bar{w}_{t}. (4) where γ = 0 \\gamma=0 generates samples from property-guided diffusion without OOD control, and increasing γ \\gamma encourages exploration of lower-density regions, thus generating more OOD samples. MOOD applies a single global OOD-control coefficient γ \\gamma to the generative score across all graph components, without adapting this coefficient to their individual contributions to the target property. 4 Method We propose Locogen , a localized sequence generation framework that controls both the magnitude and locality of generated sequences. The uniform application of guidance and OOD control in Eq. 4 encodes an implicit assumption: that all sequence positions should be perturbed by the same amount. We argue this assumption is not perfectly suited for regulatory DNA. Functional motifs occupy a small fraction of each sequence and are highly constrained by sequence grammar, while the remaining background is comparatively unconstrained. Pushing motifs off-manifold destroys the very signal that makes a sequence functional, while pushing background off-manifold contributes novelty without sacrificing function. 4.1 Module 1: Masked Separator for Invariant–Environment Decomposition Problem formulation. We aim to identify subsequences whose contribution to activity is invariant across data subpopulations, i.e., positions whose predictive role does not change from one subpopulation to another. A straightforward approach is to train an activity predictor and use saliency, but such scores reflect what a single trained model happens to rely on, without explicitly accounting for invariance. We instead build this requirement into the learning objective: the selected positions are encouraged to predict activity equally well across subpopulations . Approach. Inspired by the invariant-environment decomposition of chemical graphs ( Li et al., 2022 ) , we introduce a learned soft mask M ∈ [ 0 , 1 ] L M\\in[0,1]^{L} that splits each sequence into an invariant part x inv x^{\\text{inv}} and an environment part x env x^{\\text{env}} , with M ℓ M_{\\ell} close to 1 1 marking position ℓ \\ell as invariant and close to 0 0 as environment, jointly satisfying: (a) x inv x^{\\text{inv}} alone is sufficient to predict activity; (b) its prediction error remains consistent across auto-discovered environments; and (c) M M is sparse and contiguous. Invariant learning for subsequence disentanglement. We jointly train a separator S ϕ S_{\\phi} producing the soft mask M ∈ [ 0 , 1 ] L M\\in[0,1]^{L} and a predictor h ψ h_{\\psi} on the invariant subsequence with disjoint weights. The environment encoder g ω g_{\\omega} on the environment subsequence is randomly initialized and kept frozen. Keeping g ω g_{\\omega} frozen prevents the environment encoder itself from adapting to trivially collapse the environment representations, leaving the separator to determine the partition of sequence information. The environment is still not static since x env x^{\\text{env}} depends on the current mask. To prevent information leakage through masked positions, we fill them with a learnable token b ∈ ℝ K b\\in\\mathbb{R}^{K} , where K = 4 K=4 is the nucleotide alphabet size (initialized uniformly to 1 / K 1/K ): x inv = x ⊙ M K + b ¯ ⊙ ( 𝟏 − M K ) , x env = x ⊙ ( 𝟏 − M K ) + b ¯ ⊙ M K , x^{\\text{inv}}=x\\odot M_{K}+\\bar{b}\\odot(\\mathbf{1}{-}M_{K}),\\quad x^{\\text{env}}=x\\odot(\\mathbf{1}{-}M_{K})+\\bar{b}\\odot M_{K}, (5) where M K = M ⊗ 𝟏 K M_{K}=M\\otimes\\mathbf{1}_{K} and b ¯ = 𝟏 L ⊗ b \\bar{b}=\\mathbf{1}_{L}\\otimes b . The predictor and the environment encoder read out y ^ inv = h ψ ​ ( x inv ) \\hat{y}^{\\text{inv}}=h_{\\psi}(x^{\\text{inv}}) and h ψ h_{\\psi} ’s counterpart g ω ​ ( x env ) g_{\\omega}(x^{\\text{env}}) , respectively. Since environment labels are unavailable, we infer them via k k -means clustering with E = 3 E{=}3 clusters on g ω ​ ( x env ) g_{\\omega}(x^{\\text{env}}) , following GIL ( Li et al., 2022 ) . At the start of each epoch, we freeze a snapshot of g ω g_{\\omega} , encode a fixed reference batch, and refit the centroids, which are then cached and used to assign environment labels throughout that epoch. Deriving both the centroids and the embeddings from the same snapshot keeps the label assignment self-consistent. See § S1.3.3 for details. Training objective. ℒ = ℒ sta ⏟ Sufficiency + λ inv ​ ℒ inv ⏟ Invariance/necessity + λ reg ​ ℒ reg + λ smooth ​ ℒ smooth . \\mathcal{L}=\\underbrace{\\mathcal{L}_{\\text{sta}}}_{\\text{Sufficiency}}\\;+\\;\\lambda_{\\text{inv}}\\,\\underbrace{\\mathcal{L}_{\\text{inv}}}_{\\text{Invariance/necessity}}\\;+\\;\\lambda_{\\text{reg}}\\,\\mathcal{L}_{\\text{reg}}\\;+\\;\\lambda_{\\text{smooth}}\\,\\mathcal{L}_{\\text{smooth}}. (6) Our objective consists of four losses ℒ sta \\mathcal{L}_{\\text{sta}} for sufficiency, ℒ inv \\mathcal{L}_{\\text{inv}} for invariant learning via V-REx, ℒ reg \\mathcal{L}_{\\text{reg}} for density regularization, and ℒ smooth \\mathcal{L}_{\\text{smooth}} for total variation smoothing. ℒ sta \\mathcal{L}_{\\text{sta}} encourages the predictor to recover y y from invariant sequence alone, x inv x^{\\text{inv}} : ℒ sta = 1 B ​ ∑ n ( h ψ ​ ( x inv ​ ( n ) ) − y ( n ) ) 2 \\mathcal{L}_{\\text{sta}}=\\tfrac{1}{B}\\sum_{n}(h_{\\psi}(x^{\\text{inv}(n)})-y^{(n)})^{2} , where n n indexes the B B samples of a minibatch. For robust prediction, we adopt variance risk extrapolation (V-REx) ( Krueger et al., 2021 ) to encourage consistent predictive performance across inferred environments. Let ϵ ( n ) = ( y ^ inv ​ ( n ) − y ( n ) ) 2 \\epsilon^{(n)}=(\\hat{y}^{\\text{inv}(n)}-y^{(n)})^{2} and e ^ ( n ) ∈ { 1 , … , E } \\hat{e}^{(n)}\\in\\{1,\\dots,E\\} be the k k -means environment label of sample n n . With per-environment risk R e = 𝔼 n : e ^ ( n ) = e [ ϵ ( n ) ] R_{e}=\\mathbb{E}_{n:\\hat{e}^{(n)}=e}[\\epsilon^{(n)}] , ℒ inv = Var e ​ [ R e ] . \\mathcal{L}_{\\text{inv}}=\\mathrm{Var}_{e}[R_{e}]. (7) Together with ℒ sta \\mathcal{L}_{\\text{sta}} , this encourages the predictor to perform equally well in every environment : any environment-specific information leaking into x inv x^{\\text{inv}} would inflate the variance and incur a penalty. ℒ reg \\mathcal{L}_{\\text{reg}} keeps the average mask density near a target ρ \\rho , and ℒ smooth \\mathcal{L}_{\\text{smooth}} is a fused-lasso total variation penalty ( Javanmardi et al., 2016 ) encouraging contiguous selected blocks. See § S1.3.2 for details on loss definition. The trained separator and final centroids are saved and remain frozen during sampling. 4.2 Module 2: Sampler with localized OOD control Problem. The MOOD framework (§ 3.4 ) promotes novel, high-scoring samples by combining sample-level OOD drift with property guidance. For regulatory DNA, this global control is too coarse: without distinguishing constrained motifs from permissive background regions, OOD drift can erase regulatory syntax and compromise activity. Approach. We let damping act only on positions the separator marks as environment. By restricting OOD control to environment positions, we aim to preserve activity-relevant sequence patterns while encouraging exploration in less constrained regions. This is the localization in LocoGen : a structural prior on where OOD pressure may act, instead of one global knob trading off the two objectives. Reverse unmasking process. At each step t → s t\\to s , the reverse process over nucleotide k k at position ℓ \\ell is p ~ θ ​ ( x s ∣ x t ) ℓ , k ∝ exp ⁡ ( d ℓ ​ ( γ ) ⋅ log ⁡ p θ ) ⏟ (a) localized OOD damping ⋅ Δ t → s ⏟ (b) MDLM unmask schedule ⋅ exp ( η t ∇ r ) ⏟ (c) property pull , \\tilde{p}_{\\theta}(x_{s}\\mid x_{t})_{\\ell,k}\\;\\propto\\;\\underbrace{\\exp\\!\\bigl(d_{\\ell}(\\gamma)\\cdot\\log p_{\\theta}\\bigr)}_{\\text{(a) localized OOD damping}}\\;\\cdot\\;\\underbrace{\\Delta_{t\\to s}}_{\\text{(b) MDLM unmask schedule}}\\;\\cdot\\;\\underbrace{\\exp(\\eta_{t}\\,\\nabla r)}_{\\text{(c) property pull}}, (8) where Δ t → s := ( α s − α t ) / ( 1 − α t ) \\Delta_{t\\to s}:=(\\alpha_{s}-\\alpha_{t})/(1-\\alpha_{t}) is the probability mass that MDLM assigns to the nucleotide channels at a masked position (Eq. 2 ), and ∇ r := ∇ x ^ 0 r ξ ​ ( x ^ 0 ) \\nabla r:=\\nabla_{\\hat{x}_{0}}r_{\\xi}(\\hat{x}_{0}) is the gradient of the activity guidance model r ξ r_{\\xi} evaluated on the current x 0 x_{0} -prediction x ^ 0 \\hat{x}_{0} obtained by softmaxing the nucleotide channels of log ⁡ p θ \\log p_{\\theta} , following the masked-diffusion parameterization of MDLM. The three factors push three forces in parallel: (a) flattens background nucleotide distributions toward uniform, (b) preserves MDLM’s prescribed unmasking rate, and (c) pulls toward high activity Where OOD control acts. OOD control reduces log ⁡ p θ \\log p_{\\theta} by a factor d ℓ ​ ( γ ) < 1 d_{\\ell}(\\gamma)<1 , flattening the per-position categorical distribution toward uniform and thus injecting randomness. We apply OOD damping to positions identified as environment by the separator, using the predicted mask M t = S ϕ ​ ( x ^ 0 ) M_{t}=S_{\\phi}(\\hat{x}_{0}) : d ℓ , t ​ ( γ ) = { 1 − γ , M t , ℓ < τ M ​ and ​ t < τ time , 1 , otherwise . d_{\\ell,t}(\\gamma)=\\begin{cases}1-\\sqrt{\\gamma},&M_{t,\\ell}<\\tau_{M}\\;\\text{and}\\;t<\\tau_{\\text{time}},\\\\ 1,&\\text{otherwise}.\\end{cases} (9) Restricting damping to masked positions keeps already-decoded nucleotides untouched, consistent with the SUBS parameterisation of MDLM, and is activated only in the latter half of sampling, when x ^ 0 \\hat{x}_{0} provides a more reliable estimate for the separator. At invariant positions, d ℓ , t ​ ( γ ) = 1 d_{\\ell,t}(\\gamma)=1 , leaving the base nucleotide distribution unchanged before property guidance. Auto-balanced property scale. The two forces in Eq. ( 8 ), the model prior log ⁡ p θ \\log p_{\\theta} and the activity gradient ∇ r \\nabla r , live on different scales that drift across reverse steps, so a fixed η t \\eta_{t} either lets the property pull dominate (yielding unrealistic sequences) or lets it vanish (yielding low-activity sequences). Following Lee et al. (2023) , we set η t \\eta_{t} adaptively at each step so that the gradient magnitude matches the prior up to a user ratio c c : η t = min ⁡ ( η max , c ⋅ | log ⁡ p θ | ¯ valid / | ∇ r | ¯ ) , \\eta_{t}\\;=\\;\\min\\!\\Bigl(\\eta_{\\max},\\;c\\cdot\\overline{|\\log p_{\\theta}|}_{\\text{valid}}\\;/\\;\\overline{|\\nabla r|}\\Bigr), (10) where the bars denote means over the four nucleotide channels after excluding the DRAKES sentinel values ( ≤ − 10 5 \\leq-10^{5} ) at already-unmasked positions, and η max \\eta_{\\max} caps the scale when | ∇ r | |\\nabla r| is small. With c c fixed, the property pull stays at a constant fraction of the prior throughout sampling. To preserve the MDLM unmasking schedule, we add the scaled gradient only to the four nucleotide log-probabilities and renormalise them so that their total mass remains Δ t → s \\Delta_{t\\to s} ; the mask channel is left untouched. Property guidance therefore reshapes the categorical distribution within nucleotides without altering when MDLM chooses to unmask a position. 5 Experiments 5.1 Experimental Setting Dataset. We follow the experimental setup of DRAKES ( Wang et al., 2025 ) to ensure direct comparability under an established benchmark protocol, adopting the same chromosomal train/test split. The benchmark is based on the publicly available large-scale enhancer dataset of Gosai et al. (2024) , consisting of approximately 700k 200-bp human enhancer sequences with expression measurements quantified in three human cell lines: HepG2, K562, and SK-N-SH. Generation protocol and evaluation. We follow the DRAKES evaluation scheme ( Wang et al., 2025 ) : each method generates N = 640 N{=}640 sequences (20 batches × \\times 32), which are then re-scored by independent held-out oracle to avoid circularity between guidance and evaluation. This oracle has three MPRA readouts (HepG2, K562, SK-N-SH), is never used for any method’s guidance or fine-tuning, and serves as our canonical MPRA-property axis. As a second, MPRA-independent functional readout, we additionally report chromatin accessibility from the binary ATAC classifier ( Wang et al., 2025 ) . For more detailed evaluation protocol, see § S2 . Baselines. We compare LocoGen with baselines spanning three categories of regulatory sequence generative models: (1) non-optimizing references: MDLM ( Sahoo et al., 2024 ) (2) Reward-based fine-tuning: DRAKES ( Wang et al., 2025 ) , and (3) Training-free guidance: MDLM with classifier guidance (MDLM+CG), SVDD ( Li et al., 2024 ) , and DNA-diffusion ( DaSilva et al., 2026 ) . All baselines are run with their authors’ released checkpoints and original decoding hyperparameters. We acknowledge concurrent DNA generative models, e.g GLID2E ( Cao et al., 2025 ) , Ctrl-DNA ( Chen et al., 2025 ) , and GFlowNet ( Bengio et al., 2021 ) , but do not include them as baselines since no public checkpoints are available and retraining their upstream models is out of scope. Computation resource requirements are reported in § S1.5 . 5.2 Three-axis evaluation framework We evaluate a generated set 𝒳 ∗ = { x ∗ ( i ) } i = 1 N \\mathcal{X}^{*}=\\{x^{*(i)}\\}_{i=1}^{N} against the training set 𝒳 = { x ( j ) } j = 1 M \\mathcal{X}=\\{x^{(j)}\\}_{j=1}^{M} along three axes, (1) property, (2) novelty, and (3) compositional plausibility under a fixed protocol decoupled from each method’s training or guidance loop. All metrics are reported as mean ± \\pm standard deviation across three sampling seeds. 5.2.1 Property axis. We assess functional activity using two complementary held-out predictors from Wang et al. (2025) : regulatory potency, measured by target gene expression, and chromatin accessibility, which is required for transcription factors to bind regulatory sequences and modulate gene expression. See § S2.2 for details. Pred-activity We use an independently released oracle that maps a sequence to a scalar prediction of gene expression, with separate heads for cell lines c ∈ { HepG2 , K562 , SK ​ - ​ N ​ - ​ SH } c\\in\\{\\mathrm{HepG2},\\mathrm{K562},\\mathrm{SK\\text{-}N\\text{-}SH}\\} . For each cell line, we report the median predicted activity over generated samples. ATAC_acc. We use an independently released classifier that maps each sequence to a predicted probability of chromatin accessibility, formulated as a binary classification task distinguishing accessible from inaccessible sequences. We report the mean predicted accessibility over generated samples. 5.2.2 Novelty axis. Authenticity ( Alaa et al., 2022 ) . We report authenticity score to measure novelty and explicitly diagnose training-set memorization. For each generated sequence x ∗ ( i ) x^{*(i)} , let x ( j i ) x^{(j_{i})} be its nearest training neighbour under Euclidean distance d ⁡ ( ⋅ , ⋅ ) d(\\cdot,\\cdot) in 4-mer frequency space, and let d self ​ ( x ( j i ) ) d_{\\mathrm{self}}(x^{(j_{i})}) be that neighbour’s leave-one-out 1-NN distance within the training set. We report the fraction of samples that lie farther from their nearest neighbour than the neighbour’s natural spacing, Authenticity = 1 N ∑ i = 1 N [ d ( x ∗ ( i ) , x ( j i ) ) > d self ( x ( j i ) ) ] , \\mathrm{Authenticity}=\\frac{1}{N}\\sum_{i=1}^{N}\\mathbf{1}\\!\\left[d(x^{*(i)},x^{(j_{i})})>d_{\\mathrm{self}}(x^{(j_{i})})\\right], with higher values indicating less memorisation. Rarity ( Han et al., 2023 ) . For each training sample x ( j ) x^{(j)} , let NN k ​ ( x ( j ) ) \\mathrm{NN}_{k}(x^{(j)}) be its distance to its k k -th nearest neighbour in 4-mer frequency space, defining a training k k -NN ball B k ​ ( x ( j ) ) B_{k}(x^{(j)}) of that radius. The per-sample rarity of an on-manifold generated sequence x ∗ ( i ) x^{*(i)} is the radius of the smallest ball containing it, r ( x ∗ ( i ) ) = min j : x ∗ ( i ) ∈ B k ​ ( x ( j ) ) NN k ( x ( j ) ) , r(x^{*(i)})=\\min_{\\,j\\,:\\,x^{*(i)}\\in B_{k}(x^{(j)})}\\!\\mathrm{NN}_{k}(x^{(j)}), with off-manifold samples (outside every B k B_{k} ) excluded so that r r isolates on-manifold rarity. To remove dependence on feature scale and sample size, we report r r in IQR units relative to the leave-one-out training rarity r train r^{\\mathrm{train}} . Thus r ~ = 0 \\widetilde{r}=0 at the training median and r ~ = 1 \\widetilde{r}=1 at p 75 p_{75} , with larger values marking samples in rarer training-density regions. 5.2.3 Compositional plausibility axis. We assess preservation of the natural compositional grammar of regulatory DNA using two sub-metrics, reported as absolute deviations from the training set, Δ = | method − train | \\Delta=|\\,\\text{method}-\\text{train}\\,| . Smaller deviations indicate better preservation. Δ \\Delta Gini. Motif-usage diversity is measured by the Gini index G G over motif counts from JASPAR scans of generated and training sequences ( Rauluseviciute et al., 2024 ) . G = 0 G=0 denotes uniform motif usage, while G → 1 G\\to 1 indicates domination by a small subset of motifs. For sorted per-motif counts f = ( f 1 , … , f R ) f=(f_{1},\\ldots,f_{R}) , G ⁡ ( f ) = 1 R ​ ( R + 1 − 2 ​ ∑ r ( R + 1 − r ) ​ f ( r ) ∑ r f ( r ) ) ∈ [ 0 , 1 ] . G(f)=\\tfrac{1}{R}\\!\\left(R+1-2\\,\\tfrac{\\sum_{r}(R+1-r)\\,f_{(r)}}{\\sum_{r}f_{(r)}}\\right)\\in[0,1]. See § S2.1 for more details. Δ \\Delta hits. To measure motif density, we compute hits/seq, the mean number of above-threshold motif occurrences per generated sequence, hits / seq = N − 1 ​ ∑ i h i \\mathrm{hits}/\\mathrm{seq}=N^{-1}\\!\\sum_{i}h_{i} , where h i h_{i} is the motif hit count for x ∗ ( i ) x^{*(i)} . Given hits / seq \\mathrm{hits}/\\mathrm{seq} of natural sequences, deviation in either direction indicates motif under- or over-insertion. 5.3 Diagnostic: two structurally distinct hacking modes Among baselines, both SVDD and DRAKES successfully push predicted activity upward, but along distinct non-natural directions. Natural enhancers rely on the combinatorial cooperation of multiple TFs, with motifs distributed at a characteristic density. Beyond previously reported metrics, we assess how closely the functional motif composition of generated sequences approaches that of natural regulatory sequences by measuring motif usage diversity and density via Δ \\Delta Gini and Δ \\Delta hits. A large Δ \\Delta Gini indicates that generated sequences are dominated by a few repeated motifs, while a large Δ \\Delta hits indicates stuffed motif within a sequence. In either case, predictor scores can remain high even as the sequence drifts away from natural enhancer composition. Figure 2 : Diagnostics of existing sequence design baselines. SVDD: motif inflation. In SVDD, motif density per sequence inflates to 1.44 × 1.44\\times the natural baseline ( Δ ​ hits = 0.248 \\Delta\\,\\text{hits}=0.248 , from 0.561 0.561 to 0.809 0.809 ; Tab. 1 , Fig. 2 A1), while motif usage concentrates on a narrow subset of the JASPAR repertoire ( Δ ​ Gini = 0.231 \\Delta\\,\\text{Gini}=0.231 , from 0.308 0.308 to 0.539 0.539 ; Tab. 1 ,Fig. 2 A2). Repeated use of functionally important motifs is itself biologically plausible; the pathology of SVDD, rather, is that it repeats a single motif up to saturation within a single sequence. Together, these observations suggest that SVDD raises predicted activity by repeatedly stuffing a small set of presumably activity-driving motifs into sequence, rather than by employing the diverse motif vocabulary characteristic of natural enhancers. DRAKES: GC-rich composition drift. Unlike SVDD, DRAKES does not overpack motifs ( Δ ​ hits = 0.06 \\Delta\\,\\text{hits}=0.06 ; Tab. 1 , Fig. 2 A1-2), but its motif usage is still skewed toward a narrow subset of the JASPAR repertoire ( Δ ​ Gini = 0.261 \\Delta\\,\\text{Gini}=0.261 ; Tab. 1 ). To understand which motifs DRAKES preferentially favors, we examined the over-represented entries and found that they are predominantly GC-rich (Fig. 2 B1). The composition of the generated sequences depart substantially from the natural compositional baseline (Fig. 2 B2). Together, these observations suggest that DRAKES inflates predicted activity by drifting toward a generic GC-rich background, rather than by concentrating on the functionally relevant motifs of the target cell line. 5.4 Reaching the empty corner with LocoGen Table 1 : Three axis benchmark in HepG2 cell line. 1st , 2nd , and 3rd best results are highlighted. Property Novelty Plausibility Method Pred-activity ↑ \\uparrow ATAC_acc ↑ \\uparrow Authenticity ↑ \\uparrow Rarity (IQR) ↑ \\uparrow | Δ ​ Gini | ↓ |\\Delta\\,\\text{Gini}|\\,\\downarrow | Δ ​ hits | ↓ |\\Delta\\,\\text{hits}|\\,\\downarrow Train 2.406 0.244 0.728 - - - MDLM 0.157 ± \\pm 0.024 0.329 ± \\pm 0.198 0.777 ± \\pm 0.033 − 0.15 -0.15 ± \\pm 0.03 0.051 ± \\pm 0.006 0.071 ± \\pm 0.001 MDLM+CG 4.516 ± \\pm 0.151 0.481 ± \\pm 0.022 0.809 ± \\pm 0.014 + 0.21 +0.21 ± \\pm 0.02 0.169 ± \\pm 0.013 0.043 ± \\pm 0.007 DNA-Diff 2.595 ± \\pm 0.087 0.688 ± \\pm 0.293 0.821 ± \\pm 0.015 − 0.07 -0.07 ± \\pm 0.03 0.002 ± \\pm 0.002 0.010 ± \\pm 0.002 DRAKES 5.610 ± \\pm 0.070 0.804 ± \\pm 0.159 0.873 ± \\pm 0.004 + 1.08 +1.08 ± \\pm 0.09 0.261 ± \\pm 0.007 0.060 ± \\pm 0.010 SVDD 6.830 ± \\pm 0.024 0.442 ± \\pm 0.375 0.894 ± \\pm 0.008 + 0.84 +0.84 ± \\pm 0.03 0.231 ± \\pm 0.010 0.248 ± \\pm 0.008 LocoGen 4.679 ± \\pm 0.021 0.716 ± \\pm 0.019 0.906 ± \\pm 0.006 + 0.71 +0.71 ± \\pm 0.00 0.055 ± \\pm 0.005 0.057 ± \\pm 0.003 Note. For natural sequences (Train), Δ ​ Gini = 0.308 \\Delta\\,\\text{Gini}=0.308 and Δ ​ hits = 0.561 \\Delta\\,\\text{hits}=0.561 . Tables 1 , S4 , S5 , and Figure 1 show that LocoGen occupies a distinct region of the three-axis benchmark space. Single-axis optimization leads to clear trade-offs: SVDD and DRAKES obtain the strongest property scores but incur large plausibility shifts, whereas DNA-Diff closely matches the training distribution but yields weaker property optimization and limited rarity. LocoGen avoids both failure modes. It achieves competitive property optimization, the best authenticity, positive rarity, and top-three performance on both plausibility metrics. Thus, our claim is not that LocoGen is absolutely superior on every metric, but that it is the property-optimizing method that fills the empty corner of the design space: maintaining acceptable performance on property, novelty, and plausibility simultaneously. We further verify that the masked separator learns a meaningful invariant/environmental decomposition rather than an arbitrary partition. The invariant subsequence remains close to the natural baseline, is enriched for activity-associated JASPAR motifs, and has a larger functional impact under ablation than random regions; see § S3.2 for details. 5.4.1 Ablation study To better understand what drives LocoGen ’s performance, we investigate two complementary questions: (i) Which components of LocoGen contribute to its performance? (ii) Can a non-generative approach based on localization and shuffling achieve comparable results? (i) Table 2 disentangles the contributions of guidance and locality in LocoGen . CG applies classifier guidance alone ( γ = 0 \\gamma=0 ), while Loc. OOD ( Learnt ) represents the full model, restricting OOD damping to the mask separator-identified background. Glob. OOD control positions at random rather than from the masked separator signal with minimal overlap with the invariant region (Fig. S2 ). In contrast, Attack reverses property guidance at invariant positions, actively disrupting the regions identified by the masked separator. Disabling CG substantially reduces both property optimization and novelty while leaving plausibility largely unaffected, highlighting the critical role of classifier guidance in property optimization (rows 1-3 vs. the last row). With CG enabled, replacing Loc. OOD ( Learnt ) with Glob. OOD mildly but consistently degrades property and novelty metrics (row 5 vs. the last row), providing additional evidence that the separator identifies activity-sensitive positions. Meanwhile, the comparison against global OOD damping supports a modest but consistent benefit from localizing OOD control. Removing OOD control substantially degrades all metrics except | Δ ​ hits | |\\Delta\\text{hits}| (row 4 vs. the last row). Thus, classifier guidance with OOD control helps discover sequences with stronger properties and greater novelty, while concentrating motif usage on a narrower subset of motifs; the total number of motif hits remains close to the reference distribution. We further examine the effect of OOD control strength γ \\gamma to assess how strongly to apply distributional calibration during sampling. See Appendix § S3.3.1 for the full results. Table 2 : Locality ablation on HepG2 cell line. Component Property Novelty Plausibility CG Glob. OOD Loc. OOD Pred-activity ↑ \\uparrow ATAC_acc ↑ \\uparrow Authenticity ↑ \\uparrow Rarity (IQR) ↑ \\uparrow | Δ ​ Gini | ↓ |\\Delta\\,\\text{Gini}|\\,\\downarrow | Δ ​ hits | ↓ |\\Delta\\,\\text{hits}|\\,\\downarrow – 0.157 ± \\pm 0.024 0.329 ± \\pm 0.198 0.777 ± \\pm 0.033 − 0.15 -0.15 ± \\pm 0.03 0.051 ± \\pm 0.006 0.071 ± \\pm 0.001 ✓ – 0.300 ± \\pm 0.028 0.314 ± \\pm 0.008 0.946 ± \\pm 0.002 + 0.46 +0.46 ± \\pm 0.03 0.246 ± \\pm 0.002 0.167 ± \\pm 0.007 Learnt 0.309 ± \\pm 0.020 0.311 ± \\pm 0.009 0.947 ± \\pm 0.003 + 0.46 +0.46 ± \\pm 0.03 0.244 ± \\pm 0.004 0.166 ± \\pm 0.006 ✓",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Skip to main content",
+      "url": "https://arxiv.org/html/2610.41736v1#infobox"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/IgnoreMe"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "Why HTML?",
+      "url": "https://info.arxiv.org/about/accessible_HTML.html"
+    },
+    {
+      "text": "Back to Abstract",
+      "url": "https://arxiv.org/abs/2610.41736v1"
+    },
+    {
+      "text": "Download PDF",
+      "url": "https://arxiv.org/pdf/2610.41736v1"
+    },
+    {
+      "text": "License: CC BY-NC-SA 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "https://github.com/Lotfollahi-lab/LocoGen",
+      "url": "https://github.com/Lotfollahi-lab/LocoGen"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2610.41736v1#S1.F1"
+    },
+    {
+      "text": "5.3",
+      "url": "https://arxiv.org/html/2610.41736v1#S5.SS3"
+    },
+    {
+      "text": "Austin et al., 2021",
+      "url": "https://arxiv.org/html/2610.41736v1#bib.bib7"
+    },
+    {
+      "text": "Sahoo et al., 2024",
+      "url": "https://arxiv.org/html/2610.41736v1#bib.bib16"
+    },
+    {
+      "text": "Lou et al., 2024",
+      "url": "https://arxiv.org/html/2610.41736v1#bib.bib8"
+    },
+    {
+      "text": "Stark et al., 2024",
+      "url": "https://arxiv.org/html/2610.41736v1#bib.bib17"
+    },
+    {
+      "text": "Davis et al., 2024",
+      "url": "https://arxiv.org/html/2610.41736v1#bib.bib27"
+    },
+    {
+      "text": "DaSilva et al., 2026",
+      "url": "https://arxiv.org/html/2610.41736v1#bib.bib19"
+    },
+    {
+      "text": "Tang et al., 2025",
+      "url": "https://arxiv.org/html/2610.41736v1#bib.bib28"
+    },
+    {
+      "text": "Wang et al., 2025",
+      "url": "https://arxiv.org/html/2610.41736v1#bib.bib18"
+    },
+    {
+      "text": "Clark et al., 2024",
+      "url": "https://arxiv.org/html/2610.41736v1#bib.bib15"
+    },
+    {
+      "text": "Cao et al., 2025",
+      "url": "https://arxiv.org/html/2610.41736v1#bib.bib6"
+    },
+    {
+      "text": "Uehara et al., 2025",
+      "url": "https://arxiv.org/html/2610.41736v1#bib.bib25"
+    },
+    {
+      "text": "Rojas et al., 2026",
+      "url": "https://arxiv.org/html/2610.41736v1#bib.bib26"
+    },
+    {
+      "text": "Li et al., 2024",
+      "url": "https://arxiv.org/html/2610.41736v1#bib.bib20"
+    },
+    {
+      "text": "S1.2.2",
+      "url": "https://arxiv.org/html/2610.41736v1#A1.SS2.SSS2"
+    },
+    {
+      "text": "Lee et al., 2023",
+      "url": "https://arxiv.org/html/2610.41736v1#bib.bib21"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2610.41736v1#S3.E4"
+    },
+    {
+      "text": "Li et al., 2022",
+      "url": "https://arxiv.org/html/2610.41736v1#bib.bib22"
+    },
+    {
+      "text": "S1.3.3",
+      "url": "https://arxiv.org/html/2610.41736v1#A1.SS3.SSS3"
+    },
+    {
+      "text": "Krueger et al., 2021",
+      "url": "https://arxiv.org/html/2610.41736v1#bib.bib12"
+    },
+    {
+      "text": "Javanmardi et al., 2016",
+      "url": "https://arxiv.org/html/2610.41736v1#bib.bib9"
+    },
+    {
+      "text": "S1.3.2",
+      "url": "https://arxiv.org/html/2610.41736v1#A1.SS3.SSS2"
+    },
+    {
+      "text": "3.4",
+      "url": "https://arxiv.org/html/2610.41736v1#S3.SS4"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2610.41736v1#S3.E2"
+    },
+    {
+      "text": "8",
+      "url": "https://arxiv.org/html/2610.41736v1#S4.E8"
+    },
+    {
+      "text": "Gosai et al. (2024)",
+      "url": "https://arxiv.org/html/2610.41736v1#bib.bib14"
+    },
+    {
+      "text": "S2",
+      "url": "https://arxiv.org/html/2610.41736v1#A2"
+    },
+    {
+      "text": "Chen et al., 2025",
+      "url": "https://arxiv.org/html/2610.41736v1#bib.bib24"
+    },
+    {
+      "text": "Bengio et al., 2021",
+      "url": "https://arxiv.org/html/2610.41736v1#bib.bib11"
+    },
+    {
+      "text": "S1.5",
+      "url": "https://arxiv.org/html/2610.41736v1#A1.SS5"
+    },
+    {
+      "text": "S2.2",
+      "url": "https://arxiv.org/html/2610.41736v1#A2.SS2"
+    },
+    {
+      "text": "Alaa et al., 2022",
+      "url": "https://arxiv.org/html/2610.41736v1#bib.bib13"
+    },
+    {
+      "text": "Han et al., 2023",
+      "url": "https://arxiv.org/html/2610.41736v1#bib.bib10"
+    },
+    {
+      "text": "Rauluseviciute et al., 2024",
+      "url": "https://arxiv.org/html/2610.41736v1#bib.bib23"
+    },
+    {
+      "text": "S2.1",
+      "url": "https://arxiv.org/html/2610.41736v1#A2.SS1"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2610.41736v1#S5.T1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2610.41736v1#S5.F2"
+    },
+    {
+      "text": "S4",
+      "url": "https://arxiv.org/html/2610.41736v1#A3.T4"
+    },
+    {
+      "text": "S5",
+      "url": "https://arxiv.org/html/2610.41736v1#A3.T5"
+    },
+    {
+      "text": "S3.2",
+      "url": "https://arxiv.org/html/2610.41736v1#A3.SS2"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2610.41736v1#S5.T2"
+    },
+    {
+      "text": "S2",
+      "url": "https://arxiv.org/html/2610.41736v1#A3.F2"
+    },
+    {
+      "text": "S3.3.1",
+      "url": "https://arxiv.org/html/2610.41736v1#A3.SS3.SSS1"
+    },
+    {
+      "text": "S7",
+      "url": "https://arxiv.org/html/2610.41736v1#A3.T7"
+    },
+    {
+      "text": "S3.3.2",
+      "url": "https://arxiv.org/html/2610.41736v1#A3.SS3.SSS2"
+    },
+    {
+      "text": "Genentech, 2025",
+      "url": "https://arxiv.org/html/2610.41736v1#bib.bib1"
+    },
+    {
+      "text": "S3.4",
+      "url": "https://arxiv.org/html/2610.41736v1#A3.SS4"
+    },
+    {
+      "text": "S8",
+      "url": "https://arxiv.org/html/2610.41736v1#A3.T8"
+    },
+    {
+      "text": "S9",
+      "url": "https://arxiv.org/html/2610.41736v1#A3.T9"
+    },
+    {
+      "text": "S10",
+      "url": "https://arxiv.org/html/2610.41736v1#A3.T10"
+    },
+    {
+      "text": "S3.5",
+      "url": "https://arxiv.org/html/2610.41736v1#A3.SS5"
+    }
+  ],
+  "matching_link_count": 119,
+  "links_truncated": true,
+  "invalid_links": []
+}

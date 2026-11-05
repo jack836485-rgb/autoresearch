@@ -1,0 +1,633 @@
+{
+  "url": "https://arxiv.org/html/2605.11214v1",
+  "final_url": "https://arxiv.org/html/2605.11214v1",
+  "status": 200,
+  "title": "Enforcing Constraints in Generative Sampling via Adaptive Correction Scheduling",
+  "metadata": {},
+  "paper": {
+    "title": "Enforcing Constraints in Generative Sampling via Adaptive Correction Scheduling",
+    "title_warning": null,
+    "abstract": "Abstract Hard constraints in generative sampling are typically enforced by projection, applied either once at the end of sampling or after every update. This binary framing overlooks a fundamental issue: projection changes the distribution of states which future updates depend on. As a result, delayed projection can produce samples that are feasible but inconsistent with the intended sampling dynamics, even after final projection. We formalize constraint enforcement as a correction scheduling problem over the generative rollout. Using one-step constraint defect as a local signal of geometric mismatch, we introduce adaptive correction scheduling , a state-dependent policy that allocates projection budget to the steps that most strongly perturb the trajectory. Terminal and stepwise projection arise as limiting cases of this family. Across controlled manifold rollouts and a learned projected diffusion sampler, adaptive scheduling improves the cost–accuracy frontier at matched projection budgets, recovering 71.2 % 71.2\\% of full stepwise benefit with 75 % 75\\% fewer corrections. These results show that constraint timing is a first-class design variable in generative sampling, and that enforcing feasibility alone is insufficient to preserve the intended constrained sampling dynamics.",
+    "authors": [
+      {
+        "name": "Noah Trupin",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Yexiang Xue",
+        "affiliations": [
+          "Affiliation: Department of Computer Science",
+          "Affiliation: Purdue University"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Noah Trupin Yexiang Xue Affiliation: Department of Computer Science Affiliation: Purdue University Email: {ntrupin,yexiang}@purdue.edu",
+    "arxiv_version": "2605.11214v1",
+    "arxiv_version_date": "2026-05-11",
+    "sections": [
+      {
+        "id": "S1",
+        "heading": "1 Introduction",
+        "level": 1,
+        "text": "Generative models are increasingly deployed in settings where outputs must satisfy hard constraints, including trajectory synthesis, robot planning, and structured generation ( Li et al., 2024 ; Liang et al., 2025 ; Zhang et al., 2025 ; Christopher et al., 2024 ; Cardei et al., 2025b ; Santi et al., 2025 ) . In these domains, samples are required to lie on manifolds defined by geometric, physical, or task-specific structures. A common strategy is to run the generative process in the ambient space and enforce feasibility through projection. This raises the question: when should projection be applied? In practice, two strategies dominate: terminal correction projects only at the end of sampling, while stepwise correction projects after every update. Both are widely used, and both can produce feasible outputs. However, they treat correction timing as a fixed design choice rather than part of the algorithm. This framing ignores that generative updates are state-dependent, as each step is computed from the current iterate. Once a rollout leaves the constraint set, subsequent updates are evaluated at states that a constrained trajectory would never visit. A later projection can restore feasibility, but it cannot in general undo the distributional shift induced by these off-manifold states. As a result, terminally corrected samples are often feasible but wrong. They lie on the constraint set, but correspond to a trajectory that deviated from the constrained dynamics during rollout. Constraint enforcement is therefore not only about satisfying feasibility at the endpoint, but about preserving the trajectory distribution that produces that endpoint. This makes correction timing a resource allocation problem. In typical rollouts, most updates remain close to the constraint set, while a smaller subset produces large excursions that drive downstream error. Terminal correction under-allocates effort to these critical steps, while stepwise correction over-allocates effort everywhere. The central challenge is thus how to allocate a limited number of corrections across the rollout. We address this by reframing constraint enforcement as a correction scheduling problem. We use one-step constraint defect, the distance of a proposed update from the feasible set, as a local signal of geometric mismatch. Small defect indicates that the rollout remains close to the constrained trajectory, while large defect identifies steps whose effects are unlikely to be corrected later. This leads to an online budgeted policy: spend corrections on high-defect steps, where projection is expected to most reduce downstream trajectory error. This yields a family of online budgeted schedules that interpolate between terminal and stepwise correction while adapting to the realized defect profile of each rollout. Fundamentally, this policy is not a heuristic layered onto existing methods, but a direct consequence of viewing constraint enforcement through the lens of trajectory consistency. It is model-agnostic, requires no gradients through projection, and introduces negligible overhead beyond defect evaluation. Our contribution is a scheduling view of constrained generative sampling: 1. Timing changes the rollout. We show that delayed correction alters the distribution of future updates, producing endpoint deviations that cannot be resolved by terminal projection alone. 2. Constraint enforcement is a budget allocation problem. We formalize correction as allocating a limited number of projections across rollout, making terminal, periodic, and adaptive strategies directly comparable. 3. Defect provides an effective value proxy. An online budgeted scheduler uses defect to spend corrections on the steps that most strongly perturb the trajectory. 4. Adaptive scheduling improves the cost–accuracy frontier. At matched correction cost, adaptive policies recover near-stepwise fidelity while using substantially fewer projections. Across controlled manifold rollouts and learned diffusion settings, we observe that constraint violations are highly heterogeneous across time, and that selectively correcting high-defect steps consistently outperforms uniform strategies. These results demonstrate that constraint timing is a fundamental degree of freedom in generative sampling, and that enforcing feasibility alone is insufficient to preserve the intended constrained distribution."
+      },
+      {
+        "id": "S2",
+        "heading": "2 Related Work",
+        "level": 1,
+        "text": "Prior work enforces hard constraints in generative modeling by incorporating projection or optimization into the sampling loop ( Christopher et al., 2024 ; Santi et al., 2025 ; Utkarsh et al., 2025 ; Zhang et al., 2025 ; Hoseinpour and Dvorkin, 2025 ) . In diffusion and flow-based models, projected sampling methods often apply projection after each step to maintain feasibility throughout generation ( Chi et al., 2024 ; Li et al., 2024 ; Xiao et al., 2024 ; Janner et al., 2022 ; Liang et al., 2025 ; Yang et al., 2026 ; Santi et al., 2025 ; Utkarsh et al., 2025 ; Ni and Qureshi, 2024 ) . Variants introduce projected gradients, differentiable optimization layers, or discrete constraint operators ( Cardei et al., 2025a ; Cardei et al., 2025b ; Cheng et al., 2024 ; Hoseinpour and Dvorkin, 2025 ) . These approaches address how to enforce constraints, but largely treat correction timing as fixed. Stepwise projection is typically adopted as a default, while terminal projection is used as a cheaper alternative. Our work instead focuses on when correction should be applied, holding the underlying generative process fixed. This question is closely related to geometric integration, where the interaction between an update rule and a projection or retraction determines long-horizon behavior ( Hairer, 2001 ; Séguin et al., 2024 ; Christopher et al., 2024 ; McLachlan et al., 2014 ; Liñán and Diego, 2023 ) . Classical results show that projection and dynamics do not generally commute, leading to trajectory drift even when endpoints are feasible. Our setting differs in two key ways: the dynamics are learned and stochastic, and the objective is efficient allocation of correction compute alongside accuracy. A separate line of work studies adaptive schedules in diffusion, selecting timesteps or noise levels to trade off speed and sample quality. Methods such as AdaDiff, TDPM, stepsize distillation, and active noise estimation allocate denoising compute across time ( Zhang et al., 2024 ; Ye et al., 2025 ; Pei et al., 2025 ; Kim and Kim, 2026 ) . These approaches operate along an orthogonal axis: they control the generative dynamics themselves. In contrast, we allocate constraint enforcement, treating projection as a limited resource applied to preserve trajectory consistency. Closest are methods that interleave optimization with sampling, but these apply correction uniformly or through fixed heuristics. We instead treat correction as a budgeted allocation problem."
+      },
+      {
+        "id": "S3",
+        "heading": "3 Adaptive Correction Scheduling",
+        "level": 1,
+        "text": "Projection timing is a control decision. Rather than projecting only at the end or after every update, we treat correction as a finite resource to be allocated across the rollout. Given a rollout of length T T and a correction budget B B , the scheduler must choose which proposed updates to project. The ideal policy would spend corrections where they most reduce future trajectory error, but this marginal value is not directly observable in practice. Our method uses one-step constraint defect as an online proxy. At each step, the scheduler first applies the generative update without correction, measures how far the proposed state departs from the constraint set, and then decides whether this departure is worth spending one unit of budget. Large defect indicates that the rollout has entered a region where future updates are likely to differ from the constrained trajectory, while small defect indicates that projection can be safely delayed. As such, the adaptive scheduler spends corrections where the realized rollout is most likely to drift, while matching the projection budget of fixed periodic baselines. This section formalizes that idea: we describe rollouts with correction events, define defect as the scheduling signal, and derive our budget-aware online policy."
+      },
+      {
+        "id": "S3.SS1",
+        "heading": "3.1 Rollouts with correction events",
+        "level": 2,
+        "text": "Figure 2: Adaptive gains appear when trajectory error is concentrated in time. Each panel shows normalized state error from the stepwise reference alongside projection events. In the volatile terrain setting (left), a few high-defect regions dominate path error; periodic correction spends budget uniformly and misses several of these events, while adaptive correction concentrates projections where they most reduce downstream drift. In the homogeneous setting (right), defects are more diffuse, so the gap between adaptive and periodic narrows. This supports that adaptive correction helps most when a subset of rollout steps controls the trajectory error. We consider a generative process that ideally evolves on a constraint set ℳ ⊂ 𝒳 \\mathcal{M}\\subset\\mathcal{X} , where 𝒳 ⊆ ℝ d \\mathcal{X}\\subseteq\\mathbb{R}^{d} is an ambient space. In many applications, ℳ \\mathcal{M} is a smooth embedded manifold or a set defined by hard constraints, such as kinematic feasibility, geometric structure, or physical validity. In practice, however, generative models operate in the ambient space. A rollout proceeds by repeatedly applying a learned update rule x t + 1 = Φ h ( x t ) , t = 0 , … , T − 1 , x_{t+1}=\\Phi_{h}(x_{t}),\\qquad t=0,\\ldots,T-1, where Φ h \\Phi_{h} denotes a discrete update operator, such as a reverse diffusion step or flow-matching update, with step size h h . To enforce feasibility, we assume access to a projection or retraction operator Π : 𝒳 → ℳ \\Pi:\\mathcal{X}\\to\\mathcal{M} which maps arbitrary states back to the constraint set. The standard objective is to produce a final sample x T ∈ ℳ x_{T}\\in\\mathcal{M} . However, this endpoint view is incomplete, as the generative process is inherently trajectory-dependent: each update is computed from the current state. If a rollout leaves ℳ \\mathcal{M} , subsequent updates are evaluated at states a constrained trajectory would never visit. While later projection may restore feasibility, it generally cannot undo the off-manifold updates already taken. Fig. 2 illustrates greater accumulation of error throughout sampling without principled constraint enforcement. As such, projection is an intervention in the dynamics, and applying it changes both the states from which future updates are computed and the final sample. We formalize this intervention by introducing a correction schedule σ : { 0 , … , T − 1 } → { 0 , 1 } \\sigma:\\{0,\\ldots,T-1\\}\\to\\{0,1\\} , where σ ⁡ ( t ) = 1 \\sigma(t)=1 indicates that projection is applied after step t t . Given the proposed update x ~ t + 1 = Φ h ​ ( x t ) , \\tilde{x}_{t+1}=\\Phi_{h}(x_{t}), (1) the corrected rollout is defined by x t + 1 = { Π ⁡ ( x ~ t + 1 ) if ​ σ ​ ( t ) = 1 , x ~ t + 1 if ​ σ ​ ( t ) = 0 . x_{t+1}=\\begin{cases}\\Pi(\\tilde{x}_{t+1})&\\text{if }\\sigma(t)=1,\\\\ \\tilde{x}_{t+1}&\\text{if }\\sigma(t)=0.\\end{cases} This formulation unifies standard strategies: terminal correction sets σ ⁡ ( t ) = 0 \\sigma(t)=0 for all t < T − 1 t<T-1 and projects once at the end, stepwise correction sets σ ⁡ ( t ) = 1 \\sigma(t)=1 for all t t , and periodic correction corrects at fixed intervals. All these correspond to different ways of allocating correction events across the rollout. Our goal is to construct a fourth schedule that spends up to the same budget as a periodic rule but chooses correction times from the realized rollout."
+      },
+      {
+        "id": "S3.SS2",
+        "heading": "3.2 Defect as the scheduling signal",
+        "level": 2,
+        "text": "To determine when correction is necessary, we require a signal that quantifies how much a proposed update departs from the constraint set. We define a defect function d ⁡ ( x , ℳ ) d(x,\\mathcal{M}) that measures the distance or constraint violation of a state x x relative to ℳ \\mathcal{M} . This may be Euclidean distance from the constraint surface or some other domain-specific metric. For a proposed update x ~ t + 1 = Φ h ​ ( x t ) \\tilde{x}_{t+1}=\\Phi_{h}(x_{t}) , we define the one-step defect s t = d ⁡ ( x ~ t + 1 , ℳ ) . s_{t}=d(\\tilde{x}_{t+1},\\mathcal{M}). (2) This scalar captures the local mismatch introduced by the update. A small s t s_{t} indicates that the rollout remains close to the constraint set, while large s t s_{t} implies that the update produces a significant excursion. Large defect marks steps where future updates are likely to differ most from the constrained rollout, making s t s_{t} a local proxy for downstream trajectory distortion."
+      },
+      {
+        "id": "S3.SS3",
+        "heading": "3.3 Budgeted online allocation",
+        "level": 2,
+        "text": "We distinguish two types of error: Endpoint error, the deviation of the final sample from a reference constrained trajectory, and pathwise error, cumulative deviation from the constraint set during rollout. A final projection eliminates endpoint infeasibility, but not the pathwise error accumulated during rollout. We measure pathwise deviation via cumulative defect: E path = ∑ t = 1 T d ⁡ ( x t , ℳ ) . E_{\\mathrm{path}}=\\sum_{t=1}^{T}d(x_{t},\\mathcal{M}). From this perspective, constraint enforcement becomes a resource allocation problem. Each projection incurs cost, and a schedule determines how a limited number of projections is distributed across time. Terminal and stepwise correction are extreme allocations: one spends the budget at the end, the other spends it everywhere. If large deviations are concentrated in a small subset of steps, both are inefficient. This motivates adaptive, state-dependent schedules. A budgeted schedule therefore answers an online marginal question: at time t t , with b b corrections remaining, is the current deviation worth spending one correction, or should the budget be reserved for future steps? Let V t ​ ( x t ) = 𝔼 ⁡ [ E uncorrected − E corrected ∣ x t ] V_{t}(x_{t})=\\mathbb{E}\\!\\left[E_{\\mathrm{uncorrected}}-E_{\\mathrm{corrected}}\\mid x_{t}\\right] denote the downstream value of correcting at step t t . This quantity captures how much correcting the current step changes the remainder of the rollout. Given a rollout of length T T with a finite correction budget B B , the ideal policy would allocate corrections to maximize total reduction in trajectory error: max ⁡ ∑ t = 0 T − 1 σ ⁡ σ ⁡ ( t ) ​ V t ​ ( x t ) s.t. ∑ t = 0 T − 1 σ ⁡ ( t ) ≤ B , \\max_{\\sigma}\\sum_{t=0}^{T-1}\\sigma(t)V_{t}(x_{t})\\quad\\text{s.t.}\\quad\\sum_{t=0}^{T-1}\\sigma(t)\\leq B, (3) where σ ⁡ ( t ) ∈ { 0 , 1 } \\sigma(t)\\in\\{0,1\\} indicates whether correction is applied at step t t . This formulation makes explicit that correction scheduling is a budgeted allocation problem over time. In practice, however, V t V_{t} is not directly observable. Computing it would require estimating how a correction changes the remainder of the rollout under future stochastic updates. We therefore require a tractable online proxy. Noting that large one-step defect identifies precisely the states where the rollout has entered regions that induce large downstream deviation, we use defect as a surrogate of this marginal value."
+      },
+      {
+        "id": "S3.SS4",
+        "heading": "3.4 Budget-aware thresholds",
+        "level": 2,
+        "text": "The ideal policy in Eq. ( 3 ) requires the downstream value V t ​ ( x t ) V_{t}(x_{t}) of correcting at each step. This value is not observable online. We therefore use one-step defect s t s_{t} as a local proxy for marginal value, but unlike a fixed-threshold rule, the decision must account for the remaining budget. Let b t b_{t} denote the number of corrections remaining before step t t . Our scheduler uses a family of thresholds λ t , b , t = 0 , … , T − 1 , b = 0 , … , B , \\lambda_{t,b},\\qquad t=0,\\ldots,T-1,\\quad b=0,\\ldots,B, where λ t , b \\lambda_{t,b} is the marginal price of spending one correction at time t t with b b corrections remaining. Given a proposed update Eq. ( 1 ) and defect Eq. ( 2 ), the online budgeted policy is x t + 1 = { Π ⁡ ( x ~ t + 1 ) if ​ b t > 0 ​ and ​ s t ≥ λ t , b t , x ~ t + 1 otherwise . x_{t+1}=\\begin{cases}\\Pi(\\tilde{x}_{t+1})&\\text{if }b_{t}>0\\text{ and }s_{t}\\geq\\lambda_{t,b_{t}},\\\\ \\tilde{x}_{t+1}&\\text{otherwise}.\\end{cases} If projection is applied, the remaining budget is updated as b t + 1 = b t − 1 b_{t+1}=b_{t}-1 ; otherwise b t + 1 = b t b_{t+1}=b_{t} . The dependence on both t t and b b proves essential: the same defect may be worth correcting late in the rollout, when few future opportunities remain, but not early, when the scheduler should reserve budget for larger future excursions. Thus λ t , b \\lambda_{t,b} implements an online marginal-value threshold conditioned on the remaining horizon and correction budget. The thresholds λ t , b \\lambda_{t,b} determine how aggressively the scheduler spends its remaining corrections. In principle, they approximate the value boundary of the budgeted allocation problem: correction is applied when the observed defect is large enough to justify consuming one unit of budget. In Sec. 4 , thresholds are estimated on held-out calibration rollouts. For each time t t and remaining budget b b , we choose λ t , b \\lambda_{t,b} so that the scheduler spends corrections at the desired pace while preserving budget for future high-defect events. This yields an online policy that uses exactly the same total projection budget as periodic baselines, but allocates that budget according to the geometry of the realized rollout. In our experiments, this surface is estimated by held-out quantiles of future defect traces. This budget-aware policy reduces to familiar strategies as special cases: setting all thresholds to + ∞ +\\infty recovers terminal correction and setting all feasible thresholds to 0 0 recovers stepwise correction."
+      },
+      {
+        "id": "S3.SS5",
+        "heading": "3.5 Algorithm",
+        "level": 2,
+        "text": "Algorithm 1 Online Adaptive Correction Scheduling 1: budget B B , thresholds { λ t , b } t = 0 , b = 0 T − 1 , B \\{\\lambda_{t,b}\\}_{t=0,b=0}^{T-1,B} 2: b ← B b\\leftarrow B 3: for t = 0 , … , T − 1 t=0,\\ldots,T-1 do 4: Propose x ~ t + 1 ← Φ h ​ ( x t ) \\tilde{x}_{t+1}\\leftarrow\\Phi_{h}(x_{t}) 5: Compute defect s t ← d ⁡ ( x ~ t + 1 , ℳ ) s_{t}\\leftarrow d(\\tilde{x}_{t+1},\\mathcal{M}) 6: if b > 0 b>0 and s t ≥ λ t , b s_{t}\\geq\\lambda_{t,b} then 7: x t + 1 ← Π ⁡ ( x ~ t + 1 ) x_{t+1}\\leftarrow\\Pi(\\tilde{x}_{t+1}) 8: b ← b − 1 b\\leftarrow b-1 9: else 10: x t + 1 ← x ~ t + 1 x_{t+1}\\leftarrow\\tilde{x}_{t+1} 11: end if 12: end for Alg. 1 summarizes the online budgeted scheduler. The policy observes only the proposed update, its defect, the current time, and the remaining correction budget. It does not require gradients through projection, retraining the generative model, or modifying the update rule. Its overhead is the cost of evaluating the defect and comparing it to the precomputed threshold λ t , b \\lambda_{t,b} . Since the policy conditions on remaining budget, it avoids the main failure mode of fixed thresholding: spending corrections too early on moderate defects and exhausting the budget before larger excursions occur. The scheduler is therefore adaptive in two senses: it responds to the realized geometry of the rollout through s t s_{t} , and it adapts its spending rule to the remaining budget through λ t , b \\lambda_{t,b} ."
+      },
+      {
+        "id": "S4",
+        "heading": "4 Experiments",
+        "level": 1,
+        "text": "We evaluate adaptive correction scheduling across manifold-valued and trajectory diffusion settings. The experiments ask: (i) how projection timing affects trajectory error, (ii) whether online allocation improves performance at fixed correction budget, and (iii) whether defect concentration explains these gains."
+      },
+      {
+        "id": "S4.SS1",
+        "heading": "4.1 Projection timing induces persistent trajectory error",
+        "level": 2,
+        "text": "Figure 3: Adaptive scheduling improves the cost–accuracy frontier across controlled manifolds. We plot Normalized Excess Path Error (NEPE), where stepwise correction is 0 0 and terminal correction is 1 1 ; lower is better. At matched projection budget B / T B/T , adaptive correction consistently lies below periodic correction, showing that where projections are applied matters more than simply applying them at a fixed frequency. The largest gains occur in the impulse, lever, and ridge variants, where defect is most concentrated. We begin by isolating the effect of correction timing. Fig. 1 visualizes representative rollouts under terminal, periodic, and adaptive schedules. Although terminal correction restores feasibility at the final step, the resulting trajectory deviates substantially from the constrained rollout. This effect is quantified in Tab. 1 , which measures endpoint distance to the stepwise reference as a function of correction budget. Even at low defect levels, delayed correction induces a persistent bias: the rollout evolves off-manifold, and subsequent updates compound this deviation. Final projection enforces feasibility but does not recover the original trajectory. An accompanying figure for the endpoint distances reported in Tab. 1 can be found in App. E.7 . These results establish that constraint enforcement cannot be understood purely as a final projection step. Projection timing affects the entire rollout, and the resulting error grows continuously with defect."
+      },
+      {
+        "id": "S4.SS2",
+        "heading": "4.2 Scheduling dominates frequency at fixed budget",
+        "level": 2,
+        "text": "Endpoint dist. ↓ \\downarrow NEPE ↓ \\downarrow Domain Periodic Adaptive Δ \\Delta Endpoint ↑ \\uparrow Periodic Adaptive Δ \\Delta NEPE ↑ \\uparrow SO(3) 0.509 ± \\pm 0.0062 0.111 ± \\pm 0.0090 78% ± \\pm 2% 0.366 ± \\pm 0.0013 0.130 ± \\pm 0.0016 65% ± \\pm 0% SE(3) 0.169 ± \\pm 0.011 0.201 ± \\pm 0.0098 -19% ± \\pm 7% 0.422 ± \\pm 0.0037 0.303 ± \\pm 0.0060 28% ± \\pm 1% Terrain 0.078 ± \\pm 0.017 0.083 ± \\pm 0.017 -6% ± \\pm 34% 0.521 ± \\pm 0.0064 0.323 ± \\pm 0.036 38% ± \\pm 7% SO(3)-Impulse 0.030 ± \\pm 0.0035 0.0088 ± \\pm 0.0005 70% ± \\pm 4% 0.470 ± \\pm 0.015 0.147 ± \\pm 0.015 69% ± \\pm 4% SE(3)-Lever 0.064 ± \\pm 0.0066 0.039 ± \\pm 0.0021 40% ± \\pm 9% 0.486 ± \\pm 0.013 0.252 ± \\pm 0.021 48% ± \\pm 5% Terrain-Ridge 0.080 ± \\pm 0.0098 0.079 ± \\pm 0.012 1% ± \\pm 32% 0.661 ± \\pm 0.039 0.361 ± \\pm 0.021 45% ± \\pm 4% Table 1: Fixed-budget synthetic summary at B / T ≈ 0.25 B/T\\approx 0.25 . Normalized Excess Path Error (NEPE) is normalized between stepwise correction ( 0 0 ) and terminal correction ( 1 1 ); lower is better. All methods are evaluated at matched projection budget, and entries report mean ± \\pm SE over paired seeds. Adaptive scheduling consistently improves NEPE, with especially large gains in the concentrated-defect variants; endpoint improvements are geometry-dependent, reflecting that pathwise consistency and final endpoint displacement are related but not identical. Fig. 3 shows the main cost–accuracy frontier. Across all six controlled domains, adaptive correction achieves lower NEPE than periodic correction at matched projection budget, with the largest gains in the impulse, lever, and ridge variants. Tab. 1 reports the fixed-budget slice at B / T ≈ 0.25 B/T\\approx 0.25 : adaptive consistently improves pathwise fidelity, while endpoint distance is geometry-dependent. This distinction is expected, as pathwise consistency measures whether the rollout followed the constrained dynamics while endpoint displacement also depends on how each geometry maps trajectory errors into final state error. Paired win-rate diagnostics in App. E.7 confirm this trend: adaptive wins on the pathwise metric in 85–90% of matched synthetic comparisons, showing that at fixed budget, where corrections are applied is more important than how often they are applied."
+      },
+      {
+        "id": "S4.SS3",
+        "heading": "4.3 Adaptive schedules track defect concentration",
+        "level": 2,
+        "text": "Figure 4: Adaptive scheduling recovers more of the original PDM sampler at every projection budget. We keep the PDM model, constraint set, and projection operator fixed, and vary only projection timing. Normalized Excess Path Error (NEPE) is measured relative to PDM (stepwise), which projects after every inner Langevin update and has NEPE 0 0 ; terminal correction has NEPE 1 1 . Across budgets, adaptive scheduling remains below periodic correction, showing that defect-aware projection timing is a better use of the same projection budget. To understand why scheduling matters, we examine how defect is distributed along the rollout. Fig. 2 visualizes defect over time together with correction events for different policies. Defect is highly non-uniform: large excursions are concentrated in specific regions of the trajectory, while many steps incur negligible deviation. Periodic schedules allocate corrections uniformly, ignoring this structure. In contrast, adaptive schedules concentrate corrections on high-defect regions, avoiding unnecessary projections elsewhere. This behavior is consistent with the budgeted formulation in Sec. 3 : defect estimates marginal value, while the ( t , b ) (t,b) -dependent threshold determines whether that value justifies spending one of the remaining corrections. This mechanism explains the improvements observed in Fig. 3 and Tab. 1 . By allocating corrections to the small subset of steps that dominate trajectory distortion, adaptive schedules approximate the optimal budget allocation."
+      },
+      {
+        "id": "S4.SS4",
+        "heading": "4.4 Generalization to diffusion and planning domains",
+        "level": 2,
+        "text": "Figure 5: Projection timing changes constrained diffusion trajectories. We wrap the Projected Diffusion Models (PDM) trajectory sampler and vary only when its projection operator is applied. Terminal correction delays projection until the end, producing paths that visibly collide with obstacles before being corrected. Periodic correction uses the same projection budget as adaptive but spends it uniformly, leaving avoidable detours and collisions. Adaptive correction spends projections only at high-defect steps, yielding a trajectory closer to PDM (stepwise), which projects after every inner Langevin update. Raster ticks denote projection calls. Schedule Cost B / T B/T ↓ \\downarrow NEPE ↓ \\downarrow Benefit recovered ↑ \\uparrow Δ \\Delta vs. periodic ↑ \\uparrow Periodic 0.25 0.486 ± \\pm 0.009 51.4% – Adaptive (budgeted) 0.25 0.288 ± \\pm 0.009 71.2% 41% Table 2: Scheduling projection inside Projected Diffusion Models at fixed budget. Original PDM projects after every inner Langevin update and defines Normalized Excess Path Error (NEPE) = 0 =0 ; terminal correction defines NEPE = 1 =1 . At 25 % 25\\% of the projection cost, adaptive scheduling recovers 71.2 % 71.2\\% of the pathwise benefit of original PDM, compared with 51.4 % 51.4\\% for periodic correction. Thus, adaptive timing gives a 41 % 41\\% reduction in excess pathwise error over periodic correction at the same budget. Finally, we test whether the same scheduling principle applies inside an existing constrained, diffusion sampler. Projected Diffusion Models (PDM) enforce constraints by applying projection throughout sampling ( Christopher et al., 2024 ; Liang et al., 2025 ) . In our terminology, the original PDM sampler is the stepwise baseline, projecting after every inner Langevin update. We keep the trained model, constraint set, and projection operator fixed, and vary only the timing of projection. Rather than introducing a new sampler, we wrap an existing projected diffusion method and replace its all-step projection rule with terminal, periodic, and online budgeted schedules. We measure normalized excess pathwise error (NEPE) relative to the original PDM sampler, so original PDM has NEPE 0 0 and terminal correction has NEPE 1 1 . Lower values therefore indicate closer agreement with the fully projected PDM trajectory. A complete definition of NEPE appears in App. D.3 . Fig. 5 visualizes representative trajectories under each projection schedule. Terminal correction satisfies the constraint only after the trajectory has already drifted, while periodic correction improves stability by spending projections uniformly. The adaptive scheduler instead allocates the same projection budget according to the realized defect profile, producing trajectories that remain visibly closer to the original PDM sampler while using only sparse projection events. Fig. 4 quantifies this behavior across projection budgets. At every tested budget, adaptive scheduling recovers more of the original PDM behavior than periodic correction. The fixed-budget summary in Tab. 2 shows that at B / T ≈ 0.25 B/T\\approx 0.25 , periodic correction achieves NEPE 0.486 ± 0.009 0.486\\pm 0.009 , while adaptive scheduling reduces this to 0.288 ± 0.009 0.288\\pm 0.009 , a 41 % 41\\% reduction in excess pathwise error at the same projection budget. Since original PDM projects after every inner Langevin update, this policy recovers 71.2 % 71.2\\% of PDM’s performance at 25 % 25\\% of the cost. Thus, even when the projection operator and diffusion model are inherited from a prior constrained diffusion method, projection timing remains a meaningful algorithmic degree of freedom."
+      },
+      {
+        "id": "S5",
+        "heading": "5 Discussion",
+        "level": 1,
+        "text": "Projection is usually treated as a feasibility operation: run the sampler, then force the result back onto the constraint set. Our results suggest a different view: in state-dependent generative rollouts, projection is an intervention in the dynamics, and delaying it changes the states from which future updates are computed. Applying it everywhere avoids this drift, but spends correction effort indiscriminately. Correction timing is therefore a budgeted control decision rather than a binary choice between terminal and stepwise projection. At matched projection budgets, adaptive scheduling improves pathwise fidelity over periodic correction by spending projections on high-defect steps rather than uniformly in time. The gains are largest when defect is concentrated, and smaller when violations are diffuse, which is exactly the regime predicted by the scheduling view. In the PDM experiment, the same idea improves a learned projected diffusion sampler without changing its model, constraints, or projection operator."
+      },
+      {
+        "id": "S5.SS1",
+        "heading": "5.1 Limitations and future work",
+        "level": 2,
+        "text": "Our scheduler uses one-step defect as a proxy for downstream trajectory error. This is effective when local constraint violation identifies steps that will perturb future updates, but it can fail when defect is poorly aligned with trajectory distortion or when small violations are dynamically amplified. The method also assumes access to a stable projection operator. If projection is cheap, stepwise correction may be preferable, and if projection is unstable or approximate, both the defect signal and corrected rollout may degrade. Finally, our learned diffusion experiment isolates projection timing by wrapping an existing PDM sampler, but larger models and higher-dimensional constraints may introduce interactions or noise not captured here. Future work could learn correction value directly, add lookahead or uncertainty estimates, and train generative models with the scheduler in the loop. More broadly, constrained generation should treat feasibility operations as trajectory-level interventions: the path that produces a feasible sample matters."
+      },
+      {
+        "id": "bib",
+        "heading": "References",
+        "level": 1,
+        "text": "Cardei et al. (2025a) M. Cardei, J. K. Christopher, T. Hartvigsen, B. Kailkhura, and F. Fioretto Constrained Discrete Diffusion . arXiv . Note: arXiv:2503.09790 [cs] External Links: Link , Document Cited by: §2 . Cardei et al. (2025b) M. Cardei, J. K. Christopher, B. Kailkhura, T. Hartvigsen, and F. Fioretto Constrained Molecular Generation with Discrete Diffusion for Drug Discovery . ( en ). External Links: Link Cited by: §1 , §2 . Cheng et al. (2024) C. Cheng, B. Han, D. C. Maddix, A. F. Ansari, A. Stuart, M. W. Mahoney, and B. Wang Gradient-Free Generation for Hard-Constrained Systems . ( en ). External Links: Link Cited by: §2 . Chi et al. (2024) C. Chi, Z. Xu, S. Feng, E. Cousineau, Y. Du, B. Burchfiel, R. Tedrake, and S. Song Diffusion Policy: Visuomotor Policy Learning via Action Diffusion . arXiv . Note: arXiv:2303.04137 [cs] version: 5 External Links: Link , Document Cited by: §2 . Christopher et al. (2024) J. K. Christopher, S. Baek, and F. Fioretto Constrained Synthesis with Projected Diffusion Models . ( en ). External Links: Link Cited by: §F.1 , §1 , §2 , §2 , §4.4 . Hairer (2001) E. Hairer Geometric Integration of Ordinary Differential Equations on Manifolds . BIT Numerical Mathematics 41 ( 5 ), pp. 996–1007 ( en ). External Links: ISSN 1572-9125 , Link , Document Cited by: §2 . Hoseinpour and Dvorkin (2025) M. Hoseinpour and V. Dvorkin Constrained Diffusion Models for Synthesizing Representative Power Flow Datasets . arXiv . Note: arXiv:2506.11281 [cs] External Links: Link , Document Cited by: §2 . Janner et al. (2022) M. Janner, Y. Du, J. B. Tenenbaum, and S. Levine Planning with Diffusion for Flexible Behavior Synthesis . arXiv . Note: arXiv:2205.09991 [cs] External Links: Link , Document Cited by: §2 . Kim and Kim (2026) K. Kim and S. Kim Model Already Knows the Best Noise: Bayesian Active Noise Selection via Attention in Video Diffusion Model . arXiv . Note: arXiv:2505.17561 [cs] External Links: Link , Document Cited by: §2 . Li et al. (2024) A. Li, Z. Ding, A. B. Dieng, and R. Beeson DiffuSolve: Diffusion-based Solver for Non-convex Trajectory Optimization . arXiv . Note: arXiv:2403.05571 [cs] version: 4 External Links: Link , Document Cited by: §1 , §2 . Liang et al. (2025) J. Liang, J. K. Christopher, S. Koenig, and F. Fioretto Simultaneous Multi-Robot Motion Planning with Projected Diffusion Models . arXiv . Note: arXiv:2502.03607 [cs] External Links: Link , Document Cited by: §F.1 , §1 , §2 , §4.4 . Liñán and Diego (2023) M. B. Liñán and D. M. d. Diego Retraction maps: a seed of geometric integrators . Foundations of Computational Mathematics 23 ( 4 ), pp. 1335–1380 . Note: arXiv:2106.00607 [math] External Links: ISSN 1615-3375, 1615-3383 , Link , Document Cited by: §2 . McLachlan et al. (2014) R. I. McLachlan, K. Modin, O. Verdier, and M. Wilkins Geometric Generalisations of SHAKE and RATTLE . Foundations of Computational Mathematics 14 ( 2 ), pp. 339–370 . Note: arXiv:1207.3367 [math] External Links: ISSN 1615-3375, 1615-3383 , Link , Document Cited by: §2 . Ni and Qureshi (2024) R. Ni and A. H. Qureshi Physics-informed Neural Motion Planning on Constraint Manifolds . arXiv . Note: arXiv:2403.05765 [cs] External Links: Link , Document Cited by: §2 . Pei et al. (2025) J. Pei, H. Hu, and S. Gu Optimal Stepsize for Diffusion Sampling . arXiv . Note: arXiv:2503.21774 [cs] version: 1 External Links: Link , Document Cited by: §2 . Santi et al. (2025) R. D. Santi, K. Protopapas, Y. Hsieh, and A. Krause Verifier-Constrained Flow Expansion for Discovery Beyond the Data . ( en ). External Links: Link Cited by: §1 , §2 . Séguin et al. (2024) A. Séguin, G. Ceruti, and D. Kressner From low-rank retractions to dynamical low-rank approximation and back . BIT Numerical Mathematics 64 ( 3 ), pp. 25 ( en ). External Links: ISSN 1572-9125 , Link , Document Cited by: §2 . Utkarsh et al. (2025) U. Utkarsh, P. Cai, A. Edelman, R. Gomez-Bombarelli, and C. V. Rackauckas Physics-Constrained Flow Matching: Sampling Generative Models with Hard Constraints . arXiv . Note: arXiv:2506.04171 [cs] External Links: Link , Document Cited by: §2 . Xiao et al. (2024) W. Xiao, T. Wang, C. Gan, R. Hasani, M. Lechner, and D. Rus SafeDiffuser: Safe Planning with Diffusion Probabilistic Models . ( en ). External Links: Link Cited by: §2 . Yang et al. (2026) Z. Yang, X. Dai, D. Yu, Z. Li, M. Khadiv, S. Hirche, and S. Haddadin UniConFlow: A Unified Constrained Flow-Matching Framework for Certified Motion Planning . arXiv . Note: arXiv:2506.02955 [cs] version: 2 External Links: Link , Document Cited by: §2 . Ye et al. (2025) Z. Ye, Z. Chen, T. Li, Z. Huang, W. Luo, and G. Qi Schedule On the Fly: Diffusion Time Prediction for Faster and Better Image Generation . arXiv . Note: arXiv:2412.01243 [cs] version: 3 External Links: Link , Document Cited by: §2 . Zhang et al. (2024) H. Zhang, Z. Wu, Z. Xing, J. Shao, and Y. Jiang AdaDiff: Adaptive Step Selection for Fast Diffusion Models . arXiv . Note: arXiv:2311.14768 [cs] version: 2 External Links: Link , Document Cited by: §2 . Zhang et al. (2025) J. Zhang, L. Zhao, A. Papachristodoulou, and J. Umenberger Constrained Diffusers for Safe Planning and Control . arXiv . Note: arXiv:2506.12544 [eess] External Links: Link , Document Cited by: §1 , §2 ."
+      },
+      {
+        "id": "A1",
+        "heading": "Appendix A Overview",
+        "level": 1,
+        "text": "This appendix provides additional details for the formulation, implementation, metrics, and experiments in the main paper. Sec. B fixes notation and describes all correction schedules, Sec. C gives the full online budgeted scheduler and threshold construction, Sec. D defines all reported metrics, Sec. E describes the controlled manifold experiments, Sec. F details the Projected Diffusion Models experiment, Sec. G gives implementation details, Sec. H gives reproducibility notes, and Sec. I gives additional diagnostics and failure modes."
+      },
+      {
+        "id": "A2.SS0.SSS0.Px1",
+        "heading": "Generative rollout.",
+        "level": 3,
+        "text": "We consider a generative rollout in an ambient space 𝒳 ⊆ ℝ d \\mathcal{X}\\subseteq\\mathbb{R}^{d} with a constraint set ℳ ⊂ 𝒳 \\mathcal{M}\\subset\\mathcal{X} . A rollout is generated by repeatedly applying an update operator x ~ t + 1 = Φ h ( x t ) , t = 0 , … , T − 1 , \\tilde{x}_{t+1}=\\Phi_{h}(x_{t}),\\qquad t=0,\\ldots,T-1, where h h denotes the step size or sampler discretization parameter. In diffusion models, Φ h \\Phi_{h} may be one reverse diffusion update, one denoising update, or one inner Langevin update, depending on the sampler. In all experiments, the scheduling horizon T T counts the number of update locations at which projection could be applied."
+      },
+      {
+        "id": "A2.SS0.SSS0.Px2",
+        "heading": "Projection or retraction.",
+        "level": 3,
+        "text": "We assume access to a correction map Π : 𝒳 → ℳ , \\Pi:\\mathcal{X}\\to\\mathcal{M}, which maps a proposed state back to the constraint set. We use “projection” broadly: Π \\Pi may be an exact Euclidean projection, a retraction, a constraint solver, or the projection operator inherited from a projected diffusion method. The scheduler does not require gradients through Π \\Pi ."
+      },
+      {
+        "id": "A2.SS0.SSS0.Px3",
+        "heading": "Defect.",
+        "level": 3,
+        "text": "For a proposed update x ~ t + 1 \\tilde{x}_{t+1} , the one-step defect is s t = d ⁡ ( x ~ t + 1 , ℳ ) , s_{t}=d(\\tilde{x}_{t+1},\\mathcal{M}), where d d is a domain-specific constraint violation or distance-to-feasibility score. When a closed-form defect is unavailable, we use the projection residual d ⁡ ( x , ℳ ) = ‖ x − Π ⁡ ( x ) ‖ , d(x,\\mathcal{M})=\\|x-\\Pi(x)\\|, with the norm chosen to match the state representation."
+      },
+      {
+        "id": "A2.SS0.SSS0.Px4",
+        "heading": "Correction schedule.",
+        "level": 3,
+        "text": "A correction schedule is a binary policy σ : { 0 , … , T − 1 } → { 0 , 1 } , \\sigma:\\{0,\\ldots,T-1\\}\\to\\{0,1\\}, where σ ⁡ ( t ) = 1 \\sigma(t)=1 means projection is applied after update t t . The corrected rollout is x t + 1 = { Π ⁡ ( x ~ t + 1 ) if ​ σ ​ ( t ) = 1 , x ~ t + 1 if ​ σ ​ ( t ) = 0 . x_{t+1}=\\begin{cases}\\Pi(\\tilde{x}_{t+1})&\\text{if }\\sigma(t)=1,\\\\ \\tilde{x}_{t+1}&\\text{if }\\sigma(t)=0.\\end{cases}"
+      },
+      {
+        "id": "A2.SS0.SSS0.Px5",
+        "heading": "Standard schedules.",
+        "level": 3,
+        "text": "The main paper compares four correction schedules: • Terminal correction: no intermediate projection is applied, and projection is applied only at the end of the rollout. • Stepwise correction: projection is applied after every update. • Periodic correction: projection is applied uniformly in time subject to a fixed projection budget. • Adaptive budgeted correction: projection is applied online according to defect, time, and remaining budget."
+      },
+      {
+        "id": "A2.SS0.SSS0.Px6",
+        "heading": "Projection budget.",
+        "level": 3,
+        "text": "For a rollout of length T T , a budget B B permits at most B B projection calls. We report budget as the fraction B / T . B/T. Periodic and adaptive schedules are compared at matched B / T B/T . Stepwise correction has B / T = 1 B/T=1 . Terminal correction has only a final correction; when normalized against stepwise cost, its intermediate projection budget is effectively zero."
+      },
+      {
+        "id": "A3.SS1",
+        "heading": "C.1 Ideal budgeted allocation",
+        "level": 2,
+        "text": "The scheduling problem can be written as a finite-budget allocation problem. Let V t ​ ( x t ) V_{t}(x_{t}) denote the downstream value of correcting at step t t , i.e. the expected reduction in future trajectory error if projection is applied at the current proposal. The ideal schedule solves max ⁡ ∑ t = 0 T − 1 σ ⁡ σ ⁡ ( t ) ​ V t ​ ( x t ) s.t. ∑ t = 0 T − 1 σ ⁡ ( t ) ≤ B , \\max_{\\sigma}\\sum_{t=0}^{T-1}\\sigma(t)V_{t}(x_{t})\\qquad\\text{s.t.}\\qquad\\sum_{t=0}^{T-1}\\sigma(t)\\leq B, where σ ⁡ ( t ) ∈ { 0 , 1 } \\sigma(t)\\in\\{0,1\\} . This formulation is conceptually useful but intractable in practice, as estimating V t ​ ( x t ) V_{t}(x_{t}) requires knowing how a correction changes future stochastic updates, which depends on the remaining sampler trajectory. We therefore approximate marginal value using the observable one-step defect s t s_{t} ."
+      },
+      {
+        "id": "A3.SS2",
+        "heading": "C.2 Budget-aware thresholds",
+        "level": 2,
+        "text": "The online budgeted scheduler uses thresholds indexed by time and remaining budget: λ t , b , t = 0 , … , T − 1 , b = 0 , … , B . \\lambda_{t,b},\\qquad t=0,\\ldots,T-1,\\quad b=0,\\ldots,B. The threshold λ t , b \\lambda_{t,b} is interpreted as the marginal price of spending one correction at time t t with b b corrections remaining. Given a proposed update x ~ t + 1 \\tilde{x}_{t+1} and defect s t s_{t} , the policy is x t + 1 = { Π ⁡ ( x ~ t + 1 ) if ​ b t > 0 ​ and ​ s t ≥ λ t , b t , x ~ t + 1 otherwise. x_{t+1}=\\begin{cases}\\Pi(\\tilde{x}_{t+1})&\\text{if }b_{t}>0\\text{ and }s_{t}\\geq\\lambda_{t,b_{t}},\\\\ \\tilde{x}_{t+1}&\\text{otherwise.}\\end{cases} If projection is applied, then b t + 1 = b t − 1 b_{t+1}=b_{t}-1 ; otherwise b t + 1 = b t b_{t+1}=b_{t} . The dependence on both t t and b b is important. Early in the rollout, a moderate defect may not justify spending a scarce projection if many future opportunities remain. Late in the rollout, the same defect may be worth correcting because unused budget has less future value. The threshold surface λ t , b \\lambda_{t,b} captures this online tradeoff."
+      },
+      {
+        "id": "A3.SS3",
+        "heading": "C.3 Empirical threshold construction",
+        "level": 2,
+        "text": "We estimate λ t , b \\lambda_{t,b} on held-out calibration rollouts disjoint from evaluation seeds. The calibration procedure collects defect traces from rollouts without intermediate adaptive correction. Let 𝒮 t = { s i , t } i = 1 N cal \\mathcal{S}_{t}=\\{s_{i,t}\\}_{i=1}^{N_{\\mathrm{cal}}} denote the empirical distribution of defects at time t t across calibration rollouts. A simple budget-aware threshold can be constructed by considering the future defect pool 𝒮 ≥ t = { s i , u : i = 1 , … , N cal , u = t , … , T − 1 } . \\mathcal{S}_{\\geq t}=\\{s_{i,u}:i=1,\\ldots,N_{\\mathrm{cal}},\\ u=t,\\ldots,T-1\\}. For remaining budget b b , we set λ t , b = Q 1 − b / ( T − t ) ​ ( 𝒮 ≥ t ) , \\lambda_{t,b}=Q_{1-b/(T-t)}(\\mathcal{S}_{\\geq t}), where Q q Q_{q} is the empirical q q -quantile. The convention is: λ t , 0 = + ∞ , λ t , b = − ∞ ​ if ​ b ≥ T − t . \\lambda_{t,0}=+\\infty,\\qquad\\lambda_{t,b}=-\\infty\\text{ if }b\\geq T-t. Thus, when no budget remains, correction is impossible; when enough budget remains to correct every future step, the scheduler corrects all remaining proposals. This rule estimates the defect level above which a future proposal belongs to the top b b remaining events. It is online, model-agnostic, and uses only held-out defect statistics."
+      },
+      {
+        "id": "A3.SS4",
+        "heading": "C.4 Budget compliance",
+        "level": 2,
+        "text": "Adaptive schedules are evaluated against periodic schedules with the same nominal budget B / T B/T . In implementations where the threshold rule may underspend, we record the achieved budget B ^ / T = 1 T ​ ∑ t = 0 T − 1 σ ⁡ ( t ) . \\widehat{B}/T=\\frac{1}{T}\\sum_{t=0}^{T-1}\\sigma(t). Main results use settings in which adaptive and periodic budgets are matched up to numerical tolerance. Tables report the target budget, and logs record achieved budget means and standard errors."
+      },
+      {
+        "id": "A3.SS5",
+        "heading": "C.5 Algorithm",
+        "level": 2,
+        "text": "Algorithm 2 Online budgeted adaptive correction 1: rollout length T T , budget B B , thresholds { λ t , b } \\{\\lambda_{t,b}\\} , update rule Φ h \\Phi_{h} , projection Π \\Pi , defect d d 2: b ← B b\\leftarrow B 3: for t = 0 , … , T − 1 t=0,\\ldots,T-1 do 4: x ~ t + 1 ← Φ h ​ ( x t ) \\tilde{x}_{t+1}\\leftarrow\\Phi_{h}(x_{t}) 5: s t ← d ⁡ ( x ~ t + 1 , ℳ ) s_{t}\\leftarrow d(\\tilde{x}_{t+1},\\mathcal{M}) 6: if b > 0 b>0 and s t ≥ λ t , b s_{t}\\geq\\lambda_{t,b} then 7: x t + 1 ← Π ⁡ ( x ~ t + 1 ) x_{t+1}\\leftarrow\\Pi(\\tilde{x}_{t+1}) 8: b ← b − 1 b\\leftarrow b-1 9: else 10: x t + 1 ← x ~ t + 1 x_{t+1}\\leftarrow\\tilde{x}_{t+1} 11: end if 12: end for"
+      },
+      {
+        "id": "A4.SS1",
+        "heading": "D.1 Endpoint distance to stepwise",
+        "level": 2,
+        "text": "Endpoint distance measures how far a method’s final sample deviates from the stepwise reference: E end ​ ( σ ) = ρ ⁡ ( x T σ , x T step ) , E_{\\mathrm{end}}(\\sigma)=\\rho(x_{T}^{\\sigma},x_{T}^{\\mathrm{step}}), where ρ \\rho is the domain-appropriate state distance. For Euclidean states, ρ \\rho is the Euclidean norm, and for manifold-valued states, ρ \\rho is the corresponding geodesic or product distance. In all cases, endpoint distance is computed between matched rollouts sharing the same initial condition and stochastic seed. Endpoint distance isolates the distributional shift induced by delayed correction. A terminally projected sample may be feasible, but if it differs substantially from the stepwise endpoint, then final feasibility did not recover the constrained rollout."
+      },
+      {
+        "id": "A4.SS2",
+        "heading": "D.2 Pathwise error",
+        "level": 2,
+        "text": "We use pathwise error to measure trajectory-level deviation. In the synthetic experiments, the primary pathwise score is cumulative constraint defect: E path ​ ( σ ) = ∑ t = 1 T d ⁡ ( x t σ , ℳ ) . E_{\\mathrm{path}}(\\sigma)=\\sum_{t=1}^{T}d(x_{t}^{\\sigma},\\mathcal{M}). For comparisons to a stepwise reference trajectory, we also compute state-space pathwise deviation: E state ​ ( σ ) = ∑ t = 1 T ρ ⁡ ( x t σ , x t step ) . E_{\\mathrm{state}}(\\sigma)=\\sum_{t=1}^{T}\\rho(x_{t}^{\\sigma},x_{t}^{\\mathrm{step}}). The main paper reports normalized excess pathwise error using the pathwise score appropriate to each experiment."
+      },
+      {
+        "id": "A4.SS3",
+        "heading": "D.3 Normalized excess pathwise error",
+        "level": 2,
+        "text": "Normalized excess pathwise error (NEPE) is defined between stepwise correction and terminal correction: NEPE ⁡ ( σ ) = E path ​ ( σ ) − E path ​ ( stepwise ) E path ​ ( terminal ) − E path ​ ( stepwise ) . \\mathrm{NEPE}(\\sigma)=\\frac{E_{\\mathrm{path}}(\\sigma)-E_{\\mathrm{path}}(\\mathrm{stepwise})}{E_{\\mathrm{path}}(\\mathrm{terminal})-E_{\\mathrm{path}}(\\mathrm{stepwise})}. Thus stepwise correction has NEPE 0 0 and terminal correction has NEPE 1 1 . Lower values are better. When the denominator is below a numerical tolerance, the rollout is marked degenerate and excluded from normalized summaries. Raw pathwise values are retained in logs."
+      },
+      {
+        "id": "A4.SS4",
+        "heading": "D.4 Improvement percentages",
+        "level": 2,
+        "text": "For a metric m m where lower is better, the adaptive improvement over periodic is Δ m = m periodic − m adaptive m periodic . \\Delta_{m}=\\frac{m_{\\mathrm{periodic}}-m_{\\mathrm{adaptive}}}{m_{\\mathrm{periodic}}}. Positive values indicate adaptive improvement. Negative values indicate periodic is better. Tables compute Δ m \\Delta_{m} from unrounded paired values. For PDM, we also report the fraction of full correction benefit recovered: Benefit ⁡ ( σ ) = 1 − NEPE ⁡ ( σ ) . \\mathrm{Benefit}(\\sigma)=1-\\mathrm{NEPE}(\\sigma)."
+      },
+      {
+        "id": "A4.SS5",
+        "heading": "D.5 Win rates",
+        "level": 2,
+        "text": "Win rates compare adaptive and periodic schedules at matched domain, seed, and projection budget. For metric m m , the adaptive win indicator is 𝟏 [ m adaptive < m periodic ] . \\mathbf{1}[m_{\\mathrm{adaptive}}<m_{\\mathrm{periodic}}]. The reported win rate is the empirical mean of this indicator across paired comparisons. Uncertainty is reported as binomial standard error: SE = p ^ ​ ( 1 − p ^ ) N , \\mathrm{SE}=\\sqrt{\\frac{\\hat{p}(1-\\hat{p})}{N}}, where p ^ \\hat{p} is the observed win rate and N N is the number of paired comparisons."
+      },
+      {
+        "id": "A5.SS1",
+        "heading": "E.1 Overview",
+        "level": 2,
+        "text": "The synthetic experiments are designed to isolate correction timing under controlled geometry. Each domain specifies: • a constraint set ℳ \\mathcal{M} ; • an ambient update rule Φ h \\Phi_{h} ; • a projection or retraction Π \\Pi ; • a defect function d ⁡ ( x , ℳ ) d(x,\\mathcal{M}) ; • a distance ρ \\rho used for endpoint and state-space errors. We evaluate six domains: SO ⁡ ( 3 ) , SE ⁡ ( 3 ) , Terrain , SO ⁡ ( 3 ) ​ -Impulse , SE ⁡ ( 3 ) ​ -Lever , Terrain ​ -Ridge . \\mathrm{SO}(3),\\quad\\mathrm{SE}(3),\\quad\\mathrm{Terrain},\\quad\\mathrm{SO}(3)\\text{-Impulse},\\quad\\mathrm{SE}(3)\\text{-Lever},\\quad\\mathrm{Terrain}\\text{-Ridge}. The first three provide smooth baseline settings. The latter three introduce localized high-defect events, producing the heterogeneous defect profiles for which adaptive scheduling is designed."
+      },
+      {
+        "id": "A5.SS2",
+        "heading": "E.2 SO ⁡ ( 3 ) \\mathrm{SO}(3)",
+        "level": 2,
+        "text": "States are represented as matrices in ℝ 3 × 3 \\mathbb{R}^{3\\times 3} with the constraint set ℳ = SO ( 3 ) = { R ∈ ℝ 3 × 3 : R ⊤ R = I , det ( R ) = 1 } . \\mathcal{M}=\\mathrm{SO}(3)=\\{R\\in\\mathbb{R}^{3\\times 3}:R^{\\top}R=I,\\ \\det(R)=1\\}. Projection is implemented by polar decomposition. Given an ambient matrix A A , compute A = U ​ Σ ​ V ⊤ , A=U\\Sigma V^{\\top}, and set Π ⁡ ( A ) = U ​ V ⊤ , \\Pi(A)=UV^{\\top}, with the determinant corrected if necessary. The defect is the orthogonality residual d ⁡ ( A , SO ⁡ ( 3 ) ) = ‖ A ⊤ ​ A − I ‖ F + | det ( A ) − 1 | . d(A,\\mathrm{SO}(3))=\\|A^{\\top}A-I\\|_{F}+|\\det(A)-1|. Endpoint distances use the geodesic rotation distance ρ ⁡ ( R 1 , R 2 ) = ‖ log ⁡ ( R 1 ⊤ ​ R 2 ) ‖ F / 2 . \\rho(R_{1},R_{2})=\\|\\log(R_{1}^{\\top}R_{2})\\|_{F}/\\sqrt{2}."
+      },
+      {
+        "id": "A5.SS3",
+        "heading": "E.3 SE ⁡ ( 3 ) \\mathrm{SE}(3)",
+        "level": 2,
+        "text": "States consist of a rotation and translation pair ( R , p ) (R,p) , with R ∈ SO ⁡ ( 3 ) , p ∈ ℝ 3 . R\\in\\mathrm{SO}(3),\\qquad p\\in\\mathbb{R}^{3}. Projection applies the SO ⁡ ( 3 ) \\mathrm{SO}(3) projection to the rotational block and leaves translation unchanged unless the domain-specific constraint requires translation correction. The defect combines rotational feasibility and translational constraint violation: d ⁡ ( ( A , p ) , SE ⁡ ( 3 ) ) = d ⁡ ( A , SO ⁡ ( 3 ) ) + α ​ d trans ​ ( p ) . d((A,p),\\mathrm{SE}(3))=d(A,\\mathrm{SO}(3))+\\alpha d_{\\mathrm{trans}}(p). Endpoint distance is the weighted product metric ρ ⁡ ( ( R 1 , p 1 ) , ( R 2 , p 2 ) ) = ρ SO ⁡ ( 3 ) ​ ( R 1 , R 2 ) + α ​ ‖ p 1 − p 2 ‖ 2 . \\rho((R_{1},p_{1}),(R_{2},p_{2}))=\\rho_{\\mathrm{SO}(3)}(R_{1},R_{2})+\\alpha\\|p_{1}-p_{2}\\|_{2}."
+      },
+      {
+        "id": "A5.SS4",
+        "heading": "E.4 Terrain",
+        "level": 2,
+        "text": "The terrain domain uses a graph-like constraint manifold ℳ = { ( u , v , z ) : z = f ⁡ ( u , v ) } , \\mathcal{M}=\\{(u,v,z):z=f(u,v)\\}, where f f is a smooth terrain height field. Projection maps an ambient point ( u , v , z ) (u,v,z) to Π ⁡ ( u , v , z ) = ( u , v , f ⁡ ( u , v ) ) . \\Pi(u,v,z)=(u,v,f(u,v)). The defect is vertical deviation: d ⁡ ( ( u , v , z ) , ℳ ) = | z − f ⁡ ( u , v ) | . d((u,v,z),\\mathcal{M})=|z-f(u,v)|. Endpoint and pathwise distances are computed in ambient Euclidean coordinates."
+      },
+      {
+        "id": "A5.SS5",
+        "heading": "E.5 Impulse, lever, and ridge variants",
+        "level": 2,
+        "text": "The volatile variants introduce localized regions where the ambient dynamics produce larger mismatch with the constraint set. These variants are not separate methods; their purpose is to create rollouts in which defect mass is concentrated in a small subset of steps."
+      },
+      {
+        "id": "A5.SS5.SSS0.Px1",
+        "heading": "SO ⁡ ( 3 ) \\mathrm{SO}(3) -Impulse.",
+        "level": 3,
+        "text": "The impulse variant adds a localized ambient perturbation to the rotation update, producing short bursts of large orthogonality defect."
+      },
+      {
+        "id": "A5.SS5.SSS0.Px2",
+        "heading": "SE ⁡ ( 3 ) \\mathrm{SE}(3) -Lever.",
+        "level": 3,
+        "text": "The lever variant couples rotational and translational errors so that small rotational drift can induce amplified endpoint displacement. This tests whether adaptive correction can identify geometrically consequential errors rather than merely large Euclidean deviations."
+      },
+      {
+        "id": "A5.SS5.SSS0.Px3",
+        "heading": "Terrain-Ridge.",
+        "level": 3,
+        "text": "The ridge terrain adds high-curvature regions to the height field. Rollouts crossing the ridge produce localized projection–dynamics mismatch, while flatter regions remain low-defect."
+      },
+      {
+        "id": "A5.SS6",
+        "heading": "E.6 Defect concentration",
+        "level": 2,
+        "text": "To quantify how concentrated defect is along a rollout, we compute top- q q defect mass. Let s 1 , … , s T s_{1},\\ldots,s_{T} be the defect sequence and let I q I_{q} index the largest ⌈ q ​ T ⌉ \\lceil qT\\rceil defect values. The top- q q mass is C q = ∑ t ∈ I q s t ∑ t = 1 T s t . C_{q}=\\frac{\\sum_{t\\in I_{q}}s_{t}}{\\sum_{t=1}^{T}s_{t}}. In the main experiments, q = 0.2 q=0.2 unless otherwise stated. Large C q C_{q} indicates that a small fraction of steps accounts for most of the defect. This is the regime where adaptive scheduling should have the largest advantage over periodic correction."
+      },
+      {
+        "id": "A5.SS7",
+        "heading": "E.7 Additional Results",
+        "level": 2,
+        "text": "Figure 6: Endpoint distance to the stepwise constrained reference. Delayed correction can change the final sample even when a terminal projection restores feasibility. Adaptive scheduling often reduces this endpoint shift at fixed projection budget, especially in volatile domains, but endpoint gains are more geometry-dependent than pathwise gains. This complements the main Normalized Excess Path Error results in Fig. 3 . Domain Endpoint win ↑ \\uparrow Pathwise win ↑ \\uparrow Median Δ \\Delta NEPE ↑ \\uparrow N N SO(3) 76% ± \\pm 2% 90% ± \\pm 2% 85% 336 SE(3) 59% ± \\pm 3% 90% ± \\pm 2% 31% 336 Terrain 49% ± \\pm 3% 85% ± \\pm 2% 52% 336 SO(3)-Impulse 90% ± \\pm 2% 90% ± \\pm 2% 67% 336 SE(3)-Lever 79% ± \\pm 2% 86% ± \\pm 2% 48% 336 Terrain-Ridge 43% ± \\pm 3% 88% ± \\pm 2% 48% 336 Table 3: Adaptive scheduling is reliable on paired budget-matched comparisons. Each comparison matches domain, seed, and projection budget. Endpoint win rate reports how often adaptive ends closer to the stepwise reference than periodic; pathwise win rate reports how often adaptive obtains lower Normalized Excess Path Error. Adaptive is especially reliable on the pathwise metric, winning 85 85 – 90 % 90\\% of paired comparisons across domains, while endpoint wins vary with geometry. Fig. 6 provides visualization of endpoint distance from stepwise to periodic and adaptive policies alongside the metrics in Tab. 1 . Tab. 3 provides paired win-rate diagnostics to accompany the rollouts reported in Tab. 1 ."
+      },
+      {
+        "id": "A6.SS1",
+        "heading": "F.1 Purpose",
+        "level": 2,
+        "text": "The PDM experiment tests whether correction scheduling can wrap an existing constrained diffusion sampler. Unlike the controlled synthetic domains, this experiment does not introduce a new generative model or projection operator: we inherit the model, constraints, and projection machinery from Projected Diffusion Models (PDM), and vary only when projection is applied [ Christopher et al., 2024 , Liang et al., 2025 ] ."
+      },
+      {
+        "id": "A6.SS2",
+        "heading": "F.2 Original PDM as stepwise projection",
+        "level": 2,
+        "text": "PDM applies projection throughout sampling. In the trajectory experiment used here, projection is applied after every inner Langevin update. Therefore, in our terminology, original PDM is the stepwise baseline: σ PDM ​ ( t ) = 1 ∀ t . \\sigma_{\\mathrm{PDM}}(t)=1\\qquad\\forall t. The scheduling horizon T T counts inner Langevin updates, not just outer diffusion noise levels. This is important for cost accounting: if the sampler uses K K outer noise levels and L L inner Langevin steps per level, then T = K ​ L . T=KL. A budget B / T = 0.25 B/T=0.25 therefore means projection is applied to one quarter of all inner Langevin update locations."
+      },
+      {
+        "id": "A6.SS3",
+        "heading": "F.3 Wrapped schedules",
+        "level": 2,
+        "text": "We evaluate four variants: • Original PDM / stepwise: project after every inner Langevin update. • Terminal: run the sampler without intermediate projection and apply projection at the end. • Periodic: apply projection uniformly over inner Langevin updates under budget B B . • Adaptive budgeted: apply projection when s t ≥ λ t , b t s_{t}\\geq\\lambda_{t,b_{t}} and budget remains. All variants use the same trained PDM model, the same constraints, and the same projection operator."
+      },
+      {
+        "id": "A6.SS4",
+        "heading": "F.4 Defect for PDM",
+        "level": 2,
+        "text": "When PDM exposes an explicit constraint violation, we use that violation as the defect. Otherwise, we define defect by projection residual: s t = ‖ x ~ t + 1 − Π ⁡ ( x ~ t + 1 ) ‖ . s_{t}=\\|\\tilde{x}_{t+1}-\\Pi(\\tilde{x}_{t+1})\\|. This measures how far the proposed state lies from the constraint set under the same projection operator used by PDM."
+      },
+      {
+        "id": "A6.SS5",
+        "heading": "F.5 Metrics",
+        "level": 2,
+        "text": "PDM NEPE is normalized between original PDM and terminal correction: NEPE ⁡ ( σ ) = E path ​ ( σ ) − E path ​ ( PDM ) E path ​ ( terminal ) − E path ​ ( PDM ) . \\mathrm{NEPE}(\\sigma)=\\frac{E_{\\mathrm{path}}(\\sigma)-E_{\\mathrm{path}}(\\mathrm{PDM})}{E_{\\mathrm{path}}(\\mathrm{terminal})-E_{\\mathrm{path}}(\\mathrm{PDM})}. Thus, original PDM has NEPE 0 0 and terminal correction has NEPE 1 1 . Lower values indicate closer agreement with the fully projected PDM trajectory."
+      },
+      {
+        "id": "A6.SS6",
+        "heading": "F.6 Fixed-budget result",
+        "level": 2,
+        "text": "At B / T ≈ 0.25 B/T\\approx 0.25 , periodic correction achieves NEPE 0.486 ± 0.009 0.486\\pm 0.009 , while adaptive budgeted correction achieves NEPE 0.288 ± 0.009 0.288\\pm 0.009 . The improvement over periodic is 41 % 41\\% . Since original PDM uses projection at every inner Langevin update, this operating point uses only 25 % 25\\% of the original projection calls, saving 75 % 75\\% of projection calls. In absolute terms, adaptive scheduling recovers 71.2 % 71.2\\% of the full PDM correction benefit at one quarter of the projection cost."
+      },
+      {
+        "id": "A7.SS1",
+        "heading": "G.1 Random seeds and paired evaluation",
+        "level": 2,
+        "text": "All comparisons are paired by seed. For each initial condition and random seed, we run terminal, periodic, adaptive, and stepwise schedules under the same underlying stochastic updates whenever possible. This reduces variance and ensures that differences are attributable to projection timing rather than different noise realizations."
+      },
+      {
+        "id": "A7.SS2",
+        "heading": "G.2 Calibration/evaluation split",
+        "level": 2,
+        "text": "Thresholds are estimated using held-out calibration rollouts, and evaluation rollouts are disjoint from calibration rollouts. Synthetic and PDM experiments each use separate calibration and evaluation seeds to prevent the adaptive scheduler from selecting thresholds based on evaluation trajectories."
+      },
+      {
+        "id": "A7.SS3",
+        "heading": "G.3 Budget grid",
+        "level": 2,
+        "text": "Experiments evaluate a grid of projection budgets from 0.00 0.00 to 1.00 1.00 with a step size of 0.05 0.05 . Tables report a representative operating point at B / T ≈ 0.25 B/T\\approx 0.25 ."
+      },
+      {
+        "id": "A7.SS4",
+        "heading": "G.4 Uncertainty",
+        "level": 2,
+        "text": "Curves report means over seeds. Shaded regions, when shown, indicate standard error of the mean. Tables report mean ± \\pm standard error unless otherwise stated. Win-rate uncertainties use binomial standard error."
+      },
+      {
+        "id": "A7.SS5",
+        "heading": "G.5 Numerical safeguards",
+        "level": 2,
+        "text": "Normalized metrics are not reported when the normalization denominator is below tolerance. Specifically, if E path ​ ( terminal ) − E path ​ ( stepwise ) < ϵ , E_{\\mathrm{path}}(\\mathrm{terminal})-E_{\\mathrm{path}}(\\mathrm{stepwise})<\\epsilon, the corresponding NEPE value is marked degenerate. This prevents near-identical terminal and stepwise runs from producing unstable normalized values."
+      },
+      {
+        "id": "A7.SS6",
+        "heading": "G.6 Projection cost",
+        "level": 2,
+        "text": "The primary cost metric is the number of projection calls. This is the relevant cost for settings where projection or constraint solving is expensive relative to a model update. We do not claim that projection count exactly equals wall-clock time in every domain; rather, it gives a model-independent accounting of constraint enforcement effort. In PDM, where projection is applied after inner Langevin updates, cost is counted at the inner-update level."
+      },
+      {
+        "id": "A8",
+        "heading": "Appendix H Reproducibility Notes",
+        "level": 1,
+        "text": "A full evaluation run consists of: 1. generating calibration rollouts; 2. estimating λ t , b \\lambda_{t,b} ; 3. running paired evaluation rollouts for all schedules; 4. aggregating endpoint and pathwise metrics; 5. producing figures and tables. All full paper evaluations run on a single NVIDIA A100 GPU via Modal in fewer than 8 8 hours, with lower-fidelity and preliminary evaluations running within 24 24 hours on an Apple M1 (16GB)."
+      },
+      {
+        "id": "A9.SS1",
+        "heading": "I.1 Budget usage",
+        "level": 2,
+        "text": "For each method, domain, and target budget, we log: B ^ / T = 1 T ​ ∑ t = 0 T − 1 σ ⁡ ( t ) . \\widehat{B}/T=\\frac{1}{T}\\sum_{t=0}^{T-1}\\sigma(t). Periodic schedules use the requested budget by construction up to rounding. Adaptive schedules are checked to ensure that achieved budgets match periodic budgets within tolerance."
+      },
+      {
+        "id": "A9.SS2",
+        "heading": "I.2 Degenerate regimes",
+        "level": 2,
+        "text": "Some domains or sampler settings may produce little difference between terminal and stepwise correction. In such cases, NEPE becomes unstable because the denominator is small. These regimes indicate that projection timing is not consequential under that sampler and constraint configuration. We report raw pathwise errors in diagnostics and exclude degenerate normalized values."
+      },
+      {
+        "id": "A9.SS3",
+        "heading": "I.3 Failure modes",
+        "level": 2,
+        "text": "The method can fail or underperform when: • defect is poorly aligned with downstream trajectory distortion; • the projection operator is unstable or discontinuous; • constraint violation is diffuse and uniform, making periodic correction competitive; • the adaptive threshold surface is poorly calibrated; • projection cost is negligible, making stepwise correction preferable. These cases are consistent with the scheduling interpretation, that adaptive allocation is most useful when projection is costly and defect is concentrated."
+      }
+    ]
+  },
+  "text": "Enforcing Constraints in Generative Sampling via Adaptive Correction Scheduling Skip to main content Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: Why HTML? Report Issue Back to Abstract Download PDF Contents Reading mode Colour theme License: CC BY 4.0 arXiv:2605.11214v1 [cs.LG] 11 May 2026 Enforcing Constraints in Generative Sampling via Adaptive Correction Scheduling Noah Trupin Yexiang Xue Affiliation: Department of Computer Science Affiliation: Purdue University Email: {ntrupin,yexiang}@purdue.edu Abstract Hard constraints in generative sampling are typically enforced by projection, applied either once at the end of sampling or after every update. This binary framing overlooks a fundamental issue: projection changes the distribution of states which future updates depend on. As a result, delayed projection can produce samples that are feasible but inconsistent with the intended sampling dynamics, even after final projection. We formalize constraint enforcement as a correction scheduling problem over the generative rollout. Using one-step constraint defect as a local signal of geometric mismatch, we introduce adaptive correction scheduling , a state-dependent policy that allocates projection budget to the steps that most strongly perturb the trajectory. Terminal and stepwise projection arise as limiting cases of this family. Across controlled manifold rollouts and a learned projected diffusion sampler, adaptive scheduling improves the cost–accuracy frontier at matched projection budgets, recovering 71.2 % 71.2\\% of full stepwise benefit with 75 % 75\\% fewer corrections. These results show that constraint timing is a first-class design variable in generative sampling, and that enforcing feasibility alone is insufficient to preserve the intended constrained sampling dynamics. Figure 1: Adaptive correction preserves rollouts at a fraction of the cost. Terminal correction projects only after the trajectory has already drifted from the ridged terrain, producing a feasible but dynamically inconsistent path. Stepwise correction prevents drift by projecting after every update, but pays the full projection cost. Our adaptive scheduler uses the same projection operator but spends only 25 % 25\\% of the projection calls, concentrating them where defect is largest to closely track the stepwise rollout. 1 Introduction Generative models are increasingly deployed in settings where outputs must satisfy hard constraints, including trajectory synthesis, robot planning, and structured generation ( Li et al., 2024 ; Liang et al., 2025 ; Zhang et al., 2025 ; Christopher et al., 2024 ; Cardei et al., 2025b ; Santi et al., 2025 ) . In these domains, samples are required to lie on manifolds defined by geometric, physical, or task-specific structures. A common strategy is to run the generative process in the ambient space and enforce feasibility through projection. This raises the question: when should projection be applied? In practice, two strategies dominate: terminal correction projects only at the end of sampling, while stepwise correction projects after every update. Both are widely used, and both can produce feasible outputs. However, they treat correction timing as a fixed design choice rather than part of the algorithm. This framing ignores that generative updates are state-dependent, as each step is computed from the current iterate. Once a rollout leaves the constraint set, subsequent updates are evaluated at states that a constrained trajectory would never visit. A later projection can restore feasibility, but it cannot in general undo the distributional shift induced by these off-manifold states. As a result, terminally corrected samples are often feasible but wrong. They lie on the constraint set, but correspond to a trajectory that deviated from the constrained dynamics during rollout. Constraint enforcement is therefore not only about satisfying feasibility at the endpoint, but about preserving the trajectory distribution that produces that endpoint. This makes correction timing a resource allocation problem. In typical rollouts, most updates remain close to the constraint set, while a smaller subset produces large excursions that drive downstream error. Terminal correction under-allocates effort to these critical steps, while stepwise correction over-allocates effort everywhere. The central challenge is thus how to allocate a limited number of corrections across the rollout. We address this by reframing constraint enforcement as a correction scheduling problem. We use one-step constraint defect, the distance of a proposed update from the feasible set, as a local signal of geometric mismatch. Small defect indicates that the rollout remains close to the constrained trajectory, while large defect identifies steps whose effects are unlikely to be corrected later. This leads to an online budgeted policy: spend corrections on high-defect steps, where projection is expected to most reduce downstream trajectory error. This yields a family of online budgeted schedules that interpolate between terminal and stepwise correction while adapting to the realized defect profile of each rollout. Fundamentally, this policy is not a heuristic layered onto existing methods, but a direct consequence of viewing constraint enforcement through the lens of trajectory consistency. It is model-agnostic, requires no gradients through projection, and introduces negligible overhead beyond defect evaluation. Our contribution is a scheduling view of constrained generative sampling: 1. Timing changes the rollout. We show that delayed correction alters the distribution of future updates, producing endpoint deviations that cannot be resolved by terminal projection alone. 2. Constraint enforcement is a budget allocation problem. We formalize correction as allocating a limited number of projections across rollout, making terminal, periodic, and adaptive strategies directly comparable. 3. Defect provides an effective value proxy. An online budgeted scheduler uses defect to spend corrections on the steps that most strongly perturb the trajectory. 4. Adaptive scheduling improves the cost–accuracy frontier. At matched correction cost, adaptive policies recover near-stepwise fidelity while using substantially fewer projections. Across controlled manifold rollouts and learned diffusion settings, we observe that constraint violations are highly heterogeneous across time, and that selectively correcting high-defect steps consistently outperforms uniform strategies. These results demonstrate that constraint timing is a fundamental degree of freedom in generative sampling, and that enforcing feasibility alone is insufficient to preserve the intended constrained distribution. 2 Related Work Prior work enforces hard constraints in generative modeling by incorporating projection or optimization into the sampling loop ( Christopher et al., 2024 ; Santi et al., 2025 ; Utkarsh et al., 2025 ; Zhang et al., 2025 ; Hoseinpour and Dvorkin, 2025 ) . In diffusion and flow-based models, projected sampling methods often apply projection after each step to maintain feasibility throughout generation ( Chi et al., 2024 ; Li et al., 2024 ; Xiao et al., 2024 ; Janner et al., 2022 ; Liang et al., 2025 ; Yang et al., 2026 ; Santi et al., 2025 ; Utkarsh et al., 2025 ; Ni and Qureshi, 2024 ) . Variants introduce projected gradients, differentiable optimization layers, or discrete constraint operators ( Cardei et al., 2025a ; Cardei et al., 2025b ; Cheng et al., 2024 ; Hoseinpour and Dvorkin, 2025 ) . These approaches address how to enforce constraints, but largely treat correction timing as fixed. Stepwise projection is typically adopted as a default, while terminal projection is used as a cheaper alternative. Our work instead focuses on when correction should be applied, holding the underlying generative process fixed. This question is closely related to geometric integration, where the interaction between an update rule and a projection or retraction determines long-horizon behavior ( Hairer, 2001 ; Séguin et al., 2024 ; Christopher et al., 2024 ; McLachlan et al., 2014 ; Liñán and Diego, 2023 ) . Classical results show that projection and dynamics do not generally commute, leading to trajectory drift even when endpoints are feasible. Our setting differs in two key ways: the dynamics are learned and stochastic, and the objective is efficient allocation of correction compute alongside accuracy. A separate line of work studies adaptive schedules in diffusion, selecting timesteps or noise levels to trade off speed and sample quality. Methods such as AdaDiff, TDPM, stepsize distillation, and active noise estimation allocate denoising compute across time ( Zhang et al., 2024 ; Ye et al., 2025 ; Pei et al., 2025 ; Kim and Kim, 2026 ) . These approaches operate along an orthogonal axis: they control the generative dynamics themselves. In contrast, we allocate constraint enforcement, treating projection as a limited resource applied to preserve trajectory consistency. Closest are methods that interleave optimization with sampling, but these apply correction uniformly or through fixed heuristics. We instead treat correction as a budgeted allocation problem. 3 Adaptive Correction Scheduling Projection timing is a control decision. Rather than projecting only at the end or after every update, we treat correction as a finite resource to be allocated across the rollout. Given a rollout of length T T and a correction budget B B , the scheduler must choose which proposed updates to project. The ideal policy would spend corrections where they most reduce future trajectory error, but this marginal value is not directly observable in practice. Our method uses one-step constraint defect as an online proxy. At each step, the scheduler first applies the generative update without correction, measures how far the proposed state departs from the constraint set, and then decides whether this departure is worth spending one unit of budget. Large defect indicates that the rollout has entered a region where future updates are likely to differ from the constrained trajectory, while small defect indicates that projection can be safely delayed. As such, the adaptive scheduler spends corrections where the realized rollout is most likely to drift, while matching the projection budget of fixed periodic baselines. This section formalizes that idea: we describe rollouts with correction events, define defect as the scheduling signal, and derive our budget-aware online policy. 3.1 Rollouts with correction events Figure 2: Adaptive gains appear when trajectory error is concentrated in time. Each panel shows normalized state error from the stepwise reference alongside projection events. In the volatile terrain setting (left), a few high-defect regions dominate path error; periodic correction spends budget uniformly and misses several of these events, while adaptive correction concentrates projections where they most reduce downstream drift. In the homogeneous setting (right), defects are more diffuse, so the gap between adaptive and periodic narrows. This supports that adaptive correction helps most when a subset of rollout steps controls the trajectory error. We consider a generative process that ideally evolves on a constraint set ℳ ⊂ 𝒳 \\mathcal{M}\\subset\\mathcal{X} , where 𝒳 ⊆ ℝ d \\mathcal{X}\\subseteq\\mathbb{R}^{d} is an ambient space. In many applications, ℳ \\mathcal{M} is a smooth embedded manifold or a set defined by hard constraints, such as kinematic feasibility, geometric structure, or physical validity. In practice, however, generative models operate in the ambient space. A rollout proceeds by repeatedly applying a learned update rule x t + 1 = Φ h ( x t ) , t = 0 , … , T − 1 , x_{t+1}=\\Phi_{h}(x_{t}),\\qquad t=0,\\ldots,T-1, where Φ h \\Phi_{h} denotes a discrete update operator, such as a reverse diffusion step or flow-matching update, with step size h h . To enforce feasibility, we assume access to a projection or retraction operator Π : 𝒳 → ℳ \\Pi:\\mathcal{X}\\to\\mathcal{M} which maps arbitrary states back to the constraint set. The standard objective is to produce a final sample x T ∈ ℳ x_{T}\\in\\mathcal{M} . However, this endpoint view is incomplete, as the generative process is inherently trajectory-dependent: each update is computed from the current state. If a rollout leaves ℳ \\mathcal{M} , subsequent updates are evaluated at states a constrained trajectory would never visit. While later projection may restore feasibility, it generally cannot undo the off-manifold updates already taken. Fig. 2 illustrates greater accumulation of error throughout sampling without principled constraint enforcement. As such, projection is an intervention in the dynamics, and applying it changes both the states from which future updates are computed and the final sample. We formalize this intervention by introducing a correction schedule σ : { 0 , … , T − 1 } → { 0 , 1 } \\sigma:\\{0,\\ldots,T-1\\}\\to\\{0,1\\} , where σ ⁡ ( t ) = 1 \\sigma(t)=1 indicates that projection is applied after step t t . Given the proposed update x ~ t + 1 = Φ h ​ ( x t ) , \\tilde{x}_{t+1}=\\Phi_{h}(x_{t}), (1) the corrected rollout is defined by x t + 1 = { Π ⁡ ( x ~ t + 1 ) if ​ σ ​ ( t ) = 1 , x ~ t + 1 if ​ σ ​ ( t ) = 0 . x_{t+1}=\\begin{cases}\\Pi(\\tilde{x}_{t+1})&\\text{if }\\sigma(t)=1,\\\\ \\tilde{x}_{t+1}&\\text{if }\\sigma(t)=0.\\end{cases} This formulation unifies standard strategies: terminal correction sets σ ⁡ ( t ) = 0 \\sigma(t)=0 for all t < T − 1 t<T-1 and projects once at the end, stepwise correction sets σ ⁡ ( t ) = 1 \\sigma(t)=1 for all t t , and periodic correction corrects at fixed intervals. All these correspond to different ways of allocating correction events across the rollout. Our goal is to construct a fourth schedule that spends up to the same budget as a periodic rule but chooses correction times from the realized rollout. 3.2 Defect as the scheduling signal To determine when correction is necessary, we require a signal that quantifies how much a proposed update departs from the constraint set. We define a defect function d ⁡ ( x , ℳ ) d(x,\\mathcal{M}) that measures the distance or constraint violation of a state x x relative to ℳ \\mathcal{M} . This may be Euclidean distance from the constraint surface or some other domain-specific metric. For a proposed update x ~ t + 1 = Φ h ​ ( x t ) \\tilde{x}_{t+1}=\\Phi_{h}(x_{t}) , we define the one-step defect s t = d ⁡ ( x ~ t + 1 , ℳ ) . s_{t}=d(\\tilde{x}_{t+1},\\mathcal{M}). (2) This scalar captures the local mismatch introduced by the update. A small s t s_{t} indicates that the rollout remains close to the constraint set, while large s t s_{t} implies that the update produces a significant excursion. Large defect marks steps where future updates are likely to differ most from the constrained rollout, making s t s_{t} a local proxy for downstream trajectory distortion. 3.3 Budgeted online allocation We distinguish two types of error: Endpoint error, the deviation of the final sample from a reference constrained trajectory, and pathwise error, cumulative deviation from the constraint set during rollout. A final projection eliminates endpoint infeasibility, but not the pathwise error accumulated during rollout. We measure pathwise deviation via cumulative defect: E path = ∑ t = 1 T d ⁡ ( x t , ℳ ) . E_{\\mathrm{path}}=\\sum_{t=1}^{T}d(x_{t},\\mathcal{M}). From this perspective, constraint enforcement becomes a resource allocation problem. Each projection incurs cost, and a schedule determines how a limited number of projections is distributed across time. Terminal and stepwise correction are extreme allocations: one spends the budget at the end, the other spends it everywhere. If large deviations are concentrated in a small subset of steps, both are inefficient. This motivates adaptive, state-dependent schedules. A budgeted schedule therefore answers an online marginal question: at time t t , with b b corrections remaining, is the current deviation worth spending one correction, or should the budget be reserved for future steps? Let V t ​ ( x t ) = 𝔼 ⁡ [ E uncorrected − E corrected ∣ x t ] V_{t}(x_{t})=\\mathbb{E}\\!\\left[E_{\\mathrm{uncorrected}}-E_{\\mathrm{corrected}}\\mid x_{t}\\right] denote the downstream value of correcting at step t t . This quantity captures how much correcting the current step changes the remainder of the rollout. Given a rollout of length T T with a finite correction budget B B , the ideal policy would allocate corrections to maximize total reduction in trajectory error: max ⁡ ∑ t = 0 T − 1 σ ⁡ σ ⁡ ( t ) ​ V t ​ ( x t ) s.t. ∑ t = 0 T − 1 σ ⁡ ( t ) ≤ B , \\max_{\\sigma}\\sum_{t=0}^{T-1}\\sigma(t)V_{t}(x_{t})\\quad\\text{s.t.}\\quad\\sum_{t=0}^{T-1}\\sigma(t)\\leq B, (3) where σ ⁡ ( t ) ∈ { 0 , 1 } \\sigma(t)\\in\\{0,1\\} indicates whether correction is applied at step t t . This formulation makes explicit that correction scheduling is a budgeted allocation problem over time. In practice, however, V t V_{t} is not directly observable. Computing it would require estimating how a correction changes the remainder of the rollout under future stochastic updates. We therefore require a tractable online proxy. Noting that large one-step defect identifies precisely the states where the rollout has entered regions that induce large downstream deviation, we use defect as a surrogate of this marginal value. 3.4 Budget-aware thresholds The ideal policy in Eq. ( 3 ) requires the downstream value V t ​ ( x t ) V_{t}(x_{t}) of correcting at each step. This value is not observable online. We therefore use one-step defect s t s_{t} as a local proxy for marginal value, but unlike a fixed-threshold rule, the decision must account for the remaining budget. Let b t b_{t} denote the number of corrections remaining before step t t . Our scheduler uses a family of thresholds λ t , b , t = 0 , … , T − 1 , b = 0 , … , B , \\lambda_{t,b},\\qquad t=0,\\ldots,T-1,\\quad b=0,\\ldots,B, where λ t , b \\lambda_{t,b} is the marginal price of spending one correction at time t t with b b corrections remaining. Given a proposed update Eq. ( 1 ) and defect Eq. ( 2 ), the online budgeted policy is x t + 1 = { Π ⁡ ( x ~ t + 1 ) if ​ b t > 0 ​ and ​ s t ≥ λ t , b t , x ~ t + 1 otherwise . x_{t+1}=\\begin{cases}\\Pi(\\tilde{x}_{t+1})&\\text{if }b_{t}>0\\text{ and }s_{t}\\geq\\lambda_{t,b_{t}},\\\\ \\tilde{x}_{t+1}&\\text{otherwise}.\\end{cases} If projection is applied, the remaining budget is updated as b t + 1 = b t − 1 b_{t+1}=b_{t}-1 ; otherwise b t + 1 = b t b_{t+1}=b_{t} . The dependence on both t t and b b proves essential: the same defect may be worth correcting late in the rollout, when few future opportunities remain, but not early, when the scheduler should reserve budget for larger future excursions. Thus λ t , b \\lambda_{t,b} implements an online marginal-value threshold conditioned on the remaining horizon and correction budget. The thresholds λ t , b \\lambda_{t,b} determine how aggressively the scheduler spends its remaining corrections. In principle, they approximate the value boundary of the budgeted allocation problem: correction is applied when the observed defect is large enough to justify consuming one unit of budget. In Sec. 4 , thresholds are estimated on held-out calibration rollouts. For each time t t and remaining budget b b , we choose λ t , b \\lambda_{t,b} so that the scheduler spends corrections at the desired pace while preserving budget for future high-defect events. This yields an online policy that uses exactly the same total projection budget as periodic baselines, but allocates that budget according to the geometry of the realized rollout. In our experiments, this surface is estimated by held-out quantiles of future defect traces. This budget-aware policy reduces to familiar strategies as special cases: setting all thresholds to + ∞ +\\infty recovers terminal correction and setting all feasible thresholds to 0 0 recovers stepwise correction. 3.5 Algorithm Algorithm 1 Online Adaptive Correction Scheduling 1: budget B B , thresholds { λ t , b } t = 0 , b = 0 T − 1 , B \\{\\lambda_{t,b}\\}_{t=0,b=0}^{T-1,B} 2: b ← B b\\leftarrow B 3: for t = 0 , … , T − 1 t=0,\\ldots,T-1 do 4: Propose x ~ t + 1 ← Φ h ​ ( x t ) \\tilde{x}_{t+1}\\leftarrow\\Phi_{h}(x_{t}) 5: Compute defect s t ← d ⁡ ( x ~ t + 1 , ℳ ) s_{t}\\leftarrow d(\\tilde{x}_{t+1},\\mathcal{M}) 6: if b > 0 b>0 and s t ≥ λ t , b s_{t}\\geq\\lambda_{t,b} then 7: x t + 1 ← Π ⁡ ( x ~ t + 1 ) x_{t+1}\\leftarrow\\Pi(\\tilde{x}_{t+1}) 8: b ← b − 1 b\\leftarrow b-1 9: else 10: x t + 1 ← x ~ t + 1 x_{t+1}\\leftarrow\\tilde{x}_{t+1} 11: end if 12: end for Alg. 1 summarizes the online budgeted scheduler. The policy observes only the proposed update, its defect, the current time, and the remaining correction budget. It does not require gradients through projection, retraining the generative model, or modifying the update rule. Its overhead is the cost of evaluating the defect and comparing it to the precomputed threshold λ t , b \\lambda_{t,b} . Since the policy conditions on remaining budget, it avoids the main failure mode of fixed thresholding: spending corrections too early on moderate defects and exhausting the budget before larger excursions occur. The scheduler is therefore adaptive in two senses: it responds to the realized geometry of the rollout through s t s_{t} , and it adapts its spending rule to the remaining budget through λ t , b \\lambda_{t,b} . 4 Experiments We evaluate adaptive correction scheduling across manifold-valued and trajectory diffusion settings. The experiments ask: (i) how projection timing affects trajectory error, (ii) whether online allocation improves performance at fixed correction budget, and (iii) whether defect concentration explains these gains. 4.1 Projection timing induces persistent trajectory error Figure 3: Adaptive scheduling improves the cost–accuracy frontier across controlled manifolds. We plot Normalized Excess Path Error (NEPE), where stepwise correction is 0 0 and terminal correction is 1 1 ; lower is better. At matched projection budget B / T B/T , adaptive correction consistently lies below periodic correction, showing that where projections are applied matters more than simply applying them at a fixed frequency. The largest gains occur in the impulse, lever, and ridge variants, where defect is most concentrated. We begin by isolating the effect of correction timing. Fig. 1 visualizes representative rollouts under terminal, periodic, and adaptive schedules. Although terminal correction restores feasibility at the final step, the resulting trajectory deviates substantially from the constrained rollout. This effect is quantified in Tab. 1 , which measures endpoint distance to the stepwise reference as a function of correction budget. Even at low defect levels, delayed correction induces a persistent bias: the rollout evolves off-manifold, and subsequent updates compound this deviation. Final projection enforces feasibility but does not recover the original trajectory. An accompanying figure for the endpoint distances reported in Tab. 1 can be found in App. E.7 . These results establish that constraint enforcement cannot be understood purely as a final projection step. Projection timing affects the entire rollout, and the resulting error grows continuously with defect. 4.2 Scheduling dominates frequency at fixed budget Endpoint dist. ↓ \\downarrow NEPE ↓ \\downarrow Domain Periodic Adaptive Δ \\Delta Endpoint ↑ \\uparrow Periodic Adaptive Δ \\Delta NEPE ↑ \\uparrow SO(3) 0.509 ± \\pm 0.0062 0.111 ± \\pm 0.0090 78% ± \\pm 2% 0.366 ± \\pm 0.0013 0.130 ± \\pm 0.0016 65% ± \\pm 0% SE(3) 0.169 ± \\pm 0.011 0.201 ± \\pm 0.0098 -19% ± \\pm 7% 0.422 ± \\pm 0.0037 0.303 ± \\pm 0.0060 28% ± \\pm 1% Terrain 0.078 ± \\pm 0.017 0.083 ± \\pm 0.017 -6% ± \\pm 34% 0.521 ± \\pm 0.0064 0.323 ± \\pm 0.036 38% ± \\pm 7% SO(3)-Impulse 0.030 ± \\pm 0.0035 0.0088 ± \\pm 0.0005 70% ± \\pm 4% 0.470 ± \\pm 0.015 0.147 ± \\pm 0.015 69% ± \\pm 4% SE(3)-Lever 0.064 ± \\pm 0.0066 0.039 ± \\pm 0.0021 40% ± \\pm 9% 0.486 ± \\pm 0.013 0.252 ± \\pm 0.021 48% ± \\pm 5% Terrain-Ridge 0.080 ± \\pm 0.0098 0.079 ± \\pm 0.012 1% ± \\pm 32% 0.661 ± \\pm 0.039 0.361 ± \\pm 0.021 45% ± \\pm 4% Table 1: Fixed-budget synthetic summary at B / T ≈ 0.25 B/T\\approx 0.25 . Normalized Excess Path Error (NEPE) is normalized between stepwise correction ( 0 0 ) and terminal correction ( 1 1 ); lower is better. All methods are evaluated at matched projection budget, and entries report mean ± \\pm SE over paired seeds. Adaptive scheduling consistently improves NEPE, with especially large gains in the concentrated-defect variants; endpoint improvements are geometry-dependent, reflecting that pathwise consistency and final endpoint displacement are related but not identical. Fig. 3 shows the main cost–accuracy frontier. Across all six controlled domains, adaptive correction achieves lower NEPE than periodic correction at matched projection budget, with the largest gains in the impulse, lever, and ridge variants. Tab. 1 reports the fixed-budget slice at B / T ≈ 0.25 B/T\\approx 0.25 : adaptive consistently improves pathwise fidelity, while endpoint distance is geometry-dependent. This distinction is expected, as pathwise consistency measures whether the rollout followed the constrained dynamics while endpoint displacement also depends on how each geometry maps trajectory errors into final state error. Paired win-rate diagnostics in App. E.7 confirm this trend: adaptive wins on the pathwise metric in 85–90% of matched synthetic comparisons, showing that at fixed budget, where corrections are applied is more important than how often they are applied. 4.3 Adaptive schedules track defect concentration Figure 4: Adaptive scheduling recovers more of the original PDM sampler at every projection budget. We keep the PDM model, constraint set, and projection operator fixed, and vary only projection timing. Normalized Excess Path Error (NEPE) is measured relative to PDM (stepwise), which projects after every inner Langevin update and has NEPE 0 0 ; terminal correction has NEPE 1 1 . Across budgets, adaptive scheduling remains below periodic correction, showing that defect-aware projection timing is a better use of the same projection budget. To understand why scheduling matters, we examine how defect is distributed along the rollout. Fig. 2 visualizes defect over time together with correction events for different policies. Defect is highly non-uniform: large excursions are concentrated in specific regions of the trajectory, while many steps incur negligible deviation. Periodic schedules allocate corrections uniformly, ignoring this structure. In contrast, adaptive schedules concentrate corrections on high-defect regions, avoiding unnecessary projections elsewhere. This behavior is consistent with the budgeted formulation in Sec. 3 : defect estimates marginal value, while the ( t , b ) (t,b) -dependent threshold determines whether that value justifies spending one of the remaining corrections. This mechanism explains the improvements observed in Fig. 3 and Tab. 1 . By allocating corrections to the small subset of steps that dominate trajectory distortion, adaptive schedules approximate the optimal budget allocation. 4.4 Generalization to diffusion and planning domains Figure 5: Projection timing changes constrained diffusion trajectories. We wrap the Projected Diffusion Models (PDM) trajectory sampler and vary only when its projection operator is applied. Terminal correction delays projection until the end, producing paths that visibly collide with obstacles before being corrected. Periodic correction uses the same projection budget as adaptive but spends it uniformly, leaving avoidable detours and collisions. Adaptive correction spends projections only at high-defect steps, yielding a trajectory closer to PDM (stepwise), which projects after every inner Langevin update. Raster ticks denote projection calls. Schedule Cost B / T B/T ↓ \\downarrow NEPE ↓ \\downarrow Benefit recovered ↑ \\uparrow Δ \\Delta vs. periodic ↑ \\uparrow Periodic 0.25 0.486 ± \\pm 0.009 51.4% – Adaptive (budgeted) 0.25 0.288 ± \\pm 0.009 71.2% 41% Table 2: Scheduling projection inside Projected Diffusion Models at fixed budget. Original PDM projects after every inner Langevin update and defines Normalized Excess Path Error (NEPE) = 0 =0 ; terminal correction defines NEPE = 1 =1 . At 25 % 25\\% of the projection cost, adaptive scheduling recovers 71.2 % 71.2\\% of the pathwise benefit of original PDM, compared with 51.4 % 51.4\\% for periodic correction. Thus, adaptive timing gives a 41 % 41\\% reduction in excess pathwise error over periodic correction at the same budget. Finally, we test whether the same scheduling principle applies inside an existing constrained, diffusion sampler. Projected Diffusion Models (PDM) enforce constraints by applying projection throughout sampling ( Christopher et al., 2024 ; Liang et al., 2025 ) . In our terminology, the original PDM sampler is the stepwise baseline, projecting after every inner Langevin update. We keep the trained model, constraint set, and projection operator fixed, and vary only the timing of projection. Rather than introducing a new sampler, we wrap an existing projected diffusion method and replace its all-step projection rule with terminal, periodic, and online budgeted schedules. We measure normalized excess pathwise error (NEPE) relative to the original PDM sampler, so original PDM has NEPE 0 0 and terminal correction has NEPE 1 1 . Lower values therefore indicate closer agreement with the fully projected PDM trajectory. A complete definition of NEPE appears in App. D.3 . Fig. 5 visualizes representative trajectories under each projection schedule. Terminal correction satisfies the constraint only after the trajectory has already drifted, while periodic correction improves stability by spending projections uniformly. The adaptive scheduler instead allocates the same projection budget according to the realized defect profile, producing trajectories that remain visibly closer to the original PDM sampler while using only sparse projection events. Fig. 4 quantifies this behavior across projection budgets. At every tested budget, adaptive scheduling recovers more of the original PDM behavior than periodic correction. The fixed-budget summary in Tab. 2 shows that at B / T ≈ 0.25 B/T\\approx 0.25 , periodic correction achieves NEPE 0.486 ± 0.009 0.486\\pm 0.009 , while adaptive scheduling reduces this to 0.288 ± 0.009 0.288\\pm 0.009 , a 41 % 41\\% reduction in excess pathwise error at the same projection budget. Since original PDM projects after every inner Langevin update, this policy recovers 71.2 % 71.2\\% of PDM’s performance at 25 % 25\\% of the cost. Thus, even when the projection operator and diffusion model are inherited from a prior constrained diffusion method, projection timing remains a meaningful algorithmic degree of freedom. 5 Discussion Projection is usually treated as a feasibility operation: run the sampler, then force the result back onto the constraint set. Our results suggest a different view: in state-dependent generative rollouts, projection is an intervention in the dynamics, and delaying it changes the states from which future updates are computed. Applying it everywhere avoids this drift, but spends correction effort indiscriminately. Correction timing is therefore a budgeted control decision rather than a binary choice between terminal and stepwise projection. At matched projection budgets, adaptive scheduling improves pathwise fidelity over periodic correction by spending projections on high-defect steps rather than uniformly in time. The gains are largest when defect is concentrated, and smaller when violations are diffuse, which is exactly the regime predicted by the scheduling view. In the PDM experiment, the same idea improves a learned projected diffusion sampler without changing its model, constraints, or projection operator. 5.1 Limitations and future work Our scheduler uses one-step defect as a proxy for downstream trajectory error. This is effective when local constraint violation identifies steps that will perturb future updates, but it can fail when defect is poorly aligned with trajectory distortion or when small violations are dynamically amplified. The method also assumes access to a stable projection operator. If projection is cheap, stepwise correction may be preferable, and if projection is unstable or approximate, both the defect signal and corrected rollout may degrade. Finally, our learned diffusion experiment isolates projection timing by wrapping an existing PDM sampler, but larger models and higher-dimensional constraints may introduce interactions or noise not captured here. Future work could learn correction value directly, add lookahead or uncertainty estimates, and train generative models with the scheduler in the loop. More broadly, constrained generation should treat feasibility operations as trajectory-level interventions: the path that produces a feasible sample matters. References Cardei et al. (2025a) M. Cardei, J. K. Christopher, T. Hartvigsen, B. Kailkhura, and F. Fioretto Constrained Discrete Diffusion . arXiv . Note: arXiv:2503.09790 [cs] External Links: Link , Document Cited by: §2 . Cardei et al. (2025b) M. Cardei, J. K. Christopher, B. Kailkhura, T. Hartvigsen, and F. Fioretto Constrained Molecular Generation with Discrete Diffusion for Drug Discovery . ( en ). External Links: Link Cited by: §1 , §2 . Cheng et al. (2024) C. Cheng, B. Han, D. C. Maddix, A. F. Ansari, A. Stuart, M. W. Mahoney, and B. Wang Gradient-Free Generation for Hard-Constrained Systems . ( en ). External Links: Link Cited by: §2 . Chi et al. (2024) C. Chi, Z. Xu, S. Feng, E. Cousineau, Y. Du, B. Burchfiel, R. Tedrake, and S. Song Diffusion Policy: Visuomotor Policy Learning via Action Diffusion . arXiv . Note: arXiv:2303.04137 [cs] version: 5 External Links: Link , Document Cited by: §2 . Christopher et al. (2024) J. K. Christopher, S. Baek, and F. Fioretto Constrained Synthesis with Projected Diffusion Models . ( en ). External Links: Link Cited by: §F.1 , §1 , §2 , §2 , §4.4 . Hairer (2001) E. Hairer Geometric Integration of Ordinary Differential Equations on Manifolds . BIT Numerical Mathematics 41 ( 5 ), pp. 996–1007 ( en ). External Links: ISSN 1572-9125 , Link , Document Cited by: §2 . Hoseinpour and Dvorkin (2025) M. Hoseinpour and V. Dvorkin Constrained Diffusion Models for Synthesizing Representative Power Flow Datasets . arXiv . Note: arXiv:2506.11281 [cs] External Links: Link , Document Cited by: §2 . Janner et al. (2022) M. Janner, Y. Du, J. B. Tenenbaum, and S. Levine Planning with Diffusion for Flexible Behavior Synthesis . arXiv . Note: arXiv:2205.09991 [cs] External Links: Link , Document Cited by: §2 . Kim and Kim (2026) K. Kim and S. Kim Model Already Knows the Best Noise: Bayesian Active Noise Selection via Attention in Video Diffusion Model . arXiv . Note: arXiv:2505.17561 [cs] External Links: Link , Document Cited by: §2 . Li et al. (2024) A. Li, Z. Ding, A. B. Dieng, and R. Beeson DiffuSolve: Diffusion-based Solver for Non-convex Trajectory Optimization . arXiv . Note: arXiv:2403.05571 [cs] version: 4 External Links: Link , Document Cited by: §1 , §2 . Liang et al. (2025) J. Liang, J. K. Christopher, S. Koenig, and F. Fioretto Simultaneous Multi-Robot Motion Planning with Projected Diffusion Models . arXiv . Note: arXiv:2502.03607 [cs] External Links: Link , Document Cited by: §F.1 , §1 , §2 , §4.4 . Liñán and Diego (2023) M. B. Liñán and D. M. d. Diego Retraction maps: a seed of geometric integrators . Foundations of Computational Mathematics 23 ( 4 ), pp. 1335–1380 . Note: arXiv:2106.00607 [math] External Links: ISSN 1615-3375, 1615-3383 , Link , Document Cited by: §2 . McLachlan et al. (2014) R. I. McLachlan, K. Modin, O. Verdier, and M. Wilkins Geometric Generalisations of SHAKE and RATTLE . Foundations of Computational Mathematics 14 ( 2 ), pp. 339–370 . Note: arXiv:1207.3367 [math] External Links: ISSN 1615-3375, 1615-3383 , Link , Document Cited by: §2 . Ni and Qureshi (2024) R. Ni and A. H. Qureshi Physics-informed Neural Motion Planning on Constraint Manifolds . arXiv . Note: arXiv:2403.05765 [cs] External Links: Link , Document Cited by: §2 . Pei et al. (2025) J. Pei, H. Hu, and S. Gu Optimal Stepsize for Diffusion Sampling . arXiv . Note: arXiv:2503.21774 [cs] version: 1 External Links: Link , Document Cited by: §2 . Santi et al. (2025) R. D. Santi, K. Protopapas, Y. Hsieh, and A. Krause Verifier-Constrained Flow Expansion for Discovery Beyond the Data . ( en ). External Links: Link Cited by: §1 , §2 . Séguin et al. (2024) A. Séguin, G. Ceruti, and D. Kressner From low-rank retractions to dynamical low-rank approximation and back . BIT Numerical Mathematics 64 ( 3 ), pp. 25 ( en ). External Links: ISSN 1572-9125 , Link , Document Cited by: §2 . Utkarsh et al. (2025) U. Utkarsh, P. Cai, A. Edelman, R. Gomez-Bombarelli, and C. V. Rackauckas Physics-Constrained Flow Matching: Sampling Generative Models with Hard Constraints . arXiv . Note: arXiv:2506.04171 [cs] External Links: Link , Document Cited by: §2 . Xiao et al. (2024) W. Xiao, T. Wang, C. Gan, R. Hasani, M. Lechner, and D. Rus SafeDiffuser: Safe Planning with Diffusion Probabilistic Models . ( en ). External Links: Link Cited by: §2 . Yang et al. (2026) Z. Yang, X. Dai, D. Yu, Z. Li, M. Khadiv, S. Hirche, and S. Haddadin UniConFlow: A Unified Constrained Flow-Matching Framework for Certified Motion Planning . arXiv . Note: arXiv:2506.02955 [cs] version: 2 External Links: Link , Document Cited by: §2 . Ye et al. (2025) Z. Ye, Z. Chen, T. Li, Z. Huang, W. Luo, and G. Qi Schedule On the Fly: Diffusion Time Prediction for Faster and Better Image Generation . arXiv . Note: arXiv:2412.01243 [cs] version: 3 External Links: Link , Document Cited by: §2 . Zhang et al. (2024) H. Zhang, Z. Wu, Z. Xing, J. Shao, and Y. Jiang AdaDiff: Adaptive Step Selection for Fast Diffusion Models . arXiv . Note: arXiv:2311.14768 [cs] version: 2 External Links: Link , Document Cited by: §2 . Zhang et al. (2025) J. Zhang, L. Zhao, A. Papachristodoulou, and J. Umenberger Constrained Diffusers for Safe Planning and Control . arXiv . Note: arXiv:2506.12544 [eess] External Links: Link , Document Cited by: §1 , §2 . Appendix A Overview This appendix provides additional details for the formulation, implementation, metrics, and experiments in the main paper. Sec. B fixes notation and describes all correction schedules, Sec. C gives the full online budgeted scheduler and threshold construction, Sec. D defines all reported metrics, Sec. E describes the controlled manifold experiments, Sec. F details the Projected Diffusion Models experiment, Sec. G gives implementation details, Sec. H gives reproducibility notes, and Sec. I gives additional diagnostics and failure modes. Appendix B Notation and Correction Schedules Generative rollout. We consider a generative rollout in an ambient space 𝒳 ⊆ ℝ d \\mathcal{X}\\subseteq\\mathbb{R}^{d} with a constraint set ℳ ⊂ 𝒳 \\mathcal{M}\\subset\\mathcal{X} . A rollout is generated by repeatedly applying an update operator x ~ t + 1 = Φ h ( x t ) , t = 0 , … , T − 1 , \\tilde{x}_{t+1}=\\Phi_{h}(x_{t}),\\qquad t=0,\\ldots,T-1, where h h denotes the step size or sampler discretization parameter. In diffusion models, Φ h \\Phi_{h} may be one reverse diffusion update, one denoising update, or one inner Langevin update, depending on the sampler. In all experiments, the scheduling horizon T T counts the number of update locations at which projection could be applied. Projection or retraction. We assume access to a correction map Π : 𝒳 → ℳ , \\Pi:\\mathcal{X}\\to\\mathcal{M}, which maps a proposed state back to the constraint set. We use “projection” broadly: Π \\Pi may be an exact Euclidean projection, a retraction, a const",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Skip to main content",
+      "url": "https://arxiv.org/html/2605.11214v1#infobox"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/IgnoreMe"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "Why HTML?",
+      "url": "https://info.arxiv.org/about/accessible_HTML.html"
+    },
+    {
+      "text": "Back to Abstract",
+      "url": "https://arxiv.org/abs/2605.11214v1"
+    },
+    {
+      "text": "Download PDF",
+      "url": "https://arxiv.org/pdf/2605.11214v1"
+    },
+    {
+      "text": "License: CC BY 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "Li et al., 2024",
+      "url": "https://arxiv.org/html/2605.11214v1#bib.bib11"
+    },
+    {
+      "text": "Liang et al., 2025",
+      "url": "https://arxiv.org/html/2605.11214v1#bib.bib13"
+    },
+    {
+      "text": "Zhang et al., 2025",
+      "url": "https://arxiv.org/html/2605.11214v1#bib.bib20"
+    },
+    {
+      "text": "Christopher et al., 2024",
+      "url": "https://arxiv.org/html/2605.11214v1#bib.bib19"
+    },
+    {
+      "text": "Cardei et al., 2025b",
+      "url": "https://arxiv.org/html/2605.11214v1#bib.bib18"
+    },
+    {
+      "text": "Santi et al., 2025",
+      "url": "https://arxiv.org/html/2605.11214v1#bib.bib17"
+    },
+    {
+      "text": "Utkarsh et al., 2025",
+      "url": "https://arxiv.org/html/2605.11214v1#bib.bib21"
+    },
+    {
+      "text": "Hoseinpour and Dvorkin, 2025",
+      "url": "https://arxiv.org/html/2605.11214v1#bib.bib16"
+    },
+    {
+      "text": "Chi et al., 2024",
+      "url": "https://arxiv.org/html/2605.11214v1#bib.bib10"
+    },
+    {
+      "text": "Xiao et al., 2024",
+      "url": "https://arxiv.org/html/2605.11214v1#bib.bib14"
+    },
+    {
+      "text": "Janner et al., 2022",
+      "url": "https://arxiv.org/html/2605.11214v1#bib.bib15"
+    },
+    {
+      "text": "Yang et al., 2026",
+      "url": "https://arxiv.org/html/2605.11214v1#bib.bib12"
+    },
+    {
+      "text": "Ni and Qureshi, 2024",
+      "url": "https://arxiv.org/html/2605.11214v1#bib.bib1"
+    },
+    {
+      "text": "Cardei et al., 2025a",
+      "url": "https://arxiv.org/html/2605.11214v1#bib.bib23"
+    },
+    {
+      "text": "Cheng et al., 2024",
+      "url": "https://arxiv.org/html/2605.11214v1#bib.bib22"
+    },
+    {
+      "text": "Hairer, 2001",
+      "url": "https://arxiv.org/html/2605.11214v1#bib.bib7"
+    },
+    {
+      "text": "Séguin et al., 2024",
+      "url": "https://arxiv.org/html/2605.11214v1#bib.bib8"
+    },
+    {
+      "text": "McLachlan et al., 2014",
+      "url": "https://arxiv.org/html/2605.11214v1#bib.bib6"
+    },
+    {
+      "text": "Liñán and Diego, 2023",
+      "url": "https://arxiv.org/html/2605.11214v1#bib.bib9"
+    },
+    {
+      "text": "Zhang et al., 2024",
+      "url": "https://arxiv.org/html/2605.11214v1#bib.bib5"
+    },
+    {
+      "text": "Ye et al., 2025",
+      "url": "https://arxiv.org/html/2605.11214v1#bib.bib4"
+    },
+    {
+      "text": "Pei et al., 2025",
+      "url": "https://arxiv.org/html/2605.11214v1#bib.bib3"
+    },
+    {
+      "text": "Kim and Kim, 2026",
+      "url": "https://arxiv.org/html/2605.11214v1#bib.bib2"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2605.11214v1#S3.F2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2605.11214v1#S3.E3"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2605.11214v1#S3.E1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2605.11214v1#S3.E2"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2605.11214v1#S4"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2605.11214v1#alg1"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2605.11214v1#S0.F1"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2605.11214v1#S4.T1"
+    },
+    {
+      "text": "E.7",
+      "url": "https://arxiv.org/html/2605.11214v1#A5.SS7"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2605.11214v1#S4.F3"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2605.11214v1#S3"
+    },
+    {
+      "text": "D.3",
+      "url": "https://arxiv.org/html/2605.11214v1#A4.SS3"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2605.11214v1#S4.F5"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2605.11214v1#S4.F4"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2605.11214v1#S4.T2"
+    },
+    {
+      "text": "Link",
+      "url": "http://arxiv.org/abs/2503.09790"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.48550/arXiv.2503.09790"
+    },
+    {
+      "text": "§2",
+      "url": "https://arxiv.org/html/2605.11214v1#S2.p1.1"
+    },
+    {
+      "text": "Link",
+      "url": "https://openreview.net/forum?id=YVbHExvm05"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2605.11214v1#S1.p1.1"
+    },
+    {
+      "text": "Link",
+      "url": "https://openreview.net/forum?id=teE4pl9ftK"
+    },
+    {
+      "text": "Link",
+      "url": "http://arxiv.org/abs/2303.04137"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.48550/arXiv.2303.04137"
+    },
+    {
+      "text": "Link",
+      "url": "https://openreview.net/forum?id=FsdB3I9Y24&referrer=%5Bthe%20profile%20of%20Ferdinando%20Fioretto%5D(%2Fprofile%3Fid%3D~Ferdinando_Fioretto1)"
+    },
+    {
+      "text": "§F.1",
+      "url": "https://arxiv.org/html/2605.11214v1#A6.SS1.p1.1"
+    },
+    {
+      "text": "§2",
+      "url": "https://arxiv.org/html/2605.11214v1#S2.p3.1"
+    },
+    {
+      "text": "§4.4",
+      "url": "https://arxiv.org/html/2605.11214v1#S4.SS4.p1.1"
+    },
+    {
+      "text": "Link",
+      "url": "https://doi.org/10.1023/A:1021989212020"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.1023/A%3A1021989212020"
+    },
+    {
+      "text": "Link",
+      "url": "http://arxiv.org/abs/2506.11281"
+    }
+  ],
+  "matching_link_count": 102,
+  "links_truncated": true,
+  "invalid_links": []
+}

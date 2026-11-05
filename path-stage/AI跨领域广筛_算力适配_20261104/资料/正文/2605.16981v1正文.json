@@ -1,0 +1,577 @@
+{
+  "url": "https://arxiv.org/html/2605.16981v1",
+  "final_url": "https://arxiv.org/html/2605.16981v1",
+  "status": 200,
+  "title": "Rethinking the State Update Gate for Long-Sequence Recurrent 3D Reconstruction",
+  "metadata": {},
+  "paper": {
+    "title": "Rethinking the State Update Gate for Long-Sequence Recurrent 3D Reconstruction",
+    "title_warning": null,
+    "abstract": "Abstract Streaming 3D reconstruction under a strict constant-memory budget hinges on how the recurrent state is updated as the stream evolves. We profile TTT3R-style per-token gates across five benchmarks and discover a structural bottleneck: the gate is intrinsically bounded in magnitude (median 0.31 0.31 ; never exceeding 0.6 0.6 ) and nearly frame-invariant, yielding an effective memory horizon of only ∼ \\sim 3 frames per state token, which serves as the structural origin of long-sequence drift. We trace this to a missing axis: existing inference-time methods modulate updates only at the per-token, intra-frame level, while the orthogonal frame-level question of how strongly each frame should contribute to the state has been treated as content-independent. We close this gap with a scalar frame-level gate α t ∈ ( 0 , 1 ] \\alpha_{t}\\in(0,1] derived in closed form from frame-to-frame changes of internal features—a continuous relaxation of classical Simultaneous Localization and Mapping (SLAM) keyframe selection that requires no parameters, no training, and no extra forward pass. Across six benchmarks spanning camera pose, video depth, and 3D reconstruction at sequence lengths up to 4,541 4,541 frames, our gate cuts ATE by 51 % 51\\% on long TUM-RGBD pose sequences, reduces AbsRel by 12.8 % 12.8\\% on Bonn video depth, and on KITTI long-sequence pose estimation surpasses both LongStream and Keyframe-VO, while retaining strictly constant memory at zero training cost.",
+    "authors": [
+      {
+        "name": "Kejun Ren",
+        "affiliations": [
+          "Affiliation: Beijing University of Posts and Telecommunications, Beijing, China"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Lei Jin",
+        "affiliations": [
+          "Affiliation: Beijing University of Posts and Telecommunications, Beijing, China"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Tianxin Huang",
+        "affiliations": [
+          "Affiliation: School of Computing and Data Science, The University of Hong Kong"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Lianming Xu",
+        "affiliations": [
+          "Affiliation: Beijing University of Posts and Telecommunications, Beijing, China"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Li Wang",
+        "affiliations": [
+          "Affiliation: Beijing University of Posts and Telecommunications, Beijing, China"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Kejun Ren Affiliation: Beijing University of Posts and Telecommunications, Beijing, China Lei Jin Affiliation: Beijing University of Posts and Telecommunications, Beijing, China Tianxin Huang Affiliation: School of Computing and Data Science, The University of Hong Kong Lianming Xu Affiliation: Beijing University of Posts and Telecommunications, Beijing, China Li Wang † † thanks: Corresponding author. Affiliation: Beijing University of Posts and Telecommunications, Beijing, China",
+    "arxiv_version": "2605.16981v1",
+    "arxiv_version_date": "2026-05-16",
+    "sections": [
+      {
+        "id": "S1",
+        "heading": "1 Introduction",
+        "level": 1,
+        "text": "Streaming 3D reconstruction processes an RGB video incrementally and produces camera poses and pixel-aligned geometry on the fly, under strict memory and latency constraints that grow with the input length [ 22 , 31 ] . Offline batch methods such as DUSt3R [ 23 ] , MASt3R [ 11 ] , VGGT [ 21 ] , and Fast3R [ 27 ] produce strong reconstructions through global attention over all frames, but their quadratic cost and the requirement that all frames be loaded simultaneously preclude online use on long sequences. Among streaming approaches, CUT3R [ 22 ] achieves a strictly constant memory footprint by compressing the full sequence history into a fixed-size recurrent state of N N tokens, S ∈ ℝ N × d S\\in\\mathbb{R}^{N\\times d} , that each incoming frame reads from and writes back into. KV-cache variants [ 31 , 24 ] retain richer history but grow with sequence length, while sliding-window attention [ 12 ] keeps memory constant only by discarding early frames, making CUT3R the unique combination of constant memory and full-history retention. Under a strict constant-memory budget, the central question becomes how this state should be updated as the stream evolves (Fig. 1 ). Recent inference-time methods all modulate this update along the same axis: a per-token gate β t ∈ [ 0 , 1 ] N \\beta_{t}\\in[0,1]^{N} that decides which state slots absorb the current frame’s residual. TTT3R [ 3 ] derives β t \\beta_{t} from cross-attention logits as a constrained test-time gradient step; TTSA3R [ 30 ] reshapes it via attention-style gating; the concurrent MeMix [ 8 ] adds a hard token mask. Through systematic profiling on long sequences across five benchmarks, we discover a striking regularity: β t \\beta_{t} is structurally bounded (median 0.31 0.31 ; no value exceeds 0.6 0.6 ), nearly invariant across datasets, and—most importantly—its variation across frames is less than half of its variation within a frame. Under an EMA reading of the update, this corresponds to an effective memory horizon of only ∼ \\sim 3 frames, structurally explaining the long-sequence drift these methods continue to exhibit. Yet a more fundamental observation lies beneath this bound: all of these designs lack any frame-level adaptivity. They modulate updates only along the intra-frame axis, i.e., per-token within a single frame, and treat every frame as equally informative regardless of its content. Classical SLAM has, for two decades, treated content-dependent admission as a first-class problem under the name keyframe selection [ 2 ] : only frames bringing sufficient novelty enter the map, while redundant ones are skipped. Modern streaming reconstruction has quietly abandoned this idea, every I t I_{t} writes into the state with the same nominal strength regardless of content. We argue that this is the missing axis, and propose to reintroduce it not as a binary admit/skip decision but as its continuous relaxation : every frame still contributes, but with a strength proportional to its novelty. Concretely, we introduce a scalar frame-level gate α t ∈ ( 0 , 1 ] \\alpha_{t}\\in(0,1] that multiplicatively modulates the state-update residual. Computed in closed form from the frame-to-frame change of internal features the base model already produces, α t \\alpha_{t} adds no parameters and no extra forward pass. Most frames are redundant and receive small α t \\alpha_{t} that barely perturbs the state; only significant scene or viewpoint transitions drive α t \\alpha_{t} toward 1 1 , where the update proceeds at full TTT3R strength. The design of Adaptive Frame Gating (AFG) is minimal: a single multiplicative scalar at the state-update site. As a plug-in modifier, AFG preserves the constant-memory inference property of CUT3R-style backbones, unlike retraining-based alternatives such as LongStream [ 5 ] . Across six benchmarks (TUM-RGBD, ScanNet, Bonn, KITTI, 7-Scenes, and NRGBD) with sequences from 50 50 to 4541 4541 frames, AFG consistently improves over inference-time gating baselines including TTT3R, MeMix, and TTSA3R; on long TUM-RGBD trajectories ( L ≥ 600 L\\geq 600 ) it reduces ATE by 51 % 51\\% over TTT3R, and on KITTI it surpasses both LongStream and the RL-trained Keyframe-VO [ 7 ] . Our contributions are summarized as follows. • Analysis of per-token gating. We identify a key limitation of TTT3R-style per-token gates: they are nearly frame-invariant and imply an effective memory horizon of only ∼ \\sim 3 frames, suggesting that the lack of frame-level adaptivity is a key bottleneck in long-sequence streaming reconstruction. • Adaptive Frame Gating. We propose AFG, a scalar frame-level gate α t ∈ ( 0 , 1 ] \\alpha_{t}\\in(0,1] computed in closed form from features already produced by the base model. We instantiate it as AFG-Img and AFG-Pose, using encoder global features and decoder pose tokens, respectively. Both variants are parameter-free, training-free, require no extra forward pass, and preserve constant memory. • Extensive long-sequence evaluation. We validate AFG across pose, depth, and reconstruction tasks on six benchmarks. It consistently improves over inference-time gating baselines and compares favorably with long-sequence methods based on retraining or learned keyframe policies."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px1",
+        "heading": "Feed-forward 3D reconstruction.",
+        "level": 3,
+        "text": "Feed-forward methods bypass the conventional Structure-from-Motion (SfM) pipeline by directly regressing scene geometry from input images. DUSt3R [ 23 ] and MASt3R [ 11 ] cast pairwise reconstruction as dense pointmap regression in a shared coordinate frame; VGGT [ 21 ] and Fast3R [ 27 ] extend this to the multi-view setting through global Transformer attention. While these methods achieve high reconstruction quality, they require all input frames to reside in attention simultaneously, scaling quadratically with sequence length and precluding online use on long videos."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px2",
+        "heading": "Streaming 3D reconstruction.",
+        "level": 3,
+        "text": "To process inputs of arbitrary length, streaming methods turn to sequential or recurrent paradigms. Spann3R [ 20 ] introduces an explicit spatial memory for incremental reconstruction; CUT3R [ 22 ] formulates the problem as an RNN with a fixed-size recurrent state—the only design among streaming variants that strictly preserves constant memory. Subsequent works explore richer memory structures, including KV caches [ 31 ] , point-level memory [ 24 ] , and sliding-window attention [ 12 ] , but their memory grows with sequence length and limits deployment on long videos. Within the constant-memory regime, how the recurrent state should be updated as the stream evolves remains an open question, since unfiltered residual accumulation has been shown to cause severe long-sequence drift [ 3 ] ."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px3",
+        "heading": "Long-sequence adaptation strategies.",
+        "level": 3,
+        "text": "Three complementary lines of work address this long-sequence degradation. The first relies on architecture-level retraining : a growing body of work retrains new architectures or memory mechanisms tailored for long-sequence streaming reconstruction [ 5 , 4 , 29 , 10 , 25 , 13 , 26 ] . As a representative, LongStream [ 5 ] , built on the VGGT family, redesigns camera pose parameterization and KV-cache training to mitigate first-frame anchor bias and cache saturation. These approaches share the cost of giving up the constant-memory property and training from scratch. The second uses external frame selection policies : Keyframe-VO [ 7 ] freezes the base model and trains a reinforcement-learning policy that makes a discrete admit/skip decision for each frame, extending classical SLAM keyframe selection [ 14 , 2 ] to feed-forward 3D models. The third modulates state updates at inference time : TTT3R [ 3 ] reinterprets the recurrent update as a constrained test-time gradient step [ 19 ] and derives per-token learning rates β t ∈ [ 0 , 1 ] N \\beta_{t}\\in[0,1]^{N} from cross-attention logits; TTSA3R [ 30 ] reshapes β t \\beta_{t} via attention-style gating; the concurrent MeMix [ 8 ] adds a per-token hard mask. Inference-time methods preserve constant memory and require no training, but all operate exclusively on the per-token, intra-frame axis. Our work belongs to this third line and adds the orthogonal frame-level axis : compared to TTT3R, TTSA3R, and MeMix, we go beyond per-token modulation by making each frame’s contribution to the state content-dependent at the frame level; compared to Keyframe-VO, we share the goal of content-dependent admission but replace its discrete RL-trained policy with a continuous relaxation computed in closed form from the base model’s internal features—requiring no training, no parameters, and no extra forward pass."
+      },
+      {
+        "id": "S3.SS1",
+        "heading": "3.1 Recurrent State Updates for Continuous 3D Reconstruction",
+        "level": 2,
+        "text": "Given a continuous image stream { I t } t = 1 T \\{I_{t}\\}_{t=1}^{T} , online 3D reconstruction estimates per-frame camera pose T t T_{t} , intrinsics K t K_{t} , and pixel-aligned pointmap P t P_{t} . CUT3R [ 22 ] casts this as a recurrent sequence model with a fixed-length state S ∈ ℝ N × d S\\in\\mathbb{R}^{N\\times d} initialized from learnable embeddings: each frame I t I_{t} is tokenized into image tokens X t X_{t} , the state is updated as S t = Update ⁡ ( S t − 1 , X t ) S_{t}=\\mathrm{Update}(S_{t-1},X_{t}) , and a read-out Y t = Read ⁡ ( S t , X t ) Y_{t}=\\mathrm{Read}(S_{t},X_{t}) is decoded into ( T t , K t , P t ) (T_{t},K_{t},P_{t}) by a prediction head."
+      },
+      {
+        "id": "S3.SS1.SSS0.Px1",
+        "heading": "State–input interaction.",
+        "level": 3,
+        "text": "Update \\mathrm{Update} and Read \\mathrm{Read} are jointly realized by an L L -layer dual-stream cross-attention decoder. The state stream attends to image tokens at each layer: S ( l ) = S ( l − 1 ) + softmax ⁡ ( Q S ( l ) ​ K X ( l ) ⊤ ) ​ V X ( l ) , S^{(l)}=S^{(l-1)}+\\mathrm{softmax}\\!\\left(Q_{S}^{(l)}{K_{X}^{(l)}}^{\\!\\top}\\right)V_{X}^{(l)}, (1) with a symmetric stream updating X ( l ) X^{(l)} from S ( l − 1 ) S^{(l-1)} . Stacking L L layers yields the per-frame update S t = S t − 1 + Δ ​ S t S_{t}=S_{t-1}+\\Delta S_{t} , where Δ ​ S t \\Delta S_{t} aggregates the cross-attention contributions of the current frame."
+      },
+      {
+        "id": "S3.SS1.SSS0.Px2",
+        "heading": "Continuous state update (CUT3R).",
+        "level": 3,
+        "text": "CUT3R writes this residual back unconditionally: S t = S t − 1 + Δ ​ S t S_{t}=S_{t-1}+\\Delta S_{t} . On long sequences with redundant content, this monotonic accumulation overwrites earlier observations and drives the state toward catastrophic drift [ 3 ] ."
+      },
+      {
+        "id": "S3.SS1.SSS0.Px3",
+        "heading": "Test-time learning for state update (TTT3R).",
+        "level": 3,
+        "text": "TTT3R [ 3 ] reinterprets Δ ​ S t \\Delta S_{t} as a gradient step in a test-time training framework [ 19 ] , with S S acting as model parameters, X t X_{t} as a test sample, and Δ ​ S t \\Delta S_{t} as a descent direction on a self-supervised reconstruction loss. To regulate the step per state token, TTT3R averages the cross-attention logits over L L decoder layers, H H heads per layer, and K K image tokens per frame, and applies the resulting per-token learning rate multiplicatively before integration: β t = σ ⁡ ( 1 L ​ H ​ K ​ ∑ l , h , k Q S t − 1 ( l , h ) ​ K X t ( l , h , k ) ⊤ ) ∈ [ 0 , 1 ] N , S t = S t − 1 + β t ⊙ Δ ​ S t . \\beta_{t}\\;=\\;\\sigma\\!\\left(\\frac{1}{LHK}\\sum_{l,h,k}Q_{S_{t-1}}^{(l,h)}{K_{X_{t}}^{(l,h,k)}}^{\\!\\top}\\right)\\;\\in\\;[0,1]^{N},\\qquad S_{t}=S_{t-1}+\\beta_{t}\\odot\\Delta S_{t}. (2) We write β t ( n ) \\beta_{t}^{(n)} for the gate value at frame t ∈ { 1 , … , T } t\\in\\{1,\\dots,T\\} on the n n -th state token, n ∈ { 1 , … , N } n\\in\\{1,\\dots,N\\} . Each state token now retains history in proportion to its current cross-attention relevance, mitigating the drift of CUT3R. Whether β t \\beta_{t} provides effective control on long sequences—an empirical question not examined in prior work—is the focus of this section."
+      },
+      {
+        "id": "S3.SS2",
+        "heading": "3.2 Empirical Properties of β \\beta : Bounded Magnitude and Negligible Frame Variation",
+        "level": 2,
+        "text": "We profile β t \\beta_{t} across 5 benchmarks (TUM-RGBD, ScanNet, Bonn, NRGBD, 7-Scenes) covering indoor scanning, outdoor driving, handheld, and dynamic scenes. Across all sequences and frames, we collect β t ( n ) \\beta_{t}^{(n)} at every ( t , n ) (t,n) pair and analyze its distribution along two axes: pooled magnitude (Fig. 2 a, b) and within-frame versus per-frame variation (Fig. 2 c). Figure 2: Empirical properties of TTT3R’s per-token learning rate β \\beta . (a) Density of β \\beta pooled over all ( t , n ) (t,n) pairs from 39 sequences across 5 benchmarks (18.15M points). The distribution is sharply concentrated; no measurement exceeds β = 0.6 \\beta=0.6 . (b) Per-sequence mean of β \\beta grouped by dataset; despite the diverse motion regimes, all five benchmarks lie within [ 0.27 , 0.34 ] [0.27,0.34] . (c) For a representative long sequence (ScanNet scene0770_00 , T = 999 T=999 ), the histogram of all ( t , n ) (t,n) values (gray, std = 0.055 \\mathrm{std}=0.055 ) is more than twice as wide as the histogram of per-frame means β ¯ t \\bar{\\beta}_{t} (blue, std = 0.024 \\mathrm{std}=0.024 ): TTT3R exhibits per-token variation, but the per-frame mean is essentially constant."
+      },
+      {
+        "id": "S3.SS2.SSS0.Px1",
+        "heading": "β \\beta is structurally bounded.",
+        "level": 3,
+        "text": "On the pooled distribution (Fig. 2 a), β \\beta has median 0.31 0.31 , 99 % 99\\% of its mass below 0.44 0.44 , and a maximum of 0.558 0.558 ; none of the 18.15 18.15 M measurements exceeds 0.6 0.6 . This bound holds uniformly across datasets (Fig. 2 b): per-sequence means lie in a tight band of [ 0.27 , 0.34 ] [0.27,0.34] , with no benchmark significantly higher or lower than the global mean of 0.31 0.31 . The bound is therefore a property of the architecture rather than of any particular dataset."
+      },
+      {
+        "id": "S3.SS2.SSS0.Px2",
+        "heading": "β \\beta has negligible frame-to-frame variation.",
+        "level": 3,
+        "text": "Within a single sequence, the spread of β \\beta across all ( t , n ) (t,n) pairs is more than twice as large as the spread of the per-frame means β ¯ t = 1 N ​ ∑ n β t ( n ) \\bar{\\beta}_{t}=\\frac{1}{N}\\sum_{n}\\beta_{t}^{(n)} (Fig. 2 c): on ScanNet scene0770_00 , the within-frame std is 0.055 0.055 while the cross-frame std of β ¯ t \\bar{\\beta}_{t} is only 0.024 0.024 . The same pattern holds across the other benchmarks: the per-frame mean of β \\beta remains essentially constant regardless of sequence length or motion regime. While the per-token gate yields meaningful variation across the N N state tokens (consistent with TTT3R’s design intent), the per-frame mean is essentially constant: TTT3R provides token-level selectivity but no frame-level adaptivity."
+      },
+      {
+        "id": "S3.SS2.SSS0.Px3",
+        "heading": "Why β \\beta behaves this way.",
+        "level": 3,
+        "text": "Both properties stem from the multi-axis averaging in Eq. 2 : each β t ( n ) \\beta_{t}^{(n)} is the sigmoid of an average over L × H × K L\\times H\\times K ( ≈ 110 \\approx 110 K in the CUT3R-512 architecture) cross-attention logits. This averaging has two effects: (i) extreme logit values are diluted into a narrow effective range, and (ii) the summation over K K image tokens fuses frame-specific spatial information into a global statistic, with the residual mean dominated by the pretrained ( Q , K ) (Q,K) projections rather than by X t X_{t} . Let A ¯ \\bar{A} denote the averaged cross-attention logit inside the sigmoid of Eq. 2 , i.e., A ¯ = 1 L ​ H ​ K ​ ∑ l , h , k Q S t − 1 ( l , h ) ​ K X t ( l , h , k ) ⊤ \\bar{A}=\\tfrac{1}{LHK}\\sum_{l,h,k}Q_{S_{t-1}}^{(l,h)}{K_{X_{t}}^{(l,h,k)}}^{\\!\\top} . Empirically, A ¯ ≈ − 0.83 \\bar{A}\\approx-0.83 across all measurements, yielding σ ⁡ ( A ¯ ) ≈ 0.30 \\sigma(\\bar{A})\\approx 0.30 and matching the three observations of Fig. 2 . The consequence is that every frame contributes a similar moderate fraction ( ∼ \\sim 30%) of its residual Δ ​ S t \\Delta S_{t} to the state regardless of content. We next examine what this implies for memory over long sequences."
+      },
+      {
+        "id": "S3.SS3.SSS0.Px1",
+        "heading": "EMA decay and memory horizon.",
+        "level": 3,
+        "text": "Eq. 2 is an exponential moving average on each state slot with smoothing factor β t ( n ) \\beta_{t}^{(n)} . Treating β \\beta as approximately constant in time (Sec. 3.2 ), the contribution of frame t − k t-k to S t ( n ) S_{t}^{(n)} decays geometrically as ( 1 − β ) k (1-\\beta)^{k} , giving an effective memory horizon of approximately 1 / β 1/\\beta frames 1 1 1 Defined as the lag at which the contribution drops to 1 / e 1/e of its instantaneous value: ( 1 − β ) k = 1 / e ⇒ k ≈ 1 / β (1-\\beta)^{k}=1/e\\Rightarrow k\\approx 1/\\beta for small β \\beta . . Since the per-frame mean is essentially constant across datasets ( β ¯ t ∈ [ 0.27 , 0.34 ] \\bar{\\beta}_{t}\\in[0.27,0.34] , Sec. 3.2 ): horizon ≈ 1 / β ¯ ≈ 3 ​ frames . \\mathrm{horizon}\\;\\approx\\;1/\\bar{\\beta}\\;\\approx\\;3\\ \\text{frames}. (3) This horizon is not only short but stable : it stays within [ 2.9 , 3.7 ] [2.9,3.7] regardless of sequence length or motion regime. Over a sequence of T = 1000 T=1000 frames, the contribution of frame 0 0 to S 100 S_{100} has already decayed to ( 0.69 ) 100 ≈ 10 − 16 (0.69)^{100}\\approx 10^{-16} —early observations are erased almost immediately and never recovered. This short horizon is the structural cause of long-sequence drift. Since β \\beta is content-independent (Sec. 3.2 ), every frame overwrites the state with equal strength, so an informative keyframe is displaced within ∼ \\sim 3 steps by whatever follows—including near-redundant frames. The memory is not just short, but indiscriminately short: early geometric evidence is forgotten long before it ceases to be relevant. We verify this mechanism via a controlled redundancy experiment in Appendix A1 ."
+      },
+      {
+        "id": "S4",
+        "heading": "4 Adaptive Frame Gating",
+        "level": 1,
+        "text": "Building on the diagnosis of Sec. 3 , we restore the missing frame-level adaptivity with a scalar gate α t \\alpha_{t} that adaptively scales β t \\beta_{t} based on observation novelty."
+      },
+      {
+        "id": "S4.SS1",
+        "heading": "4.1 Factorized State Update",
+        "level": 2,
+        "text": "We replace the TTT3R update of Eq. 2 with the factorized form S t = S t − 1 + α t ⋅ β t ⊙ Δ ​ S t , S_{t}\\;=\\;S_{t-1}\\;+\\;\\alpha_{t}\\cdot\\beta_{t}\\odot\\Delta S_{t}, (4) where α t ∈ ( 0 , 1 ] \\alpha_{t}\\in(0,1] is a scalar frame-level gate that adaptively scales the current frame’s contribution to the state based on its content, and β t ∈ [ 0 , 1 ] N \\beta_{t}\\in[0,1]^{N} is TTT3R’s per-token gate from Eq. 2 that determines which state tokens should receive the contribution. The two gates operate on orthogonal axes, token (spatial) and frame (temporal), and combine multiplicatively: β t ( n ) \\beta_{t}^{(n)} controls per-token spatial selection while α t \\alpha_{t} modulates the per-frame update strength. This composition preserves TTT3R’s token selectivity while adding an independent temporal modulation."
+      },
+      {
+        "id": "S4.SS2",
+        "heading": "4.2 Frame Gate from CUT3R-Internal Features",
+        "level": 2,
+        "text": "We compute α t \\alpha_{t} from the frame-to-frame change of a feature that CUT3R already produces, yielding two natural instances. Both add zero parameters and zero forward passes; throughout, σ ⁡ ( ⋅ ) \\sigma(\\cdot) denotes the logistic sigmoid σ ⁡ ( z ) = 1 / ( 1 + e − z ) \\sigma(z)=1/(1+e^{-z}) ."
+      },
+      {
+        "id": "S4.SS2.SSS0.Px1",
+        "heading": "AFG-Img.",
+        "level": 3,
+        "text": "We use the encoder’s per-frame global feature g t ∈ ℝ d g_{t}\\in\\mathbb{R}^{d} , defined as the spatial mean of the encoder’s patch tokens, g t = 1 K ​ ∑ k = 1 K X t ( k ) g_{t}=\\tfrac{1}{K}\\sum_{k=1}^{K}X_{t}^{(k)} , which CUT3R already employs as its LocalMemory query. Its frame-to-frame change drives: α t img = σ ⁡ ( ‖ g t − g t − 1 ‖ 2 − τ ) . \\alpha^{\\text{img}}_{t}\\;=\\;\\sigma\\!\\left(\\|g_{t}-g_{t-1}\\|_{2}-\\tau\\right). (5)"
+      },
+      {
+        "id": "S4.SS2.SSS0.Px2",
+        "heading": "AFG-Pose.",
+        "level": 3,
+        "text": "We use the first row of the final decoder-layer state, p t = S t , 1 ( L ) ∈ ℝ d p_{t}=S^{(L)}_{t,1}\\in\\mathbb{R}^{d} , which feeds CUT3R’s pose prediction head and captures the model’s per-frame pose representation. Its frame-to-frame change drives: α t pose = σ ⁡ ( ‖ p t − p t − 1 ‖ 2 − τ ) . \\alpha^{\\text{pose}}_{t}\\;=\\;\\sigma\\!\\left(\\|p_{t}-p_{t-1}\\|_{2}-\\tau\\right). (6) Here τ \\tau is a fixed scalar threshold. When Δ ​ f = 0 \\Delta f=0 (a frame identical to its predecessor), α t \\alpha_{t} saturates at the strict positive lower bound σ ⁡ ( − τ ) > 0 \\sigma(-\\tau)>0 rather than collapsing to zero, so the gate remains in ( 0 , 1 ] (0,1] on arbitrarily long redundant runs. In practice p t p_{t} depends on the evolving state S t − 1 S_{t-1} , so ‖ Δ ​ p t ‖ \\|\\Delta p_{t}\\| remains nonzero even on pixel-identical inputs and the observed α min \\alpha_{\\min} for AFG-Pose can fall below σ ⁡ ( − τ ) \\sigma(-\\tau) (Appendix A1 ). The two variants capture novelty at different abstraction levels: g t g_{t} reflects raw visual content, p t p_{t} reflects the model’s pose-related cognition. Empirically, AFG-Img excels on smooth-scanning regimes where pose changes are gentle, while AFG-Pose excels on dynamic regimes where pose changes carry the strongest signal (Sec. 5 ). We use them as complementary regime-specific variants, since naive fusion does not exceed the better single gate (Sec. 5.5 )."
+      },
+      {
+        "id": "S4.SS2.SSS0.Px3",
+        "heading": "Interpretation: a longer, content-aware horizon.",
+        "level": 3,
+        "text": "α t \\alpha_{t} acts as an inference-time learning rate on the recurrent state: α t → 1 \\alpha_{t}\\to 1 on novel frames (absorbed at full TTT3R strength), α t → σ ⁡ ( − τ ) \\alpha_{t}\\to\\sigma(-\\tau) on redundant ones. This reshapes the memory horizon of Sec. 3 : a keyframe is overwritten not at the fixed rate β \\beta , but at α t ​ β \\alpha_{t}\\beta set by the novelty of subsequent frames. When followed by low-information frames ( α t → α min \\alpha_{t}\\to\\alpha_{\\min} ), its contribution decays as ( 1 − α min ​ β ) k (1-\\alpha_{\\min}\\beta)^{k} , extending the horizon from 1 / β ≈ 3 1/\\beta\\approx 3 frames to 1 / ( α min ​ β ) 1/(\\alpha_{\\min}\\beta) . With the empirically observed α min ≈ 0.05 \\alpha_{\\min}\\approx 0.05 on fully redundant inputs, this reaches ∼ \\sim 64 frames—up to a ∼ \\sim 20 × \\times extension under sustained redundancy. AFG thus does not remember harder; it forgets selectively , spending a limited memory budget on informative frames rather than the most recent ones. We verify this with a controlled redundancy-injection probe in Appendix A1 ."
+      },
+      {
+        "id": "S5.SS0.SSS0.Px1",
+        "heading": "Tasks and benchmarks.",
+        "level": 3,
+        "text": "We evaluate on three streaming 3D reconstruction tasks: camera pose estimation on TUM-RGBD [ 18 ] , ScanNet [ 6 ] , and KITTI [ 9 ] ; video depth estimation on Bonn [ 15 ] ; and 3D reconstruction on 7-Scenes [ 17 ] and NRGBD [ 1 ] . Sequence lengths span 50 50 to 4541 4541 frames. We adopt standard alignment conventions throughout: Sim(3) Umeyama alignment for camera pose, and metric alignment for depth (scale-and-shift depth results are additionally reported in Appendix A3.2 as a robustness check). Per-task evaluation details are given in each subsection."
+      },
+      {
+        "id": "S5.SS0.SSS0.Px2",
+        "heading": "Baselines.",
+        "level": 3,
+        "text": "We compare against three families: inference-time gating methods (TTT3R [ 3 ] , TTSA3R [ 30 ] , MeMix [ 8 ] ); feedforward backbones (CUT3R [ 22 ] , StreamVGGT [ 31 ] , FastVGGT [ 16 ] , InfiniteVGGT [ 28 ] ); and long-sequence-specialized methods (LongStream [ 5 ] , Keyframe-VO [ 7 ] )."
+      },
+      {
+        "id": "S5.SS0.SSS0.Px3",
+        "heading": "Implementation details.",
+        "level": 3,
+        "text": "AFG is applied to a frozen CUT3R checkpoint without fine-tuning, with τ = 1.0 \\tau=1.0 used unchanged across all benchmarks. All experiments are conducted on a single NVIDIA A100 (80 GB)."
+      },
+      {
+        "id": "S5.SS1",
+        "heading": "5.1 Camera Pose Estimation",
+        "level": 2,
+        "text": "Figure 3: Camera pose ATE vs. sequence length. Both AFG-Img and AFG-Pose consistently outperform TTT3R, TTSA3R, and MeMix on TUM-RGBD and ScanNet, with the gap widening at longer sequences. Following prior work [ 22 , 3 , 8 ] , we evaluate long-sequence absolute trajectory error (ATE) on TUM-RGBD and ScanNet as sequence length increases; results are shown in Fig. 3 , with per-length numerical values tabulated in Appendix A2 . Both variants consistently outperform TTT3R, TTSA3R, and MeMix across both datasets, with the gap widening as sequences grow longer; MeMix offers limited additional gain over TTT3R throughout, supporting the analysis of Sec. 3 that token-level gating alone cannot address frame-level drift. The two variants exhibit complementary strengths: AFG-Pose is the stronger variant on TUM-RGBD (dynamic walking sequences), reducing average ATE at L ≥ 600 L\\geq 600 by 51 % 51\\% over TTT3R, while AFG-Img leads on ScanNet (smooth indoor scanning), reducing ATE at L ≥ 600 L\\geq 600 by 29 % 29\\% over TTT3R—consistent with the regime mapping in Sec. 4 ."
+      },
+      {
+        "id": "S5.SS2",
+        "heading": "5.2 Long-Sequence Pose Estimation on KITTI",
+        "level": 2,
+        "text": "On KITTI Odometry [ 9 ] (Table 1 ), we additionally compare against two long-sequence-specialized baselines: the retrained-from-scratch LongStream [ 5 ] and the RL-policy-trained Keyframe-VO [ 7 ] . Concurrent inference-time methods TTSA3R [ 30 ] and MeMix [ 8 ] do not report KITTI results and are instead compared on the indoor benchmarks of Sec. 5.1 . AFG-Pose achieves the lowest average ATE ( 43.96 43.96 m), reducing TTT3R by 35.9 % 35.9\\% and surpassing both long-sequence-specialized baselines—LongStream ( 51.90 51.90 ) and Keyframe-VO ( 87.00 87.00 )—despite requiring no retraining, no architectural change, and no extra forward pass; AFG-Img also improves TTT3R to 56.60 56.60 . Consistent with the EMA horizon analysis in Sec. 3 , gains scale with length: on the four longest sequences ( L ≥ 1500 L\\geq 1500 , 00 / 02 / 08 / 09 ), AFG-Pose reduces ATE over TTT3R by 39 39 – 64 % 64\\% , while on the shortest ( 04 , L = 271 L=271 ) the gain vanishes. The variant ordering also matches the prediction in Sec. 4 —AFG-Pose dominates AFG-Img on 7 7 of 11 11 KITTI sequences (fast outdoor driving), whereas AFG-Img leads under small-baseline indoor scanning (Sec. 5.1 ). Trajectory visualizations across all 11 11 KITTI sequences are provided in Appendix A7 , qualitatively confirming the long-sequence drift suppression. Table 1: Long-sequence pose estimation on KITTI [ 9 ] . ATE ↓ \\downarrow (m) of the aligned trajectory. Best in bold , second-best underlined . Methods KITTI (ATE ↓ \\downarrow ) 00 01 02 03 04 05 06 07 08 09 10 Avg. 4541, 3.7km 1101, 2.5km 4661, 5.1km 801, 0.6km 271, 0.4km 2761, 2.2km 1101, 1.2km 1101, 0.7km 4071, 3.2km 1591, 1.7km 1201, 0.9km CUT3R 190.38 90.59 264.39 20.40 7.31 92.25 67.54 22.48 145.08 67.42 40.00 91.62 TTT3R 118.20 102.98 242.05 14.38 4.51 31.62 37.77 12.00 81.52 79.10 29.82 68.54 InfiniteVGGT 186.46 623.62 289.16 166.74 68.00 143.84 117.57 85.33 221.36 215.41 156.92 206.78 FastVGGT 102.50 176.80 170.00 11.20 2.50 76.10 131.20 61.50 99.30 99.30 36.70 87.90 StreamVGGT 191.93 653.06 303.35 157.50 108.24 160.46 133.71 89.00 263.95 216.69 209.80 226.15 LongStream 92.55 46.01 134.70 3.81 1.95 84.69 23.12 14.93 62.07 85.61 21.48 51.90 Keyframe-VO 138.10 179.10 153.50 12.00 13.20 131.60 73.00 45.90 86.50 97.50 26.80 87.00 AFG-Img (Ours) 89.03 79.40 229.25 14.68 8.47 32.21 31.29 14.01 49.61 47.21 27.44 56.60 AFG-Pose (Ours) 72.22 85.49 118.98 12.07 6.49 35.16 30.15 17.44 45.92 28.56 31.09 43.96"
+      },
+      {
+        "id": "S5.SS3",
+        "heading": "5.3 Video Depth Estimation",
+        "level": 2,
+        "text": "Figure 4: Video depth estimation on Bonn (metric alignment). Both AFG-Img and AFG-Pose improve over TTT3R, TTSA3R, and MeMix across all lengths and metrics, with gains widening at longer sequences. Following prior work [ 22 , 3 , 8 ] , we evaluate video depth estimation on Bonn [ 15 ] , which covers dynamic indoor scenes. We report absolute relative error (Abs Rel), root mean square error (RMSE), and the percentage of predicted depths within a 1.25-factor of ground truth ( δ < 1.25 \\delta<1.25 ) under metric alignment; results are shown in Fig. 4 , with per-length numerical values under both metric and scale-and-shift alignments tabulated in Appendix A3 . Both AFG-Img and AFG-Pose consistently improve depth estimation over TTT3R and MeMix across the full length range, with the gains becoming more pronounced on longer sequences where recurrent state degradation accumulates. AFG-Pose is the stronger variant throughout, while AFG-Img provides a smaller but consistent improvement. MeMix tracks TTT3R closely at all lengths. Both variants also preserve short-sequence performance ( L ≤ 100 L\\leq 100 ), indicating that the frame gate does not trade near-term accuracy for long-range stability."
+      },
+      {
+        "id": "S5.SS4",
+        "heading": "5.4 3D Reconstruction",
+        "level": 2,
+        "text": "Following common practice in long-horizon streaming reconstruction [ 22 , 3 , 8 ] , we evaluate multiview reconstruction on 7-Scenes [ 17 ] and NRGBD [ 1 ] at three sequence lengths (300/400/500 frames) with sparse sampling (one frame every two frames, -S); the full per-length, per-baseline table is provided in Table 10 of Appendix A4 . Full-attention models such as VGGT [ 21 ] run out of memory at all tested lengths. Among constant-memory recurrent baselines, reconstruction quality degrades consistently as the input horizon grows: TTT3R mean accuracy on 7-Scenes deteriorates from 0.039 at L = 300 L{=}300 to 0.065 at L = 500 L{=}500 , and on NRGBD from 0.104 to 0.166, reflecting cumulative state drift under long sequences. Our AFG variants substantially reduce this length-dependent degradation. On 7-Scenes, AFG-Img maintains near-constant accuracy across all lengths (0.023/0.023/0.024 at L = 300 / 400 / 500 L{=}300/400/500 ), while TTT3R degrades by 67% over the same range. On NRGBD, where drift is more pronounced, AFG-Img reduces mean accuracy by 24% relative to TTSA3R at L = 500 L{=}500 (0.092 vs. 0.121) and cuts completeness error by 45% (0.027 vs. 0.049). AFG-Pose achieves comparable gains with a lighter gating signal derived solely from pose tokens. Qualitative comparisons (Fig. 6 , Appendix A5 ) corroborate the numbers: without adaptive gating, recurrent baselines accumulate pose drift and produce fragmented geometry, while AFG yields more coherent surfaces and better-preserved scene structure across both datasets."
+      },
+      {
+        "id": "S5.SS5.SSS0.Px1",
+        "heading": "Is adaptivity necessary, and which gate carries the gain?",
+        "level": 3,
+        "text": "Table 2 answers both on TUM-RGBD pose and Bonn depth. Top block (fixed- α \\alpha probe). Replacing the adaptive gate with a constant α ∈ { 0.3 , 0.5 , 0.7 } \\alpha\\in\\{0.3,0.5,0.7\\} already improves ATE over TTT3R, but no constant matches the adaptive variant on both tasks; our full method outperforms the best fixed α = 0.3 \\alpha=0.3 by 19 % 19\\% on ATE and 10 % 10\\% on AbsRel, confirming that adaptively distinguishing informative from redundant frames is essential. Bottom block (component probe). Applying α \\alpha alone to CUT3R (without β \\beta ) already cuts ATE from 0.109 0.109 to 0.063 0.063 and AbsRel from 0.100 0.100 to 0.085 0.085 , showing the frame-level gate independently captures most of the gain; adding β \\beta further reduces ATE to 0.054 0.054 ( 14 % 14\\% additional) while maintaining depth quality, confirming β \\beta ’s complementary token-level selectivity— α \\alpha controls when to update at the frame level, β \\beta controls where at the token level. Table 2: Ablation: necessity of adaptivity and contribution of each gate. TUM-RGBD ( 1000 1000 frames, pose) and Bonn ( 500 500 frames, depth). Top block sweeps fixed α \\alpha against the adaptive variant; bottom block isolates the contribution of β \\beta on top of α \\alpha . Best in bold . Configuration α t \\alpha_{t} β t \\beta_{t} Pose (TUM) Depth (Bonn) ATE ↓ \\downarrow RPE r ↓ \\downarrow AbsRel ↓ \\downarrow δ < 1.25 \\delta{<}1.25 ↑ \\uparrow TTT3R ≡ 1 \\equiv 1 ✓ 0.109 0.443 0.100 92.1 Fixed- α \\alpha probe (does adaptivity matter?) α t ≡ 0.3 \\alpha_{t}\\equiv 0.3 0.3 0.3 ✓ 0.066 0.854 0.095 93.2 α t ≡ 0.5 \\alpha_{t}\\equiv 0.5 0.5 0.5 ✓ 0.079 0.449 0.099 92.8 α t ≡ 0.7 \\alpha_{t}\\equiv 0.7 0.7 0.7 ✓ 0.093 0.429 0.100 92.3 Component probe (does β \\beta help on top of α \\alpha ?) α \\alpha only (no β \\beta ) adaptive 0.063 0.376 0.085 95.1 α + β \\alpha+\\beta (Ours, full) adaptive ✓ 0.054 0.520 0.086 94.7"
+      },
+      {
+        "id": "S5.SS5.SSS0.Px2",
+        "heading": "Why not combine the two gates?",
+        "level": 3,
+        "text": "A natural question is whether AFG-Img and AFG-Pose can be combined. We evaluate three fusion strategies in Table 3 : OR via max ⁡ ( α img , α pose ) \\max(\\alpha^{\\text{img}},\\alpha^{\\text{pose}}) ; multiplicative AND α img ⋅ α pose \\alpha^{\\text{img}}\\cdot\\alpha^{\\text{pose}} with relaxed thresholds; and a signal-strength weighted average. No fusion strategy improves over the best single gate. The OR variant lets too many redundant frames through (TUM ATE 0.079 0.079 vs. AFG-Pose 0.054 0.054 ), undoing selectivity. The multiplicative variant cuts ATE moderately (0.075) but explodes the rotation error (RPE r 1.137 1.137 , 2.6 × 2.6\\times TTT3R) by zeroing informative residuals when both gates fire low. The weighted variant matches AFG-Pose within noise (ATE 0.054 0.054 , AbsRel 0.086 0.086 ): both gates draw from the same per-frame backbone activations and carry correlated novelty, so fusion adds no new selectivity. We therefore adopt the two as complementary regime-specific variants rather than fusing them. Table 3: Combining the two gates is not beneficial. Fusion strategies for α img \\alpha^{\\text{img}} and α pose \\alpha^{\\text{pose}} on TUM-RGBD ( 1000 1000 frames, pose) and Bonn ( 500 500 frames, depth). No combination strictly improves over the best single gate. Best in bold . Configuration Pose (TUM) Depth (Bonn) ATE ↓ \\downarrow RPE r ↓ \\downarrow AbsRel ↓ \\downarrow RMSE ↓ \\downarrow δ < 1.25 \\delta{<}1.25 ↑ \\uparrow TTT3R 0.109 0.443 0.100 0.339 92.1 AFG-Img alone 0.084 0.411 0.097 0.329 93.4 AFG-Pose alone 0.054 0.520 0.086 0.308 94.7 max ⁡ ( α img , α pose ) \\max(\\alpha^{\\text{img}},\\alpha^{\\text{pose}}) (OR) 0.079 0.414 0.095 0.323 94.0 α img ⋅ α pose \\alpha^{\\text{img}}\\cdot\\alpha^{\\text{pose}} (retuned) 0.075 1.137 0.089 0.315 94.1 weighted ( α img , α pose ) (\\alpha^{\\text{img}},\\alpha^{\\text{pose}}) 0.054 0.522 0.086 0.308 94.7"
+      },
+      {
+        "id": "S5.SS5.SSS0.Px3",
+        "heading": "Robustness to the threshold τ \\tau .",
+        "level": 3,
+        "text": "Sweeping τ ∈ [ 0.5 , 1.5 ] \\tau\\in[0.5,1.5] on TUM-RGBD pose and Bonn depth (full sweep in Appendix A6 ), all configurations outperform TTT3R and ATE varies only within 0.051 0.051 – 0.064 0.064 , confirming our method does not require per-scene tuning. We select τ = 1.0 \\tau=1.0 as the default; larger τ \\tau trades a small RPE r increase for further ATE and AbsRel gains."
+      },
+      {
+        "id": "S6",
+        "heading": "6 Conclusion",
+        "level": 1,
+        "text": "In this paper, we rethought why constant-memory recurrent 3D reconstructors drift on long sequences, and traced the failure to a structural blind spot in the per-token gate: averaged across thousands of cross-attention interactions, every gate collapses into nearly the same magnitude, leaving no way to distinguish a novel frame from a redundant one. To restore the missing axis, i.e., frame-level adaptivity, we introduced Adaptive Frame Gating, a parameter-free scalar gate computed at inference time from features the model already produces, with no retraining, no architectural change, and no extra forward pass. Across camera pose estimation, depth estimation, and reconstruction tasks, AFG consistently outperforms inference-time gating baselines, and on long outdoor trajectories surpasses methods purpose-built for long sequences via retraining or learned keyframe policies."
+      },
+      {
+        "id": "S6.SS0.SSS0.Px1",
+        "heading": "Limitations and future work.",
+        "level": 3,
+        "text": "AFG closes the frame-level admission axis but does not address every long-sequence failure mode of fixed-state recurrent models, most notably, state saturation under sustained novelty. Our two variants are complementary in scene regime, AFG-Pose for dynamic and fast-motion scenes (TUM-RGBD, KITTI, Bonn) and AFG-Img for smooth indoor scanning (ScanNet, 7-Scenes, NRGBD), yet their gating signals are sufficiently correlated that naive fusion does not exceed the better single one. A lightweight learned router that selects between them per frame, conditioned on motion or scene cues, would unify them without retraining."
+      },
+      {
+        "id": "bib",
+        "heading": "References",
+        "level": 1,
+        "text": "[1] D. Azinović, R. Martin-Brualla, D. B. Goldman, M. Nießner, and J. Thies (2022) Neural rgb-d surface reconstruction . In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pp. 6290–6301 . Cited by: Table 10 , Table 10 , Appendix A4 , Appendix A5 , §5 , §5.4 . [2] C. Campos, R. Elvira, J. J. G. Rodríguez, J. M. Montiel, and J. D. Tardós (2021) Orb-slam3: an accurate open-source library for visual, visual–inertial, and multimap slam . IEEE transactions on robotics 37 ( 6 ), pp. 1874–1890 . Cited by: §1 , §2 . [3] X. Chen, Y. Chen, Y. Xiu, A. Geiger, and A. Chen (2025) Ttt3r: 3d reconstruction as test-time training . arXiv preprint arXiv:2509.26645 . Cited by: Table 4 , Table 5 , Appendix A2 , Table 6 , Table 7 , Table 8 , Table 9 , Table 10 , Appendix A4 , Figure 7 , Appendix A7 , §1 , §2 , §2 , §3.1 , §3.1 , §5 , §5.1 , §5.3 , §5.4 . [4] Z. Chen, M. Qin, T. Yuan, Z. Liu, and H. Zhao (2025) Long3r: long sequence streaming 3d reconstruction . In Proceedings of the IEEE/CVF International Conference on Computer Vision , pp. 5273–5284 . Cited by: §2 . [5] C. Cheng, X. Chen, T. Xie, W. Yin, W. Ren, Q. Zhang, X. Guo, and H. Wang (2026) Longstream: long-sequence streaming autoregressive visual geometry . arXiv preprint arXiv:2602.13172 . Cited by: §1 , §2 , §5 , §5.2 . [6] A. Dai, A. X. Chang, M. Savva, M. Halber, T. Funkhouser, and M. Nießner (2017) Scannet: richly-annotated 3d reconstructions of indoor scenes . In Proceedings of the IEEE conference on computer vision and pattern recognition , pp. 5828–5839 . Cited by: §5 . [7] W. Dai, W. Su, D. Kong, Y. Ming, and W. Kong (2026) Keyframe-based feed-forward visual odometry . arXiv preprint arXiv:2601.16020 . Cited by: §1 , §2 , §5 , §5.2 . [8] J. Dong, H. Li, S. Zhou, W. Hu, W. Xu, and Y. Wang (2026) MeMix: writing less, remembering more for streaming 3d reconstruction . arXiv preprint arXiv:2603.15330 . Cited by: Table 4 , Table 5 , Appendix A2 , Table 6 , Table 7 , Table 8 , Table 9 , Table 10 , Appendix A4 , §1 , §2 , §5 , §5.1 , §5.2 , §5.3 , §5.4 . [9] A. Geiger, P. Lenz, C. Stiller, and R. Urtasun (2013) Vision meets robotics: the kitti dataset . The international journal of robotics research 32 ( 11 ), pp. 1231–1237 . Cited by: §5 , §5.2 , Table 1 , Table 1 . [10] H. Jin, R. Wu, T. Zhang, R. Gao, J. T. Barron, N. Snavely, and A. Holynski (2026) ZipMap: linear-time stateful 3d reconstruction via test-time training . arXiv preprint arXiv:2603.04385 . Cited by: §2 . [11] V. Leroy, Y. Cabon, and J. Revaud (2024) Grounding image matching in 3d with mast3r . In European conference on computer vision , pp. 71–91 . Cited by: §1 , §2 . [12] Z. Li, J. Zhou, Y. Wang, H. Guo, W. Chang, Y. Zhou, H. Zhu, J. Chen, C. Shen, and T. He (2025) Wint3r: window-based streaming reconstruction with camera token pool . arXiv preprint arXiv:2509.05296 . Cited by: §1 , §2 . [13] C. Liu, J. Yang, Z. Li, Y. Deng, J. Guo, and L. Ballan (2026) Mem3R: streaming 3d reconstruction with hybrid memory via test-time training . arXiv preprint arXiv:2604.07279 . Cited by: §2 . [14] R. Mur-Artal, J. M. M. Montiel, and J. D. Tardos (2015) ORB-slam: a versatile and accurate monocular slam system . IEEE transactions on robotics 31 ( 5 ), pp. 1147–1163 . Cited by: §2 . [15] E. Palazzolo, J. Behley, P. Lottes, P. Giguere, and C. Stachniss (2019) ReFusion: 3d reconstruction in dynamic environments for rgb-d cameras exploiting residuals . In 2019 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , pp. 7855–7862 . Cited by: §5 , §5.3 . [16] Y. Shen, Z. Zhang, Y. Qu, X. Zheng, J. Ji, S. Zhang, and L. Cao (2025) Fastvggt: training-free acceleration of visual geometry transformer . arXiv preprint arXiv:2509.02560 . Cited by: §5 . [17] J. Shotton, B. Glocker, C. Zach, S. Izadi, A. Criminisi, and A. Fitzgibbon (2013) Scene coordinate regression forests for camera relocalization in rgb-d images . In Proceedings of the IEEE conference on computer vision and pattern recognition , pp. 2930–2937 . Cited by: Table 10 , Table 10 , Appendix A4 , Appendix A5 , §5 , §5.4 . [18] J. Sturm, N. Engelhard, F. Endres, W. Burgard, and D. Cremers (2012) A benchmark for the evaluation of rgb-d slam systems . In 2012 IEEE/RSJ international conference on intelligent robots and systems , pp. 573–580 . Cited by: §5 . [19] Y. Sun, X. Li, K. Dalal, C. Hsu, S. Koyejo, C. Guestrin, X. Wang, T. Hashimoto, and X. Chen (2023) Learning to (learn at test time) . arXiv preprint arXiv:2310.13807 . Cited by: §2 , §3.1 . [20] H. Wang and L. Agapito (2025) 3d reconstruction with spatial memory . In 2025 International Conference on 3D Vision (3DV) , pp. 78–89 . Cited by: §2 . [21] J. Wang, M. Chen, N. Karaev, A. Vedaldi, C. Rupprecht, and D. Novotny (2025) Vggt: visual geometry grounded transformer . In Proceedings of the Computer Vision and Pattern Recognition Conference , pp. 5294–5306 . Cited by: Table 10 , Appendix A4 , §1 , §2 , §5.4 . [22] Q. Wang, Y. Zhang, A. Holynski, A. A. Efros, and A. Kanazawa (2025) Continuous 3d perception model with persistent state . In Proceedings of the Computer Vision and Pattern Recognition Conference , pp. 10510–10522 . Cited by: §1 , §2 , §3.1 , §5 , §5.1 , §5.3 , §5.4 . [23] S. Wang, V. Leroy, Y. Cabon, B. Chidlovskii, and J. Revaud (2024) Dust3r: geometric 3d vision made easy . In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pp. 20697–20709 . Cited by: §1 , §2 . [24] Y. Wu, W. Zheng, J. Zhou, and J. Lu (2025) Point3r: streaming 3d reconstruction with explicit spatial pointer memory . arXiv preprint arXiv:2507.02863 . Cited by: §1 , §2 . [25] T. Xie, P. Yang, Y. Jin, Y. Cai, W. Yin, W. Ren, Q. Zhang, W. Hua, S. Peng, X. Guo, et al. (2026) Scal3R: scalable test-time training for large-scale 3d reconstruction . arXiv preprint arXiv:2604.08542 . Cited by: §2 . [26] L. Xu, L. Guo, C. Jiang, and C. Wang (2026) PAS3R: pose-adaptive streaming 3d reconstruction for long video sequences . arXiv preprint arXiv:2603.21436 . Cited by: §2 . [27] J. Yang, A. Sax, K. J. Liang, M. Henaff, H. Tang, A. Cao, J. Chai, F. Meier, and M. Feiszli (2025) Fast3r: towards 3d reconstruction of 1000+ images in one forward pass . In Proceedings of the Computer Vision and Pattern Recognition Conference , pp. 21924–21935 . Cited by: §1 , §2 . [28] S. Yuan, Y. Yang, X. Yang, X. Zhang, Z. Zhao, L. Zhang, and Z. Zhang (2026) InfiniteVGGT: visual geometry grounded transformer for endless streams . arXiv preprint arXiv:2601.02281 . Cited by: §5 . [29] J. Zhang, C. Herrmann, J. Hur, C. Sun, M. Yang, F. Cole, T. Darrell, and D. Sun (2026) Loger: long-context geometric reconstruction with hybrid memory . arXiv preprint arXiv:2603.03269 . Cited by: §2 . [30] Z. Zheng, X. Xiang, and J. Zhang (2026) TTSA3R: training-free temporal-spatial adaptive persistent state for streaming 3d reconstruction . arXiv preprint arXiv:2601.22615 . Cited by: Table 4 , Table 5 , Appendix A2 , Table 6 , Table 7 , Table 8 , Table 9 , Table 10 , Appendix A4 , §1 , §2 , §5 , §5.2 . [31] D. Zhuo, W. Zheng, J. Guo, Y. Wu, J. Zhou, and J. Lu (2025) Streaming 4d visual geometry transformer . arXiv preprint arXiv:2507.11539 . Cited by: §1 , §2 , §5 ."
+      },
+      {
+        "id": "A1",
+        "heading": "Appendix A1 Redundancy-Injection Probe: Mechanism Verification",
+        "level": 1,
+        "text": "We test the central causal claim of the main text—that the structural constancy of β \\beta produces a short memory horizon, and the resulting long-sequence drift is suppressed by α \\alpha —under a controlled stress test that provides ground-truth zero-information frames and isolates drift from real motion: 100 100 pixel-identical frames injected into a real sequence with the GT camera held static."
+      },
+      {
+        "id": "A1.SS0.SSS0.Px1",
+        "heading": "Setup.",
+        "level": 3,
+        "text": "We take the first 500 500 frames of TUM-RGBD walking_xyz as a normal information stream, then append 100 100 pixel-identical copies of frame 499 499 at positions 500 500 – 599 599 , with the GT camera pose held constant on the injected segment. The same frozen CUT3R checkpoint is run with three update rules: TTT3R (Eq. 2 ), AFG-Img, and AFG-Pose (Eqs. 5 , 6 ). For each variant we record the per-token gate β t \\beta_{t} , the frame-level gate α t \\alpha_{t} (where applicable), the per-step state update ‖ Δ ​ S t ‖ \\|\\Delta S_{t}\\| , and the estimated camera trajectory. Estimated trajectories are aligned to GT with Sim(3) Umeyama prior to error computation, following the convention of Sec. 5 . Figure 5: Redundancy-injection probe on TUM walking_xyz . Frames 0 0 – 499 499 are the original sequence; frames 500 500 – 599 599 (gray shading) are 100 100 pixel-identical copies of frame 499 499 with GT camera held static. (a) The per-token gate β ¯ t \\bar{\\beta}_{t} (gray; identical across methods) remains flat at ∼ \\sim 0.35 0.35 throughout, including the injected segment, confirming its content-independence; the per-frame gate α t \\alpha_{t} drops sharply on redundant frames (AFG-Img to 0.18 0.18 , AFG-Pose to 0.048 0.048 ). (b) The per-step state update ‖ Δ ​ S t ‖ \\|\\Delta S_{t}\\| (log scale): TTT3R retains a non-negligible ∼ \\sim 0.31 0.31 even on identical inputs, while AFG-Pose suppresses it to 0.043 0.043 (a 7 × 7\\times reduction). (c) Position drift inside the injection, ‖ x ^ t − x ^ 500 ‖ \\|\\hat{x}_{t}-\\hat{x}_{500}\\| : since GT is static, any non-zero value is pure drift. TTT3R drifts ∼ \\sim 9 9 cm; AFG-Pose stays below 0.5 0.5 cm ( 18 × 18\\times reduction). (d) Sim(3)-aligned cumulative ATE (RMSE): TTT3R’s curve visibly bends upward on the injected segment while AFG-Pose remains flat. β ¯ t \\bar{\\beta}_{t} and α t \\alpha_{t} are not comparable in absolute value (different gate types); the diagnostic signal is how each responds to redundancy. Colors: TTT3R ( red ), AFG-Img ( blue ), AFG-Pose ( green ), shared β ¯ t \\bar{\\beta}_{t} (gray)."
+      },
+      {
+        "id": "A1.SS0.SSS0.Px2",
+        "heading": "β \\beta is content-blind, even in the worst case.",
+        "level": 3,
+        "text": "Panel (a) of Fig. 5 shows β ¯ t \\bar{\\beta}_{t} holding at 0.352 0.352 on the 100 100 injected duplicates, statistically indistinguishable from its value on the preceding informative frames. This is a stronger statement than the dataset-level statistics of Sec. 3.2 : even when the input carries strictly zero new information, the per-token gate does not adapt. The architectural origin of bounded β \\beta identified in Sec. 3.2 is therefore not a statistical artifact of typical sequences but a structural property of the gating mechanism itself."
+      },
+      {
+        "id": "A1.SS0.SSS0.Px3",
+        "heading": "AFG suppresses redundant updates by an order of magnitude.",
+        "level": 3,
+        "text": "Panel (b) shows that TTT3R’s per-step update naturally decreases on identical inputs (because Δ ​ S t \\Delta S_{t} shrinks when the input residual is small) but plateaus at ‖ Δ ​ S t ‖ ≈ 0.31 \\|\\Delta S_{t}\\|\\approx 0.31 —still large enough to materially perturb the state. AFG-Pose, by additionally gating with α t → 0.048 \\alpha_{t}\\to 0.048 , drives the effective update down to 0.043 0.043 , a further 7 × 7\\times suppression on top of TTT3R’s intrinsic decay."
+      },
+      {
+        "id": "A1.SS0.SSS0.Px4",
+        "heading": "Geometric drift is reduced by an order of magnitude.",
+        "level": 3,
+        "text": "Because the GT camera is held static on [ 500,599 ] [500,599] , the quantity ‖ x ^ t − x ^ 500 ‖ \\|\\hat{x}_{t}-\\hat{x}_{500}\\| in panel (c) is pure drift introduced by the recurrent update. TTT3R drifts to ∼ \\sim 9 9 cm despite no real motion; AFG-Pose stays under 0.5 0.5 cm—an 18 × 18\\times reduction. Panel (d) shows the same effect at trajectory scale: TTT3R’s cumulative ATE (RMSE) bends upward on the injected segment, while AFG-Pose remains flat."
+      },
+      {
+        "id": "A1.SS0.SSS0.Px5",
+        "heading": "Numerical closure with the main-text horizon prediction.",
+        "level": 3,
+        "text": "Substituting the measured α min = 0.048 \\alpha_{\\min}=0.048 and β ¯ = 0.352 \\bar{\\beta}=0.352 from panel (a) into the AFG horizon formula of Sec. 4 yields horizon AFG = 1 α min ​ β ¯ ≈ 60 ​ frames , \\mathrm{horizon}_{\\text{AFG}}\\;=\\;\\frac{1}{\\alpha_{\\min}\\,\\bar{\\beta}}\\;\\approx\\;60\\text{ frames}, within rounding of the ∼ \\sim 64 64 -frame prediction made there from independently estimated quantities. The TTT3R horizon under the same β ¯ \\bar{\\beta} is 1 / β ¯ ≈ 2.8 1/\\bar{\\beta}\\approx 2.8 frames, recovering the value reported in Sec. 3.3 . The structural mechanism diagnosed in Sec. 3 and the remedy proposed in Sec. 4 are thus both quantitatively confirmed on a single controlled experiment."
+      },
+      {
+        "id": "A2",
+        "heading": "Appendix A2 Detailed Per-Length Pose Numbers",
+        "level": 1,
+        "text": "We report the per-length numerical values underlying Fig. 3 of Sec. 5.1 . Tables 4 and 5 list ATE on TUM-RGBD and ScanNet across sequence lengths from 50 50 to 1000 1000 frames, for TTT3R [ 3 ] , TTSA3R [ 30 ] , MeMix [ 8 ] , and our two variants. Table 4: Detailed pose ATE on TUM-RGBD across sequence lengths. ATE ↓ \\downarrow (m) under Sim(3) Umeyama alignment; values averaged over sequences. Best in bold . Method Sequence Length L L 50 100 200 300 400 500 600 700 800 1000 TTT3R [ 3 ] 0.014 0.020 0.041 0.045 0.051 0.067 0.074 0.085 0.091 0.109 TTSA3R [ 30 ] 0.013 0.017 0.030 0.038 0.043 0.056 0.062 0.070 0.076 0.093 MeMix [ 8 ] 0.014 0.020 0.033 0.042 0.047 0.060 0.068 0.074 0.085 0.101 AFG-Img (Ours) 0.012 0.017 0.027 0.033 0.037 0.044 0.051 0.058 0.066 0.084 AFG-Pose (Ours) 0.013 0.017 0.023 0.028 0.032 0.033 0.036 0.040 0.045 0.054 Table 5: Detailed pose ATE on ScanNet across sequence lengths. ATE ↓ \\downarrow (m) under Sim(3) Umeyama alignment. Best in bold . Method Sequence Length L L 50 100 200 300 400 500 600 700 800 1000 TTT3R [ 3 ] 0.033 0.072 0.144 0.192 0.236 0.278 0.315 0.345 0.371 0.405 TTSA3R [ 30 ] 0.032 0.063 0.122 0.169 0.213 0.259 0.298 0.329 0.356 0.388 MeMix [ 8 ] 0.036 0.075 0.147 0.194 0.231 0.261 0.288 0.308 0.330 0.367 AFG-Img (Ours) 0.033 0.071 0.135 0.165 0.194 0.212 0.231 0.249 0.265 0.282 AFG-Pose (Ours) 0.038 0.084 0.173 0.206 0.240 0.250 0.257 0.267 0.277 0.281"
+      },
+      {
+        "id": "A3",
+        "heading": "Appendix A3 Detailed Bonn Depth Numbers",
+        "level": 1,
+        "text": "We provide the per-length numerical values plotted in Fig. 4 of Sec. 5.3 under metric alignment (Sec. A3.1 ), and additionally report results under scale-and-shift alignment (Sec. A3.2 ) as a robustness check, since scale-and-shift is the standard alignment in the depth-estimation literature. Across both alignments and all three metrics, AFG-Pose is the strongest variant for L ≥ 200 L\\geq 200 ; TTSA3R wins at very short sequences ( L ≤ 100 L\\leq 100 ) where short-horizon visual matching dominates and drift has not yet accumulated."
+      },
+      {
+        "id": "A3.SS1",
+        "heading": "A3.1 Metric Alignment",
+        "level": 2,
+        "text": "Tables 6 , 7 , and 8 list AbsRel, RMSE, and δ < 1.25 \\delta{<}1.25 under metric alignment, the strictest evaluation (no scale or shift compensation), corresponding directly to the curves of Fig. 4 . Table 6: Bonn depth (Abs Rel ↓ \\downarrow ) under metric alignment, across sequence lengths. Best in bold . Method Sequence Length L L 50 100 200 300 400 500 600 700 800 900 TTT3R [ 3 ] 0.0872 0.0885 0.1005 0.1077 0.1036 0.0997 0.1086 0.1131 0.1129 0.1109 TTSA3R [ 30 ] 0.0717 0.0657 0.0834 0.0977 0.0955 0.0942 0.1034 0.1081 0.1082 0.1066 MeMix [ 8 ] 0.0906 0.0925 0.1027 0.1097 0.1047 0.1009 0.1091 0.1137 0.1135 0.1118 AFG-Img (Ours) 0.0920 0.0887 0.0959 0.1048 0.1004 0.0970 0.1052 0.1097 0.1082 0.1063 AFG-Pose (Ours) 0.0812 0.0758 0.0823 0.0925 0.0898 0.0863 0.0952 0.0998 0.0988 0.0969 Table 7: Bonn depth (RMSE ↓ \\downarrow ) under metric alignment, across sequence lengths. Best in bold . Method Sequence Length L L 50 100 200 300 400 500 600 700 800 900 TTT3R [ 3 ] 0.302 0.303 0.337 0.363 0.349 0.339 0.363 0.379 0.385 0.380 TTSA3R [ 30 ] 0.249 0.235 0.296 0.340 0.329 0.326 0.351 0.366 0.374 0.370 MeMix [ 8 ] 0.311 0.314 0.342 0.368 0.351 0.341 0.364 0.379 0.385 0.381 AFG-Img (Ours) 0.310 0.299 0.322 0.353 0.337 0.329 0.352 0.367 0.370 0.365 AFG-Pose (Ours) 0.285 0.269 0.293 0.328 0.316 0.308 0.333 0.348 0.352 0.347 Table 8: Bonn depth ( δ < 1.25 \\delta{<}1.25 ↑ \\uparrow , %) under metric alignment, across sequence lengths. Best in bold . Method Sequence Length L L 50 100 200 300 400 500 600 700 800 900 TTT3R [ 3 ] 94.6 94.6 90.3 90.2 91.3 92.1 91.6 91.3 91.4 91.6 TTSA3R [ 30 ] 97.1 97.1 93.5 92.3 92.9 93.4 92.7 92.3 92.3 92.5 MeMix [ 8 ] 93.7 92.9 89.3 89.4 90.7 91.6 91.0 90.7 90.9 91.1 AFG-Img (Ours) 93.1 94.7 92.7 92.2 92.8 93.4 92.7 92.2 92.2 92.4 AFG-Pose (Ours) 95.5 96.2 95.2 94.4 94.4 94.7 93.8 93.2 93.2 93.3"
+      },
+      {
+        "id": "A3.SS2",
+        "heading": "A3.2 Scale-and-Shift Alignment",
+        "level": 2,
+        "text": "Table 9 reports AbsRel under scale-and-shift alignment, the standard convention where each predicted depth map is fitted to ground truth via a per-frame scale and shift before evaluation. Patterns are consistent with the metric-alignment results above, confirming that the gains are not artifacts of the alignment protocol. Table 9: Bonn depth (Abs Rel ↓ \\downarrow ) under scale-and-shift alignment, across sequence lengths. Best in bold . Method Sequence Length L L 50 100 200 300 400 500 600 700 800 900 TTT3R [ 3 ] 0.0699 0.0608 0.0636 0.0751 0.0747 0.0720 0.0833 0.0899 0.0909 0.0894 TTSA3R [ 30 ] 0.0575 0.0524 0.0684 0.0779 0.0765 0.0749 0.0854 0.0917 0.0926 0.0912 MeMix [ 8 ] 0.0716 0.0624 0.0630 0.0749 0.0746 0.0721 0.0827 0.0894 0.0902 0.0888 AFG-Img (Ours) 0.0646 0.0557 0.0593 0.0691 0.0683 0.0665 0.0770 0.0841 0.0842 0.0829 AFG-Pose (Ours) 0.0618 0.0542 0.0585 0.0675 0.0674 0.0654 0.0758 0.0821 0.0821 0.0808"
+      },
+      {
+        "id": "A4",
+        "heading": "Appendix A4 Detailed 3D Reconstruction Numbers",
+        "level": 1,
+        "text": "We provide the per-length, per-baseline reconstruction metrics on 7-Scenes [ 17 ] and NRGBD [ 1 ] that underlie the analysis in Sec. 5.4 . Table 10 reports Accuracy, Completeness, and Normal Consistency (mean and median) at three sequence lengths L ∈ { 300,400,500 } L\\in\\{300,400,500\\} , comparing TTT3R [ 3 ] , MeMix [ 8 ] , TTSA3R [ 30 ] , and our two variants; full-attention VGGT [ 21 ] runs out of memory at all tested lengths. Both AFG variants substantially improve over the inference-time baselines, with the gap widening at longer sequences. Table 10: 3D reconstruction on 7-Scenes [ 17 ] and NRGBD [ 1 ] . Models are evaluated with sparse sampling (one frame every two frames, -S). Shaded rows are our methods. Bold indicates the best result in each column at the same input length. 7-Scenes-S NRGBD-S Acc ↓ \\downarrow Comp ↓ \\downarrow NC ↑ \\uparrow Acc ↓ \\downarrow Comp ↓ \\downarrow NC ↑ \\uparrow Model L L Mean Med. Mean Med. Mean Med. Mean Med. Mean Med. Mean Med. VGGT [ 21 ] 300/400/500 OOM at all tested lengths TTT3R [ 3 ] 300 0.039 0.023 0.023 0.005 0.565 0.600 0.104 0.045 0.026 0.005 0.605 0.668 400 0.050 0.029 0.026 0.005 0.557 0.587 0.144 0.066 0.068 0.009 0.592 0.643 500 0.065 0.037 0.031 0.006 0.550 0.575 0.166 0.087 0.087 0.016 0.588 0.637 MeMix [ 8 ] 300 0.034 0.020 0.023 0.005 0.567 0.603 0.099 0.037 0.020 0.004 0.616 0.692 400 0.043 0.025 0.026 0.005 0.560 0.590 0.146 0.066 0.070 0.018 0.602 0.665 500 0.059 0.032 0.030 0.005 0.553 0.580 0.183 0.094 0.094 0.031 0.595 0.650 TTSA3R [ 30 ] 300 0.029 0.016 0.022 0.004 0.567 0.603 0.090 0.037 0.020 0.005 0.613 0.685 400 0.035 0.019 0.023 0.004 0.561 0.592 0.104 0.045 0.035 0.005 0.607 0.673 500 0.044 0.022 0.024 0.004 0.557 0.585 0.121 0.052 0.049 0.006 0.604 0.666 AFG-Pose (Ours) 300 0.025 0.012 0.021 0.003 0.566 0.600 0.075 0.026 0.011 0.004 0.617 0.690 400 0.028 0.014 0.022 0.003 0.561 0.592 0.085 0.035 0.023 0.003 0.613 0.683 500 0.031 0.015 0.022 0.003 0.558 0.587 0.101 0.040 0.033 0.004 0.611 0.680 AFG-Img (Ours) 300 0.023 0.010 0.020 0.003 0.563 0.596 0.071 0.023 0.010 0.003 0.616 0.692 400 0.023 0.010 0.020 0.003 0.558 0.588 0.075 0.026 0.015 0.003 0.617 0.689 500 0.024 0.010 0.021 0.003 0.554 0.581 0.092 0.031 0.027 0.004 0.614 0.683"
+      },
+      {
+        "id": "A5",
+        "heading": "Appendix A5 Qualitative 3D Reconstruction Comparison",
+        "level": 1,
+        "text": "Fig. 6 provides qualitative point-cloud reconstructions on representative 7-Scenes [ 17 ] and NRGBD [ 1 ] sequences, complementing the quantitative results in Table 10 (Appendix A4 ). Without adaptive gating, recurrent baselines accumulate pose drift and produce fragmented geometry; AFG variants yield more coherent surfaces and better-preserved scene structure across both datasets. Figure 6: Qualitative 3D reconstruction comparison on 7-Scenes and NRGBD. Without adaptive gating, recurrent baselines accumulate drift and produce fragmented geometry. AFG variants yield more coherent surfaces and better-preserved scene structure."
+      },
+      {
+        "id": "A6",
+        "heading": "Appendix A6 Threshold Sensitivity",
+        "level": 1,
+        "text": "We sweep the threshold τ \\tau used in the gate α t = σ ⁡ ( ‖ Δ ​ f t ‖ 2 − τ ) \\alpha_{t}=\\sigma(\\|\\Delta f_{t}\\|_{2}-\\tau) across { 0.5 , 0.75 , 1.0 , 1.25 , 1.5 } \\{0.5,0.75,1.0,1.25,1.5\\} on TUM-RGBD pose and Bonn depth (Table 11 ). Increasing τ \\tau progressively improves ATE and AbsRel at the cost of a higher RPE r , reflecting a trade-off between global trajectory accuracy and local rotational smoothness. All swept configurations significantly outperform TTT3R (ATE = 0.109, AbsRel = 0.100), and ATE varies only within 0.051 0.051 – 0.064 0.064 , confirming the method does not require per-scene tuning. We adopt τ = 1.0 \\tau=1.0 as the default in all main-paper experiments. Table 11: Threshold sensitivity. Performance of our method varying τ \\tau on TUM-RGBD (1000 frames, pose) and Bonn (500 frames, depth). All configurations outperform TTT3R. Pose (TUM) Depth (Bonn) τ \\tau ATE ↓ \\downarrow RPE r ↓ \\downarrow AbsRel ↓ \\downarrow δ < 1.25 \\delta{<}1.25 ↑ \\uparrow 0.5 0.064 0.376 0.093 94.2 0.75 0.058 0.391 0.090 94.7 1.0 (default) 0.054 0.520 0.086 94.7 1.25 0.051 0.603 0.084 94.7 1.5 0.058 0.751 0.082 94.7"
+      },
+      {
+        "id": "A7",
+        "heading": "Appendix A7 KITTI Trajectory Visualizations",
+        "level": 1,
+        "text": "Fig. 7 visualizes the recovered camera trajectories on all 11 11 KITTI Odometry sequences ( 00 – 10 ) for ground truth, TTT3R [ 3 ] , and our AFG-Pose variant (labeled “Ours”), corresponding to the per-sequence ATE numbers in Table 1 . Each estimated trajectory is aligned to ground truth by Sim(3) Umeyama; panel titles report the official KITTI path length. On long sequences ( 00 , 02 , 05 , 06 , 08 , 09 ; ≥ \\geq 1200 m), TTT3R drifts visibly while Ours tracks the ground-truth route, directly visualizing the long-sequence drift suppression. On short sequences ( 03 , 04 , 07 , 10 ; ≤ \\leq 920 m), both methods track ground truth closely, consistent with the observation that the gating advantage emerges as accumulated drift grows. Figure 7: Camera trajectory visualizations on KITTI Odometry. Top-down ( x x – z z ) views of the recovered trajectories on all 11 sequences ( 00 – 10 ). Each estimated trajectory is aligned to ground truth via Sim(3) Umeyama; panel titles list the official KITTI path length in meters. On long sequences ( ≥ \\geq 1200 m), TTT3R [ 3 ] drifts substantially while Ours (AFG-Pose) tracks the ground-truth route closely. On short sequences ( ≤ \\leq 920 m), both methods track ground truth accurately, consistent with our finding that the gating advantage strengthens as accumulated drift grows."
+      }
+    ]
+  },
+  "text": "Rethinking the State Update Gate for Long-Sequence Recurrent 3D Reconstruction Skip to main content Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: Why HTML? Report Issue Back to Abstract Download PDF Contents Reading mode Colour theme License: arXiv.org perpetual non-exclusive license arXiv:2605.16981v1 [cs.CV] 16 May 2026 Rethinking the State Update Gate for Long-Sequence Recurrent 3D Reconstruction Kejun Ren Affiliation: Beijing University of Posts and Telecommunications, Beijing, China Lei Jin Affiliation: Beijing University of Posts and Telecommunications, Beijing, China Tianxin Huang Affiliation: School of Computing and Data Science, The University of Hong Kong Lianming Xu Affiliation: Beijing University of Posts and Telecommunications, Beijing, China Li Wang † † thanks: Corresponding author. Affiliation: Beijing University of Posts and Telecommunications, Beijing, China Abstract Streaming 3D reconstruction under a strict constant-memory budget hinges on how the recurrent state is updated as the stream evolves. We profile TTT3R-style per-token gates across five benchmarks and discover a structural bottleneck: the gate is intrinsically bounded in magnitude (median 0.31 0.31 ; never exceeding 0.6 0.6 ) and nearly frame-invariant, yielding an effective memory horizon of only ∼ \\sim 3 frames per state token, which serves as the structural origin of long-sequence drift. We trace this to a missing axis: existing inference-time methods modulate updates only at the per-token, intra-frame level, while the orthogonal frame-level question of how strongly each frame should contribute to the state has been treated as content-independent. We close this gap with a scalar frame-level gate α t ∈ ( 0 , 1 ] \\alpha_{t}\\in(0,1] derived in closed form from frame-to-frame changes of internal features—a continuous relaxation of classical Simultaneous Localization and Mapping (SLAM) keyframe selection that requires no parameters, no training, and no extra forward pass. Across six benchmarks spanning camera pose, video depth, and 3D reconstruction at sequence lengths up to 4,541 4,541 frames, our gate cuts ATE by 51 % 51\\% on long TUM-RGBD pose sequences, reduces AbsRel by 12.8 % 12.8\\% on Bonn video depth, and on KITTI long-sequence pose estimation surpasses both LongStream and Keyframe-VO, while retaining strictly constant memory at zero training cost. Figure 1: Adaptive frame gating for streaming 3D reconstruction. Existing methods (TTT3R, MeMix, TTSA3R) update the recurrent state S t S_{t} with α t ≡ 1 \\alpha_{t}\\equiv 1 regardless of frame content, accumulating drift on long sequences. We introduce an adaptive frame gate α t ∈ ( 0 , 1 ] \\alpha_{t}\\in(0,1] scaled by frame-to-frame feature change, requiring no parameters, training, or extra forward pass. Top: Representative frames from a 1000 + 1000{+} -frame indoor sequence. Red keyframes (e.g., #321, #805) at significant scene or viewpoint transitions receive large α t \\alpha_{t} ( → 1 \\to 1 ); cyan near-duplicates (e.g., #12, #300) receive small α t \\alpha_{t} ( ∼ 0.1 \\sim 0.1 ) and are filtered out. Bottom-left: Gate α t \\alpha_{t} over the sequence—low during stable motion, spiking at keyframes; existing methods stay at α t ≡ 1 \\alpha_{t}\\equiv 1 . Bottom-middle: Cumulative ATE—our method maintains a significantly lower and more stable error profile on long sequences, indicating effective drift suppression. Bottom-right: Our update rule (Eq. 4 ): α t \\alpha_{t} multiplies TTT3R’s per-token gate β t \\beta_{t} at the state-update site. 1 Introduction Streaming 3D reconstruction processes an RGB video incrementally and produces camera poses and pixel-aligned geometry on the fly, under strict memory and latency constraints that grow with the input length [ 22 , 31 ] . Offline batch methods such as DUSt3R [ 23 ] , MASt3R [ 11 ] , VGGT [ 21 ] , and Fast3R [ 27 ] produce strong reconstructions through global attention over all frames, but their quadratic cost and the requirement that all frames be loaded simultaneously preclude online use on long sequences. Among streaming approaches, CUT3R [ 22 ] achieves a strictly constant memory footprint by compressing the full sequence history into a fixed-size recurrent state of N N tokens, S ∈ ℝ N × d S\\in\\mathbb{R}^{N\\times d} , that each incoming frame reads from and writes back into. KV-cache variants [ 31 , 24 ] retain richer history but grow with sequence length, while sliding-window attention [ 12 ] keeps memory constant only by discarding early frames, making CUT3R the unique combination of constant memory and full-history retention. Under a strict constant-memory budget, the central question becomes how this state should be updated as the stream evolves (Fig. 1 ). Recent inference-time methods all modulate this update along the same axis: a per-token gate β t ∈ [ 0 , 1 ] N \\beta_{t}\\in[0,1]^{N} that decides which state slots absorb the current frame’s residual. TTT3R [ 3 ] derives β t \\beta_{t} from cross-attention logits as a constrained test-time gradient step; TTSA3R [ 30 ] reshapes it via attention-style gating; the concurrent MeMix [ 8 ] adds a hard token mask. Through systematic profiling on long sequences across five benchmarks, we discover a striking regularity: β t \\beta_{t} is structurally bounded (median 0.31 0.31 ; no value exceeds 0.6 0.6 ), nearly invariant across datasets, and—most importantly—its variation across frames is less than half of its variation within a frame. Under an EMA reading of the update, this corresponds to an effective memory horizon of only ∼ \\sim 3 frames, structurally explaining the long-sequence drift these methods continue to exhibit. Yet a more fundamental observation lies beneath this bound: all of these designs lack any frame-level adaptivity. They modulate updates only along the intra-frame axis, i.e., per-token within a single frame, and treat every frame as equally informative regardless of its content. Classical SLAM has, for two decades, treated content-dependent admission as a first-class problem under the name keyframe selection [ 2 ] : only frames bringing sufficient novelty enter the map, while redundant ones are skipped. Modern streaming reconstruction has quietly abandoned this idea, every I t I_{t} writes into the state with the same nominal strength regardless of content. We argue that this is the missing axis, and propose to reintroduce it not as a binary admit/skip decision but as its continuous relaxation : every frame still contributes, but with a strength proportional to its novelty. Concretely, we introduce a scalar frame-level gate α t ∈ ( 0 , 1 ] \\alpha_{t}\\in(0,1] that multiplicatively modulates the state-update residual. Computed in closed form from the frame-to-frame change of internal features the base model already produces, α t \\alpha_{t} adds no parameters and no extra forward pass. Most frames are redundant and receive small α t \\alpha_{t} that barely perturbs the state; only significant scene or viewpoint transitions drive α t \\alpha_{t} toward 1 1 , where the update proceeds at full TTT3R strength. The design of Adaptive Frame Gating (AFG) is minimal: a single multiplicative scalar at the state-update site. As a plug-in modifier, AFG preserves the constant-memory inference property of CUT3R-style backbones, unlike retraining-based alternatives such as LongStream [ 5 ] . Across six benchmarks (TUM-RGBD, ScanNet, Bonn, KITTI, 7-Scenes, and NRGBD) with sequences from 50 50 to 4541 4541 frames, AFG consistently improves over inference-time gating baselines including TTT3R, MeMix, and TTSA3R; on long TUM-RGBD trajectories ( L ≥ 600 L\\geq 600 ) it reduces ATE by 51 % 51\\% over TTT3R, and on KITTI it surpasses both LongStream and the RL-trained Keyframe-VO [ 7 ] . Our contributions are summarized as follows. • Analysis of per-token gating. We identify a key limitation of TTT3R-style per-token gates: they are nearly frame-invariant and imply an effective memory horizon of only ∼ \\sim 3 frames, suggesting that the lack of frame-level adaptivity is a key bottleneck in long-sequence streaming reconstruction. • Adaptive Frame Gating. We propose AFG, a scalar frame-level gate α t ∈ ( 0 , 1 ] \\alpha_{t}\\in(0,1] computed in closed form from features already produced by the base model. We instantiate it as AFG-Img and AFG-Pose, using encoder global features and decoder pose tokens, respectively. Both variants are parameter-free, training-free, require no extra forward pass, and preserve constant memory. • Extensive long-sequence evaluation. We validate AFG across pose, depth, and reconstruction tasks on six benchmarks. It consistently improves over inference-time gating baselines and compares favorably with long-sequence methods based on retraining or learned keyframe policies. 2 Related Work Feed-forward 3D reconstruction. Feed-forward methods bypass the conventional Structure-from-Motion (SfM) pipeline by directly regressing scene geometry from input images. DUSt3R [ 23 ] and MASt3R [ 11 ] cast pairwise reconstruction as dense pointmap regression in a shared coordinate frame; VGGT [ 21 ] and Fast3R [ 27 ] extend this to the multi-view setting through global Transformer attention. While these methods achieve high reconstruction quality, they require all input frames to reside in attention simultaneously, scaling quadratically with sequence length and precluding online use on long videos. Streaming 3D reconstruction. To process inputs of arbitrary length, streaming methods turn to sequential or recurrent paradigms. Spann3R [ 20 ] introduces an explicit spatial memory for incremental reconstruction; CUT3R [ 22 ] formulates the problem as an RNN with a fixed-size recurrent state—the only design among streaming variants that strictly preserves constant memory. Subsequent works explore richer memory structures, including KV caches [ 31 ] , point-level memory [ 24 ] , and sliding-window attention [ 12 ] , but their memory grows with sequence length and limits deployment on long videos. Within the constant-memory regime, how the recurrent state should be updated as the stream evolves remains an open question, since unfiltered residual accumulation has been shown to cause severe long-sequence drift [ 3 ] . Long-sequence adaptation strategies. Three complementary lines of work address this long-sequence degradation. The first relies on architecture-level retraining : a growing body of work retrains new architectures or memory mechanisms tailored for long-sequence streaming reconstruction [ 5 , 4 , 29 , 10 , 25 , 13 , 26 ] . As a representative, LongStream [ 5 ] , built on the VGGT family, redesigns camera pose parameterization and KV-cache training to mitigate first-frame anchor bias and cache saturation. These approaches share the cost of giving up the constant-memory property and training from scratch. The second uses external frame selection policies : Keyframe-VO [ 7 ] freezes the base model and trains a reinforcement-learning policy that makes a discrete admit/skip decision for each frame, extending classical SLAM keyframe selection [ 14 , 2 ] to feed-forward 3D models. The third modulates state updates at inference time : TTT3R [ 3 ] reinterprets the recurrent update as a constrained test-time gradient step [ 19 ] and derives per-token learning rates β t ∈ [ 0 , 1 ] N \\beta_{t}\\in[0,1]^{N} from cross-attention logits; TTSA3R [ 30 ] reshapes β t \\beta_{t} via attention-style gating; the concurrent MeMix [ 8 ] adds a per-token hard mask. Inference-time methods preserve constant memory and require no training, but all operate exclusively on the per-token, intra-frame axis. Our work belongs to this third line and adds the orthogonal frame-level axis : compared to TTT3R, TTSA3R, and MeMix, we go beyond per-token modulation by making each frame’s contribution to the state content-dependent at the frame level; compared to Keyframe-VO, we share the goal of content-dependent admission but replace its discrete RL-trained policy with a continuous relaxation computed in closed form from the base model’s internal features—requiring no training, no parameters, and no extra forward pass. 3 Structural Diagnosis of Per-Token Gating 3.1 Recurrent State Updates for Continuous 3D Reconstruction Given a continuous image stream { I t } t = 1 T \\{I_{t}\\}_{t=1}^{T} , online 3D reconstruction estimates per-frame camera pose T t T_{t} , intrinsics K t K_{t} , and pixel-aligned pointmap P t P_{t} . CUT3R [ 22 ] casts this as a recurrent sequence model with a fixed-length state S ∈ ℝ N × d S\\in\\mathbb{R}^{N\\times d} initialized from learnable embeddings: each frame I t I_{t} is tokenized into image tokens X t X_{t} , the state is updated as S t = Update ⁡ ( S t − 1 , X t ) S_{t}=\\mathrm{Update}(S_{t-1},X_{t}) , and a read-out Y t = Read ⁡ ( S t , X t ) Y_{t}=\\mathrm{Read}(S_{t},X_{t}) is decoded into ( T t , K t , P t ) (T_{t},K_{t},P_{t}) by a prediction head. State–input interaction. Update \\mathrm{Update} and Read \\mathrm{Read} are jointly realized by an L L -layer dual-stream cross-attention decoder. The state stream attends to image tokens at each layer: S ( l ) = S ( l − 1 ) + softmax ⁡ ( Q S ( l ) ​ K X ( l ) ⊤ ) ​ V X ( l ) , S^{(l)}=S^{(l-1)}+\\mathrm{softmax}\\!\\left(Q_{S}^{(l)}{K_{X}^{(l)}}^{\\!\\top}\\right)V_{X}^{(l)}, (1) with a symmetric stream updating X ( l ) X^{(l)} from S ( l − 1 ) S^{(l-1)} . Stacking L L layers yields the per-frame update S t = S t − 1 + Δ ​ S t S_{t}=S_{t-1}+\\Delta S_{t} , where Δ ​ S t \\Delta S_{t} aggregates the cross-attention contributions of the current frame. Continuous state update (CUT3R). CUT3R writes this residual back unconditionally: S t = S t − 1 + Δ ​ S t S_{t}=S_{t-1}+\\Delta S_{t} . On long sequences with redundant content, this monotonic accumulation overwrites earlier observations and drives the state toward catastrophic drift [ 3 ] . Test-time learning for state update (TTT3R). TTT3R [ 3 ] reinterprets Δ ​ S t \\Delta S_{t} as a gradient step in a test-time training framework [ 19 ] , with S S acting as model parameters, X t X_{t} as a test sample, and Δ ​ S t \\Delta S_{t} as a descent direction on a self-supervised reconstruction loss. To regulate the step per state token, TTT3R averages the cross-attention logits over L L decoder layers, H H heads per layer, and K K image tokens per frame, and applies the resulting per-token learning rate multiplicatively before integration: β t = σ ⁡ ( 1 L ​ H ​ K ​ ∑ l , h , k Q S t − 1 ( l , h ) ​ K X t ( l , h , k ) ⊤ ) ∈ [ 0 , 1 ] N , S t = S t − 1 + β t ⊙ Δ ​ S t . \\beta_{t}\\;=\\;\\sigma\\!\\left(\\frac{1}{LHK}\\sum_{l,h,k}Q_{S_{t-1}}^{(l,h)}{K_{X_{t}}^{(l,h,k)}}^{\\!\\top}\\right)\\;\\in\\;[0,1]^{N},\\qquad S_{t}=S_{t-1}+\\beta_{t}\\odot\\Delta S_{t}. (2) We write β t ( n ) \\beta_{t}^{(n)} for the gate value at frame t ∈ { 1 , … , T } t\\in\\{1,\\dots,T\\} on the n n -th state token, n ∈ { 1 , … , N } n\\in\\{1,\\dots,N\\} . Each state token now retains history in proportion to its current cross-attention relevance, mitigating the drift of CUT3R. Whether β t \\beta_{t} provides effective control on long sequences—an empirical question not examined in prior work—is the focus of this section. 3.2 Empirical Properties of β \\beta : Bounded Magnitude and Negligible Frame Variation We profile β t \\beta_{t} across 5 benchmarks (TUM-RGBD, ScanNet, Bonn, NRGBD, 7-Scenes) covering indoor scanning, outdoor driving, handheld, and dynamic scenes. Across all sequences and frames, we collect β t ( n ) \\beta_{t}^{(n)} at every ( t , n ) (t,n) pair and analyze its distribution along two axes: pooled magnitude (Fig. 2 a, b) and within-frame versus per-frame variation (Fig. 2 c). Figure 2: Empirical properties of TTT3R’s per-token learning rate β \\beta . (a) Density of β \\beta pooled over all ( t , n ) (t,n) pairs from 39 sequences across 5 benchmarks (18.15M points). The distribution is sharply concentrated; no measurement exceeds β = 0.6 \\beta=0.6 . (b) Per-sequence mean of β \\beta grouped by dataset; despite the diverse motion regimes, all five benchmarks lie within [ 0.27 , 0.34 ] [0.27,0.34] . (c) For a representative long sequence (ScanNet scene0770_00 , T = 999 T=999 ), the histogram of all ( t , n ) (t,n) values (gray, std = 0.055 \\mathrm{std}=0.055 ) is more than twice as wide as the histogram of per-frame means β ¯ t \\bar{\\beta}_{t} (blue, std = 0.024 \\mathrm{std}=0.024 ): TTT3R exhibits per-token variation, but the per-frame mean is essentially constant. β \\beta is structurally bounded. On the pooled distribution (Fig. 2 a), β \\beta has median 0.31 0.31 , 99 % 99\\% of its mass below 0.44 0.44 , and a maximum of 0.558 0.558 ; none of the 18.15 18.15 M measurements exceeds 0.6 0.6 . This bound holds uniformly across datasets (Fig. 2 b): per-sequence means lie in a tight band of [ 0.27 , 0.34 ] [0.27,0.34] , with no benchmark significantly higher or lower than the global mean of 0.31 0.31 . The bound is therefore a property of the architecture rather than of any particular dataset. β \\beta has negligible frame-to-frame variation. Within a single sequence, the spread of β \\beta across all ( t , n ) (t,n) pairs is more than twice as large as the spread of the per-frame means β ¯ t = 1 N ​ ∑ n β t ( n ) \\bar{\\beta}_{t}=\\frac{1}{N}\\sum_{n}\\beta_{t}^{(n)} (Fig. 2 c): on ScanNet scene0770_00 , the within-frame std is 0.055 0.055 while the cross-frame std of β ¯ t \\bar{\\beta}_{t} is only 0.024 0.024 . The same pattern holds across the other benchmarks: the per-frame mean of β \\beta remains essentially constant regardless of sequence length or motion regime. While the per-token gate yields meaningful variation across the N N state tokens (consistent with TTT3R’s design intent), the per-frame mean is essentially constant: TTT3R provides token-level selectivity but no frame-level adaptivity. Why β \\beta behaves this way. Both properties stem from the multi-axis averaging in Eq. 2 : each β t ( n ) \\beta_{t}^{(n)} is the sigmoid of an average over L × H × K L\\times H\\times K ( ≈ 110 \\approx 110 K in the CUT3R-512 architecture) cross-attention logits. This averaging has two effects: (i) extreme logit values are diluted into a narrow effective range, and (ii) the summation over K K image tokens fuses frame-specific spatial information into a global statistic, with the residual mean dominated by the pretrained ( Q , K ) (Q,K) projections rather than by X t X_{t} . Let A ¯ \\bar{A} denote the averaged cross-attention logit inside the sigmoid of Eq. 2 , i.e., A ¯ = 1 L ​ H ​ K ​ ∑ l , h , k Q S t − 1 ( l , h ) ​ K X t ( l , h , k ) ⊤ \\bar{A}=\\tfrac{1}{LHK}\\sum_{l,h,k}Q_{S_{t-1}}^{(l,h)}{K_{X_{t}}^{(l,h,k)}}^{\\!\\top} . Empirically, A ¯ ≈ − 0.83 \\bar{A}\\approx-0.83 across all measurements, yielding σ ⁡ ( A ¯ ) ≈ 0.30 \\sigma(\\bar{A})\\approx 0.30 and matching the three observations of Fig. 2 . The consequence is that every frame contributes a similar moderate fraction ( ∼ \\sim 30%) of its residual Δ ​ S t \\Delta S_{t} to the state regardless of content. We next examine what this implies for memory over long sequences. 3.3 Memory Horizon Implied by Bounded β \\beta EMA decay and memory horizon. Eq. 2 is an exponential moving average on each state slot with smoothing factor β t ( n ) \\beta_{t}^{(n)} . Treating β \\beta as approximately constant in time (Sec. 3.2 ), the contribution of frame t − k t-k to S t ( n ) S_{t}^{(n)} decays geometrically as ( 1 − β ) k (1-\\beta)^{k} , giving an effective memory horizon of approximately 1 / β 1/\\beta frames 1 1 1 Defined as the lag at which the contribution drops to 1 / e 1/e of its instantaneous value: ( 1 − β ) k = 1 / e ⇒ k ≈ 1 / β (1-\\beta)^{k}=1/e\\Rightarrow k\\approx 1/\\beta for small β \\beta . . Since the per-frame mean is essentially constant across datasets ( β ¯ t ∈ [ 0.27 , 0.34 ] \\bar{\\beta}_{t}\\in[0.27,0.34] , Sec. 3.2 ): horizon ≈ 1 / β ¯ ≈ 3 ​ frames . \\mathrm{horizon}\\;\\approx\\;1/\\bar{\\beta}\\;\\approx\\;3\\ \\text{frames}. (3) This horizon is not only short but stable : it stays within [ 2.9 , 3.7 ] [2.9,3.7] regardless of sequence length or motion regime. Over a sequence of T = 1000 T=1000 frames, the contribution of frame 0 0 to S 100 S_{100} has already decayed to ( 0.69 ) 100 ≈ 10 − 16 (0.69)^{100}\\approx 10^{-16} —early observations are erased almost immediately and never recovered. This short horizon is the structural cause of long-sequence drift. Since β \\beta is content-independent (Sec. 3.2 ), every frame overwrites the state with equal strength, so an informative keyframe is displaced within ∼ \\sim 3 steps by whatever follows—including near-redundant frames. The memory is not just short, but indiscriminately short: early geometric evidence is forgotten long before it ceases to be relevant. We verify this mechanism via a controlled redundancy experiment in Appendix A1 . 4 Adaptive Frame Gating Building on the diagnosis of Sec. 3 , we restore the missing frame-level adaptivity with a scalar gate α t \\alpha_{t} that adaptively scales β t \\beta_{t} based on observation novelty. 4.1 Factorized State Update We replace the TTT3R update of Eq. 2 with the factorized form S t = S t − 1 + α t ⋅ β t ⊙ Δ ​ S t , S_{t}\\;=\\;S_{t-1}\\;+\\;\\alpha_{t}\\cdot\\beta_{t}\\odot\\Delta S_{t}, (4) where α t ∈ ( 0 , 1 ] \\alpha_{t}\\in(0,1] is a scalar frame-level gate that adaptively scales the current frame’s contribution to the state based on its content, and β t ∈ [ 0 , 1 ] N \\beta_{t}\\in[0,1]^{N} is TTT3R’s per-token gate from Eq. 2 that determines which state tokens should receive the contribution. The two gates operate on orthogonal axes, token (spatial) and frame (temporal), and combine multiplicatively: β t ( n ) \\beta_{t}^{(n)} controls per-token spatial selection while α t \\alpha_{t} modulates the per-frame update strength. This composition preserves TTT3R’s token selectivity while adding an independent temporal modulation. 4.2 Frame Gate from CUT3R-Internal Features We compute α t \\alpha_{t} from the frame-to-frame change of a feature that CUT3R already produces, yielding two natural instances. Both add zero parameters and zero forward passes; throughout, σ ⁡ ( ⋅ ) \\sigma(\\cdot) denotes the logistic sigmoid σ ⁡ ( z ) = 1 / ( 1 + e − z ) \\sigma(z)=1/(1+e^{-z}) . AFG-Img. We use the encoder’s per-frame global feature g t ∈ ℝ d g_{t}\\in\\mathbb{R}^{d} , defined as the spatial mean of the encoder’s patch tokens, g t = 1 K ​ ∑ k = 1 K X t ( k ) g_{t}=\\tfrac{1}{K}\\sum_{k=1}^{K}X_{t}^{(k)} , which CUT3R already employs as its LocalMemory query. Its frame-to-frame change drives: α t img = σ ⁡ ( ‖ g t − g t − 1 ‖ 2 − τ ) . \\alpha^{\\text{img}}_{t}\\;=\\;\\sigma\\!\\left(\\|g_{t}-g_{t-1}\\|_{2}-\\tau\\right). (5) AFG-Pose. We use the first row of the final decoder-layer state, p t = S t , 1 ( L ) ∈ ℝ d p_{t}=S^{(L)}_{t,1}\\in\\mathbb{R}^{d} , which feeds CUT3R’s pose prediction head and captures the model’s per-frame pose representation. Its frame-to-frame change drives: α t pose = σ ⁡ ( ‖ p t − p t − 1 ‖ 2 − τ ) . \\alpha^{\\text{pose}}_{t}\\;=\\;\\sigma\\!\\left(\\|p_{t}-p_{t-1}\\|_{2}-\\tau\\right). (6) Here τ \\tau is a fixed scalar threshold. When Δ ​ f = 0 \\Delta f=0 (a frame identical to its predecessor), α t \\alpha_{t} saturates at the strict positive lower bound σ ⁡ ( − τ ) > 0 \\sigma(-\\tau)>0 rather than collapsing to zero, so the gate remains in ( 0 , 1 ] (0,1] on arbitrarily long redundant runs. In practice p t p_{t} depends on the evolving state S t − 1 S_{t-1} , so ‖ Δ ​ p t ‖ \\|\\Delta p_{t}\\| remains nonzero even on pixel-identical inputs and the observed α min \\alpha_{\\min} for AFG-Pose can fall below σ ⁡ ( − τ ) \\sigma(-\\tau) (Appendix A1 ). The two variants capture novelty at different abstraction levels: g t g_{t} reflects raw visual content, p t p_{t} reflects the model’s pose-related cognition. Empirically, AFG-Img excels on smooth-scanning regimes where pose changes are gentle, while AFG-Pose excels on dynamic regimes where pose changes carry the strongest signal (Sec. 5 ). We use them as complementary regime-specific variants, since naive fusion does not exceed the better single gate (Sec. 5.5 ). Interpretation: a longer, content-aware horizon. α t \\alpha_{t} acts as an inference-time learning rate on the recurrent state: α t → 1 \\alpha_{t}\\to 1 on novel frames (absorbed at full TTT3R strength), α t → σ ⁡ ( − τ ) \\alpha_{t}\\to\\sigma(-\\tau) on redundant ones. This reshapes the memory horizon of Sec. 3 : a keyframe is overwritten not at the fixed rate β \\beta , but at α t ​ β \\alpha_{t}\\beta set by the novelty of subsequent frames. When followed by low-information frames ( α t → α min \\alpha_{t}\\to\\alpha_{\\min} ), its contribution decays as ( 1 − α min ​ β ) k (1-\\alpha_{\\min}\\beta)^{k} , extending the horizon from 1 / β ≈ 3 1/\\beta\\approx 3 frames to 1 / ( α min ​ β ) 1/(\\alpha_{\\min}\\beta) . With the empirically observed α min ≈ 0.05 \\alpha_{\\min}\\approx 0.05 on fully redundant inputs, this reaches ∼ \\sim 64 frames—up to a ∼ \\sim 20 × \\times extension under sustained redundancy. AFG thus does not remember harder; it forgets selectively , spending a limited memory budget on informative frames rather than the most recent ones. We verify this with a controlled redundancy-injection probe in Appendix A1 . 5 Experiments Tasks and benchmarks. We evaluate on three streaming 3D reconstruction tasks: camera pose estimation on TUM-RGBD [ 18 ] , ScanNet [ 6 ] , and KITTI [ 9 ] ; video depth estimation on Bonn [ 15 ] ; and 3D reconstruction on 7-Scenes [ 17 ] and NRGBD [ 1 ] . Sequence lengths span 50 50 to 4541 4541 frames. We adopt standard alignment conventions throughout: Sim(3) Umeyama alignment for camera pose, and metric alignment for depth (scale-and-shift depth results are additionally reported in Appendix A3.2 as a robustness check). Per-task evaluation details are given in each subsection. Baselines. We compare against three families: inference-time gating methods (TTT3R [ 3 ] , TTSA3R [ 30 ] , MeMix [ 8 ] ); feedforward backbones (CUT3R [ 22 ] , StreamVGGT [ 31 ] , FastVGGT [ 16 ] , InfiniteVGGT [ 28 ] ); and long-sequence-specialized methods (LongStream [ 5 ] , Keyframe-VO [ 7 ] ). Implementation details. AFG is applied to a frozen CUT3R checkpoint without fine-tuning, with τ = 1.0 \\tau=1.0 used unchanged across all benchmarks. All experiments are conducted on a single NVIDIA A100 (80 GB). 5.1 Camera Pose Estimation Figure 3: Camera pose ATE vs. sequence length. Both AFG-Img and AFG-Pose consistently outperform TTT3R, TTSA3R, and MeMix on TUM-RGBD and ScanNet, with the gap widening at longer sequences. Following prior work [ 22 , 3 , 8 ] , we evaluate long-sequence absolute trajectory error (ATE) on TUM-RGBD and ScanNet as sequence length increases; results are shown in Fig. 3 , with per-length numerical values tabulated in Appendix A2 . Both variants consistently outperform TTT3R, TTSA3R, and MeMix across both datasets, with the gap widening as sequences grow longer; MeMix offers limited additional gain over TTT3R throughout, supporting the analysis of Sec. 3 that token-level gating alone cannot address frame-level drift. The two variants exhibit complementary strengths: AFG-Pose is the stronger variant on TUM-RGBD (dynamic walking sequences), reducing average ATE at L ≥ 600 L\\geq 600 by 51 % 51\\% over TTT3R, while AFG-Img leads on ScanNet (smooth indoor scanning), reducing ATE at L ≥ 600 L\\geq 600 by 29 % 29\\% over TTT3R—consistent with the regime mapping in Sec. 4 . 5.2 Long-Sequence Pose Estimation on KITTI On KITTI Odometry [ 9 ] (Table 1 ), we additionally compare against two long-sequence-specialized baselines: the retrained-from-scratch LongStream [ 5 ] and the RL-policy-trained Keyframe-VO [ 7 ] . Concurrent inference-time methods TTSA3R [ 30 ] and MeMix [ 8 ] do not report KITTI results and are instead compared on the indoor benchmarks of Sec. 5.1 . AFG-Pose achieves the lowest average ATE ( 43.96 43.96 m), reducing TTT3R by 35.9 % 35.9\\% and surpassing both long-sequence-specialized baselines—LongStream ( 51.90 51.90 ) and Keyframe-VO ( 87.00 87.00 )—despite requiring no retraining, no architectural change, and no extra forward pass; AFG-Img also improves TTT3R to 56.60 56.60 . Consistent with the EMA horizon analysis in Sec. 3 , gains scale with length: on the four longest sequences ( L ≥ 1500 L\\geq 1500 , 00 / 02 / 08 / 09 ), AFG-Pose reduces ATE over TTT3R by 39 39 – 64 % 64\\% , while on the shortest ( 04 , L = 271 L=271 ) the gain vanishes. The variant ordering also matches the prediction in Sec. 4 —AFG-Pose dominates AFG-Img on 7 7 of 11 11 KITTI sequences (fast outdoor driving), whereas AFG-Img leads under small-baseline indoor scanning (Sec. 5.1 ). Trajectory visualizations across all 11 11 KITTI sequences are provided in Appendix A7 , qualitatively confirming the long-sequence drift suppression. Table 1: Long-sequence pose estimation on KITTI [ 9 ] . ATE ↓ \\downarrow (m) of the aligned trajectory. Best in bold , second-best underlined . Methods KITTI (ATE ↓ \\downarrow ) 00 01 02 03 04 05 06 07 08 09 10 Avg. 4541, 3.7km 1101, 2.5km 4661, 5.1km 801, 0.6km 271, 0.4km 2761, 2.2km 1101, 1.2km 1101, 0.7km 4071, 3.2km 1591, 1.7km 1201, 0.9km CUT3R 190.38 90.59 264.39 20.40 7.31 92.25 67.54 22.48 145.08 67.42 40.00 91.62 TTT3R 118.20 102.98 242.05 14.38 4.51 31.62 37.77 12.00 81.52 79.10 29.82 68.54 InfiniteVGGT 186.46 623.62 289.16 166.74 68.00 143.84 117.57 85.33 221.36 215.41 156.92 206.78 FastVGGT 102.50 176.80 170.00 11.20 2.50 76.10 131.20 61.50 99.30 99.30 36.70 87.90 StreamVGGT 191.93 653.06 303.35 157.50 108.24 160.46 133.71 89.00 263.95 216.69 209.80 226.15 LongStream 92.55 46.01 134.70 3.81 1.95 84.69 23.12 14.93 62.07 85.61 21.48 51.90 Keyframe-VO 138.10 179.10 153.50 12.00 13.20 131.60 73.00 45.90 86.50 97.50 26.80 87.00 AFG-Img (Ours) 89.03 79.40 229.25 14.68 8.47 32.21 31.29 14.01 49.61 47.21 27.44 56.60 AFG-Pose (Ours) 72.22 85.49 118.98 12.07 6.49 35.16 30.15 17.44 45.92 28.56 31.09 43.96 5.3 Video Depth Estimation Figure 4: Video depth estimation on Bonn (metric alignment). Both AFG-Img and AFG-Pose improve over TTT3R, TTSA3R, and MeMix across all lengths and metrics, with gains widening at longer sequences. Following prior work [ 22 , 3 , 8 ] , we evaluate video depth estimation on Bonn [ 15 ] , which covers dynamic indoor scenes. We report absolute relative error (Abs Rel), root mean square error (RMSE), and the percentage of predicted depths within a 1.25-factor of ground truth ( δ < 1.25 \\delta<1.25 ) under metric alignment; results are shown in Fig. 4 , with per-length numerical values under both metric and scale-and-shift alignments tabulated in Appendix A3 . Both AFG-Img and AFG-Pose consistently improve depth estimation over TTT3R and MeMix across the full length range, with the gains becoming more pronounced on longer sequences where recurrent state degradation accumulates. AFG-Pose is the stronger variant throughout, while AFG-Img provides a smaller but consistent improvement. MeMix tracks TTT3R closely at all lengths. Both variants also preserve short-sequence performance ( L ≤ 100 L\\leq 100 ), indicating that the frame gate does not trade near-term accuracy for long-range stability. 5.4 3D Reconstruction Following common practice in long-horizon streaming reconstruction [ 22 , 3 , 8 ] , we evaluate multiview reconstruction on 7-Scenes [ 17 ] and NRGBD [ 1 ] at three sequence lengths (300/400/500 frames) with sparse sampling (one frame every two frames, -S); the full per-length, per-baseline table is provided in Table 10 of Appendix A4 . Full-attention models such as VGGT [ 21 ] run out of memory at all tested lengths. Among constant-memory recurrent baselines, reconstruction quality degrades consistently as the input horizon grows: TTT3R mean accuracy on 7-Scenes deteriorates from 0.039 at L = 300 L{=}300 to 0.065 at L = 500 L{=}500 , and on NRGBD from 0.104 to 0.166, reflecting cumulative state drift under long sequences. Our AFG variants substantially reduce this length-dependent degradation. On 7-Scenes, AFG-Img maintains near-constant accuracy across all lengths (0.023/0.023/0.024 at L = 300 / 400 / 500 L{=}300/400/500 ), while TTT3R degrades by 67% over the same range. On NRGBD, where drift is more pronounced, AFG-Img reduces mean accuracy by 24% relative to TTSA3R at L = 500 L{=}500 (0.092 vs. 0.121) and cuts completeness error by 45% (0.027 vs. 0.049). AFG-Pose achieves comparable gains with a lighter gating signal derived solely from pose tokens. Qualitative comparisons (Fig. 6 , Appendix A5 ) corroborate the numbers: without adaptive gating, recurrent baselines accumulate pose drift and produce fragmented geometry, while AFG yields more coherent surfaces and better-preserved scene structure across both datasets. 5.5 Ablation Studies and Analysis Is adaptivity necessary, and which gate carries the gain? Table 2 answers both on TUM-RGBD pose and Bonn depth. Top block (fixed- α \\alpha probe). Replacing the adaptive gate with a constant α ∈ { 0.3 , 0.5 , 0.7 } \\alpha\\in\\{0.3,0.5,0.7\\} already improves ATE over TTT3R, but no constant matches the adaptive variant on both tasks; our full method outperforms the best fixed α = 0.3 \\alpha=0.3 by 19 % 19\\% on ATE and 10 % 10\\% on AbsRel, confirming that adaptively distinguishing informative from redundant frames is essential. Bottom block (component probe). Applying α \\alpha alone to CUT3R (without β \\beta ) already cuts ATE from 0.109 0.109 to 0.063 0.063 and AbsRel from 0.100 0.100 to 0.085 0.085 , showing the frame-level gate independently captures most of the gain; adding β \\beta further reduces ATE to 0.054 0.054 ( 14 % 14\\% additional) while maintaining depth quality, confirming β \\beta ’s complementary token-level selectivity— α \\alpha controls when to update at the frame level, β \\beta controls where at the token level. Table 2: Ablation: necessity of adaptivity and contribution of each gate. TUM-RGBD ( 1000 1000 frames, pose) and Bonn ( 500 500 frames, depth). Top block sweeps fixed α \\alpha against the adaptive variant; bottom block isolates the contribution of β \\beta on top of α \\alpha . Best in bold . Configuration α t \\alpha_{t} β t \\beta_{t} Pose (TUM) Depth (Bonn) ATE ↓ \\downarrow RPE r ↓ \\downarrow AbsRel ↓ \\downarrow δ < 1.25 \\delta{<}1.25 ↑ \\uparrow TTT3R ≡ 1 \\equiv 1 ✓ 0.109 0.443 0.100 92.1 Fixed- α \\alpha probe (does adaptivity matter?) α t ≡ 0.3 \\alpha_{t}\\equiv 0.3 0.3 0.3 ✓ 0.066 0.854 0.095 93.2 α t ≡ 0.5 \\alpha_{t}\\equiv 0.5 0.5 0.5 ✓ 0.079 0.449 0.099 92.8 α t ≡ 0.7 \\alpha_{t}\\equiv 0.7 0.7 0.7 ✓ 0.093 0.429 0.100 92.3 Component probe (does β \\beta help on top of α \\alpha ?) α \\alpha only (no β \\beta ) adaptive 0.063 0.376 0.085 95.1 α + β \\alpha+\\beta (Ours, full) adaptive ✓ 0.054 0.520 0.086 94.7 Why not combine the two gates? A natural question is whether AFG-Img and AFG-Pose can be combined. We evaluate three fusion strategies in Table 3 : OR via max ⁡ ( α img , α pose ) \\max(\\alpha^{\\text{img}},\\alpha^{\\text{pose}}) ; multiplicative AND α img ⋅ α pose \\alpha^{\\text{img}}\\cdot\\alpha^{\\text{pose}} with relaxed thresholds; and a signal-strength weighted average. No fusion strategy improves over the best single gate. The OR variant lets too many redundant frames through (TUM ATE 0.079 0.079 vs. AFG-Pose 0.054 0.054 ), undoing selectivity. The multiplicative variant cuts ATE moderately (0.075) but explodes the rotation error (RPE r 1.137 1.137 , 2.6 × 2.6\\times TTT3R) by zeroing informative residuals when both gates fire low. The weighted variant matches AFG-Pose within noise (ATE 0.054 0.054 , AbsRel 0.086 0.086 ): both gates draw from the same per-frame backbone activations and carry correlated novelty, so fusion adds no new selectivity. We therefore adopt the two as complementary regime-specific variants rather than fusing them. Table 3: Combining the two gates is not beneficial. Fusion strategies for α img \\alpha^{\\text{img}} and α pose \\alpha^{\\text{pose}} on TUM-RGBD ( 1000 1000 frames, pose) and Bonn ( 500 500 frames, depth). No combination strictly improves over the best single gate. Best in bold . Configuration Pose (TUM) Depth (Bonn) ATE ↓ \\downarrow RPE r ↓ \\downarrow AbsRel ↓ \\downarrow RMSE ↓ \\downarrow δ < 1.25 \\delta{<}1.25 ↑ \\uparrow TTT3R 0.109 0.443 0.100 0.339 92.1 AFG-Img alone 0.084 0.411 0.097 0.329 93.4 AFG-Pose alone 0.054 0.520 0.086 0.308 94.7 max ⁡ ( α img , α pose ) \\max(\\alpha^{\\text{img}},\\alpha^{\\text{pose}}) (OR) 0.079 0.414 0.095 0.323 94.0 α img ⋅ α pose \\alpha^{\\text{img}}\\cdot\\alpha^{\\text{pose}} (retuned) 0.075 1.137 0.089 0.315 94.1 weighted ( α img , α pose ) (\\alpha^{\\text{img}},\\alpha^{\\text{pose}}) 0.054 0.522 0.086 0.308 94.7 Robustness to the threshold τ \\tau . Sweeping τ ∈ [ 0.5 , 1.5 ] \\tau\\in[0.5,1.5] on TUM-RGBD pose and Bonn depth (full sweep in Appendix A6 ), all configurations outperform TTT3R and ATE varies only within 0.051 0.051 – 0.064 0.064 , confirming our method does not require per-scene tuning. We select τ = 1.0 \\tau=1.0 as the default; larger τ \\tau trades a small RPE r increase for further ATE and AbsRel gains. 6 Conclusion In this paper, we rethought why constant-memory recurrent 3D reconstructors drift on long sequences, and traced the failure to a structural blind spot in the per-token gate: averaged across thousands of cross-attention interactions, every gate collapses into nearly the same magnitude, leaving no way to distinguish a novel frame from a redundant one. To restore the missing axis, i.e., frame-level adaptivity, we introduced Adaptive Frame Gating, a parameter-free scalar gate computed at inference time from features the model already produces, with no retraining, no architectural change, and no extra forward pass. Across camera pose estimation, depth estimation, and reconstruction tasks, AFG consistently outperforms inference-time gating baselines, and on long outdoor trajectories surpasses methods purpose-built for long sequences via retraining or learned keyframe policies. Limitations and future work. AFG closes the frame-level admission axis but does not address every long-sequence failure mode of fixed-state recurrent models, most notably, state saturation under sustained novelty. Our two variants are complementary in scene regime, AFG-Pose for dynamic and fast-motion scenes (TUM-RGBD, KITTI, Bonn) and AFG-Img for smooth indoor scanning (ScanNet, 7-Scenes, NRGBD), yet their gating signals are sufficiently correlated that naive fusion does not exceed the better single one. A lightweight learned router that selects between them per frame, conditioned on motion or scene cues, would unify them without retraining. References [1] D. Azinović, R. Martin-Brualla, D. B. Goldman, M. Nießner, and J. Thies (2022) Neural rgb-d surface reconstruction . In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pp. 6290–6301 . Cited by: Table 10 , Table 10 , Appendix A4 , Appendix A5 , §5 , §5.4 . [2] C. Campos, R. Elvira, J. J. G. Rodríguez, J. M. Montiel, and J. D. Tardós (2021) Orb-slam3: an accurate open-source library for visual, visual–inertial, and multimap slam . IEEE transactions on robotics 37 ( 6 ), pp. 1874–1890 . Cited by: §1 , §2 . [3] X. Chen, Y. Chen, Y. Xiu, A. Geiger, and A. Chen (2025) Ttt3r: 3d reconstruction as test-time training . arXiv preprint arXiv:2509.26645 . Cited by: Table 4 , Table 5 , Appendix A2 , Table 6 , Table 7 , Table 8 , Table 9 , Table 10 , Appendix A4 , Figure 7 , Appendix A7 , §1 , §2 , §2 , §3.1 , §3.1 , §5 , §5.1 , §5.3 , §5.4 . [4] Z. Chen, M. Qin, T. Yuan, Z. Liu, and H. Zhao (2025) Long3r: long sequence streaming 3d reconstruction . In Proceedings of the IEEE/CVF International Conference on Computer Vision , pp. 5273–5284 . Cited by: §2 . [5] C. Cheng, X. Chen, T. Xie, W. Yin, W. Ren, Q. Zhang, X. Guo, and H. Wang (2026) Longstream: long-sequence streaming autoregressive visual geometry . arXiv preprint arXiv:2602.13172 . Cited by: §1 , §2 , §5 , §5.2 . [6] A. Dai, A. X. Chang, M. Savva, M. Halber, T. Funkhouser, and M. Nießner (2017) Scannet: richly-annot",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Skip to main content",
+      "url": "https://arxiv.org/html/2605.16981v1#infobox"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/IgnoreMe"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "Why HTML?",
+      "url": "https://info.arxiv.org/about/accessible_HTML.html"
+    },
+    {
+      "text": "Back to Abstract",
+      "url": "https://arxiv.org/abs/2605.16981v1"
+    },
+    {
+      "text": "Download PDF",
+      "url": "https://arxiv.org/pdf/2605.16981v1"
+    },
+    {
+      "text": "License: arXiv.org perpetual non-exclusive license",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2605.16981v1#S4.E4"
+    },
+    {
+      "text": "22",
+      "url": "https://arxiv.org/html/2605.16981v1#bib.bib6"
+    },
+    {
+      "text": "31",
+      "url": "https://arxiv.org/html/2605.16981v1#bib.bib7"
+    },
+    {
+      "text": "23",
+      "url": "https://arxiv.org/html/2605.16981v1#bib.bib1"
+    },
+    {
+      "text": "11",
+      "url": "https://arxiv.org/html/2605.16981v1#bib.bib2"
+    },
+    {
+      "text": "21",
+      "url": "https://arxiv.org/html/2605.16981v1#bib.bib3"
+    },
+    {
+      "text": "27",
+      "url": "https://arxiv.org/html/2605.16981v1#bib.bib4"
+    },
+    {
+      "text": "24",
+      "url": "https://arxiv.org/html/2605.16981v1#bib.bib8"
+    },
+    {
+      "text": "12",
+      "url": "https://arxiv.org/html/2605.16981v1#bib.bib9"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2605.16981v1#S0.F1"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2605.16981v1#bib.bib13"
+    },
+    {
+      "text": "30",
+      "url": "https://arxiv.org/html/2605.16981v1#bib.bib14"
+    },
+    {
+      "text": "8",
+      "url": "https://arxiv.org/html/2605.16981v1#bib.bib15"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2605.16981v1#bib.bib12"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2605.16981v1#bib.bib10"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2605.16981v1#bib.bib11"
+    },
+    {
+      "text": "20",
+      "url": "https://arxiv.org/html/2605.16981v1#bib.bib5"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2605.16981v1#bib.bib26"
+    },
+    {
+      "text": "29",
+      "url": "https://arxiv.org/html/2605.16981v1#bib.bib27"
+    },
+    {
+      "text": "10",
+      "url": "https://arxiv.org/html/2605.16981v1#bib.bib28"
+    },
+    {
+      "text": "25",
+      "url": "https://arxiv.org/html/2605.16981v1#bib.bib29"
+    },
+    {
+      "text": "13",
+      "url": "https://arxiv.org/html/2605.16981v1#bib.bib30"
+    },
+    {
+      "text": "26",
+      "url": "https://arxiv.org/html/2605.16981v1#bib.bib31"
+    },
+    {
+      "text": "14",
+      "url": "https://arxiv.org/html/2605.16981v1#bib.bib17"
+    },
+    {
+      "text": "19",
+      "url": "https://arxiv.org/html/2605.16981v1#bib.bib16"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2605.16981v1#S3.F2"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2605.16981v1#S3.E2"
+    },
+    {
+      "text": "3.2",
+      "url": "https://arxiv.org/html/2605.16981v1#S3.SS2"
+    },
+    {
+      "text": "A1",
+      "url": "https://arxiv.org/html/2605.16981v1#A1"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2605.16981v1#S3"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2605.16981v1#S5"
+    },
+    {
+      "text": "5.5",
+      "url": "https://arxiv.org/html/2605.16981v1#S5.SS5"
+    },
+    {
+      "text": "18",
+      "url": "https://arxiv.org/html/2605.16981v1#bib.bib18"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2605.16981v1#bib.bib19"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2605.16981v1#bib.bib20"
+    },
+    {
+      "text": "15",
+      "url": "https://arxiv.org/html/2605.16981v1#bib.bib21"
+    },
+    {
+      "text": "17",
+      "url": "https://arxiv.org/html/2605.16981v1#bib.bib22"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2605.16981v1#bib.bib23"
+    },
+    {
+      "text": "A3.2",
+      "url": "https://arxiv.org/html/2605.16981v1#A3.SS2"
+    },
+    {
+      "text": "16",
+      "url": "https://arxiv.org/html/2605.16981v1#bib.bib24"
+    },
+    {
+      "text": "28",
+      "url": "https://arxiv.org/html/2605.16981v1#bib.bib25"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2605.16981v1#S5.F3"
+    },
+    {
+      "text": "A2",
+      "url": "https://arxiv.org/html/2605.16981v1#A2"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2605.16981v1#S4"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2605.16981v1#S5.T1"
+    },
+    {
+      "text": "5.1",
+      "url": "https://arxiv.org/html/2605.16981v1#S5.SS1"
+    },
+    {
+      "text": "A7",
+      "url": "https://arxiv.org/html/2605.16981v1#A7"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2605.16981v1#S5.F4"
+    },
+    {
+      "text": "A3",
+      "url": "https://arxiv.org/html/2605.16981v1#A3"
+    },
+    {
+      "text": "10",
+      "url": "https://arxiv.org/html/2605.16981v1#A4.T10"
+    },
+    {
+      "text": "A4",
+      "url": "https://arxiv.org/html/2605.16981v1#A4"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2605.16981v1#A5.F6"
+    },
+    {
+      "text": "A5",
+      "url": "https://arxiv.org/html/2605.16981v1#A5"
+    }
+  ],
+  "matching_link_count": 124,
+  "links_truncated": true,
+  "invalid_links": []
+}

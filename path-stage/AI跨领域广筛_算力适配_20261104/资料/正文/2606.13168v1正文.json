@@ -1,0 +1,413 @@
+{
+  "url": "https://arxiv.org/html/2606.13168v1",
+  "final_url": "https://arxiv.org/html/2606.13168v1",
+  "status": 200,
+  "title": "When Does Routing Become Interpretable?Causal Probes on Block Attention Residuals",
+  "metadata": {},
+  "paper": {
+    "title": "When Does Routing Become Interpretable? Causal Probes on Block Attention Residuals",
+    "title_warning": null,
+    "abstract": "Abstract Block Attention Residuals (Block AttnRes) by ( Chen et al., 2026 ) replace fixed additive residuals ( He et al., 2015 ) with a learned softmax over earlier depth-source representations, surfacing cross-layer routing as an inspectable tensor in the forward pass. This is a tempting interpretability target: information flow normally inferred indirectly is now directly observable. We ask whether such exposure suffices for mechanistic interpretation. We probe two same-scale ( 0.6 0.6 B) Block AttnRes checkpoints under identical routing-ablation interventions: a vanilla Qwen3 inference-wrapped through a deterministic recency-bias schedule that the codebase admits as a routing-equivalent loading path, and a Block AttnRes Qwen3 trained from scratch with routing as part of optimisation. The wrapped baseline’s routing weights are content-independent and reproduce the schedule’s analytic prediction. The trained AttnRes checkpoint instead exhibits three localised routing motifs: an embedding-source pathway through early-layer MLP, a current-state pathway through early-layer attention and MLP, and an older-history pathway through late-layer attention. Beyond this stratification, we find a sharp dissociation between average routing mass and causal importance: in both sublayers, the largest mass slice is not the largest causal contribution, and one source family carries appreciable mass with no detectable causal role under intervention. Architectural exposure of routing is therefore necessary but not sufficient for mechanistic interpretation: structured depth routing emerges only when routing has been part of training, and even then, descriptive routing summaries should be treated as candidate hypotheses to be tested by causal interventions, not as evidence of mechanism in their own right. Code is available at https://anonymous.4open.science/r/attn_res_interp-E70C/ .",
+    "authors": [],
+    "author_block": "",
+    "arxiv_version": "2606.13168v1",
+    "arxiv_version_date": "2026-06-11",
+    "sections": [
+      {
+        "id": "S1",
+        "heading": "1 Introduction",
+        "level": 1,
+        "text": "Cross-layer information flow is the central object of mechanistic interpretability work on Transformers ( Rai et al., 2024 ) , but it is rarely an explicit object in the forward pass. Standard PreNorm Transformers ( Xiong et al., 2020 ) accumulate sublayer outputs additively with fixed unit weights, and any structure in how depth states combine has to be recovered indirectly through patching, probing, or path analysis ( Meng et al., 2022 ) . Chen et al. (2026) introduce Attention Residuals (AttnRes) and their scalable variant Block AttnRes change this: each sublayer recombines earlier depth-source representations through a learned softmax over depth, so the routing weights α i → ℓ \\alpha_{i\\to\\ell} are a tensor that can be read off the forward pass. This raises a natural interpretability question: with depth routing now made explicit, can cross-layer information flow be read rather than inferred ? We sharpen it: can one take a pretrained vanilla Transformer, expose its forward pass through the AttnRes class, and read mechanism off the resulting routing weights? We build on a publicly released codebase 1 1 1 https://github.com/wdlctc/open-attention-residuals that admits this construction. With per-sublayer query projection set to zero and a positive bias on the current-source logit, the depth-softmax reduces to a deterministic schedule that puts most weight on the current source and the rest uniformly across earlier ones. Under this construction, a vanilla checkpoint can be loaded into the AttnRes class and produce routing weights, even though those weights carry no learned content. We argue that interpreting routing weights produced by this kind of post-hoc wrapping is uninformative by construction, and we make the argument concrete by running identical routing-ablation probes on two 0.6 0.6 B checkpoints from the repository: a baseline that is a vanilla Qwen3 trained with standard additive residuals and inference-wrapped through the recency-bias schedule, and an AttnRes model that is a Block AttnRes Qwen3 trained from scratch with the routing as part of optimisation. Both expose the same routing-weight tensors to the same probe (Figure 1 ). Figure 1 : Source-family routing ablations: baseline (recency-bias-wrapped vanilla Qwen3) vs. Block AttnRes trained from scratch, on the same probe and the same data. Three families produce strong AttnRes-side effects with negligible baseline counterparts; a fourth carries routing mass but no causal weight. Three findings follow. First, the baseline routing pattern reproduces the recency-bias schedule’s analytic prediction: mass on the current source averages 0.840 0.840 , attention and MLP rows of the routing-mass table are identical, and only ablation of the current-state MLP pathway is causally consequential. Second, the AttnRes checkpoint exhibits three localised motifs in the (source-family, sublayer, depth) cube — embedding through early-layer MLP, current through early-layer attention and MLP, and older nonlocal history through late-layer attention — with a fourth source family carrying appreciable routing mass but no detectable causal role. Third, average routing mass and causal importance dissociate sharply on the AttnRes side: in both sublayers the largest mass slice is not the largest causal contribution."
+      },
+      {
+        "id": "S1.SS0.SSS0.Px1",
+        "heading": "Contributions.",
+        "level": 3,
+        "text": "• A routing-ablation framework for Block AttnRes that masks mutually exclusive source families and renormalises the remainder, jointly factored by sublayer and depth region. • A controlled demonstration that explicit depth routing alone is insufficient for mechanistic interpretation: under matched probes, a recency-bias-wrapped vanilla checkpoint exposes routing weights that reproduce the wrapping schedule’s analytic prediction, while a Block AttnRes checkpoint trained from scratch exhibits three localised causal motifs. • Evidence that average routing mass and causal importance dissociate sharply on the AttnRes side, including one source family that carries appreciable mass with no detectable causal role."
+      },
+      {
+        "id": "S2",
+        "heading": "2 Background: Attention Residuals",
+        "level": 1,
+        "text": "In standard PreNorm Transformers, the residual update for sublayer f ℓ f_{\\ell} at depth ℓ \\ell is h ℓ + 1 = h ℓ + f ℓ ​ ( h ℓ ) , h_{\\ell+1}=h_{\\ell}+f_{\\ell}(h_{\\ell}), (1) unrolling as a fixed-coefficient sum over earlier states with each contribution at unit weight. The original AttnRes paper ( Chen et al., 2026 ) argues that this produces PreNorm dilution ( Li et al., 2026 ) and replaces the sum with a learned softmax over earlier depth states, h ℓ + 1 = ∑ i ≤ ℓ α i → ℓ ​ h i , ∑ i ≤ ℓ α i → ℓ = 1 , h_{\\ell+1}=\\sum_{i\\leq\\ell}\\alpha_{i\\to\\ell}\\,h_{i},\\qquad\\sum_{i\\leq\\ell}\\alpha_{i\\to\\ell}=1, (2) where α i → ℓ \\alpha_{i\\to\\ell} is content-dependent and computed by a per-sublayer projection. To control memory, the released code uses Block AttnRes , in which routing operates over a compressed source axis: completed-block summaries followed by the current partial block. For an L L -layer model partitioned into B B blocks, the source axis at a sublayer call has up to B + 1 B+1 entries; in the 0.6 0.6 B AttnRes checkpoint we study ( L = 28 L=28 , B = 8 B=8 ), sublayer calls occur with source-axis lengths S ∈ { 2 , … , 8 } S\\in\\{2,\\ldots,8\\} ."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px1",
+        "heading": "The recency-bias schedule.",
+        "level": 3,
+        "text": "The released implementation adds a learnable scalar bias β \\beta to the partial-block logit before the depth-softmax. With per-sublayer query projection 𝐖 = 𝟎 \\mathbf{W}=\\mathbf{0} and β > 0 \\beta>0 , the depth-softmax reduces to a deterministic schedule α = [ 1 S − 1 + e β , … , 1 S − 1 + e β , e β S − 1 + e β ] , \\alpha=\\Big[\\tfrac{1}{S{-}1+e^{\\beta}},\\dots,\\tfrac{1}{S{-}1+e^{\\beta}},\\tfrac{e^{\\beta}}{S{-}1+e^{\\beta}}\\Big], (3) a fixed convex combination of the current state and a uniform mixture of earlier sources. This schedule does not depend on the input and is the routing pattern the codebase uses for converting pretrained checkpoints into the AttnRes class. We use it as a control: a routing pattern that exists architecturally but carries no learned content. While the original AttnRes paper’s contribution is architectural ( Chen et al., 2026 ) , our concern is more on: given that Block AttnRes makes depth routing an explicit learned object, what do its routing weights actually do, and is the architectural exposure of routing sufficient for interpretation?"
+      },
+      {
+        "id": "S3.SS1",
+        "heading": "3.1 Task",
+        "level": 2,
+        "text": "We construct a simple design by synthetic key–value retrieval prompts. Each example presents a short list of distinct keys mapped to distinct values, followed by a query key, and asks the model to score four candidate continuations. Three distractors are drawn preferentially from values present in the same prompt; the correct value is the one mapped to the query key. Continuations are scored by their conditional log-probability under the model. Across 200 200 examples we cycle through three prompt templates in fixed proportion to reduce surface-form sensitivity. Full dataset details are in Appendix A ."
+      },
+      {
+        "id": "S3.SS2",
+        "heading": "3.2 Source families",
+        "level": 2,
+        "text": "The Block AttnRes source axis at a sublayer call has length S S , ordering completed-block summaries first and the current partial block last. We group these indices into four mutually exclusive families: embedding , the first source; current , the partial block; prev_completed , the most recent completed block summary, distinct from the embedding source; and nonlocal , older completed blocks excluding the most recent. The families are disjoint at every S S ; for the smallest source-axis lengths some families are empty by definition (e.g. nonlocal requires S ≥ 4 S\\geq 4 ). Full definitions are in Appendix B ."
+      },
+      {
+        "id": "S3.SS3",
+        "heading": "3.3 Routing ablations",
+        "level": 2,
+        "text": "Our central intervention is a mask-and-renormalise ablation. Given a target family ℱ \\mathcal{F} and a softmax-normalised routing vector α ∈ ℝ S \\alpha\\in\\mathbb{R}^{S} , we form a binary mask m ∈ { 0 , 1 } S m\\in\\{0,1\\}^{S} with m s = 0 m_{s}=0 iff s ∈ ℱ s\\in\\mathcal{F} , and replace α \\alpha with α ~ s = m s ​ α s ∑ s ′ m s ′ ​ α s ′ . \\tilde{\\alpha}_{s}=\\frac{m_{s}\\,\\alpha_{s}}{\\sum_{s^{\\prime}}m_{s^{\\prime}}\\,\\alpha_{s^{\\prime}}}. (4) The total mass entering the sublayer is preserved; what changes is the model’s reliance on the targeted pathway. keep_only -style interventions invert the mask. A single ablation can be restricted along three axes simultaneously: source family, sublayer ∈ { attn , mlp } \\in\\{\\textsc{attn},\\textsc{mlp}\\} , and layer subset (early, middle, late thirds of the residual stack)."
+      },
+      {
+        "id": "S3.SS4",
+        "heading": "3.4 Two checkpoints, one probe",
+        "level": 2,
+        "text": "We run identical probes on two 0.6 0.6 B checkpoints from the publicly released codebase mentioned before."
+      },
+      {
+        "id": "S3.SS4.SSS0.Px1",
+        "heading": "AttnRes condition.",
+        "level": 3,
+        "text": "A Block AttnRes Qwen3 ( d = 1024 d{=}1024 , L = 28 L{=}28 , B = 8 B{=}8 ) trained from scratch with routing parameters as part of optimisation."
+      },
+      {
+        "id": "S3.SS4.SSS0.Px2",
+        "heading": "Baseline condition.",
+        "level": 3,
+        "text": "A vanilla Qwen3 of identical scale, trained with standard additive residuals and loaded for evaluation through the same AttnRes model class. In every layer of the loaded checkpoint, the per-sublayer query projection has zero norm and the recency bias is at the codebase default β = 3.0 \\beta=3.0 , so by Equation 3 the routing weights are a deterministic function of the source-axis length and a fixed scalar; no input-dependent routing decisions are made. The wrapping is not output-preserving (Appendix C ); the property we need for the control is that the routing is content-independent. This comparison controls for the probe, the trace mechanism, the model class, scale, tokenizer, and dataset. Differences between the two conditions should be interpreted as differences between a content-independent routing surface introduced at evaluation time and routing parameters optimised during training."
+      },
+      {
+        "id": "S3.SS5",
+        "heading": "3.5 Metrics",
+        "level": 2,
+        "text": "We report mean accuracy on the 4-choice retrieval task; mean drop in correct-answer total log-probability relative to the unablated checkpoint ( logprob ↓ \\downarrow ); fraction of examples whose argmax prediction flips relative to that unablated state; and mean rank of the correct answer among the four candidates. All numbers are computed on the same 200 200 -example dataset for both checkpoints."
+      },
+      {
+        "id": "S4.SS1",
+        "heading": "4.1 Baseline routing matches the recency-bias schedule",
+        "level": 2,
+        "text": "Source-family ablations on the recency-bias-wrapped baseline (Table 1 ) match the schedule’s analytic prediction. Ablating embedding , prev_completed , or nonlocal sources leaves correct-answer log-probability essentially unchanged ( | Δ | < 0.025 |\\Delta|<0.025 ); these families collectively receive only ≈ 0.16 \\approx 0.16 of the routing mass through the uniform-residual term of Equation 3 , so reweighting among them does little. Ablating current drops accuracy from 0.560 0.560 to 0.305 0.305 and produces a logprob drop of 8.24 8.24 , since that source carries the bulk of the mass. Table 1 : Source-family routing ablations on the baseline. Apart from current , family ablations are no-ops, as predicted by the recency-bias schedule (Eq. 3 ). Ablation Acc. Logprob ↓ \\downarrow Flips Rank none 0.560 0.000 0.000 1.795 drop_embedding 0.555 0.001 0.005 1.805 drop_prev_completed 0.565 -0.001 0.005 1.790 drop_nonlocal 0.555 0.020 0.025 1.805 drop_current 0.305 8.240 0.765 2.400 keep_only_embedding 0.225 27.675 0.860 2.515 keep_only_current 0.555 0.015 0.030 1.805 keep_only_completed 0.235 10.914 0.800 2.525 The descriptive routing-mass summary (Table 4 ) confirms the mechanism: mass on current is 0.840 0.840 in both sublayers, matching the analytic prediction e β / ( S − 1 + e β ) ¯ = 0.840 \\overline{e^{\\beta}/(S{-}1+e^{\\beta})}=0.840 over the model’s depth schedule (Appendix C ); attention and MLP rows are identical to four decimal places, which is consistent only with both per-sublayer projections being inert. The baseline routing pattern is the recency-bias schedule, and depth-aware probes recover nothing the schedule does not predict on paper."
+      },
+      {
+        "id": "S4.SS2",
+        "heading": "4.2 AttnRes shows differentiated source-family causality",
+        "level": 2,
+        "text": "The same probes on the AttnRes checkpoint produce an entirely different picture (Table 2 ). embedding is the largest contributor (logprob drop 7.25 7.25 ), exceeding current ( 4.17 4.17 ) by nearly a factor of two. Older nonlocal history contributes a smaller but clearly measurable effect ( 1.80 1.80 ). prev_completed ablation produces effectively no change ( 0.08 0.08 ), despite this family carrying ≈ 0.09 \\approx 0.09 of the routing mass on average (Section 4.4 ). Base-rate accuracy is comparable to the baseline ( 0.540 0.540 vs. 0.560 0.560 ): the contrast in which sources matter reflects a different mechanism, not a different competence. Table 2 : Source-family routing ablations on the AttnRes checkpoint. embedding produces the largest drop, followed by current and nonlocal . prev_completed ablation has no detectable causal effect. Ablation Acc. Logprob ↓ \\downarrow Flips Rank none 0.540 0.000 0.000 1.760 drop_embedding 0.235 7.250 0.810 2.570 drop_current 0.325 4.175 0.665 2.215 drop_nonlocal 0.470 1.800 0.280 1.995 drop_prev_completed 0.545 0.076 0.090 1.785 keep_only_embedding 0.215 24.978 0.840 2.620 keep_only_current 0.240 7.409 0.820 2.520 keep_only_completed 0.175 7.256 0.805 2.650 The contrast against the baseline is sharp on the same metric: drop_embedding goes from 0.001 0.001 to 7.25 7.25 , drop_nonlocal from 0.020 0.020 to 1.80 1.80 , and drop_current from 8.24 8.24 down to 4.17 4.17 as the current-specific dependence is partially redistributed to other families."
+      },
+      {
+        "id": "S4.SS3",
+        "heading": "4.3 Sublayer asymmetry only emerges under AttnRes",
+        "level": 2,
+        "text": "Splitting routing ablations by sublayer locates where in the per-layer computation each source family matters (Table 3 , Figure 2 ). The baseline has only one non-trivial row; its split between attention and MLP for current reflects which sublayer the recency-bias-dominated routing is most fragile to perturbation in, not learned structure. The AttnRes checkpoint differentiates each row: embedding matters almost entirely through MLP (drop 6.38 6.38 vs. 0.13 0.13 ); current reverses the baseline order, with attention ( 2.44 2.44 ) exceeding MLP ( 1.25 1.25 ); nonlocal matters only through attention; and prev_completed is below noise in both. Sublayer asymmetry is a property of the trained model, not of the probe. Table 3 : Sublayer-restricted routing ablations: mean correct-answer logprob drop. The baseline shows a single non-trivial cell (current-MLP); the AttnRes checkpoint stratifies across sublayers in a family-specific way. Baseline AttnRes Source family Attn MLP Attn MLP embedding 0.001 -0.001 0.130 6.382 prev_completed -0.006 0.003 0.016 0.064 current 2.643 8.824 2.444 1.254 nonlocal 0.043 -0.018 1.885 -0.193 Figure 2 : Sublayer-restricted routing ablations on the AttnRes checkpoint. embedding matters only through MLP; nonlocal only through attention; current through both, with attention larger; prev_completed through neither."
+      },
+      {
+        "id": "S4.SS4",
+        "heading": "4.4 Routing mass and causal importance dissociate",
+        "level": 2,
+        "text": "Average routing weights, taken descriptively, do not predict the causal results. Table 4 reports average source-family mass at the final answer token on correctly-solved examples. Table 4 : Average final-token routing mass on correctly-solved examples. Baseline rows are identical and dominated by current . AttnRes attention is broadest with the largest slice on nonlocal ; AttnRes MLP is current-heavy. Each row sums to ≈ 1.0 \\approx 1.0 . Model Sublayer Emb. Prev. Nonloc. Curr. Baseline attn 0.042 0.035 0.083 0.840 Baseline mlp 0.042 0.035 0.083 0.840 AttnRes attn 0.195 0.099 0.368 0.338 AttnRes mlp 0.228 0.085 0.083 0.603 On the AttnRes side, the largest mass slice in each sublayer ( nonlocal in attention at 0.368 0.368 ; current in MLP at 0.603 0.603 ) is not the largest causal contribution: the corresponding ablations cost 1.89 1.89 and 1.25 1.25 logprob, while drop_current_attn costs 2.44 2.44 and drop_embedding_mlp costs 6.38 6.38 . Embedding in MLP carries less than half of current’s mass yet five times its causal effect. And prev_completed , with mass 0.085 0.085 – 0.099 0.099 per sublayer comparable to nonlocal in MLP, has no detectable causal role at all (drops 0.016 0.016 and 0.064 0.064 ). Even when the routing pattern is structured, average mass is a misleading indicator of causal importance."
+      },
+      {
+        "id": "S4.SS5",
+        "heading": "4.5 The AttnRes structure is depth-localised",
+        "level": 2,
+        "text": "Binning layers into early, middle, and late thirds and repeating the sublayer ablations gives Table 5 and Figure 3 ; the full table is in Appendix E . Table 5 : Layer-binned sublayer ablations on the AttnRes checkpoint, mean correct-answer logprob drop. Three localised motifs dominate the causal signal: embedding early-MLP, current early-attention and early-MLP, nonlocal late-attention. Source family Sublayer Early Middle Late embedding attn 0.140 -0.003 -0.000 embedding mlp 6.381 -0.000 0.002 prev_completed attn 0.045 -0.040 0.008 prev_completed mlp 0.011 0.008 0.050 current attn 2.321 -0.120 0.085 current mlp 1.122 0.494 0.116 nonlocal attn 0.076 -0.079 1.729 nonlocal mlp 0.005 0.018 -0.202 Figure 3 : Layer-binned sublayer ablations on the AttnRes checkpoint as a heatmap. A small number of localised cells carry the primary causal signal. The entire embedding effect sits in early-layer MLP routing ( 6.38 6.38 , near zero elsewhere). current concentrates early, with attention ( 2.32 2.32 ) exceeding MLP ( 1.12 1.12 ) — the only family for which attention exceeds MLP in the early bin. nonlocal appears only in late attention ( 1.73 1.73 ). prev_completed is below noise everywhere. The picture is of a stage-specific routing protocol: early MLP as the injection point for retrieved depth content from the embedding source, early attention as the read-out point for the current working state with a smaller MLP-side counterpart, and late attention as occasional long-reach access into older completed history."
+      },
+      {
+        "id": "S5",
+        "heading": "5 Discussion",
+        "level": 1,
+        "text": "The ( Chen et al., 2026 ) showed that learned content-dependent routing across depth is useful for optimisation and downstream performance. We complement that by characterising when the routing it exposes becomes mechanistically interpretable, and by what method."
+      },
+      {
+        "id": "S5.SS0.SSS0.Px1",
+        "heading": "Architectural exposure is necessary but not sufficient.",
+        "level": 3,
+        "text": "The recency-bias-wrapped baseline is, formally, a Block AttnRes model: same forward function, same routing tensors, same model class. Its routing parameters are nevertheless inert, so by Equation 3 its routing pattern is a deterministic function of source-axis length and a fixed scalar. The pattern we observe matches that prediction precisely. Block AttnRes does not, by construction, render cross-layer information flow legible; it provides a substrate on which a model that has been trained to use depth diversity can express that usage in a directly intervenable form."
+      },
+      {
+        "id": "S5.SS0.SSS0.Px2",
+        "heading": "Three localised motifs.",
+        "level": 3,
+        "text": "Of the 24 24 (family, sublayer, depth) cells in the AttnRes ablation cube, three localised motifs dominate the causal signal — early-layer MLP for embedding , early-layer attention and MLP for current , late-layer attention for nonlocal . This is consistent with early MLP as an injection point for the embedding-origin source, early attention as a read-out point for the current working state, and late attention as occasional long-reach access into older completed history. We make no claim that this is the only solution Block AttnRes admits; it is the solution this trained checkpoint converged to, recoverable by our probes precisely because the routing parameters are non-degenerate."
+      },
+      {
+        "id": "S5.SS0.SSS0.Px3",
+        "heading": "Mass and causal importance must be separated.",
+        "level": 3,
+        "text": "Three distinct dissociations show up in the AttnRes checkpoint: large mass with small causal effect ( nonlocal in attention; current in MLP), small mass with large effect ( embedding in MLP), and appreciable mass with no detectable effect at all ( prev_completed ). Routing-weight visualisations alone are not sufficient evidence of mechanism."
+      },
+      {
+        "id": "S5.SS0.SSS0.Px4",
+        "heading": "Implications.",
+        "level": 3,
+        "text": "Two for routing-exposing architectures more generally. First, exposure of routing weights does not transfer across the training boundary: a vanilla model wrapped to make routing visible will surface weights that carry no information beyond what the wrapping schedule dictates. Second, even when routing has been trained, average weights are best treated as candidate pathways, with causal interventions deciding which carry decision-critical signal."
+      },
+      {
+        "id": "S6",
+        "heading": "6 Limitations",
+        "level": 1,
+        "text": "• Task simplicity. Synthetic key–value retrieval rather than naturalistic long-context reasoning. The structure may not transfer. • Two regimes only. A single baseline and a single AttnRes checkpoint, single scale, single recipe. We have not run intermediate conditions (AttnRes architecture fine-tuned from a vanilla checkpoint, or trained with routing parameters frozen), so we cannot strictly attribute the structured pattern to training-from-scratch as opposed to AttnRes training in general. • Block-level routing. Our interventions operate on block summaries; full per-layer AttnRes may exhibit additional structure. • Renormalised interventions. Our ablations test reliance on routing pathways, not deletion of represented information. A pathway whose ablation has no measurable effect may still carry information that other pathways substitute for. • Modest absolute accuracy. Both checkpoints score in the mid- 0.5 0.5 range; results are best read as controlled probes."
+      },
+      {
+        "id": "S7",
+        "heading": "7 Conclusion",
+        "level": 1,
+        "text": "Block AttnRes makes depth routing explicit. We have argued that this architectural exposure is necessary but not sufficient for interpretability, and that the right way to read it is from causal intervention on routing pathways rather than from average routing weights. On a controlled retrieval task, the same probes recover a near-degenerate single-source policy from a recency-bias-wrapped vanilla baseline whose routing pattern matches the schedule’s analytic prediction, and three localised stage-specific motifs from a Block AttnRes checkpoint trained from scratch. Across the populated motifs, mass and causal importance dissociate sharply. Block AttnRes’ practical value for mechanistic interpretability is not that it makes routing automatic, but that it makes routing-shaped questions answerable when — and only when — the routing has been part of training."
+      },
+      {
+        "id": "S7.SS0.SSS0.Px1",
+        "heading": "Future work.",
+        "level": 3,
+        "text": "(i) Whether the same stage-specific pattern reproduces on multi-hop retrieval or algorithmic tasks. (ii) Intermediate architectural conditions (AttnRes fine-tuned from vanilla; AttnRes trained with routing frozen) to disentangle architecture from training. (iii) The training trajectory: at what point does the recency-bias-like solution give way? (iv) Regularisers that encourage routes whose causal importance, not just average mass, is high. (v) Whether the prev_completed pathway is genuinely unused or whether stronger probes (e.g. targeted activation patching) detect signal there."
+      },
+      {
+        "id": "Sx1",
+        "heading": "Impact Statement",
+        "level": 1,
+        "text": "This paper presents work whose goal is to advance the field of Machine Learning, specifically the mechanistic interpretability of Transformer-style models. There are many potential societal consequences of mechanistic interpretability research, none of which we feel must be specifically highlighted here."
+      },
+      {
+        "id": "bib",
+        "heading": "References",
+        "level": 1,
+        "text": "Chen et al. (2026) K. T. G. Chen, Y. Zhang, J. Su, W. Xu, S. Pan, Y. Wang, Y. Wang, G. Chen, B. Yin, Y. Chen, J. Yan, M. Wei, Y. Zhang, F. Meng, C. Hong, X. Xie, S. Liu, E. Lu, Y. Tai, Y. Chen, X. Men, H. Guo, Y. Charles, H. Lu, L. Sui, J. Zhu, Z. Zhou, W. He, W. Huang, X. Xu, Y. Wang, G. Lai, Y. Du, Y. Wu, Z. Yang, and X. Zhou Attention residuals . External Links: Link Cited by: §1 , §2 , §2 , §5 , Abstract . He et al. (2015) K. He, X. Zhang, S. Ren, and J. Sun Deep residual learning for image recognition . CoRR abs/1512.03385 . External Links: Link , 1512.03385 Cited by: Abstract . Li et al. (2026) T. Li, D. Han, Z. Cao, H. Huang, M. Zhou, M. Chen, E. Zhao, X. Jiang, G. Jiang, and G. Huang SiameseNorm: breaking the barrier to reconciling pre/post-norm . ArXiv abs/2602.08064 . External Links: Link Cited by: §2 . Meng et al. (2022) K. Meng, D. Bau, A. Andonian, and Y. Belinkov Locating and editing factual associations in GPT . In Advances in Neural Information Processing Systems (NeurIPS) , Cited by: §1 . Rai et al. (2024) D. Rai, Y. Zhou, S. Feng, A. Saparov, and Z. Yao A practical review of mechanistic interpretability for transformer-based language models . arXiv preprint arXiv:2407.02646 . Cited by: §1 . Xiong et al. (2020) R. Xiong, Y. Yang, D. He, K. Zheng, S. Zheng, C. Xing, H. Zhang, Y. Lan, L. Wang, and T. Liu On layer normalization in the transformer architecture . CoRR abs/2002.04745 . External Links: Link , 2002.04745 Cited by: §1 ."
+      },
+      {
+        "id": "A1.SS0.SSS0.Px1",
+        "heading": "Key and value pools.",
+        "level": 3,
+        "text": "Keys are drawn without replacement from a fixed pool of 26 common English first names ( Alice, Bob, Carol, …, Zane ). Values are drawn without replacement from a 43-element pool spanning four loosely typed categories: colours ( red, blue, … ), shapes ( circle, square, … ), nature words ( river, forest, falcon, … ), and short tokens ( alpha, beta, 1, 2, …, 9 ). Mixing categories ensures distractors cannot be solved by category-level priors alone."
+      },
+      {
+        "id": "A1.SS0.SSS0.Px2",
+        "heading": "Example construction.",
+        "level": 3,
+        "text": "For each example we sample n ∈ { 2 , 3 , 4 } n\\in\\{2,3,4\\} key–value pairs uniformly at random, then sample a query key uniformly from the n n presented keys. The correct answer is the value paired with the query key. Three distractors are drawn preferentially from other values present in the same prompt; if fewer than three in-prompt distractors are available we top up from the global value pool, excluding the correct answer."
+      },
+      {
+        "id": "A1.SS0.SSS0.Px3",
+        "heading": "Prompt styles.",
+        "level": 3,
+        "text": "To reduce surface-form sensitivity we cycle through three prompt templates in fixed proportion ( 1 : 1 : 1 1{:}1{:}1 ): plain ( Key: value lines and a final Query: ), sentence ( X is associated with Y. ), and table ( Use the table below. ). All four candidate values are presented as continuations with a leading space, scored independently via conditional log-probability under the model."
+      },
+      {
+        "id": "A1.SS0.SSS0.Px4",
+        "heading": "Scoring.",
+        "level": 3,
+        "text": "A prediction is correct iff the model assigns the highest total log-probability to the correct continuation among the four. Random seeds are fixed for reproducibility. The full 200 200 -example dataset is generated in a single pass and used identically across all conditions and both checkpoints."
+      },
+      {
+        "id": "A2.SS0.SSS0.Px1",
+        "heading": "Disjoint source-family definitions.",
+        "level": 3,
+        "text": "For a sublayer call with source-axis length S S , we resolve each family symbol to a (possibly empty) set of source indices: • embedding : the first source, defined for S ≥ 1 S\\geq 1 ; • current : the last source, defined for S ≥ 2 S\\geq 2 ; • prev_completed : the source immediately before the partial block, defined for S ≥ 3 S\\geq 3 (so it is always distinct from embedding ); • nonlocal : completed-block sources excluding the embedding source and the most recent completed block, defined for S ≥ 4 S\\geq 4 . At sublayer calls where the targeted family is empty for the current S S , the ablation is a no-op at that call. The four families form a partition of the source axis when S ≥ 4 S\\geq 4 ; for smaller S S the union is a strict subset. We additionally use completed (all completed-block sources) for the keep_only_completed intervention."
+      },
+      {
+        "id": "A2.SS0.SSS0.Px2",
+        "heading": "Mask-and-renormalise intervention.",
+        "level": 3,
+        "text": "Given a target family ℱ \\mathcal{F} , we form a binary mask m ∈ { 0 , 1 } S m\\in\\{0,1\\}^{S} with m s = 0 m_{s}=0 iff s ∈ ℱ s\\in\\mathcal{F} , and replace α \\alpha with α ~ s = m s ​ α s / ∑ s ′ m s ′ ​ α s ′ \\tilde{\\alpha}_{s}=m_{s}\\alpha_{s}/\\sum_{s^{\\prime}}m_{s^{\\prime}}\\alpha_{s^{\\prime}} . keep_only -style interventions invert the mask. Renormalisation preserves the total mass entering the sublayer; what changes is the model’s reliance on the targeted pathway."
+      },
+      {
+        "id": "A2.SS0.SSS0.Px3",
+        "heading": "Selective application.",
+        "level": 3,
+        "text": "A single ablation can be restricted along three orthogonal axes: source family, sublayer ∈ { attn , mlp } \\in\\{\\textsc{attn},\\textsc{mlp}\\} , and layer subset (early/middle/late thirds). When a layer subset is specified, we floor-divide the layer count by three: early is the first ⌊ L / 3 ⌋ \\lfloor L/3\\rfloor layers, middle the next ⌊ 2 ​ L / 3 ⌋ − ⌊ L / 3 ⌋ \\lfloor 2L/3\\rfloor-\\lfloor L/3\\rfloor , late the remainder."
+      },
+      {
+        "id": "A3",
+        "heading": "Appendix C Checkpoints, the Recency-Bias Schedule, and Output Differences",
+        "level": 1,
+        "text": "We use two publicly released checkpoints from the repository 2 2 2 https://github.com/wdlctc/open-attention-residuals , both at 0.6 0.6 B parameters and identical Qwen3 backbone scale ( d = 1024 d{=}1024 , L = 28 L{=}28 , h = 16 h{=}16 , h k ​ v = 8 h_{kv}{=}8 , ff = 3072 \\text{ff}{=}3072 )."
+      },
+      {
+        "id": "A3.SS0.SSS0.Px1",
+        "heading": "Baseline.",
+        "level": 3,
+        "text": "A vanilla Qwen3 ( Qwen3ForCausalLM , standard additive residuals) trained from scratch with the same data and pipeline as the AttnRes condition. We load this checkpoint through Qwen3AttnResForCausalLM for evaluation. In every one of the 28 28 layers, the per-sublayer query projection has zero norm and the recency bias is β = 3.0 \\beta=3.0 (codebase default). By Equation 3 , this makes the depth-softmax a deterministic function of the source-axis length and the fixed scalar."
+      },
+      {
+        "id": "A3.SS0.SSS0.Px2",
+        "heading": "AttnRes.",
+        "level": 3,
+        "text": "A Block AttnRes Qwen3 of identical scale, trained from scratch with eight blocks. Per-sublayer projections and biases are part of optimisation. The per-sublayer projection norm is non-zero in every layer for both sublayers and varies across layers, consistent with content-dependent routing."
+      },
+      {
+        "id": "A3.SS0.SSS0.Px3",
+        "heading": "Recency-bias prediction.",
+        "level": 3,
+        "text": "With β = 3.0 \\beta=3.0 , the per-call mass on current is e β / ( S − 1 + e β ) e^{\\beta}/(S{-}1+e^{\\beta}) , ranging from 0.953 0.953 at S = 2 S=2 to 0.742 0.742 at S = 8 S=8 . For the L = 28 L=28 , B = 8 B=8 model the layers partition into seven groups of four, each producing eight sublayer calls at a fixed source-axis length S ∈ { 2 , … , 8 } S\\in\\{2,\\ldots,8\\} , so the seven S S -values are equally weighted in the average. The arithmetic mean of e β / ( S − 1 + e β ) e^{\\beta}/(S{-}1+e^{\\beta}) over S ∈ { 2 , … , 8 } S\\in\\{2,\\ldots,8\\} is 0.840 0.840 . The observed mass on current of 0.840 0.840 matches this analytic value to three decimal places."
+      },
+      {
+        "id": "A3.SS0.SSS0.Px4",
+        "heading": "Output difference between wrapped and vanilla forward passes.",
+        "level": 3,
+        "text": "The recency-bias schedule is not output-preserving: at finite β \\beta the routing weights are a non-degenerate convex mixture, so each sublayer’s input is a small but non-zero blend of earlier sources rather than the unmixed previous state expected by a vanilla PreNorm forward pass. Loading the baseline checkpoint as standard Qwen3ForCausalLM and as Qwen3AttnResForCausalLM and running both on three short prompts in matched precision, we observe a maximum absolute logit difference of 1.875 1.875 and a mean of ≈ 0.21 \\approx 0.21 . The wrapped baseline therefore behaves close to but not identically with the vanilla forward pass; what matters for our control is that its routing weights are content-independent."
+      },
+      {
+        "id": "A4",
+        "heading": "Appendix D Routing-Mass Composition (Visual)",
+        "level": 1,
+        "text": "Figure 4 : Routing-mass composition by sublayer. The baseline allocates ≈ 0.84 \\approx 0.84 to current in both sublayers; the AttnRes attention sublayer is broadly distributed with the largest slice on nonlocal , while the AttnRes MLP sublayer is current-heavy with non-trivial embedding and prev_completed slices."
+      },
+      {
+        "id": "A5",
+        "heading": "Appendix E Full Layer-Binned Ablation Tables",
+        "level": 1,
+        "text": "Table 6 : Full layer-binned sublayer ablations on the recency-bias-wrapped baseline (mean correct-answer logprob drop). All non-trivial signal is concentrated in current-attention and current-MLP routing in the early third of the stack. Source family Sublayer Early Middle Late embedding attn 0.001 0.002 0.002 embedding mlp -0.001 0.002 0.002 prev_completed attn 0.007 -0.010 0.001 prev_completed mlp 0.003 0.001 0.001 current attn 2.714 0.041 -0.038 current mlp 7.367 0.303 0.318 nonlocal attn -0.002 0.014 0.037 nonlocal mlp -0.001 -0.011 -0.005 Table 7 : Full layer-binned sublayer ablations on the AttnRes checkpoint (mean correct-answer logprob drop). embedding effects are confined to early-MLP; current effects are early, with attention exceeding MLP; nonlocal effects are late-attention only; prev_completed is below noise everywhere. Source family Sublayer Early Middle Late embedding attn 0.140 -0.003 -0.000 embedding mlp 6.381 -0.000 0.002 prev_completed attn 0.045 -0.040 0.008 prev_completed mlp 0.011 0.008 0.050 current attn 2.321 -0.120 0.085 current mlp 1.122 0.494 0.116 nonlocal attn 0.076 -0.079 1.729 nonlocal mlp 0.005 0.018 -0.202"
+      }
+    ]
+  },
+  "text": "When Does Routing Become Interpretable?Causal Probes on Block Attention Residuals Skip to main content Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: Why HTML? Report Issue Back to Abstract Download PDF Contents Reading mode Colour theme License: arXiv.org perpetual non-exclusive license arXiv:2606.13168v1 [cs.LG] 11 Jun 2026 When Does Routing Become Interpretable? Causal Probes on Block Attention Residuals Abstract Block Attention Residuals (Block AttnRes) by ( Chen et al., 2026 ) replace fixed additive residuals ( He et al., 2015 ) with a learned softmax over earlier depth-source representations, surfacing cross-layer routing as an inspectable tensor in the forward pass. This is a tempting interpretability target: information flow normally inferred indirectly is now directly observable. We ask whether such exposure suffices for mechanistic interpretation. We probe two same-scale ( 0.6 0.6 B) Block AttnRes checkpoints under identical routing-ablation interventions: a vanilla Qwen3 inference-wrapped through a deterministic recency-bias schedule that the codebase admits as a routing-equivalent loading path, and a Block AttnRes Qwen3 trained from scratch with routing as part of optimisation. The wrapped baseline’s routing weights are content-independent and reproduce the schedule’s analytic prediction. The trained AttnRes checkpoint instead exhibits three localised routing motifs: an embedding-source pathway through early-layer MLP, a current-state pathway through early-layer attention and MLP, and an older-history pathway through late-layer attention. Beyond this stratification, we find a sharp dissociation between average routing mass and causal importance: in both sublayers, the largest mass slice is not the largest causal contribution, and one source family carries appreciable mass with no detectable causal role under intervention. Architectural exposure of routing is therefore necessary but not sufficient for mechanistic interpretation: structured depth routing emerges only when routing has been part of training, and even then, descriptive routing summaries should be treated as candidate hypotheses to be tested by causal interventions, not as evidence of mechanism in their own right. Code is available at https://anonymous.4open.science/r/attn_res_interp-E70C/ . Keywords: Machine Learning, Mechanistic Interpretability, Residual Connections, Attention Aydin Javadov ETH Zurich 1 Introduction Cross-layer information flow is the central object of mechanistic interpretability work on Transformers ( Rai et al., 2024 ) , but it is rarely an explicit object in the forward pass. Standard PreNorm Transformers ( Xiong et al., 2020 ) accumulate sublayer outputs additively with fixed unit weights, and any structure in how depth states combine has to be recovered indirectly through patching, probing, or path analysis ( Meng et al., 2022 ) . Chen et al. (2026) introduce Attention Residuals (AttnRes) and their scalable variant Block AttnRes change this: each sublayer recombines earlier depth-source representations through a learned softmax over depth, so the routing weights α i → ℓ \\alpha_{i\\to\\ell} are a tensor that can be read off the forward pass. This raises a natural interpretability question: with depth routing now made explicit, can cross-layer information flow be read rather than inferred ? We sharpen it: can one take a pretrained vanilla Transformer, expose its forward pass through the AttnRes class, and read mechanism off the resulting routing weights? We build on a publicly released codebase 1 1 1 https://github.com/wdlctc/open-attention-residuals that admits this construction. With per-sublayer query projection set to zero and a positive bias on the current-source logit, the depth-softmax reduces to a deterministic schedule that puts most weight on the current source and the rest uniformly across earlier ones. Under this construction, a vanilla checkpoint can be loaded into the AttnRes class and produce routing weights, even though those weights carry no learned content. We argue that interpreting routing weights produced by this kind of post-hoc wrapping is uninformative by construction, and we make the argument concrete by running identical routing-ablation probes on two 0.6 0.6 B checkpoints from the repository: a baseline that is a vanilla Qwen3 trained with standard additive residuals and inference-wrapped through the recency-bias schedule, and an AttnRes model that is a Block AttnRes Qwen3 trained from scratch with the routing as part of optimisation. Both expose the same routing-weight tensors to the same probe (Figure 1 ). Figure 1 : Source-family routing ablations: baseline (recency-bias-wrapped vanilla Qwen3) vs. Block AttnRes trained from scratch, on the same probe and the same data. Three families produce strong AttnRes-side effects with negligible baseline counterparts; a fourth carries routing mass but no causal weight. Three findings follow. First, the baseline routing pattern reproduces the recency-bias schedule’s analytic prediction: mass on the current source averages 0.840 0.840 , attention and MLP rows of the routing-mass table are identical, and only ablation of the current-state MLP pathway is causally consequential. Second, the AttnRes checkpoint exhibits three localised motifs in the (source-family, sublayer, depth) cube — embedding through early-layer MLP, current through early-layer attention and MLP, and older nonlocal history through late-layer attention — with a fourth source family carrying appreciable routing mass but no detectable causal role. Third, average routing mass and causal importance dissociate sharply on the AttnRes side: in both sublayers the largest mass slice is not the largest causal contribution. Contributions. • A routing-ablation framework for Block AttnRes that masks mutually exclusive source families and renormalises the remainder, jointly factored by sublayer and depth region. • A controlled demonstration that explicit depth routing alone is insufficient for mechanistic interpretation: under matched probes, a recency-bias-wrapped vanilla checkpoint exposes routing weights that reproduce the wrapping schedule’s analytic prediction, while a Block AttnRes checkpoint trained from scratch exhibits three localised causal motifs. • Evidence that average routing mass and causal importance dissociate sharply on the AttnRes side, including one source family that carries appreciable mass with no detectable causal role. 2 Background: Attention Residuals In standard PreNorm Transformers, the residual update for sublayer f ℓ f_{\\ell} at depth ℓ \\ell is h ℓ + 1 = h ℓ + f ℓ ​ ( h ℓ ) , h_{\\ell+1}=h_{\\ell}+f_{\\ell}(h_{\\ell}), (1) unrolling as a fixed-coefficient sum over earlier states with each contribution at unit weight. The original AttnRes paper ( Chen et al., 2026 ) argues that this produces PreNorm dilution ( Li et al., 2026 ) and replaces the sum with a learned softmax over earlier depth states, h ℓ + 1 = ∑ i ≤ ℓ α i → ℓ ​ h i , ∑ i ≤ ℓ α i → ℓ = 1 , h_{\\ell+1}=\\sum_{i\\leq\\ell}\\alpha_{i\\to\\ell}\\,h_{i},\\qquad\\sum_{i\\leq\\ell}\\alpha_{i\\to\\ell}=1, (2) where α i → ℓ \\alpha_{i\\to\\ell} is content-dependent and computed by a per-sublayer projection. To control memory, the released code uses Block AttnRes , in which routing operates over a compressed source axis: completed-block summaries followed by the current partial block. For an L L -layer model partitioned into B B blocks, the source axis at a sublayer call has up to B + 1 B+1 entries; in the 0.6 0.6 B AttnRes checkpoint we study ( L = 28 L=28 , B = 8 B=8 ), sublayer calls occur with source-axis lengths S ∈ { 2 , … , 8 } S\\in\\{2,\\ldots,8\\} . The recency-bias schedule. The released implementation adds a learnable scalar bias β \\beta to the partial-block logit before the depth-softmax. With per-sublayer query projection 𝐖 = 𝟎 \\mathbf{W}=\\mathbf{0} and β > 0 \\beta>0 , the depth-softmax reduces to a deterministic schedule α = [ 1 S − 1 + e β , … , 1 S − 1 + e β , e β S − 1 + e β ] , \\alpha=\\Big[\\tfrac{1}{S{-}1+e^{\\beta}},\\dots,\\tfrac{1}{S{-}1+e^{\\beta}},\\tfrac{e^{\\beta}}{S{-}1+e^{\\beta}}\\Big], (3) a fixed convex combination of the current state and a uniform mixture of earlier sources. This schedule does not depend on the input and is the routing pattern the codebase uses for converting pretrained checkpoints into the AttnRes class. We use it as a control: a routing pattern that exists architecturally but carries no learned content. While the original AttnRes paper’s contribution is architectural ( Chen et al., 2026 ) , our concern is more on: given that Block AttnRes makes depth routing an explicit learned object, what do its routing weights actually do, and is the architectural exposure of routing sufficient for interpretation? 3 Method 3.1 Task We construct a simple design by synthetic key–value retrieval prompts. Each example presents a short list of distinct keys mapped to distinct values, followed by a query key, and asks the model to score four candidate continuations. Three distractors are drawn preferentially from values present in the same prompt; the correct value is the one mapped to the query key. Continuations are scored by their conditional log-probability under the model. Across 200 200 examples we cycle through three prompt templates in fixed proportion to reduce surface-form sensitivity. Full dataset details are in Appendix A . 3.2 Source families The Block AttnRes source axis at a sublayer call has length S S , ordering completed-block summaries first and the current partial block last. We group these indices into four mutually exclusive families: embedding , the first source; current , the partial block; prev_completed , the most recent completed block summary, distinct from the embedding source; and nonlocal , older completed blocks excluding the most recent. The families are disjoint at every S S ; for the smallest source-axis lengths some families are empty by definition (e.g. nonlocal requires S ≥ 4 S\\geq 4 ). Full definitions are in Appendix B . 3.3 Routing ablations Our central intervention is a mask-and-renormalise ablation. Given a target family ℱ \\mathcal{F} and a softmax-normalised routing vector α ∈ ℝ S \\alpha\\in\\mathbb{R}^{S} , we form a binary mask m ∈ { 0 , 1 } S m\\in\\{0,1\\}^{S} with m s = 0 m_{s}=0 iff s ∈ ℱ s\\in\\mathcal{F} , and replace α \\alpha with α ~ s = m s ​ α s ∑ s ′ m s ′ ​ α s ′ . \\tilde{\\alpha}_{s}=\\frac{m_{s}\\,\\alpha_{s}}{\\sum_{s^{\\prime}}m_{s^{\\prime}}\\,\\alpha_{s^{\\prime}}}. (4) The total mass entering the sublayer is preserved; what changes is the model’s reliance on the targeted pathway. keep_only -style interventions invert the mask. A single ablation can be restricted along three axes simultaneously: source family, sublayer ∈ { attn , mlp } \\in\\{\\textsc{attn},\\textsc{mlp}\\} , and layer subset (early, middle, late thirds of the residual stack). 3.4 Two checkpoints, one probe We run identical probes on two 0.6 0.6 B checkpoints from the publicly released codebase mentioned before. AttnRes condition. A Block AttnRes Qwen3 ( d = 1024 d{=}1024 , L = 28 L{=}28 , B = 8 B{=}8 ) trained from scratch with routing parameters as part of optimisation. Baseline condition. A vanilla Qwen3 of identical scale, trained with standard additive residuals and loaded for evaluation through the same AttnRes model class. In every layer of the loaded checkpoint, the per-sublayer query projection has zero norm and the recency bias is at the codebase default β = 3.0 \\beta=3.0 , so by Equation 3 the routing weights are a deterministic function of the source-axis length and a fixed scalar; no input-dependent routing decisions are made. The wrapping is not output-preserving (Appendix C ); the property we need for the control is that the routing is content-independent. This comparison controls for the probe, the trace mechanism, the model class, scale, tokenizer, and dataset. Differences between the two conditions should be interpreted as differences between a content-independent routing surface introduced at evaluation time and routing parameters optimised during training. 3.5 Metrics We report mean accuracy on the 4-choice retrieval task; mean drop in correct-answer total log-probability relative to the unablated checkpoint ( logprob ↓ \\downarrow ); fraction of examples whose argmax prediction flips relative to that unablated state; and mean rank of the correct answer among the four candidates. All numbers are computed on the same 200 200 -example dataset for both checkpoints. 4 Results 4.1 Baseline routing matches the recency-bias schedule Source-family ablations on the recency-bias-wrapped baseline (Table 1 ) match the schedule’s analytic prediction. Ablating embedding , prev_completed , or nonlocal sources leaves correct-answer log-probability essentially unchanged ( | Δ | < 0.025 |\\Delta|<0.025 ); these families collectively receive only ≈ 0.16 \\approx 0.16 of the routing mass through the uniform-residual term of Equation 3 , so reweighting among them does little. Ablating current drops accuracy from 0.560 0.560 to 0.305 0.305 and produces a logprob drop of 8.24 8.24 , since that source carries the bulk of the mass. Table 1 : Source-family routing ablations on the baseline. Apart from current , family ablations are no-ops, as predicted by the recency-bias schedule (Eq. 3 ). Ablation Acc. Logprob ↓ \\downarrow Flips Rank none 0.560 0.000 0.000 1.795 drop_embedding 0.555 0.001 0.005 1.805 drop_prev_completed 0.565 -0.001 0.005 1.790 drop_nonlocal 0.555 0.020 0.025 1.805 drop_current 0.305 8.240 0.765 2.400 keep_only_embedding 0.225 27.675 0.860 2.515 keep_only_current 0.555 0.015 0.030 1.805 keep_only_completed 0.235 10.914 0.800 2.525 The descriptive routing-mass summary (Table 4 ) confirms the mechanism: mass on current is 0.840 0.840 in both sublayers, matching the analytic prediction e β / ( S − 1 + e β ) ¯ = 0.840 \\overline{e^{\\beta}/(S{-}1+e^{\\beta})}=0.840 over the model’s depth schedule (Appendix C ); attention and MLP rows are identical to four decimal places, which is consistent only with both per-sublayer projections being inert. The baseline routing pattern is the recency-bias schedule, and depth-aware probes recover nothing the schedule does not predict on paper. 4.2 AttnRes shows differentiated source-family causality The same probes on the AttnRes checkpoint produce an entirely different picture (Table 2 ). embedding is the largest contributor (logprob drop 7.25 7.25 ), exceeding current ( 4.17 4.17 ) by nearly a factor of two. Older nonlocal history contributes a smaller but clearly measurable effect ( 1.80 1.80 ). prev_completed ablation produces effectively no change ( 0.08 0.08 ), despite this family carrying ≈ 0.09 \\approx 0.09 of the routing mass on average (Section 4.4 ). Base-rate accuracy is comparable to the baseline ( 0.540 0.540 vs. 0.560 0.560 ): the contrast in which sources matter reflects a different mechanism, not a different competence. Table 2 : Source-family routing ablations on the AttnRes checkpoint. embedding produces the largest drop, followed by current and nonlocal . prev_completed ablation has no detectable causal effect. Ablation Acc. Logprob ↓ \\downarrow Flips Rank none 0.540 0.000 0.000 1.760 drop_embedding 0.235 7.250 0.810 2.570 drop_current 0.325 4.175 0.665 2.215 drop_nonlocal 0.470 1.800 0.280 1.995 drop_prev_completed 0.545 0.076 0.090 1.785 keep_only_embedding 0.215 24.978 0.840 2.620 keep_only_current 0.240 7.409 0.820 2.520 keep_only_completed 0.175 7.256 0.805 2.650 The contrast against the baseline is sharp on the same metric: drop_embedding goes from 0.001 0.001 to 7.25 7.25 , drop_nonlocal from 0.020 0.020 to 1.80 1.80 , and drop_current from 8.24 8.24 down to 4.17 4.17 as the current-specific dependence is partially redistributed to other families. 4.3 Sublayer asymmetry only emerges under AttnRes Splitting routing ablations by sublayer locates where in the per-layer computation each source family matters (Table 3 , Figure 2 ). The baseline has only one non-trivial row; its split between attention and MLP for current reflects which sublayer the recency-bias-dominated routing is most fragile to perturbation in, not learned structure. The AttnRes checkpoint differentiates each row: embedding matters almost entirely through MLP (drop 6.38 6.38 vs. 0.13 0.13 ); current reverses the baseline order, with attention ( 2.44 2.44 ) exceeding MLP ( 1.25 1.25 ); nonlocal matters only through attention; and prev_completed is below noise in both. Sublayer asymmetry is a property of the trained model, not of the probe. Table 3 : Sublayer-restricted routing ablations: mean correct-answer logprob drop. The baseline shows a single non-trivial cell (current-MLP); the AttnRes checkpoint stratifies across sublayers in a family-specific way. Baseline AttnRes Source family Attn MLP Attn MLP embedding 0.001 -0.001 0.130 6.382 prev_completed -0.006 0.003 0.016 0.064 current 2.643 8.824 2.444 1.254 nonlocal 0.043 -0.018 1.885 -0.193 Figure 2 : Sublayer-restricted routing ablations on the AttnRes checkpoint. embedding matters only through MLP; nonlocal only through attention; current through both, with attention larger; prev_completed through neither. 4.4 Routing mass and causal importance dissociate Average routing weights, taken descriptively, do not predict the causal results. Table 4 reports average source-family mass at the final answer token on correctly-solved examples. Table 4 : Average final-token routing mass on correctly-solved examples. Baseline rows are identical and dominated by current . AttnRes attention is broadest with the largest slice on nonlocal ; AttnRes MLP is current-heavy. Each row sums to ≈ 1.0 \\approx 1.0 . Model Sublayer Emb. Prev. Nonloc. Curr. Baseline attn 0.042 0.035 0.083 0.840 Baseline mlp 0.042 0.035 0.083 0.840 AttnRes attn 0.195 0.099 0.368 0.338 AttnRes mlp 0.228 0.085 0.083 0.603 On the AttnRes side, the largest mass slice in each sublayer ( nonlocal in attention at 0.368 0.368 ; current in MLP at 0.603 0.603 ) is not the largest causal contribution: the corresponding ablations cost 1.89 1.89 and 1.25 1.25 logprob, while drop_current_attn costs 2.44 2.44 and drop_embedding_mlp costs 6.38 6.38 . Embedding in MLP carries less than half of current’s mass yet five times its causal effect. And prev_completed , with mass 0.085 0.085 – 0.099 0.099 per sublayer comparable to nonlocal in MLP, has no detectable causal role at all (drops 0.016 0.016 and 0.064 0.064 ). Even when the routing pattern is structured, average mass is a misleading indicator of causal importance. 4.5 The AttnRes structure is depth-localised Binning layers into early, middle, and late thirds and repeating the sublayer ablations gives Table 5 and Figure 3 ; the full table is in Appendix E . Table 5 : Layer-binned sublayer ablations on the AttnRes checkpoint, mean correct-answer logprob drop. Three localised motifs dominate the causal signal: embedding early-MLP, current early-attention and early-MLP, nonlocal late-attention. Source family Sublayer Early Middle Late embedding attn 0.140 -0.003 -0.000 embedding mlp 6.381 -0.000 0.002 prev_completed attn 0.045 -0.040 0.008 prev_completed mlp 0.011 0.008 0.050 current attn 2.321 -0.120 0.085 current mlp 1.122 0.494 0.116 nonlocal attn 0.076 -0.079 1.729 nonlocal mlp 0.005 0.018 -0.202 Figure 3 : Layer-binned sublayer ablations on the AttnRes checkpoint as a heatmap. A small number of localised cells carry the primary causal signal. The entire embedding effect sits in early-layer MLP routing ( 6.38 6.38 , near zero elsewhere). current concentrates early, with attention ( 2.32 2.32 ) exceeding MLP ( 1.12 1.12 ) — the only family for which attention exceeds MLP in the early bin. nonlocal appears only in late attention ( 1.73 1.73 ). prev_completed is below noise everywhere. The picture is of a stage-specific routing protocol: early MLP as the injection point for retrieved depth content from the embedding source, early attention as the read-out point for the current working state with a smaller MLP-side counterpart, and late attention as occasional long-reach access into older completed history. 5 Discussion The ( Chen et al., 2026 ) showed that learned content-dependent routing across depth is useful for optimisation and downstream performance. We complement that by characterising when the routing it exposes becomes mechanistically interpretable, and by what method. Architectural exposure is necessary but not sufficient. The recency-bias-wrapped baseline is, formally, a Block AttnRes model: same forward function, same routing tensors, same model class. Its routing parameters are nevertheless inert, so by Equation 3 its routing pattern is a deterministic function of source-axis length and a fixed scalar. The pattern we observe matches that prediction precisely. Block AttnRes does not, by construction, render cross-layer information flow legible; it provides a substrate on which a model that has been trained to use depth diversity can express that usage in a directly intervenable form. Three localised motifs. Of the 24 24 (family, sublayer, depth) cells in the AttnRes ablation cube, three localised motifs dominate the causal signal — early-layer MLP for embedding , early-layer attention and MLP for current , late-layer attention for nonlocal . This is consistent with early MLP as an injection point for the embedding-origin source, early attention as a read-out point for the current working state, and late attention as occasional long-reach access into older completed history. We make no claim that this is the only solution Block AttnRes admits; it is the solution this trained checkpoint converged to, recoverable by our probes precisely because the routing parameters are non-degenerate. Mass and causal importance must be separated. Three distinct dissociations show up in the AttnRes checkpoint: large mass with small causal effect ( nonlocal in attention; current in MLP), small mass with large effect ( embedding in MLP), and appreciable mass with no detectable effect at all ( prev_completed ). Routing-weight visualisations alone are not sufficient evidence of mechanism. Implications. Two for routing-exposing architectures more generally. First, exposure of routing weights does not transfer across the training boundary: a vanilla model wrapped to make routing visible will surface weights that carry no information beyond what the wrapping schedule dictates. Second, even when routing has been trained, average weights are best treated as candidate pathways, with causal interventions deciding which carry decision-critical signal. 6 Limitations • Task simplicity. Synthetic key–value retrieval rather than naturalistic long-context reasoning. The structure may not transfer. • Two regimes only. A single baseline and a single AttnRes checkpoint, single scale, single recipe. We have not run intermediate conditions (AttnRes architecture fine-tuned from a vanilla checkpoint, or trained with routing parameters frozen), so we cannot strictly attribute the structured pattern to training-from-scratch as opposed to AttnRes training in general. • Block-level routing. Our interventions operate on block summaries; full per-layer AttnRes may exhibit additional structure. • Renormalised interventions. Our ablations test reliance on routing pathways, not deletion of represented information. A pathway whose ablation has no measurable effect may still carry information that other pathways substitute for. • Modest absolute accuracy. Both checkpoints score in the mid- 0.5 0.5 range; results are best read as controlled probes. 7 Conclusion Block AttnRes makes depth routing explicit. We have argued that this architectural exposure is necessary but not sufficient for interpretability, and that the right way to read it is from causal intervention on routing pathways rather than from average routing weights. On a controlled retrieval task, the same probes recover a near-degenerate single-source policy from a recency-bias-wrapped vanilla baseline whose routing pattern matches the schedule’s analytic prediction, and three localised stage-specific motifs from a Block AttnRes checkpoint trained from scratch. Across the populated motifs, mass and causal importance dissociate sharply. Block AttnRes’ practical value for mechanistic interpretability is not that it makes routing automatic, but that it makes routing-shaped questions answerable when — and only when — the routing has been part of training. Future work. (i) Whether the same stage-specific pattern reproduces on multi-hop retrieval or algorithmic tasks. (ii) Intermediate architectural conditions (AttnRes fine-tuned from vanilla; AttnRes trained with routing frozen) to disentangle architecture from training. (iii) The training trajectory: at what point does the recency-bias-like solution give way? (iv) Regularisers that encourage routes whose causal importance, not just average mass, is high. (v) Whether the prev_completed pathway is genuinely unused or whether stronger probes (e.g. targeted activation patching) detect signal there. Impact Statement This paper presents work whose goal is to advance the field of Machine Learning, specifically the mechanistic interpretability of Transformer-style models. There are many potential societal consequences of mechanistic interpretability research, none of which we feel must be specifically highlighted here. References Chen et al. (2026) K. T. G. Chen, Y. Zhang, J. Su, W. Xu, S. Pan, Y. Wang, Y. Wang, G. Chen, B. Yin, Y. Chen, J. Yan, M. Wei, Y. Zhang, F. Meng, C. Hong, X. Xie, S. Liu, E. Lu, Y. Tai, Y. Chen, X. Men, H. Guo, Y. Charles, H. Lu, L. Sui, J. Zhu, Z. Zhou, W. He, W. Huang, X. Xu, Y. Wang, G. Lai, Y. Du, Y. Wu, Z. Yang, and X. Zhou Attention residuals . External Links: Link Cited by: §1 , §2 , §2 , §5 , Abstract . He et al. (2015) K. He, X. Zhang, S. Ren, and J. Sun Deep residual learning for image recognition . CoRR abs/1512.03385 . External Links: Link , 1512.03385 Cited by: Abstract . Li et al. (2026) T. Li, D. Han, Z. Cao, H. Huang, M. Zhou, M. Chen, E. Zhao, X. Jiang, G. Jiang, and G. Huang SiameseNorm: breaking the barrier to reconciling pre/post-norm . ArXiv abs/2602.08064 . External Links: Link Cited by: §2 . Meng et al. (2022) K. Meng, D. Bau, A. Andonian, and Y. Belinkov Locating and editing factual associations in GPT . In Advances in Neural Information Processing Systems (NeurIPS) , Cited by: §1 . Rai et al. (2024) D. Rai, Y. Zhou, S. Feng, A. Saparov, and Z. Yao A practical review of mechanistic interpretability for transformer-based language models . arXiv preprint arXiv:2407.02646 . Cited by: §1 . Xiong et al. (2020) R. Xiong, Y. Yang, D. He, K. Zheng, S. Zheng, C. Xing, H. Zhang, Y. Lan, L. Wang, and T. Liu On layer normalization in the transformer architecture . CoRR abs/2002.04745 . External Links: Link , 2002.04745 Cited by: §1 . Appendix A Synthetic Retrieval Dataset Key and value pools. Keys are drawn without replacement from a fixed pool of 26 common English first names ( Alice, Bob, Carol, …, Zane ). Values are drawn without replacement from a 43-element pool spanning four loosely typed categories: colours ( red, blue, … ), shapes ( circle, square, … ), nature words ( river, forest, falcon, … ), and short tokens ( alpha, beta, 1, 2, …, 9 ). Mixing categories ensures distractors cannot be solved by category-level priors alone. Example construction. For each example we sample n ∈ { 2 , 3 , 4 } n\\in\\{2,3,4\\} key–value pairs uniformly at random, then sample a query key uniformly from the n n presented keys. The correct answer is the value paired with the query key. Three distractors are drawn preferentially from other values present in the same prompt; if fewer than three in-prompt distractors are available we top up from the global value pool, excluding the correct answer. Prompt styles. To reduce surface-form sensitivity we cycle through three prompt templates in fixed proportion ( 1 : 1 : 1 1{:}1{:}1 ): plain ( Key: value lines and a final Query: ), sentence ( X is associated with Y. ), and table ( Use the table below. ). All four candidate values are presented as continuations with a leading space, scored independently via conditional log-probability under the model. Scoring. A prediction is correct iff the model assigns the highest total log-probability to the correct continuation among the four. Random seeds are fixed for reproducibility. The full 200 200 -example dataset is generated in a single pass and used identically across all conditions and both checkpoints. Appendix B Source Families and Routing Ablations Disjoint source-family definitions. For a sublayer call with source-axis length S S , we resolve each family symbol to a (possibly empty) set of source indices: • embedding : the first source, defined for S ≥ 1 S\\geq 1 ; • current : the last source, defined for S ≥ 2 S\\geq 2 ; • prev_completed : the source immediately before the partial block, defined for S ≥ 3 S\\geq 3 (so it is always distinct from embedding ); • nonlocal : completed-block sources excluding the embedding source and the most recent completed block, defined for S ≥ 4 S\\geq 4 . At sublayer calls where the targeted family is empty for the current S S , the ablation is a no-op at that call. The four families form a partition of the source axis when S ≥ 4 S\\geq 4 ; for smaller S S the union is a strict subset. We additionally use completed (all completed-block sources) for the keep_only_completed intervention. Mask-and-renormalise intervention. Given a target family ℱ \\mathcal{F} , we form a binary mask m ∈ { 0 , 1 } S m\\in\\{0,1\\}^{S} with m s = 0 m_{s}=0 iff s ∈ ℱ s\\in\\mathcal{F} , and replace α \\alpha with α ~ s = m s ​ α s / ∑ s ′ m s ′ ​ α s ′ \\tilde{\\alpha}_{s}=m_{s}\\alpha_{s}/\\sum_{s^{\\prime}}m_{s^{\\prime}}\\alpha_{s^{\\prime}} . keep_only -style interventions invert the mask. Renormalisation preserves the total mass entering the sublayer; what changes is the model’s reliance on the targeted pathway. Selective application. A single ablation can be restricted along three orthogonal axes: source family, sublayer ∈ { attn , mlp } \\in\\{\\textsc{attn},\\textsc{mlp}\\} , and layer subset (early/middle/late thirds). When a layer subset is specified, we floor-divide the layer count by three: early is the first ⌊ L / 3 ⌋ \\lfloor L/3\\rfloor layers, middle the next ⌊ 2 ​ L / 3 ⌋ − ⌊ L / 3 ⌋ \\lfloor 2L/3\\rfloor-\\lfloor L/3\\rfloor , late the remainder. Appendix C Checkpoints, the Recency-Bias Schedule, and Output Differences We use two publicly released checkpoints from the repository 2 2 2 https://github.com/wdlctc/open-attention-residuals , both at 0.6 0.6 B parameters and identical Qwen3 backbone scale ( d = 1024 d{=}1024 , L = 28 L{=}28 , h = 16 h{=}16 , h k ​ v = 8 h_{kv}{=}8 , ff = 3072 \\text{ff}{=}3072 ). Baseline. A vanilla Qwen3 ( Qwen3ForCausalLM , standard additive residuals) trained from scratch with the same data and pipeline as the AttnRes condition. We load this checkpoint through Qwen3AttnResForCausalLM for evaluation. In every one of the 28 28 layers, the per-sublayer query projection has zero norm and the recency bias is β = 3.0 \\beta=3.0 (codebase default). By Equation 3 , this makes the depth-softmax a deterministic function of the source-axis length and the fixed scalar. AttnRes. A Block AttnRes Qwen3 of identical scale, trained from scratch with eight blocks. Per-sublayer projections and biases are part of optimisation. The per-sublayer projection norm is non-zero in every layer for both sublayers and varies across layers, consistent with content-dependent routing. Recency-bias prediction. With β = 3.0 \\beta=3.0 , the per-call mass on current is e β / ( S − 1 + e β ) e^{\\beta}/(S{-}1+e^{\\beta}) , ranging from 0.953 0.953 at S = 2 S=2 to 0.742 0.742 at S = 8 S=8 . For the L = 28 L=28 , B = 8 B=8 model the layers partition into seven groups of four, each producing eight sublayer calls at a fixed source-axis length S ∈ { 2 , … , 8 } S\\in\\{2,\\ldots,8\\} , so the seven S S -values are equally weighted in the average. The arithmetic mean of e β / ( S − 1 + e β ) e^{\\beta}/(S{-}1+e^{\\beta}) over S ∈ { 2 , … , 8 } S\\in\\{2,\\ldots,8\\} is 0.840 0.840 . The observed mass on current of 0.840 0.840 matches this analytic value to three decimal places. Output difference between wrapped and vanilla forward passes. The recency-bias schedule is not output-preserving: at finite β \\beta the routing weights are a non-degenerate convex mixture, so each sublayer’s input is a small but non-zero blend of earlier sources rather than the unmixed previous state expected by a vanilla PreNorm forward pass. Loading the baseline checkpoint as standard Qwen3ForCausalLM and as Qwen3AttnResForCausalLM and running both on three short prompts in matched precision, we observe a maximum absolute logit difference of 1.875 1.875 and a mean of ≈ 0.21 \\approx 0.21 . The wrapped baseline therefore behaves close to but not identically with the vanilla forward pass; what matters for our control is that its routing weights are content-independent. Appendix D Routing-Mass Composition (Visual) Figure 4 : Routing-mass composition by sublayer. The baseline allocates ≈ 0.84 \\approx 0.84 to current in both sublayers; the AttnRes attention sublayer is broadly distributed with the largest slice on nonlocal , while the AttnRes MLP sublayer is current-heavy with non-trivial embedding and prev_completed slices. Appendix E Full Layer-Binned Ablation Tables Table 6 : Full layer-binned sublayer ablations on the recency-bias-wrapped baseline (mean correct-answer logprob drop). All non-trivial signal is concentrated in current-attention and current-MLP routing in the early third of the stack. Source family Sublayer Early Middle Late embedding attn 0.001 0.002 0.002 embedding mlp -0.001 0.002 0.002 prev_completed attn 0.007 -0.010 0.001 prev_completed mlp 0.003 0.001 0.001 current attn 2.714 0.041 -0.038 current mlp 7.367 0.303 0.318 nonlocal attn -0.002 0.014 0.037 nonlocal mlp -0.001 -0.011 -0.005 Table 7 : Full layer-binned sublayer ablations on the AttnRes checkpoint (mean correct-answer logprob drop). embedding effects are confined to early-MLP; current effects are early, with attention exceeding MLP; nonlocal effects are late-attention only; prev_completed is below noise everywhere. Source family Sublayer Early Middle Late embedding attn 0.140 -0.003 -0.000 embedding mlp 6.381 -0.000 0.002 prev_completed attn 0.045 -0.040 0.008 prev_completed mlp 0.011 0.008 0.050 current attn 2.321 -0.120 0.085 current mlp 1.122 0.494 0.116 nonlocal attn 0.076 -0.079 1.729 nonlocal mlp 0.005 0.018 -0.202",
+  "text_truncated": false,
+  "links": [
+    {
+      "text": "Skip to main content",
+      "url": "https://arxiv.org/html/2606.13168v1#infobox"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/IgnoreMe"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "Why HTML?",
+      "url": "https://info.arxiv.org/about/accessible_HTML.html"
+    },
+    {
+      "text": "Back to Abstract",
+      "url": "https://arxiv.org/abs/2606.13168v1"
+    },
+    {
+      "text": "Download PDF",
+      "url": "https://arxiv.org/pdf/2606.13168v1"
+    },
+    {
+      "text": "License: arXiv.org perpetual non-exclusive license",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "Chen et al., 2026",
+      "url": "https://arxiv.org/html/2606.13168v1#bib.bib4"
+    },
+    {
+      "text": "He et al., 2015",
+      "url": "https://arxiv.org/html/2606.13168v1#bib.bib5"
+    },
+    {
+      "text": "https://anonymous.4open.science/r/attn_res_interp-E70C/",
+      "url": "https://anonymous.4open.science/r/attn_res_interp-E70C/"
+    },
+    {
+      "text": "Rai et al., 2024",
+      "url": "https://arxiv.org/html/2606.13168v1#bib.bib2"
+    },
+    {
+      "text": "Xiong et al., 2020",
+      "url": "https://arxiv.org/html/2606.13168v1#bib.bib1"
+    },
+    {
+      "text": "Meng et al., 2022",
+      "url": "https://arxiv.org/html/2606.13168v1#bib.bib3"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2606.13168v1#S1.F1"
+    },
+    {
+      "text": "Li et al., 2026",
+      "url": "https://arxiv.org/html/2606.13168v1#bib.bib6"
+    },
+    {
+      "text": "A",
+      "url": "https://arxiv.org/html/2606.13168v1#A1"
+    },
+    {
+      "text": "B",
+      "url": "https://arxiv.org/html/2606.13168v1#A2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2606.13168v1#S2.E3"
+    },
+    {
+      "text": "C",
+      "url": "https://arxiv.org/html/2606.13168v1#A3"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2606.13168v1#S4.T1"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2606.13168v1#S4.T4"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2606.13168v1#S4.T2"
+    },
+    {
+      "text": "4.4",
+      "url": "https://arxiv.org/html/2606.13168v1#S4.SS4"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2606.13168v1#S4.T3"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2606.13168v1#S4.F2"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2606.13168v1#S4.T5"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2606.13168v1#S4.F3"
+    },
+    {
+      "text": "E",
+      "url": "https://arxiv.org/html/2606.13168v1#A5"
+    },
+    {
+      "text": "Link",
+      "url": "https://api.semanticscholar.org/CorpusID:286571690"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2606.13168v1#S1.p1.1"
+    },
+    {
+      "text": "§2",
+      "url": "https://arxiv.org/html/2606.13168v1#S2.SS0.SSS0.Px1.p2.1"
+    },
+    {
+      "text": "§2",
+      "url": "https://arxiv.org/html/2606.13168v1#S2.p1.2"
+    },
+    {
+      "text": "§5",
+      "url": "https://arxiv.org/html/2606.13168v1#S5.p1.1"
+    },
+    {
+      "text": "Abstract",
+      "url": "https://arxiv.org/html/2606.13168v1#abstract1.1"
+    },
+    {
+      "text": "Link",
+      "url": "http://arxiv.org/abs/1512.03385"
+    },
+    {
+      "text": "Link",
+      "url": "https://api.semanticscholar.org/CorpusID:285452103"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/2002.04745"
+    }
+  ],
+  "matching_link_count": 37,
+  "links_truncated": false,
+  "invalid_links": []
+}

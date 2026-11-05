@@ -1,0 +1,591 @@
+{
+  "url": "https://arxiv.org/html/2608.10441v1",
+  "final_url": "https://arxiv.org/html/2608.10441v1",
+  "status": 200,
+  "title": "Detecting an Effect Is Not Learning to Act on It:A Reward–SNR Floor for LLM Acquisition Agents",
+  "metadata": {},
+  "paper": {
+    "title": "Detecting an Effect Is Not Learning to Act on It: A Reward–SNR Floor for LLM Acquisition Agents",
+    "title_warning": null,
+    "abstract": "Abstract Many pipelines can pay a per-example cost to acquire an auxiliary, model-derived\nobservation—an LLM’s structured reasoning, a slow oracle, an expensive\nmeasurement—and then must decide when the acquired signal is worth using.\nOur thesis is a distinction that is easy to miss: detecting that such a\nsignal helps on average is not the same as learning to act on it per instance, and a reward–SNR floor governs when the second is even possible.\nEven when the acquired signal is genuinely faithful and an in-sample oracle that picks the top- b b examples by\nrealized reward shows a sizable apparent gain, no deployable policy can\nlearn when to acquire it: across per-impression, K = 4 − 64 K{=}4{-}64 cluster,\nhand-defined regime, and uplift-tree granularities, learned routing never beats\nrandom, and a matched-moment i.i.d.- noise placebo reproduces ≥ 100 % \\geq\\!100\\% of the oracle’s apparent gain. In other words, the apparent “learnable\nstructure” is order statistics of noise , not exploitable signal. We explain this\nwith a single distinction—between detecting a mean effect and learning a per-instance acquisition policy —and a reward–SNR\ndetectability floor : routing is estimable offline only if the reward effect’s\nSNR ρ = μ / σ \\rho=\\mu/\\sigma clears ρ ⋆ ​ ( N ) ≈ 2.8 / N \\rho^{\\star}(N)\\!\\approx\\!2.8/\\sqrt{N} (equivalently N ≥ N min = ( 2.8 / ρ ) 2 N\\geq N_{\\min}=(2.8/\\rho)^{2} ), a necessary condition we report as such,\nwith a positive control confirming it is a true low-SNR limit rather than a broken\npipeline. As a concrete instantiation we introduce Structured Hypothesis\nEmbeddings (SHE): a frozen LLM decomposes a user history into K K ranked,\nconfidence-scored, evidence-grounded intent hypotheses, embedded and fused as an\ninput-embedding branch of a recommender. On three public datasets (MIND, REES46,\nAmazon-Beauty): (i) SHE is faithful (grounded faithfulness + 0.0705 +0.0705 ,\ndistinctiveness 2 × 2\\times , calibratable ECE → 0.031 0.142\\!\\to\\!0.031 ); (ii) its\ndownstream value is backbone- and regime-conditional—significant over an\nordered GRU backbone ( + 0.0114 +0.0114 , 95 % 95\\% CI [ + 0.0030 , + 0.0209 ] [+0.0030,+0.0209] ) yet with a global\nredundancy gap indistinguishable from zero ( − 0.0005 -0.0005 , [ − 0.0164 , + 0.0150 ] [-0.0164,+0.0150] ); and\n(iii) learned per-example acquisition collapses at every granularity because all three datasets sit below the floor\n( ρ = 0.048 / 0.138 / 0.014 \\rho\\!=\\!0.048/0.138/0.014 ). The realizable unit is therefore a design-time regime gate , not a learned per-instance policy; we give an\nactionable recipe for it. We release code, a 58-claim ledger mapping each claim to\na script/CSV/figure, and a one-command reproduction.",
+    "authors": [
+      {
+        "name": "Ying Yuan",
+        "affiliations": [
+          "Affiliation: University of California, San Diego yingyuan238@gmail.com"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Ying Yuan Affiliation: University of California, San Diego yingyuan238@gmail.com",
+    "arxiv_version": "2608.10441v1",
+    "arxiv_version_date": "2026-08-11",
+    "sections": [
+      {
+        "id": "S1",
+        "heading": "1 Introduction",
+        "level": 1,
+        "text": "A growing number of machine-learning systems are built around a decision that is usually left implicit: should we pay to acquire an auxiliary, model-derived observation for this example, and if so, do we trust it? The observation might be a large language model’s structured reasoning about an input, a slow but accurate oracle, an additional sensor reading, or a human annotation. Acquisition has a real cost (latency, money, compute), so a natural aspiration is to learn a policy —an acquisition agent—that spends the budget only where the auxiliary signal helps. This aspiration is widespread in active learning, value-of-information, learning-to-defer, and LLM-as-feature pipelines. This paper makes a simple but, we argue, under-appreciated point: detecting that the acquired signal helps on average is not the same as learning to act on it per instance—and whether that per-example acquisition policy is even recoverable from offline data is governed by a signal-to-noise law that is easy to state and easy to violate. If the per-example effect of the acquired signal on the downstream reward has signal-to-noise ratio ρ = μ / σ \\rho=\\mu/\\sigma , then reliably detecting a policy that conditions on that reward requires ρ \\rho to exceed a floor ρ ⋆ ​ ( N ) ≈ 2.8 / N \\rho^{\\star}(N)\\approx 2.8/\\sqrt{N} . Below the floor, the “obvious” evidence that learning helps—an in-sample oracle that picks the top- b b examples by realized reward—is an artifact of order statistics of noise, not exploitable structure. We prove the floor with a positive control (a synthetic signal injected at controllable SNR is recovered by the same deployable pipeline once ρ \\rho crosses the floor) and we are explicit that the floor is a necessary condition, not a claim of impossibility. We then ground the abstract “costly observation” in a concrete method, Structured Hypothesis Embeddings (SHE, § 3 ): a frozen LLM turns a user’s interaction history into K K ranked, confidence-scored, evidence-grounded hypotheses about the user’s latent intents; these are embedded and fused as an input-embedding branch of a recommender. SHE is a faithful, interpretable signal on its own terms (§ 4 ), but its downstream value is backbone- and regime-conditional (§ 5 ): it is significant over an ordered sequential backbone yet its global redundancy gap is statistically indistinguishable from zero, with a clean regime split (absorption in sparse histories, complementarity in long multi-intent histories). Attempts to learn when to acquire SHE fail at every granularity we test (§ 6 ), and § 7 – 8 show why: on all three datasets the reward SNR is below the detectability floor."
+      },
+      {
+        "id": "S1.SS0.SSS0.Px1",
+        "heading": "An honesty caveat carried throughout.",
+        "level": 4,
+        "text": "The motivating production observation—that structured intent helps most in cold-start / underdetermined regimes—is observed, not controlled . Our public-data study is designed to test the mechanism (the SNR floor) rather than to re-derive that observation, and we flag every place where an effect is directional-but-not-significant, in-sample-only, or below the detectability floor."
+      },
+      {
+        "id": "S1.SS0.SSS0.Px2",
+        "heading": "Contributions.",
+        "level": 4,
+        "text": "• A diagnosis: apparent acquisition “learnability” is order statistics of noise. Across per-impression, cluster ( K = 4 − 64 K{=}4{-}64 ), regime, and uplift-tree granularities on three datasets, no deployable policy beats random, and a matched-moment noise placebo reproduces ≥ 100 % \\geq\\!100\\% of the in-sample oracle’s apparent gain—so the oracle gap that looks like exploitable structure is not (§ 6 , § 7 ). • The explanation: mean-detection ≠ \\neq policy-learnability, and a reward–SNR detectability floor ρ ⋆ ​ ( N ) ≈ 2.8 / N \\rho^{\\star}(N)\\approx 2.8/\\sqrt{N} that separates them, with a positive control establishing it is a genuine low-SNR limit rather than a broken/underpowered pipeline (§ 8 ). • A concrete instantiation, Structured Hypothesis Embeddings : a frozen-LLM input-embedding branch of ranked, confidence-scored, evidence-grounded hypotheses with a cited-vs-non-cited faithfulness metric; it is faithful yet its downstream value is backbone- and regime-conditional (significant over an ordered GRU/SASRec backbone, global redundancy gap indistinguishable from zero) (§ 3 – 5 ). • An actionable prescription : since per-instance routing is unlearnable below the floor, deploy a design-time regime gate instead; we give a four-step recipe and validate it at the pooled-regime level (§ 10 ). • A reproducible artifact : a 58-claim ledger mapping each claim to a script, CSV and figure, and a one-command offline reproduction. 500 1000 3000 10000 40000 0.01 0.02 0.05 0.1 0.2 undetectable: no learnable per-instance acquisition detectable region MIND ( N min = 3403 N_{\\min}{=}3403 , 2.7 × 2.7\\times short) Amazon-Beauty ( N min ≈ 40 N_{\\min}{\\approx}40 k, 62 × 62\\times short) REES46 (powered, but effect negative ) Sample size N N Reward SNR ρ = μ / σ \\rho=\\mu/\\sigma floor ρ ⋆ ​ ( N ) = 2.8 / N \\rho^{\\star}(N)=2.8/\\sqrt{N} Figure 1: The reward–SNR detectability floor is the paper’s thesis in one picture. A costly semantic observation (here SHE) can only support a learned per-instance acquisition policy if its downstream reward SNR clears ρ ⋆ ​ ( N ) = 2.8 / N \\rho^{\\star}(N)\\!=\\!2.8/\\sqrt{N} (necessary mean-detection condition, § 8 ). Both content-rich datasets where SHE is a faithful signal sit below the floor (MIND 2.7 × 2.7\\times , Amazon-Beauty 62 × 62\\times short of N min N_{\\min} ), which is why learned acquisition collapses at every granularity. The one dataset above the floor (REES46) is detectable—and there the LLM signal significantly hurts downstream AUC. The bottleneck is not whether the LLM can reason, but whether the downstream reward carries enough signal to learn when to acquire that reasoning. Concretely, we study an acquisition agent —a gate that decides, per example and from cheap side-information only, whether to spend the costly LLM call—and ask when such an agent can be learned from offline reward data. Figure 10 states our answer in one picture: a faithful LLM signal is not enough; the downstream reward must clear a reward–SNR floor before any per-instance acquisition policy is even detectable, and our three datasets sit below it—so the apparent in-sample oracle gain is order statistics of noise, not learnable structure. (We use “agent” for this one-shot acquisition gate, not a sequential/RL planner.)"
+      },
+      {
+        "id": "S2",
+        "heading": "2 Problem Setup",
+        "level": 1,
+        "text": "Let each example i i (an impression / a ranking slate) have a base predictor using cheap features and an optional costly observation o i o_{i} obtained by paying a fixed cost c c . Using o i o_{i} changes a downstream reward R i R_{i} (here NDCG@10 of the slate) by a per-example amount Δ i = R i ​ ( with ​ o i ) − R i ​ ( without ) \\Delta_{i}=R_{i}(\\text{with }o_{i})-R_{i}(\\text{without}) . Write μ = 𝔼 ⁡ [ Δ i ] \\mu=\\mathbb{E}[\\Delta_{i}] and σ = Var ⁡ [ Δ i ] \\sigma=\\sqrt{\\mathrm{Var}[\\Delta_{i}]} , and define the reward SNR ρ = μ / σ \\rho=\\mu/\\sigma . An acquisition policy π : x i ↦ { 0 , 1 } \\pi:\\;x_{i}\\mapsto\\{0,1\\} decides, from cheap side-information x i x_{i} only, whether to pay for o i o_{i} , subject to a budget b = 𝔼 ⁡ [ π ] b=\\mathbb{E}[\\pi] . We evaluate policies by the realized system reward at budget b b against a random-acquisition baseline, with a per-example bootstrap 95 % 95\\% CI, always out-of-fold (the policy never sees the outcome it is deciding to buy). Two things are worth separating. (a) The value of o i o_{i} if you always acquire it—an average-treatment question. (b) The learnability of when to acquire it—a heterogeneous-policy question. Our theory (§ 8 ) concerns (b); our recommender experiments (§ 4 – 5 ) concern (a). The two interact: a signal can have real average value yet a per-example acquisition policy for it can be undetectable."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px1",
+        "heading": "Datasets.",
+        "level": 4,
+        "text": "We use three public datasets spanning domain × \\times content richness (Table 1 ): MIND [ 9 ] (English news, content-rich, genuinely multi-topic histories), Amazon-Beauty (e-commerce, content-rich titles but short histories), and REES46 (e-commerce sessions, content-thin: 87.9 % 87.9\\% of windows are single-category). The three differ sharply in history length (median | H | = 20 / 5 / short |H|=20/5/\\text{short} ) and multi-intent fraction, which is precisely what lets us separate regime-dependent value from a global effect. All feature tables are cached; no proprietary data is used. Table 1: The three public datasets span two axes: domain × \\times content richness. History length, distinct-category count, and the sparse / multi-intent slice fractions are recomputed from the cached hypotheses; ρ \\rho is the per-example reward SNR (§ 7 ). The spread in history length and multi-intent fraction is exactly what makes the value regime-conditional . Dataset Domain Content N N median | H | |H| multi-intent % sparse % ρ \\rho MIND news rich 1263 1263 20 20 45.7 45.7 14.0 14.0 0.048 0.048 Amazon-Beauty e-commerce rich 650 650 5 5 64.6 64.6 34.2 34.2 0.014 0.014 REES46 e-commerce thin (87.9% single-cat) 498 498 short — — 0.138 0.138 MIND (news) History (5 items, 3 cats): [1] ‘Wheel of Fortune’ guest intro (tv/tvnews) [2] Helen Hunt hospitalized, car crash (tv/celebrity) [3] ‘Hocus Pocus’ sequel talk (tv/tvnews) [4] Girl, 7, shot trick-or-treating (news/crime) [5] 50 holiday gift ideas under $50 (lifestyle/shop) Candidates (click label): People’s Choice fashion [0], 39 party appetizers [0], Maren Morris sonogram [0], 2019 celebrity property roundup [1] Rich text titles; genuine multi-topic. Task: rerank candidates by click. Amazon-Beauty (e-com, rich) History (5 events): [1] view — 18” faux-locs crochet hair [2] view — makeup-brush cleaner/dryer [3] purchase — wax-warmer waxing kit [4] view — (beauty tool) [5] view — (beauty tool) Candidates : 60 ASINs B00HDOZY1G, B00ZGT9O4S, … target B08DK5D9J5 ( future_buy=1 ) Rich product titles + view/cart/purchase funnel. Task: predict next buy. REES46 (e-com, thin) Session (action, category_code): [1] view — electronics.smartphone [2] view — electronics.smartphone [3] view — electronics.smartphone [4] cart — electronics.smartphone [5] view — electronics.smartphone Label : future_buy ∈ { 0 , 1 } \\in\\{0,1\\} No product text — only category codes; 87.9% of windows are single-category. Task: predict purchase. ⇒ \\Rightarrow structurally floors the LLM’s “decompose into facets” step. Figure 2: What one raw input record looks like in each dataset (real, abbreviated), before the frozen LLM produces structured hypotheses. The three span a 2 × 2 2\\times 2 of domain × \\times content-richness: MIND and Amazon-Beauty carry rich item text supporting genuine multi-intent decomposition, whereas REES46 exposes only category codes and is dominated by single-category sessions. This contrast is why agent-side facet metrics are strong on MIND/Amazon but floored on REES46 (Table 1 )."
+      },
+      {
+        "id": "S3",
+        "heading": "3 Method: Structured Hypothesis Embeddings (SHE)",
+        "level": 1,
+        "text": "User history H = ( e 1 , … , e n ) H=(e_{1},\\dots,e_{n}) Frozen LLM (no grad) h 1 h_{1} : celebrity / fitness γ 1 = 0.66 \\gamma_{1}{=}0.66 , cite { 3 , 9 , 13 , 14 } \\{3,9,13,14\\} h 2 h_{2} : crime / politics γ 2 = 0.58 \\gamma_{2}{=}0.58 , cite { 2 , 6 , 9 , 12 } \\{2,6,9,12\\} h 3 h_{3} : viral food / animals γ 3 = 0.47 \\gamma_{3}{=}0.47 , cite { 1 , 5 , 10 , 11 , 12 } \\{1,5,10,11,12\\} Embed 𝒆 k = ϕ ⁡ ( h k ) {\\bm{e}}_{k}=\\phi(h_{k}) max k \\max_{k} γ k ⋅ cos ⁡ ( 𝒄 , 𝒆 k ) \\gamma_{k}\\!\\cdot\\!\\cos({\\bm{c}},{\\bm{e}}_{k}) Candidate 𝒄 {\\bm{c}} Input-embedding branch fusion [ f base , f B ] [f_{\\text{base}},\\,f_{B}] Ranker (NDCG@10) f base f_{\\text{base}} (mean-pool / GRU / SASRec) Figure 3: Structured Hypothesis Embedding (SHE) pipeline. A frozen LLM decomposes a user history into K = 3 K{=}3 ranked, confidence-scored ( γ k \\gamma_{k} ), evidence-grounded (cited history indices) intent hypotheses. Each is embedded; a candidate 𝒄 {\\bm{c}} scores against the best-matching facet f B max = max k γ k cos ( 𝒄 , 𝒆 k ) f_{B}^{\\max}=\\max_{k}\\gamma_{k}\\cos({\\bm{c}},{\\bm{e}}_{k}) , which is fused as an input-embedding branch alongside a cheap base backbone (mean-pool / GRU / SASRec). The confidences γ k \\gamma_{k} and cited evidence make the branch calibratable and faithfulness-testable. Values shown are a real MIND example (impression 2445, Fig. 4 ). Given a user history H = ( e 1 , … , e n ) H=(e_{1},\\dots,e_{n}) (news reads or product interactions), a frozen LLM is prompted to emit K K intent hypotheses. Each hypothesis h k h_{k} is a short natural-language statement of a latent interest, and carries (i) a calibratable confidence γ k ∈ [ 0 , 1 ] \\gamma_{k}\\in[0,1] and (ii) a set of evidence indices E k ⊆ { 1 , … , n } E_{k}\\subseteq\\{1,\\dots,n\\} citing the history events that support it. We use K = 3 K=3 . This “Scheme B” structured output is contrasted with a “Scheme A” single-summary baseline. Each hypothesis is embedded, 𝒆 k = ϕ ⁡ ( h k ) {\\bm{e}}_{k}=\\phi(h_{k}) , in a fixed text-embedding space ( ℓ 2 \\ell_{2} -normalized, so similarity is cosine). For a candidate item with embedding 𝒄 {\\bm{c}} , the SHE branch produces a small feature vector whose primary coordinate is a confidence-weighted best-facet match f B max ( 𝒄 ) = max k ∈ { 1 , … , K } γ k cos ( 𝒄 , 𝒆 k ) , f_{B}^{\\max}({\\bm{c}})\\;=\\;\\max_{k\\in\\{1,\\dots,K\\}}\\;\\gamma_{k}\\,\\cos({\\bm{c}},{\\bm{e}}_{k}), (1) alongside γ \\gamma -weighted mean and max variants. The max \\max -over-facets aggregation is the crux: it lets a candidate match any of the user’s disjoint interests rather than a blended average, which is precisely what a single summary (Scheme A, f A = cos ⁡ ( 𝒄 , 𝒆 summary ) f_{A}=\\cos({\\bm{c}},{\\bm{e}}_{\\text{summary}}) ) cannot express. SHE plugs in as an input-embedding branch : the downstream model receives [ f base ​ ( 𝒄 ) , f B ​ ( 𝒄 ) ] [\\,f_{\\text{base}}({\\bm{c}}),f_{B}({\\bm{c}})\\,] , where f base f_{\\text{base}} is the cheap backbone (mean-pooled history similarity, ID popularity features, or the state of an ordered sequence model). Fusion is late and the branch is frozen; nothing is back-propagated into the LLM."
+      },
+      {
+        "id": "S3.SS0.SSS0.Px1",
+        "heading": "Instantiation of ϕ \\phi .",
+        "level": 4,
+        "text": "The method is agnostic to the choice of text encoder ϕ \\phi ; we deliberately state all results in terms of the fixed, ℓ 2 \\ell_{2} -normalized space rather than a particular model. In our experiments ϕ \\phi is OpenAI text-embedding-ada-002 for MIND and REES46, and a local 256 256 -dimensional TF-IDF + + TruncatedSVD (LSA) space over item titles for Amazon-Beauty (an embedding-API ACL prevented using the same hosted encoder there). Candidate items, hypotheses, and the Scheme-A summary are always embedded in the same space within a dataset, so all comparisons are intra-space; we never compare cosine values across the ada-002 and LSA spaces (§ 10 ). Full encoder, feature-block, and downstream-head details are in App. B ."
+      },
+      {
+        "id": "S3.SS0.SSS0.Px2",
+        "heading": "Why “structured” and “grounded” matter.",
+        "level": 4,
+        "text": "The evidence indices E k E_{k} give a testable notion of faithfulness (§ 4 ): a hypothesis should be more similar to the history events it cites than to those it does not. The confidences γ k \\gamma_{k} let us calibrate and, in principle, gate. Both are properties of the structure , not of any particular embedding model."
+      },
+      {
+        "id": "S4",
+        "heading": "4 Agent-Side Quality of the Hypotheses",
+        "level": 1,
+        "text": "MIND impression 2445 — a 14-item, 9-category news history (multi-intent slice). Abbreviated titles: [1] free donuts at Shipley; [2] Trump offer to British teen’s family; [3] Hailey Bieber gym/butt workout; [4] emotional nurse photo goes viral; [5] Häagen-Dazs peppermint bark returns; [6] Trump sex-assault claims corroborated; [7] Bezos to lose richest-person crown; [8] pollution photos; [9] Kevin Spacey not charged; [10] baby elephant falls in watering hole; [11] MetLife Stadium black cat; [12] man killed at Popeyes over chicken sandwich; [13] Demi Moore on Ashton Kutcher ”addiction”; [14] Kim Kardashian gained 18 lbs. The frozen LLM returns three disjoint, confidence-ranked, evidence-grounded hypotheses: ∙ \\bullet h 1 h_{1} ( γ = 0.66 \\gamma{=}0.66 ): celebrity / body & fitness / relationships cites { 3 , 9 , 13 , 14 } \\{3,9,13,14\\} ∙ \\bullet h 2 h_{2} ( γ = 0.58 \\gamma{=}0.58 ): sensational crime & political controversy cites { 2 , 6 , 9 , 12 } \\{2,6,9,12\\} ∙ \\bullet h 3 h_{3} ( γ = 0.47 \\gamma{=}0.47 ): light viral food & animal-interest items cites { 1 , 5 , 10 , 11 , 12 } \\{1,5,10,11,12\\} The facets are soft, not a hard partition (index 9 is cited by both h 1 h_{1} and h 2 h_{2} ; index 12 by both h 2 h_{2} and h 3 h_{3} ), and each carries a distinct confidence. A candidate scores against its best matching facet via max k γ k cos ( 𝒄 , 𝒆 k ) \\max_{k}\\gamma_{k}\\cos({\\bm{c}},{\\bm{e}}_{k}) , so a single-summary embedding (Scheme A) that blends these three interests into one vector cannot express this. Figure 4: Qualitative SHE example (real, unedited). One multi-topic history yields three grounded intent facets with calibratable confidences — the concrete mechanism behind the + 0.0705 +0.0705 grounded faithfulness and 2 × 2\\times distinctiveness of § 4 . Before asking whether SHE helps a recommender, we ask whether the hypotheses are good on their own terms . All numbers here are computed on MIND (news, genuine multi-intent) and REES46 (e-commerce, thin single-category); details in Appendix C ."
+      },
+      {
+        "id": "S4.SS0.SSS0.Px1",
+        "heading": "Faithfulness (grounded).",
+        "level": 4,
+        "text": "We measure the paired difference in cosine similarity between a hypothesis and its cited vs. non-cited history events. On MIND this paired difference is + 0.0705 +0.0705 ( 95 % 95\\% CI [ + 0.068 , + 0.073 ] [+0.068,+0.073] ): hypotheses genuinely track the evidence they cite. (On REES46, where 87.9 % 87.9\\% of windows are single-category, the difference is ≈ 0 \\approx 0 , as expected—there is nothing to decompose.) Figure 6 plots this as a single paired- Δ \\Delta bar with CI, deliberately not as two absolute-similarity bars, to avoid the common mis-reading that the non-cited similarity is zero."
+      },
+      {
+        "id": "S4.SS0.SSS0.Px2",
+        "heading": "Distinctiveness.",
+        "level": 4,
+        "text": "1 − cos ¯ 1-\\overline{\\cos} over hypothesis pairs is 0.204 0.204 on MIND versus 0.104 0.104 on REES46: on genuinely multi-intent histories SHE produces disjoint facets ( ∼ 2 × \\sim 2\\times the separation of the thin-content dataset)."
+      },
+      {
+        "id": "S4.SS0.SSS0.Px3",
+        "heading": "Calibration.",
+        "level": 4,
+        "text": "Raw top-1 confidence is over-confident (ECE 0.142 0.142 , Brier 0.166 0.166 on REES46). A cross-fit isotonic map reduces ECE to 0.031 0.031 ( − 78 % -78\\% ; Figure 6 ), a standard, honest, deployable post-hoc fix. We report per-bin counts and label the analysis directional at small N N . Figure 5: Agent-side quality on MIND. Grounded faithfulness is a paired cited-minus-non-cited cosine difference ( + 0.0705 +0.0705 ), not an absolute similarity; distinctiveness is 2 × 2\\times the thin-content dataset. Figure 6: Confidence is over-confident but cheaply calibratable: cross-fit isotonic regression reduces ECE → 0.031 0.142\\!\\to\\!0.031 ( − 78 % -78\\% ). Bins are equal-frequency ( ∼ \\sim 83/bin); small- N N , directional."
+      },
+      {
+        "id": "S5",
+        "heading": "5 Downstream Value Is Backbone- and Regime-Conditional",
+        "level": 1,
+        "text": "Does the SHE branch improve a recommender? The answer depends on what it is fused onto . We first establish the gradient (§ 5.1 ), then a controlled ordered-vs-unordered test (§ 5.2 )."
+      },
+      {
+        "id": "S5.SS1",
+        "heading": "5.1 A redundancy gradient over baseline strength",
+        "level": 2,
+        "text": "We fuse SHE onto a ladder of increasingly strong base features and measure the + + SHE lift in NDCG@10 (GroupKFold-by-impression, class-balanced pointwise logistic regression, per-impression bootstrap CI). On MIND the lift descends monotonically as the base gets stronger: L 0 L_{0} (subcategory popularity) + 0.0161 ∗ +0.0161^{\\ast} , L 1 L_{1} (ID pair) + 0.0146 ∗ +0.0146^{\\ast} , L 2 L_{2} (ID + + text) + 0.0100 ∗ +0.0100^{\\ast} , L 3 L_{3} (strong mean-pooled text) + 0.0094 +0.0094 (ns); the sparse slice starts ∼ 3 × \\sim 3\\times higher at the weak end (Figure 7 ). This is the honest core of the “redundancy boundary”: SHE’s marginal value shrinks against a strong content baseline, but does not vanish, and is largest exactly where behavioral signal is underdetermined. A controlled degradation sweep (Appendix D ) corroborates the gradient and is explicitly labeled a diagnostic corruption , not an achieved real-world lift. Figure 7: Redundancy gradient on MIND. The + + SHE NDCG@10 lift descends monotonically as the base features get stronger ( L 0 → L 3 L_{0}\\!\\to\\!L_{3} ) and is largest on sparse (cold-start) histories. The strong-text rung is not significant; the effect is a gradient, not a chasm."
+      },
+      {
+        "id": "S5.SS2",
+        "heading": "5.2 A controlled ordered-vs-unordered test",
+        "level": 2,
+        "text": "To ask specifically whether ordered sequential access makes SHE redundant, we run a 2 × 2 2\\times 2 on MIND (the clean testbed: long, multi-topic histories, median n = 19 n{=}19 ) holding split, slate, labels and the late-fusion ranker fixed and varying only two factors: (unordered mean-pool vs. ordered GRU [ 3 ] ) × \\times (no LLM vs. + + SHE). Because MIND histories are long and multi-topic, the ordered GRU ( 0.3992 0.3992 ) is genuinely stronger than mean-pool ( 0.3701 0.3701 )—so this is a clean test of ordering, unlike Amazon-Beauty (median history 5 5 , where the GRU is weaker than mean-pool and thus cannot isolate ordering; we report Amazon in Appendix E as an additional backbone check, not a clean ordering test). Table 2: MIND 2 × 2 2\\times 2 (NDCG@10, N = 1263 N{=}1263 ; 95 % 95\\% bootstrap CI). The global redundancy gap (interaction) is statistically indistinguishable from zero, while the SHE branch remains significant over the ordered GRU backbone. Slice analyses show regime-dependent absorption vs. complementarity. Quantity Estimate 95 % 95\\% CI p p Mean-pool base (A) 0.3701 0.3701 — — Ordered GRU base (C) 0.3992 0.3992 — — + + SHE over mean-pool + 0.0109 +0.0109 [ − 0.0046 , + 0.0277 ] [-0.0046,+0.0277] 0.165 0.165 + + SHE over ordered GRU + 0.0114 \\mathbf{+0.0114} [ + 0.0030 , + 0.0209 ] [+0.0030,+0.0209] 0.005 \\mathbf{0.005} Redundancy gap (interaction) − 0.0005 -0.0005 [ − 0.0164 , + 0.0150 ] [-0.0164,+0.0150] 0.919 0.919 The reading of Table 2 is deliberately careful. Ordered access does not globally absorb the LLM signal : SHE adds a significant gain over the ordered GRU ( + 0.0114 +0.0114 , p = 0.005 p{=}0.005 ), and the interaction/redundancy gap is statistically indistinguishable from zero ( − 0.0005 -0.0005 , p = 0.919 p{=}0.919 ). What is real is a regime split (Figure 8 ): the gap is positive on sparse/short histories ( + 0.033 +0.033 / + 0.022 +0.022 , absorption—the ordered backbone already captures the little intent present) and reverses on long/multi-intent histories ( − 0.006 -0.006 / − 0.005 -0.005 , complementarity—SHE contributes semantic structure the sequence model cannot subsume). Thus SHE’s value is a function of backbone strength × \\times history regime , not of ordering per se. Figure 8: Backbone-conditional value on MIND. SHE adds value over both an unordered and an ordered backbone; the global redundancy gap is ≈ 0 \\approx 0 , but slices show absorption in sparse histories and complementarity in long multi-intent histories."
+      },
+      {
+        "id": "S5.SS2.SSS0.Px1",
+        "heading": "Robustness (B1–B5).",
+        "level": 4,
+        "text": "Five checks defend the finding (Appendix F ). (B1) A 5-seed sweep: every seed has GRU > > mean-pool and a significant SHE gain over the GRU ( + 0.011 +0.011 to + 0.023 +0.023 ). (B2) A degradation sweep (full/truncate/shuffle/mean-pool): the SHE gain is stable and reliably significant only over ordered backbones . (B3) Residualization—projecting SHE onto the sequential state and keeping the residual—retains 101 % 101\\% of the gain (raw + 0.0114 → +0.0114\\to resid + 0.0115 +0.0115 ); the sequence state explains SHE features with R 2 ≈ 0.00 R^{2}\\!\\approx\\!0.00 – 0.01 0.01 , i.e. SHE is largely orthogonal. (B4) A redundancy probe (predict SHE from the sequence state) gives R 2 ≤ 0.010 R^{2}\\!\\leq\\!0.010 on all slices. (B5) A structurally different ordered backbone, SASRec [ 5 ] (causal self-attention), replicates the pattern: SHE gain over ordered SASRec + 0.0179 +0.0179 [ + 0.0076 , + 0.0281 ] [+0.0076,+0.0281] , same regime split. We treat SASRec as an additional ordered-backbone check, not a uniformly stronger backbone (here SASRec 0.3713 0.3713 is on par with mean-pool and below the GRU; attention over-fits at N ≈ 1.4 N\\!\\approx\\!1.4 k)."
+      },
+      {
+        "id": "S6",
+        "heading": "6 Learning When to Acquire Fails at Every Granularity",
+        "level": 1,
+        "text": "The recommender results concern the average value of always acquiring SHE. We now ask the acquisition question: can we learn a per-example policy that spends a fixed budget on the impressions where SHE helps most? The answer, across three datasets and the full granularity axis, is no ."
+      },
+      {
+        "id": "S6.SS0.SSS0.Px1",
+        "heading": "Per-impression.",
+        "level": 4,
+        "text": "A learned out-of-fold policy (predict Δ i \\Delta_{i} from cheap features, act out-of-sample) does not beat random acquisition at any budget; neither does an uncertainty or sparse heuristic. The only “winner” is an in-sample oracle that ranks impressions by realized Δ i \\Delta_{i} —and a matched-moment i.i.d.- noise placebo reproduces ≥ 100 % \\geq 100\\% of that oracle’s apparent gain (MIND + 0.0518 = + 0.0518 +0.0518=+0.0518 ). The oracle is order statistics of noise, not exploitable structure."
+      },
+      {
+        "id": "S6.SS0.SSS0.Px2",
+        "heading": "Cluster / regime / tree.",
+        "level": 4,
+        "text": "We test representation clusters ( K = 4 , 8 , 16 , 32 , 64 K{=}4,8,16,32,64 via KMeans on the sequence-state vector), hand-defined cross-product regimes (sparse × \\times multi-intent × \\times determinacy × \\times diversity), and honest uplift trees, each with per-fold EB-shrunk cluster means and label-free test assignment. No tested granularity significantly beats random at any budget on either MIND or Amazon-Beauty (Figure 9 ); the granularity curve is flat and near zero. Crucially, a positive control (Appendix G ) shows the same deployable pipeline does recover a synthetic cluster signal once its cluster-SNR exceeds ≈ 0.20 \\approx 0.20 (MIND) / 0.35 0.35 (Amazon); the real data sit at 0.075 0.075 / 0.056 0.056 , an order of magnitude below. So the null is a genuine low-SNR limit, not a broken or underpowered pipeline. A power analysis confirms the observed | d | |d| is below each granularity’s own MDE 80 on both datasets, so we phrase the result as not detectable at these N N , not impossible . Figure 9: Acquisition collapse across granularity (MIND). From per-impression through K = 4 K{=}4 – 64 64 clusters, hand-defined regimes and uplift trees, no deployable policy significantly beats random (all CIs cross zero). The in-sample oracle is largely reproduced by a matched-noise placebo."
+      },
+      {
+        "id": "S6.SS0.SSS0.Px3",
+        "heading": "What is realizable.",
+        "level": 4,
+        "text": "The regime cell means are sensible and consistent (dense-single ≈ − 0.001 \\approx-0.001 ; multi-intent + 0.0112 +0.0112 ; cold-start + 0.0109 +0.0109 ). Because pooling averages the reward noise down by n \\sqrt{n} , a design-time subsystem split —apply SHE to a cold-start / multi-intent subsystem, skip dense-single—is realizable, even though a learned per-example policy is not. This is the actionable unit."
+      },
+      {
+        "id": "S7",
+        "heading": "7 The Mechanism: a Three-Dataset Reward-SNR Story",
+        "level": 1,
+        "text": "Why does acquisition collapse? Because the per-example reward effect is buried in noise. Across three datasets spanning domain × \\times content-richness, the reward SNR is small and the conclusion is identical (Table 5 ): • MIND (content-rich news): tiny positive per-impression lift ( + 0.0094 +0.0094 ), ρ = 0.048 \\rho=0.048 . • REES46 (content-poor e-commerce): ≈ 0 \\approx 0 /negative per-window lift ( − 0.0158 -0.0158 ; ROC-AUC → 0.833 0.840\\!\\to\\!0.833 , LLM hurts ), ρ = 0.138 \\rho=0.138 . • Amazon-Beauty (content-rich e-commerce): near-zero lift ( + 0.0012 +0.0012 ), ρ = 0.014 \\rho=0.014 (lowest of the three). In all three, no deployable per-unit policy beats random and the in-sample oracle gap is reproduced by a noise placebo. The acquisition-limits result is therefore a mechanism (low per-unit reward SNR), not a MIND-specific quirk. Note we do not claim a global backbone redundancy is significant on MIND; the global gap is indistinguishable from zero (§ 5 ), while slices suggest regime-dependent absorption/complementarity."
+      },
+      {
+        "id": "S8",
+        "heading": "8 The Reward–SNR Detectability Floor",
+        "level": 1,
+        "text": "We now state the law that ties the sections together."
+      },
+      {
+        "id": "S8.SS0.SSS0.Px1",
+        "heading": "Proposition 1 (reward–SNR detectability floor).",
+        "level": 4,
+        "text": "Consider detecting, at significance α \\alpha and power 1 − β 1-\\beta , that the per-example effect Δ i \\Delta_{i} of a costly observation on the reward has positive mean, from N N examples with per-example SNR ρ = μ / σ \\rho=\\mu/\\sigma . Detection requires ρ ≥ ρ ⋆ ​ ( N ) = z 1 − α / 2 + z 1 − β N ≈ 2.8 N , N ≥ N min ​ ( ρ ) = ( z 1 − α / 2 + z 1 − β ρ ) 2 = ( 2.8 ρ ) 2 , \\rho\\;\\geq\\;\\rho^{\\star}(N)\\;=\\;\\frac{z_{1-\\alpha/2}+z_{1-\\beta}}{\\sqrt{N}}\\;\\approx\\;\\frac{2.8}{\\sqrt{N}},\\qquad N\\;\\geq\\;N_{\\min}(\\rho)=\\left(\\frac{z_{1-\\alpha/2}+z_{1-\\beta}}{\\rho}\\right)^{2}=\\left(\\frac{2.8}{\\rho}\\right)^{2}, (2) at α = 0.05 \\alpha{=}0.05 , 1 − β = 0.8 1-\\beta{=}0.8 (so z 1 − α / 2 + z 1 − β ≈ 1.96 + 0.84 = 2.8 z_{1-\\alpha/2}+z_{1-\\beta}\\approx 1.96+0.84=2.8 ). This is a standard one-sample mean-detection bound; its force here is interpretive . A policy that learns when to acquire must at minimum detect that the conditioned-on reward has signal; if even the average effect is below the floor, a heterogeneous policy conditioned on the same noisy reward is a fortiori undetectable. We are explicit that Eq. 2 is a necessary mean-detectability condition, not a sufficient policy-learning / regret bound , and not an impossibility theorem."
+      },
+      {
+        "id": "S8.SS0.SSS0.Px2",
+        "heading": "Consistency and dataset placement.",
+        "level": 4,
+        "text": "Two independent routes agree on the floor to within 1.3 × 1.3\\times : the closed form gives ρ ⋆ ​ ( 1263 ) = 0.079 \\rho^{\\star}(1263)=0.079 , while a semi-synthetic learnability sweep (inject a feature-predictable effect at controllable SNR, measure the captured fraction of the tau-oracle) locates the threshold near 0.10 0.10 . Placing the datasets against Eq. 2 (Figure 10 , Table 3 ): Table 3: Datasets against the detectability floor. We report precise, dataset-specific gaps rather than an “order of magnitude” shorthand. “Powered” = 1 =1 means the sample is above the floor. Dataset N N ρ \\rho ρ 80 ⋆ ​ ( N ) \\rho^{\\star}_{80}(N) N min N_{\\min} ρ ⋆ / ρ \\rho^{\\star}/\\rho Effect MIND 1263 1263 0.048 0.048 0.0788 0.0788 3403 3403 1.64 1.64 ≈ 0 \\approx 0 (positive) Amazon-Beauty 650 650 0.014 0.014 0.1098 0.1098 40000 40000 7.85 7.85 ≈ 0 \\approx 0 (negative) REES46 498 498 0.138 0.138 0.1255 0.1255 412 412 0.91 0.91 significantly negative MIND sits 1.6 × 1.6\\times below its SNR floor (needing ∼ 2.7 × \\sim 2.7\\times more data, N min ≈ 3400 N_{\\min}\\approx 3400 ); Amazon-Beauty sits 7.9 × 7.9\\times below (needing ∼ 60 × \\sim 60\\times more data). REES46 is the one powered case ( ρ = 0.138 > ρ ⋆ = 0.126 \\rho=0.138>\\rho^{\\star}=0.126 )—and there the effect is significantly negative (the LLM branch hurts). This last point matters for honesty: the acquisition collapse is not merely a power excuse, because the one dataset with enough power shows the acquired signal is net-negative, not net-positive. A sufficiency-side check (HTE-SNR, Appendix H ) closes the “a cleverer heterogeneous policy still wins” loophole: correlation, out-of-fold R 2 R^{2} , and a heterogeneity-SNR against a permutation null are all inside the null band on both datasets—there is no learnable heterogeneity to exploit. Figure 10: The reward–SNR detectability floor ρ ⋆ ​ ( N ) ≈ 2.8 / N \\rho^{\\star}(N)\\approx 2.8/\\sqrt{N} (80% power). MIND and Amazon-Beauty sit below the floor; REES46 is above it and its effect is significantly negative. The floor is a necessary condition, not an impossibility theorem."
+      },
+      {
+        "id": "S9",
+        "heading": "9 Related Work",
+        "level": 1,
+        "text": "LLM-as-feature for recommendation. KAR [ 10 ] and RLMRec [ 7 ] augment recommenders with LLM-derived knowledge or representations. We differ by (i) a structured, evidence-grounded, confidence-scored hypothesis representation with a testable faithfulness metric, and (ii) a focus on when the signal is (un)learnable to acquire rather than average lift. Active learning and value of information [ 8 ] learn what to query; we give a detectability floor that governs whether such a policy is estimable offline at all. Uplift / heterogeneous treatment effects [ 6 ] motivate our per-example Δ i \\Delta_{i} estimation and our HTE-SNR null check. Selective prediction / learning-to-defer [ 1 , 4 ] route examples to an abstain/expert option; our acquisition policy is a deferral to a costly LLM observation, and our contribution is the SNR limit on learning that routing. Calibration [ 2 ] underlies our confidence post-hoc fix. Finally, structured LLM hypotheses with confidences were used for unsupervised cluster-geometry scoring in single-cell gene-set annotation by our prior HypoGeneAgent [ 11 ] ; we reuse ranked hypotheses + + confidence but move to a different domain and add a supervised downstream task , learned conditional weighting, grounded faithfulness, and the acquisition/SNR analysis. Net novelty: the reward–SNR detectability floor for costly semantic acquisition."
+      },
+      {
+        "id": "S10.SS0.SSS0.Px1",
+        "heading": "Deployment prescription.",
+        "level": 4,
+        "text": "Do not learn per-instance acquisition from noisy offline rewards. Use pre-specified, design-time regime gates : route SHE to (a) cold-start / underdetermined histories, where a strong backbone has little to absorb (absorption-style value), and (b) long multi-intent histories, where SHE contributes complementary semantic structure (complementarity value). These are exactly the two regimes where § 5 finds value, and they are addressable at design time because pooling averages the reward noise down—unlike a per-impression policy. Concretely, a practitioner can follow a four-step recipe: (1) estimate the reward SNR ρ \\rho and check it against the floor N min = ( 2.8 / ρ ) 2 N_{\\min}=(2.8/\\rho)^{2} —if N < N min N<N_{\\min} , do not attempt a learned per-instance router (it will fit noise order statistics); (2) instead pre-specify a small number of gates from cheap, label-free slice features (history length, distinct-category count, sparsity), not from the reward; (3) enable the costly signal only inside the two value regimes above; (4) validate the gate at the pooled-regime level with an out-of-fold 95 % 95\\% CI, never per instance. This turns an unlearnable routing problem into a one-time subsystem-placement decision that is statistically supported."
+      },
+      {
+        "id": "S10.SS0.SSS0.Px2",
+        "heading": "Limitations.",
+        "level": 4,
+        "text": "(1) The motivating production observation is observed, not controlled ; our public study tests the mechanism, not that observation. (2) The detectability floor is a necessary mean-detection condition, not a policy-learning/regret bound. (3) Downstream hypothesis embeddings on Amazon-Beauty use a local LSA space (embedding-API ACL), which is internally consistent but not identical to the ada-002 space used elsewhere; we flag this and avoid cross-space comparisons (encoder details in App. B ). (4) SASRec is an additional ordered-backbone check at N ≈ 1.4 N\\!\\approx\\!1.4 k, not a claim of a uniformly stronger backbone. (5) All significance is at the sample sizes reached; several nulls are power-limited and labeled as such. Full-recomputation of a few private on-pod metrics is labeled precomputed evidence in the artifact."
+      },
+      {
+        "id": "S10.SS0.SSS0.Px3",
+        "heading": "Conclusion.",
+        "level": 4,
+        "text": "Costly semantic observations—LLM structured reasoning being a timely instance—obey a reward–SNR detectability floor. When a dataset sits below it, learning when to acquire is not detectable and its apparent in-sample gains are noise order statistics; the realizable unit is a design-time regime gate. Instantiated as Structured Hypothesis Embeddings, the signal is faithful and its downstream value is backbone- and regime-conditional, with a global redundancy gap indistinguishable from zero but a clean absorption / complementarity split. We hope the floor is a useful, honest yardstick for the growing class of pipelines that pay to think."
+      },
+      {
+        "id": "S10.SS0.SSSx1",
+        "heading": "Reproducibility Statement",
+        "level": 3,
+        "text": "All offline results (R1–R13, appendix) are regenerated by a single command, scripts/reproduce.sh , from committed feature tables (CPU, no LLM calls); only from-scratch hypothesis generation needs an LLM. A 58-claim ledger ( results/paper_claims.csv ) maps every claim to a script, a persisted CSV, and a figure; Appendix I reproduces the reviewer-facing subset."
+      },
+      {
+        "id": "S10.SS0.SSSx1.Px1",
+        "heading": "Author contributions.",
+        "level": 4,
+        "text": "Ying Yuan (corresponding author, yingyuan238@gmail.com ) conceived the research question and the core thesis (that detecting a mean effect is distinct from learning a per-instance acquisition policy), formulated the costly-semantic- observation problem and the reward–SNR detectability floor, designed and implemented the Structured Hypothesis Embeddings method and the full experimental pipeline (data processing, hypothesis generation, backbone and acquisition studies, the positive control, and all robustness analyses), produced all figures and tables, and wrote the manuscript. Any additional authors and their specific contributions will be recorded here upon joining the project."
+      },
+      {
+        "id": "S10.SS0.SSSx1.Px2",
+        "heading": "Acknowledgments.",
+        "level": 4,
+        "text": "We thank colleagues for discussion and feedback. This paper uses only publicly available datasets (MIND, REES46, Amazon-Beauty); no proprietary data were used."
+      },
+      {
+        "id": "bib",
+        "heading": "References",
+        "level": 1,
+        "text": "[1] Y. Geifman and R. El-Yaniv (2017) Selective classification for deep neural networks . Advances in Neural Information Processing Systems (NeurIPS) . Cited by: §9 . [2] C. Guo, G. Pleiss, Y. Sun, and K. Q. Weinberger (2017) On calibration of modern neural networks . In International Conference on Machine Learning (ICML) , Cited by: §9 . [3] B. Hidasi, A. Karatzoglou, L. Baltrunas, and D. Tikk (2016) Session-based recommendations with recurrent neural networks . In International Conference on Learning Representations (ICLR) , Cited by: §5.2 . [4] H. Jiang, B. Kim, M. Y. Guan, and M. Gupta (2018) To trust or not to trust a classifier . Advances in Neural Information Processing Systems (NeurIPS) . Cited by: §9 . [5] W. Kang and J. McAuley (2018) Self-attentive sequential recommendation . In IEEE International Conference on Data Mining (ICDM) , Cited by: §5.2 . [6] S. R. Künzel, J. S. Sekhon, P. J. Bickel, and B. Yu (2019) Metalearners for estimating heterogeneous treatment effects using machine learning . Proceedings of the National Academy of Sciences 116 ( 10 ). Cited by: §9 . [7] X. Ren, W. Wei, L. Xia, et al. (2024) Representation learning with large language models for recommendation . In The Web Conference (WWW) , Cited by: §9 . [8] B. Settles (2012) Active learning . Morgan & Claypool . Cited by: §9 . [9] F. Wu, Y. Qiao, J. Chen, et al. (2020) MIND: a large-scale dataset for news recommendation . In Annual Meeting of the Association for Computational Linguistics (ACL) , Cited by: §2 . [10] Y. Xi, W. Liu, J. Lin, et al. (2024) Towards open-world recommendation with knowledge augmentation from large language models . In ACM Conference on Recommender Systems (RecSys) , Cited by: §9 . [11] Y. Yuan et al. (2025) HypoGeneAgent: a hypothesis language agent for gene-set cluster resolution selection using Perturb-seq datasets . arXiv preprint arXiv:2509.09740 . Cited by: Appendix A , §9 ."
+      },
+      {
+        "id": "A1",
+        "heading": "Appendix A SHE prompt templates and agent configuration",
+        "level": 1,
+        "text": "This appendix documents the exact agent configuration used to produce the Structured Hypothesis Embeddings (SHE). We reuse the structured-hypothesis format of our prior HypoGeneAgent work [ 11 ] (a ranked list of natural-language hypotheses, each with a calibrated confidence and explicit supporting evidence), but re-target it from single-cell gene-set annotation to per-user intent over behavioral sequences. Nothing here is tuned on downstream labels: the language model is a frozen zero-shot reasoner and every prompt below is fixed a priori."
+      },
+      {
+        "id": "A1.SS0.SSS0.Px1",
+        "heading": "Decoding and model configuration.",
+        "level": 4,
+        "text": "We use two schemes. Scheme A produces a single blended-intent summary; Scheme B produces the ranked, evidence-grounded Top-3 hypotheses that constitute SHE. Table 4 lists the exact settings. Both are called through the same credential-free proxy transport; no fine-tuning, retrieval, or tool use is involved. Scheme A (summary) Scheme B (SHE, Top-3) Model GPT-5.4 GPT-5.5 Reasoning effort low high Output {\"summary\": ...} {\"hypotheses\": [...]} # hypotheses 1 (free sentence) exactly 3, rank-ordered Per-item fields — hypothesis, confidence, evidence_indices Fine-tuned? no (zero-shot) no (zero-shot) Table 4: Agent configuration for the two hypothesis-generation schemes. Scheme B is the source of the SHE feature block (App. B )."
+      },
+      {
+        "id": "A1.SS0.SSS0.Px2",
+        "heading": "Input serialization.",
+        "level": 4,
+        "text": "Each behavioral window is rendered to a numbered plain-text list, one action per line, so that the evidence_indices the model returns are directly interpretable and can be checked against the cited steps (the faithfulness measurement in § 4 ). For e-commerce (REES46, Amazon-Beauty) each line is [i] <action>, category: <category_code> ; for news (MIND) each line is the clicked article title with its category, oldest to newest. The step index [i] is the anchor referenced by evidence_indices ."
+      },
+      {
+        "id": "A1.SS0.SSS0.Px3",
+        "heading": "Output schema (Scheme B).",
+        "level": 4,
+        "text": "The model must return a single JSON object whose hypotheses array holds exactly three elements, ordered by descending strength/urgency, each with: (i) hypothesis — a specific intent statement with a short rationale; (ii) confidence — a calibrated probability in [ 0 , 1 ] [0,1] ; and (iii) evidence_indices — the integer input-step indices that support the hypothesis. The three fixed rank slots (with the enforced third-slot “browsing” fallback below) are what make SHE a fixed-width, alignable feature block across users; the four scalar coordinates derived from this block are given in App. B ."
+      },
+      {
+        "id": "A1.SS0.SSS0.Px4",
+        "heading": "Boundary rules.",
+        "level": 4,
+        "text": "Three a-priori rules keep the confidences honest and the facets distinct, and are identical across all datasets in a domain: (1) Weak-signal fallback — if the window is uninformative (e.g. all views with no add-to-cart, or a very short single-topic history), every confidence must be below 0.5 0.5 and the third hypothesis must be the exact fixed string (“Just browsing / no clear purchase goal” for e-commerce, “Casual browsing / no strong topical interest” for news). (2) Strength gate — only a strong behavioral trigger (e.g. an add-to-cart, or, for news, multiple distinct topics) may push the top hypotheses above 0.7 0.7 , and the multiple hypotheses must cover genuinely different facets rather than restating one topic. (3) Bias elimination — the model must never infer absolute gender, age, or region from category names. These rules are the reason the raw confidences are usable-but-overconfident and cheaply post-hoc calibratable (ECE 0.142 → 0.031 0.142\\to 0.031 , App. B ), and the reason Scheme B produces disjoint evidence facets that the distinctiveness metric rewards."
+      },
+      {
+        "id": "A1.SS0.SSS0.Px5",
+        "heading": "Verbatim prompts.",
+        "level": 4,
+        "text": "The complete system prompts follow. The serialized window (above) is appended as the user turn. News — Scheme A (single summary). ⬇ You are a news - recommendation and reading - interest expert . Below is a user ’ s recent [ reading history ] ( news articles they clicked , oldest to newest ). In ONE free - text sentence of at most 30 words , give a single sharp summary of the user ’ s current core reading interest . Output STRICTLY a JSON object : {\" summary \": \"< your summary >\"} -- no markdown , no extra explanation . News — Scheme B (SHE, Top-3 ranked hypotheses). ⬇ You are a top expert in news - recommendation and reader psychology . Below is a user ’ s recent [ reading history ] ( clicked news articles , oldest to newest ). Based strictly on the reading evidence , infer the user ’ s Top -3 ranked [ Reading - Interest Hypotheses ] -- the distinct themes / topics the user is most likely to want to read next . Output STRICTLY a single JSON object : {\" hypotheses \": [ ... ]} whose array holds EXACTLY 3 elements , ordered by descending strength . No markdown ( no ‘‘‘ json ), no extra explanation . Each element must contain these fixed keys : 1. \" hypothesis \": a specific reading - interest statement with reasoning about the theme . 2. \" confidence \": a calibrated probability score between 0.0 and 1.0. 3. \" evidence_indices \": an integer array of the input step indices ( the [ n ] at the start of each input line ) that support this hypothesis . [ Hard boundary rules ] - Weak - signal fallback : if the history is very short or all one narrow topic , every confidence must be below 0.5, and the 3 rd hypothesis must be exactly \" Casual browsing / no strong topical interest \". - Multi - interest capture : when the history spans several distinct topics , the three hypotheses MUST cover genuinely different interest facets ( do not restate one topic ). - Bias elimination : never fabricate the user ’ s absolute gender , age , or region . E-commerce — Scheme A (single summary). ⬇ You are an e - commerce consumer - behavior expert . Below is a user ’ s [ behavior sequence ] within a single shopping window . In ONE free - text sentence of at most 30 words , give a single sharp summary of the user ’ s current core shopping intent . Output STRICTLY a JSON object : {\" summary \": \"< your summary >\"} -- no markdown , no extra explanation . E-commerce — Scheme B (SHE, Top-3 ranked hypotheses). ⬇ You are a top expert in e - commerce consumer behavior and user psychology . Below is a user ’ s [ behavior sequence ] within a single shopping window . Based strictly on the concrete behavioral evidence , infer the user ’ s Top -3 most urgent [ Ranked Intent Hypotheses ] ( immediate purchase motivations ). Output STRICTLY a single JSON object : {\" hypotheses \": [ ... ]} whose array holds EXACTLY 3 elements , ordered by descending urgency . No markdown ( no ‘‘‘ json ), no extra explanation . Each element must contain these fixed keys : 1. \" hypothesis \": a specific intent - hypothesis statement with behavioral - motivation reasoning . 2. \" confidence \": a calibrated probability score between 0.0 and 1.0. 3. \" evidence_indices \": an integer array of the input step indices ( the [ n ] at the start of each input line ) that support this hypothesis . [ Hard boundary rules ] - Weak - signal fallback : if the input is ALL views ( view ) with NO add - to - cart , every confidence must be below 0.5, and the 3 rd hypothesis must be exactly \" Just browsing / no clear purchase goal \". - Strong - signal trigger : only when an add - to - cart action is present may the top two hypotheses exceed 0.7 confidence . - Bias elimination : never fabricate the user ’ s absolute gender , age , or region from category names ."
+      },
+      {
+        "id": "A2",
+        "heading": "Appendix B Embedding and feature-construction details",
+        "level": 1,
+        "text": "This section makes the encoder ϕ \\phi and the SHE feature vector fully concrete and reproducible."
+      },
+      {
+        "id": "A2.SS0.SSS0.Px1",
+        "heading": "Encoders.",
+        "level": 4,
+        "text": "ϕ \\phi is OpenAI text-embedding-ada-002 ( d = 1536 d{=}1536 , returned ℓ 2 \\ell_{2} -normalized so dot product is cosine) for MIND and REES46, and a local 256 256 -d TF-IDF + + TruncatedSVD (LSA) space fit on item titles for Amazon-Beauty (bigram TF-IDF, ≤ 20 \\leq\\!20 k vocab, min df = 2 \\min_{\\text{df}}{=}2 , sublinear tf; SVD to 256 256 -d), which we then ℓ 2 \\ell_{2} -normalize. Within a dataset every text—candidate items, the K K hypotheses, and the Scheme-A summary—passes through the same ϕ \\phi , so all cosines are intra-space; we never compare across the ada-002 and LSA spaces."
+      },
+      {
+        "id": "A2.SS0.SSS0.Px2",
+        "heading": "What text is embedded.",
+        "level": 4,
+        "text": "An item is embedded from its content string (MIND: news title; Amazon-Beauty: product title). A user history is summarized on the backbone side by a mean-pool of its item embeddings (unordered) or the final state of a GRU/SASRec over the ordered item embeddings; each hypothesis h k h_{k} and the Scheme-A summary are embedded directly from their LLM-generated text. Faithfulness uses the embedded evidence-category strings the hypothesis cites."
+      },
+      {
+        "id": "A2.SS0.SSS0.Px3",
+        "heading": "SHE feature block.",
+        "level": 4,
+        "text": "For a candidate 𝒄 {\\bm{c}} the frozen branch emits a small fixed-width feature vector (no learned parameters inside the branch): [ f max ⏟ max k ⁡ cos ⁡ ( 𝒄 , 𝒆 k ) , f max γ ⏟ max k γ k cos ( 𝒄 , 𝒆 k ) , f mean ⏟ 1 K ​ ∑ k cos ⁡ ( 𝒄 , 𝒆 k ) , γ k ⋆ ⏟ conf. of best facet ] , \\big[\\;\\underbrace{f_{\\max}}_{\\max_{k}\\cos({\\bm{c}},{\\bm{e}}_{k})},\\;\\underbrace{f_{\\max}^{\\gamma}}_{\\max_{k}\\gamma_{k}\\cos({\\bm{c}},{\\bm{e}}_{k})},\\;\\underbrace{f_{\\text{mean}}}_{\\tfrac{1}{K}\\sum_{k}\\cos({\\bm{c}},{\\bm{e}}_{k})},\\;\\underbrace{\\gamma_{k^{\\star}}}_{\\text{conf.\\ of best facet}}\\;\\big], where f max γ f_{\\max}^{\\gamma} is the primary coordinate of Eq. 1 . This block is concatenated with the backbone score f base ​ ( 𝒄 ) f_{\\text{base}}({\\bm{c}}) (and, in the Scheme-A ablation, the single summary match f A = cos ⁡ ( 𝒄 , 𝒆 summary ) f_{A}{=}\\cos({\\bm{c}},{\\bm{e}}_{\\text{summary}}) )."
+      },
+      {
+        "id": "A2.SS0.SSS0.Px4",
+        "heading": "Downstream head and hygiene.",
+        "level": 4,
+        "text": "The concatenated features feed a late-fusion head only—an ℓ 2 \\ell_{2} -regularized logistic ranker ( C = 1.0 C{=}1.0 , class-balanced) for MIND reranking, and a logistic/Ridge probe for the REES46 acquisition study; nothing is back-propagated into ϕ \\phi or the LLM. Features are standardized with statistics fit on training folds only (cross-fit), and on REES46 the 1536 1536 -d hypothesis embeddings are PCA-reduced before the low- N N acquisition probe to avoid overfitting. All reported cosines and metrics are on the ℓ 2 \\ell_{2} -normalized vectors above."
+      },
+      {
+        "id": "A3",
+        "heading": "Appendix C Agent-side details",
+        "level": 1,
+        "text": "Metric is cosine on ℓ 2 \\ell_{2} -normalized embeddings. Each impression yields exactly K = 3 K{=}3 Scheme-B hypotheses. Faithfulness bootstraps over impressions; distinctiveness averages pairwise 1 − cos 1-\\cos ; calibration uses 5-fold cross-fit isotonic regression with equal-frequency bins."
+      },
+      {
+        "id": "A4",
+        "heading": "Appendix D Controlled degradation sweep",
+        "level": 1,
+        "text": "On MIND, injecting N ⁡ ( 0 , σ 2 ) N(0,\\sigma^{2}) into the base feature and re-measuring the + + SHE lift yields a smooth monotone rise from + 0.0094 +0.0094 (ns, σ = 0 \\sigma{=}0 ) to + 0.0775 +0.0775 ( σ = 4 \\sigma{=}4 ). This is a diagnostic controlled corruption illustrating the gradient, not an achieved real-world lift."
+      },
+      {
+        "id": "A5",
+        "heading": "Appendix E Amazon-Beauty backbone check",
+        "level": 1,
+        "text": "On Amazon-Beauty (median history 5 5 ) the GRU ( 0.4104 0.4104 ) is weaker than mean-pool ( 0.4777 0.4777 ); ordered access does not strengthen the backbone, so Amazon-Beauty cannot cleanly isolate ordering. It is reported as an additional backbone-strength check, consistent with the richness gradient (SHE significant over the weak ordered GRU, redundant over strong mean-pool)."
+      },
+      {
+        "id": "A6",
+        "heading": "Appendix F Backbone robustness B1–B5",
+        "level": 1,
+        "text": "Full tables for the 5-seed sweep, degradation sweep, residualization ( SHE resid = SHE − Proj seq ​ ( SHE ) \\text{SHE}_{\\text{resid}}=\\text{SHE}-\\mathrm{Proj}_{\\text{seq}}(\\text{SHE}) , retains 101 % 101\\% ), redundancy probe ( R 2 ≤ 0.010 R^{2}\\leq 0.010 ), and the SASRec second backbone ( + 0.0179 +0.0179 over ordered SASRec) are in results/mind/backbone_redundancy_{2x2,slices,seed_sweep,residualization,sasrec}.csv ."
+      },
+      {
+        "id": "A7",
+        "heading": "Appendix G Positive control for acquisition",
+        "level": 1,
+        "text": "Holding the real folds/base/features fixed and replacing the lift with a synthetic cluster signal at controllable cluster-SNR, the exact deployable policy recovers signal once cluster-SNR ≥ 0.20 \\geq 0.20 (MIND) / 0.35 0.35 (Amazon); real data sit at 0.075 0.075 / 0.056 0.056 . Human-regime and random-rotated true-cluster variants shift the threshold but the real data remain far below all of them."
+      },
+      {
+        "id": "A8",
+        "heading": "Appendix H HTE-SNR sufficiency check",
+        "level": 1,
+        "text": "corr ⁡ ( s ^ i , Δ i ) \\mathrm{corr}(\\hat{s}_{i},\\Delta_{i}) , out-of-fold R 2 R^{2} , and a heterogeneity-SNR against a 200-draw permutation null are all inside the null band on both datasets (MIND corr = − 0.012 \\mathrm{corr}=-0.012 , R 2 = − 0.010 R^{2}=-0.010 ; Amazon corr = + 0.001 \\mathrm{corr}=+0.001 , R 2 = − 0.005 R^{2}=-0.005 ): no learnable heterogeneity."
+      },
+      {
+        "id": "A9",
+        "heading": "Appendix I Reviewer-facing claim table",
+        "level": 1,
+        "text": "Table 5 is the master cross-dataset summary. Each main-text claim in results/paper_claims.csv lists claim_id , dataset, script, evidence CSV, figure, and whether the public artifact regenerates it (all R1–R13 offline results: yes; from-scratch LLM generation: requires gai-proxy). Table 5: Master cross-dataset summary. d = d= per-example effect (instance / best cluster); MDE 80 = {}_{80}= minimum detectable effect at 80 % 80\\% power; noise-repro% = = fraction of the in-sample oracle reproduced by a matched-noise placebo; pos-ctrl thr = = cluster-SNR at which the pipeline recovers a synthetic signal; real clust-SNR = = measured. Dataset N N ρ \\rho instance d d MDE 80 noise-repro% pos-ctrl thr real clust-SNR MIND 1263 1263 0.048 0.048 − 0.0044 -0.0044 0.0124 0.0124 62 % 62\\% 0.20 0.20 0.075 0.075 Amazon-Beauty 650 650 0.014 0.014 − 0.0003 -0.0003 0.0075 0.0075 242 % 242\\% 0.35 0.35 0.056 0.056"
+      },
+      {
+        "id": "A10",
+        "heading": "Appendix J Datasets, window construction, and preprocessing",
+        "level": 1,
+        "text": "All three datasets are public. We convert each into fixed windows — one user history plus a prediction target — and generate hypotheses per window. Table 6 gives the exact construction. A “window” is a point-in-time slice: the history is the observed behavior, and the target is a future click (MIND candidate slate), a future purchase (REES46 session), or a held-out next-item slate (Amazon-Beauty). Cold-start ( sparse ) and multi-intent slices are defined by fixed thresholds, not tuned. MIND (news) Amazon-Beauty REES46 Domain news reading e-commerce e-commerce Target candidate click next-item slate session purchase Windows generated 1,557 650 498 History length median 19, mean 23.6 median 5 median ∼ \\sim 9 Slate size (cap) 40 candidates 20 candidates — (binary) sparse rule n hist ≤ 5 n_{\\text{hist}}\\leq 5 n hist ≤ 5 n_{\\text{hist}}\\leq 5 n hist ≤ 5 n_{\\text{hist}}\\leq 5 multi rule ≥ 8 \\geq 8 distinct cats ≥ 2 \\geq 2 distinct subcats (mostly single-cat) Content richness high (multi-topic) high (titles) low (87.9% single-cat) Table 6: Window construction per dataset. MIND is built with a cohort of 1,600 impressions at stride 5 (keep 1 of every 5) and a 40-candidate slate cap; hypotheses were generated for 1,557 windows (1,549 valid for both schemes). Amazon-Beauty: 650 windows (222 sparse). REES46: 498 session windows. History length is the number of pre-target actions; the sparse / multi slices are the cold-start and multi-intent regimes analyzed throughout."
+      },
+      {
+        "id": "A10.SS0.SSS0.Px1",
+        "heading": "Per-analysis N N .",
+        "level": 4,
+        "text": "The number of rerankable windows in a given result can be smaller than the generated count (windows with an empty valid slate, or missing a valid hypothesis under a scheme, are dropped). We therefore report the exact N N with each result (e.g. MIND N = 1263 N{=}1263 for the ada-002 late-fusion study, N = 1411 N{=}1411 for the backbone-conditional LSA study; Amazon N = 650 N{=}650 ; REES46 N = 498 N{=}498 ). No window is dropped on the basis of its outcome."
+      },
+      {
+        "id": "A11",
+        "heading": "Appendix K Hyperparameters",
+        "level": 1,
+        "text": "Every downstream component is deliberately small and CPU-only; the language model is the sole expensive step (App. L ). Table 7 lists all settings; none are tuned against the reported test metrics. Component Setting Value Late-fusion ranker model logistic regression (pointwise) regularization C C 1.0 1.0 max iterations 2000 2000 class weighting balanced feature scaling StandardScaler, fit on train fold only Evaluation cross-fit GroupKFold(5), grouped by impression prediction out-of-fold click probability → \\to rank metrics NDCG@10, Recall@10, MRR (per impression) confidence interval bootstrap 95%, 2000 resamples by impression Item text space (LSA) encoder TF-IDF + + TruncatedSVD dimensions 256 256 (random_state = 0 =0 ) GRU backbone hidden size 64 64 optimizer Adam, lr 10 − 2 10^{-2} , weight decay 10 − 4 10^{-4} epochs 15 15 , cross-fit (OOF) SASRec backbone attention 2 2 heads, 1 1 layer, max length 50 50 hidden size 64 64 optimizer Adam, lr 10 − 3 10^{-3} , weight decay 10 − 4 10^{-4} epochs 15 15 , cross-fit (OOF) Robustness (B1–B5) seeds { 0 , 1 , 2 , 3 , 4 } \\{0,1,2,3,4\\} Table 7: Downstream hyperparameters. The ranker, backbones, and LSA space are fixed a priori; the GRU/SASRec inputs are the frozen LSA item vectors, so only the sequence-combination parameters are learned. All CIs use the same impression-level bootstrap."
+      },
+      {
+        "id": "A12",
+        "heading": "Appendix L Hypothesis-generation cost and latency",
+        "level": 1,
+        "text": "Because the language model is called once per window and never fine-tuned, the entire method cost is the generation pass; everything downstream (embedding, ranking, all robustness runs) is CPU-seconds. This asymmetry is exactly what motivates treating a hypothesis as a costly semantic observation : the question is not whether to train, but whether it is worth acquiring the observation at all. Table 8 reports the measured latency. Scheme A Scheme B Per window (A + + B) Model GPT-5.4 GPT-5.5 — Reasoning effort low high — Latency / call ∼ \\sim 2–3 s ∼ \\sim 6–17 s — MIND — — ∼ \\sim 19–23 s/win Amazon-Beauty 3.0 s (mean) 8.6 s (mean) 26.3 s/win Table 8: Measured generation cost. Scheme B (the SHE source) dominates because of high-effort reasoning; its latency is variable per window. End-to-end: Amazon-Beauty’s 650 windows took 284.8 min on a single worker; MIND’s 1,557 windows were generated across 8 parallel workers ( ∼ \\sim 63 min wall ). All downstream analyses run in CPU-seconds from the cached hypotheses, so results are fully reproducible offline without any further model calls."
+      },
+      {
+        "id": "A12.SS0.SSS0.Px1",
+        "heading": "A design-time gate trades a small call reduction for equal accuracy.",
+        "level": 4,
+        "text": "Since each acquisition is costly, one might hope to skip it on windows unlikely to benefit. Our floor result (§ 8 ) predicts that a learned per-instance router cannot do this reliably; a design-time regime gate (spend only on the sparse/multi-intent regimes) is the prescribed alternative. On MIND ( N = 1263 N{=}1263 , over the strong content baseline [ f hist ] [f_{\\text{hist}}] ) the gate calls the model on 86.4 % 86.4\\% of windows and matches spending everywhere: gate NDCG@10 = 0.4554 =0.4554 vs. spend-everywhere 0.4552 0.4552 (difference + 0.0001 +0.0001 , 95% CI [ − 0.0038 , + 0.0042 ] [-0.0038,+0.0042] ). Relative to the base ranker the gate is + 0.0096 +0.0096 [ − 0.0004 , + 0.0194 ] [-0.0004,+0.0194] — not statistically significant, matching spend-everywhere ( + 0.0094 +0.0094 [ − 0.0013 , + 0.0199 ] [-0.0013,+0.0199] ). We therefore do not claim an accuracy gain here: on this strong baseline the design-time gate’s only realized benefit is a ∼ \\sim 14% reduction in expensive calls at no accuracy loss, and its non-significance over f hist f_{\\text{hist}} is itself consistent with the detectability floor. The paper’s significant value results are the backbone-conditional lift over the ordered GRU ( + 0.0114 +0.0114 , p = 0.005 p{=}0.005 , § 5 ) and the agent-quality gains (§ 4 ); src/regime_gate.py reproduces the numbers above."
+      }
+    ]
+  },
+  "text": "Detecting an Effect Is Not Learning to Act on It:A Reward–SNR Floor for LLM Acquisition Agents Skip to main content Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: Why HTML? Report Issue Back to Abstract Download PDF Contents Reading mode Colour theme License: arXiv.org perpetual non-exclusive license arXiv:2608.10441v1 [cs.LG] 11 Aug 2026 Detecting an Effect Is Not Learning to Act on It: A Reward–SNR Floor for LLM Acquisition Agents Ying Yuan Affiliation: University of California, San Diego yingyuan238@gmail.com Abstract Many pipelines can pay a per-example cost to acquire an auxiliary, model-derived observation—an LLM’s structured reasoning, a slow oracle, an expensive measurement—and then must decide when the acquired signal is worth using. Our thesis is a distinction that is easy to miss: detecting that such a signal helps on average is not the same as learning to act on it per instance, and a reward–SNR floor governs when the second is even possible. Even when the acquired signal is genuinely faithful and an in-sample oracle that picks the top- b b examples by realized reward shows a sizable apparent gain, no deployable policy can learn when to acquire it: across per-impression, K = 4 − 64 K{=}4{-}64 cluster, hand-defined regime, and uplift-tree granularities, learned routing never beats random, and a matched-moment i.i.d.- noise placebo reproduces ≥ 100 % \\geq\\!100\\% of the oracle’s apparent gain. In other words, the apparent “learnable structure” is order statistics of noise , not exploitable signal. We explain this with a single distinction—between detecting a mean effect and learning a per-instance acquisition policy —and a reward–SNR detectability floor : routing is estimable offline only if the reward effect’s SNR ρ = μ / σ \\rho=\\mu/\\sigma clears ρ ⋆ ​ ( N ) ≈ 2.8 / N \\rho^{\\star}(N)\\!\\approx\\!2.8/\\sqrt{N} (equivalently N ≥ N min = ( 2.8 / ρ ) 2 N\\geq N_{\\min}=(2.8/\\rho)^{2} ), a necessary condition we report as such, with a positive control confirming it is a true low-SNR limit rather than a broken pipeline. As a concrete instantiation we introduce Structured Hypothesis Embeddings (SHE): a frozen LLM decomposes a user history into K K ranked, confidence-scored, evidence-grounded intent hypotheses, embedded and fused as an input-embedding branch of a recommender. On three public datasets (MIND, REES46, Amazon-Beauty): (i) SHE is faithful (grounded faithfulness + 0.0705 +0.0705 , distinctiveness 2 × 2\\times , calibratable ECE → 0.031 0.142\\!\\to\\!0.031 ); (ii) its downstream value is backbone- and regime-conditional—significant over an ordered GRU backbone ( + 0.0114 +0.0114 , 95 % 95\\% CI [ + 0.0030 , + 0.0209 ] [+0.0030,+0.0209] ) yet with a global redundancy gap indistinguishable from zero ( − 0.0005 -0.0005 , [ − 0.0164 , + 0.0150 ] [-0.0164,+0.0150] ); and (iii) learned per-example acquisition collapses at every granularity because all three datasets sit below the floor ( ρ = 0.048 / 0.138 / 0.014 \\rho\\!=\\!0.048/0.138/0.014 ). The realizable unit is therefore a design-time regime gate , not a learned per-instance policy; we give an actionable recipe for it. We release code, a 58-claim ledger mapping each claim to a script/CSV/figure, and a one-command reproduction. 1 Introduction A growing number of machine-learning systems are built around a decision that is usually left implicit: should we pay to acquire an auxiliary, model-derived observation for this example, and if so, do we trust it? The observation might be a large language model’s structured reasoning about an input, a slow but accurate oracle, an additional sensor reading, or a human annotation. Acquisition has a real cost (latency, money, compute), so a natural aspiration is to learn a policy —an acquisition agent—that spends the budget only where the auxiliary signal helps. This aspiration is widespread in active learning, value-of-information, learning-to-defer, and LLM-as-feature pipelines. This paper makes a simple but, we argue, under-appreciated point: detecting that the acquired signal helps on average is not the same as learning to act on it per instance—and whether that per-example acquisition policy is even recoverable from offline data is governed by a signal-to-noise law that is easy to state and easy to violate. If the per-example effect of the acquired signal on the downstream reward has signal-to-noise ratio ρ = μ / σ \\rho=\\mu/\\sigma , then reliably detecting a policy that conditions on that reward requires ρ \\rho to exceed a floor ρ ⋆ ​ ( N ) ≈ 2.8 / N \\rho^{\\star}(N)\\approx 2.8/\\sqrt{N} . Below the floor, the “obvious” evidence that learning helps—an in-sample oracle that picks the top- b b examples by realized reward—is an artifact of order statistics of noise, not exploitable structure. We prove the floor with a positive control (a synthetic signal injected at controllable SNR is recovered by the same deployable pipeline once ρ \\rho crosses the floor) and we are explicit that the floor is a necessary condition, not a claim of impossibility. We then ground the abstract “costly observation” in a concrete method, Structured Hypothesis Embeddings (SHE, § 3 ): a frozen LLM turns a user’s interaction history into K K ranked, confidence-scored, evidence-grounded hypotheses about the user’s latent intents; these are embedded and fused as an input-embedding branch of a recommender. SHE is a faithful, interpretable signal on its own terms (§ 4 ), but its downstream value is backbone- and regime-conditional (§ 5 ): it is significant over an ordered sequential backbone yet its global redundancy gap is statistically indistinguishable from zero, with a clean regime split (absorption in sparse histories, complementarity in long multi-intent histories). Attempts to learn when to acquire SHE fail at every granularity we test (§ 6 ), and § 7 – 8 show why: on all three datasets the reward SNR is below the detectability floor. An honesty caveat carried throughout. The motivating production observation—that structured intent helps most in cold-start / underdetermined regimes—is observed, not controlled . Our public-data study is designed to test the mechanism (the SNR floor) rather than to re-derive that observation, and we flag every place where an effect is directional-but-not-significant, in-sample-only, or below the detectability floor. Contributions. • A diagnosis: apparent acquisition “learnability” is order statistics of noise. Across per-impression, cluster ( K = 4 − 64 K{=}4{-}64 ), regime, and uplift-tree granularities on three datasets, no deployable policy beats random, and a matched-moment noise placebo reproduces ≥ 100 % \\geq\\!100\\% of the in-sample oracle’s apparent gain—so the oracle gap that looks like exploitable structure is not (§ 6 , § 7 ). • The explanation: mean-detection ≠ \\neq policy-learnability, and a reward–SNR detectability floor ρ ⋆ ​ ( N ) ≈ 2.8 / N \\rho^{\\star}(N)\\approx 2.8/\\sqrt{N} that separates them, with a positive control establishing it is a genuine low-SNR limit rather than a broken/underpowered pipeline (§ 8 ). • A concrete instantiation, Structured Hypothesis Embeddings : a frozen-LLM input-embedding branch of ranked, confidence-scored, evidence-grounded hypotheses with a cited-vs-non-cited faithfulness metric; it is faithful yet its downstream value is backbone- and regime-conditional (significant over an ordered GRU/SASRec backbone, global redundancy gap indistinguishable from zero) (§ 3 – 5 ). • An actionable prescription : since per-instance routing is unlearnable below the floor, deploy a design-time regime gate instead; we give a four-step recipe and validate it at the pooled-regime level (§ 10 ). • A reproducible artifact : a 58-claim ledger mapping each claim to a script, CSV and figure, and a one-command offline reproduction. 500 1000 3000 10000 40000 0.01 0.02 0.05 0.1 0.2 undetectable: no learnable per-instance acquisition detectable region MIND ( N min = 3403 N_{\\min}{=}3403 , 2.7 × 2.7\\times short) Amazon-Beauty ( N min ≈ 40 N_{\\min}{\\approx}40 k, 62 × 62\\times short) REES46 (powered, but effect negative ) Sample size N N Reward SNR ρ = μ / σ \\rho=\\mu/\\sigma floor ρ ⋆ ​ ( N ) = 2.8 / N \\rho^{\\star}(N)=2.8/\\sqrt{N} Figure 1: The reward–SNR detectability floor is the paper’s thesis in one picture. A costly semantic observation (here SHE) can only support a learned per-instance acquisition policy if its downstream reward SNR clears ρ ⋆ ​ ( N ) = 2.8 / N \\rho^{\\star}(N)\\!=\\!2.8/\\sqrt{N} (necessary mean-detection condition, § 8 ). Both content-rich datasets where SHE is a faithful signal sit below the floor (MIND 2.7 × 2.7\\times , Amazon-Beauty 62 × 62\\times short of N min N_{\\min} ), which is why learned acquisition collapses at every granularity. The one dataset above the floor (REES46) is detectable—and there the LLM signal significantly hurts downstream AUC. The bottleneck is not whether the LLM can reason, but whether the downstream reward carries enough signal to learn when to acquire that reasoning. Concretely, we study an acquisition agent —a gate that decides, per example and from cheap side-information only, whether to spend the costly LLM call—and ask when such an agent can be learned from offline reward data. Figure 10 states our answer in one picture: a faithful LLM signal is not enough; the downstream reward must clear a reward–SNR floor before any per-instance acquisition policy is even detectable, and our three datasets sit below it—so the apparent in-sample oracle gain is order statistics of noise, not learnable structure. (We use “agent” for this one-shot acquisition gate, not a sequential/RL planner.) 2 Problem Setup Let each example i i (an impression / a ranking slate) have a base predictor using cheap features and an optional costly observation o i o_{i} obtained by paying a fixed cost c c . Using o i o_{i} changes a downstream reward R i R_{i} (here NDCG@10 of the slate) by a per-example amount Δ i = R i ​ ( with ​ o i ) − R i ​ ( without ) \\Delta_{i}=R_{i}(\\text{with }o_{i})-R_{i}(\\text{without}) . Write μ = 𝔼 ⁡ [ Δ i ] \\mu=\\mathbb{E}[\\Delta_{i}] and σ = Var ⁡ [ Δ i ] \\sigma=\\sqrt{\\mathrm{Var}[\\Delta_{i}]} , and define the reward SNR ρ = μ / σ \\rho=\\mu/\\sigma . An acquisition policy π : x i ↦ { 0 , 1 } \\pi:\\;x_{i}\\mapsto\\{0,1\\} decides, from cheap side-information x i x_{i} only, whether to pay for o i o_{i} , subject to a budget b = 𝔼 ⁡ [ π ] b=\\mathbb{E}[\\pi] . We evaluate policies by the realized system reward at budget b b against a random-acquisition baseline, with a per-example bootstrap 95 % 95\\% CI, always out-of-fold (the policy never sees the outcome it is deciding to buy). Two things are worth separating. (a) The value of o i o_{i} if you always acquire it—an average-treatment question. (b) The learnability of when to acquire it—a heterogeneous-policy question. Our theory (§ 8 ) concerns (b); our recommender experiments (§ 4 – 5 ) concern (a). The two interact: a signal can have real average value yet a per-example acquisition policy for it can be undetectable. Datasets. We use three public datasets spanning domain × \\times content richness (Table 1 ): MIND [ 9 ] (English news, content-rich, genuinely multi-topic histories), Amazon-Beauty (e-commerce, content-rich titles but short histories), and REES46 (e-commerce sessions, content-thin: 87.9 % 87.9\\% of windows are single-category). The three differ sharply in history length (median | H | = 20 / 5 / short |H|=20/5/\\text{short} ) and multi-intent fraction, which is precisely what lets us separate regime-dependent value from a global effect. All feature tables are cached; no proprietary data is used. Table 1: The three public datasets span two axes: domain × \\times content richness. History length, distinct-category count, and the sparse / multi-intent slice fractions are recomputed from the cached hypotheses; ρ \\rho is the per-example reward SNR (§ 7 ). The spread in history length and multi-intent fraction is exactly what makes the value regime-conditional . Dataset Domain Content N N median | H | |H| multi-intent % sparse % ρ \\rho MIND news rich 1263 1263 20 20 45.7 45.7 14.0 14.0 0.048 0.048 Amazon-Beauty e-commerce rich 650 650 5 5 64.6 64.6 34.2 34.2 0.014 0.014 REES46 e-commerce thin (87.9% single-cat) 498 498 short — — 0.138 0.138 MIND (news) History (5 items, 3 cats): [1] ‘Wheel of Fortune’ guest intro (tv/tvnews) [2] Helen Hunt hospitalized, car crash (tv/celebrity) [3] ‘Hocus Pocus’ sequel talk (tv/tvnews) [4] Girl, 7, shot trick-or-treating (news/crime) [5] 50 holiday gift ideas under $50 (lifestyle/shop) Candidates (click label): People’s Choice fashion [0], 39 party appetizers [0], Maren Morris sonogram [0], 2019 celebrity property roundup [1] Rich text titles; genuine multi-topic. Task: rerank candidates by click. Amazon-Beauty (e-com, rich) History (5 events): [1] view — 18” faux-locs crochet hair [2] view — makeup-brush cleaner/dryer [3] purchase — wax-warmer waxing kit [4] view — (beauty tool) [5] view — (beauty tool) Candidates : 60 ASINs B00HDOZY1G, B00ZGT9O4S, … target B08DK5D9J5 ( future_buy=1 ) Rich product titles + view/cart/purchase funnel. Task: predict next buy. REES46 (e-com, thin) Session (action, category_code): [1] view — electronics.smartphone [2] view — electronics.smartphone [3] view — electronics.smartphone [4] cart — electronics.smartphone [5] view — electronics.smartphone Label : future_buy ∈ { 0 , 1 } \\in\\{0,1\\} No product text — only category codes; 87.9% of windows are single-category. Task: predict purchase. ⇒ \\Rightarrow structurally floors the LLM’s “decompose into facets” step. Figure 2: What one raw input record looks like in each dataset (real, abbreviated), before the frozen LLM produces structured hypotheses. The three span a 2 × 2 2\\times 2 of domain × \\times content-richness: MIND and Amazon-Beauty carry rich item text supporting genuine multi-intent decomposition, whereas REES46 exposes only category codes and is dominated by single-category sessions. This contrast is why agent-side facet metrics are strong on MIND/Amazon but floored on REES46 (Table 1 ). 3 Method: Structured Hypothesis Embeddings (SHE) User history H = ( e 1 , … , e n ) H=(e_{1},\\dots,e_{n}) Frozen LLM (no grad) h 1 h_{1} : celebrity / fitness γ 1 = 0.66 \\gamma_{1}{=}0.66 , cite { 3 , 9 , 13 , 14 } \\{3,9,13,14\\} h 2 h_{2} : crime / politics γ 2 = 0.58 \\gamma_{2}{=}0.58 , cite { 2 , 6 , 9 , 12 } \\{2,6,9,12\\} h 3 h_{3} : viral food / animals γ 3 = 0.47 \\gamma_{3}{=}0.47 , cite { 1 , 5 , 10 , 11 , 12 } \\{1,5,10,11,12\\} Embed 𝒆 k = ϕ ⁡ ( h k ) {\\bm{e}}_{k}=\\phi(h_{k}) max k \\max_{k} γ k ⋅ cos ⁡ ( 𝒄 , 𝒆 k ) \\gamma_{k}\\!\\cdot\\!\\cos({\\bm{c}},{\\bm{e}}_{k}) Candidate 𝒄 {\\bm{c}} Input-embedding branch fusion [ f base , f B ] [f_{\\text{base}},\\,f_{B}] Ranker (NDCG@10) f base f_{\\text{base}} (mean-pool / GRU / SASRec) Figure 3: Structured Hypothesis Embedding (SHE) pipeline. A frozen LLM decomposes a user history into K = 3 K{=}3 ranked, confidence-scored ( γ k \\gamma_{k} ), evidence-grounded (cited history indices) intent hypotheses. Each is embedded; a candidate 𝒄 {\\bm{c}} scores against the best-matching facet f B max = max k γ k cos ( 𝒄 , 𝒆 k ) f_{B}^{\\max}=\\max_{k}\\gamma_{k}\\cos({\\bm{c}},{\\bm{e}}_{k}) , which is fused as an input-embedding branch alongside a cheap base backbone (mean-pool / GRU / SASRec). The confidences γ k \\gamma_{k} and cited evidence make the branch calibratable and faithfulness-testable. Values shown are a real MIND example (impression 2445, Fig. 4 ). Given a user history H = ( e 1 , … , e n ) H=(e_{1},\\dots,e_{n}) (news reads or product interactions), a frozen LLM is prompted to emit K K intent hypotheses. Each hypothesis h k h_{k} is a short natural-language statement of a latent interest, and carries (i) a calibratable confidence γ k ∈ [ 0 , 1 ] \\gamma_{k}\\in[0,1] and (ii) a set of evidence indices E k ⊆ { 1 , … , n } E_{k}\\subseteq\\{1,\\dots,n\\} citing the history events that support it. We use K = 3 K=3 . This “Scheme B” structured output is contrasted with a “Scheme A” single-summary baseline. Each hypothesis is embedded, 𝒆 k = ϕ ⁡ ( h k ) {\\bm{e}}_{k}=\\phi(h_{k}) , in a fixed text-embedding space ( ℓ 2 \\ell_{2} -normalized, so similarity is cosine). For a candidate item with embedding 𝒄 {\\bm{c}} , the SHE branch produces a small feature vector whose primary coordinate is a confidence-weighted best-facet match f B max ( 𝒄 ) = max k ∈ { 1 , … , K } γ k cos ( 𝒄 , 𝒆 k ) , f_{B}^{\\max}({\\bm{c}})\\;=\\;\\max_{k\\in\\{1,\\dots,K\\}}\\;\\gamma_{k}\\,\\cos({\\bm{c}},{\\bm{e}}_{k}), (1) alongside γ \\gamma -weighted mean and max variants. The max \\max -over-facets aggregation is the crux: it lets a candidate match any of the user’s disjoint interests rather than a blended average, which is precisely what a single summary (Scheme A, f A = cos ⁡ ( 𝒄 , 𝒆 summary ) f_{A}=\\cos({\\bm{c}},{\\bm{e}}_{\\text{summary}}) ) cannot express. SHE plugs in as an input-embedding branch : the downstream model receives [ f base ​ ( 𝒄 ) , f B ​ ( 𝒄 ) ] [\\,f_{\\text{base}}({\\bm{c}}),f_{B}({\\bm{c}})\\,] , where f base f_{\\text{base}} is the cheap backbone (mean-pooled history similarity, ID popularity features, or the state of an ordered sequence model). Fusion is late and the branch is frozen; nothing is back-propagated into the LLM. Instantiation of ϕ \\phi . The method is agnostic to the choice of text encoder ϕ \\phi ; we deliberately state all results in terms of the fixed, ℓ 2 \\ell_{2} -normalized space rather than a particular model. In our experiments ϕ \\phi is OpenAI text-embedding-ada-002 for MIND and REES46, and a local 256 256 -dimensional TF-IDF + + TruncatedSVD (LSA) space over item titles for Amazon-Beauty (an embedding-API ACL prevented using the same hosted encoder there). Candidate items, hypotheses, and the Scheme-A summary are always embedded in the same space within a dataset, so all comparisons are intra-space; we never compare cosine values across the ada-002 and LSA spaces (§ 10 ). Full encoder, feature-block, and downstream-head details are in App. B . Why “structured” and “grounded” matter. The evidence indices E k E_{k} give a testable notion of faithfulness (§ 4 ): a hypothesis should be more similar to the history events it cites than to those it does not. The confidences γ k \\gamma_{k} let us calibrate and, in principle, gate. Both are properties of the structure , not of any particular embedding model. 4 Agent-Side Quality of the Hypotheses MIND impression 2445 — a 14-item, 9-category news history (multi-intent slice). Abbreviated titles: [1] free donuts at Shipley; [2] Trump offer to British teen’s family; [3] Hailey Bieber gym/butt workout; [4] emotional nurse photo goes viral; [5] Häagen-Dazs peppermint bark returns; [6] Trump sex-assault claims corroborated; [7] Bezos to lose richest-person crown; [8] pollution photos; [9] Kevin Spacey not charged; [10] baby elephant falls in watering hole; [11] MetLife Stadium black cat; [12] man killed at Popeyes over chicken sandwich; [13] Demi Moore on Ashton Kutcher ”addiction”; [14] Kim Kardashian gained 18 lbs. The frozen LLM returns three disjoint, confidence-ranked, evidence-grounded hypotheses: ∙ \\bullet h 1 h_{1} ( γ = 0.66 \\gamma{=}0.66 ): celebrity / body & fitness / relationships cites { 3 , 9 , 13 , 14 } \\{3,9,13,14\\} ∙ \\bullet h 2 h_{2} ( γ = 0.58 \\gamma{=}0.58 ): sensational crime & political controversy cites { 2 , 6 , 9 , 12 } \\{2,6,9,12\\} ∙ \\bullet h 3 h_{3} ( γ = 0.47 \\gamma{=}0.47 ): light viral food & animal-interest items cites { 1 , 5 , 10 , 11 , 12 } \\{1,5,10,11,12\\} The facets are soft, not a hard partition (index 9 is cited by both h 1 h_{1} and h 2 h_{2} ; index 12 by both h 2 h_{2} and h 3 h_{3} ), and each carries a distinct confidence. A candidate scores against its best matching facet via max k γ k cos ( 𝒄 , 𝒆 k ) \\max_{k}\\gamma_{k}\\cos({\\bm{c}},{\\bm{e}}_{k}) , so a single-summary embedding (Scheme A) that blends these three interests into one vector cannot express this. Figure 4: Qualitative SHE example (real, unedited). One multi-topic history yields three grounded intent facets with calibratable confidences — the concrete mechanism behind the + 0.0705 +0.0705 grounded faithfulness and 2 × 2\\times distinctiveness of § 4 . Before asking whether SHE helps a recommender, we ask whether the hypotheses are good on their own terms . All numbers here are computed on MIND (news, genuine multi-intent) and REES46 (e-commerce, thin single-category); details in Appendix C . Faithfulness (grounded). We measure the paired difference in cosine similarity between a hypothesis and its cited vs. non-cited history events. On MIND this paired difference is + 0.0705 +0.0705 ( 95 % 95\\% CI [ + 0.068 , + 0.073 ] [+0.068,+0.073] ): hypotheses genuinely track the evidence they cite. (On REES46, where 87.9 % 87.9\\% of windows are single-category, the difference is ≈ 0 \\approx 0 , as expected—there is nothing to decompose.) Figure 6 plots this as a single paired- Δ \\Delta bar with CI, deliberately not as two absolute-similarity bars, to avoid the common mis-reading that the non-cited similarity is zero. Distinctiveness. 1 − cos ¯ 1-\\overline{\\cos} over hypothesis pairs is 0.204 0.204 on MIND versus 0.104 0.104 on REES46: on genuinely multi-intent histories SHE produces disjoint facets ( ∼ 2 × \\sim 2\\times the separation of the thin-content dataset). Calibration. Raw top-1 confidence is over-confident (ECE 0.142 0.142 , Brier 0.166 0.166 on REES46). A cross-fit isotonic map reduces ECE to 0.031 0.031 ( − 78 % -78\\% ; Figure 6 ), a standard, honest, deployable post-hoc fix. We report per-bin counts and label the analysis directional at small N N . Figure 5: Agent-side quality on MIND. Grounded faithfulness is a paired cited-minus-non-cited cosine difference ( + 0.0705 +0.0705 ), not an absolute similarity; distinctiveness is 2 × 2\\times the thin-content dataset. Figure 6: Confidence is over-confident but cheaply calibratable: cross-fit isotonic regression reduces ECE → 0.031 0.142\\!\\to\\!0.031 ( − 78 % -78\\% ). Bins are equal-frequency ( ∼ \\sim 83/bin); small- N N , directional. 5 Downstream Value Is Backbone- and Regime-Conditional Does the SHE branch improve a recommender? The answer depends on what it is fused onto . We first establish the gradient (§ 5.1 ), then a controlled ordered-vs-unordered test (§ 5.2 ). 5.1 A redundancy gradient over baseline strength We fuse SHE onto a ladder of increasingly strong base features and measure the + + SHE lift in NDCG@10 (GroupKFold-by-impression, class-balanced pointwise logistic regression, per-impression bootstrap CI). On MIND the lift descends monotonically as the base gets stronger: L 0 L_{0} (subcategory popularity) + 0.0161 ∗ +0.0161^{\\ast} , L 1 L_{1} (ID pair) + 0.0146 ∗ +0.0146^{\\ast} , L 2 L_{2} (ID + + text) + 0.0100 ∗ +0.0100^{\\ast} , L 3 L_{3} (strong mean-pooled text) + 0.0094 +0.0094 (ns); the sparse slice starts ∼ 3 × \\sim 3\\times higher at the weak end (Figure 7 ). This is the honest core of the “redundancy boundary”: SHE’s marginal value shrinks against a strong content baseline, but does not vanish, and is largest exactly where behavioral signal is underdetermined. A controlled degradation sweep (Appendix D ) corroborates the gradient and is explicitly labeled a diagnostic corruption , not an achieved real-world lift. Figure 7: Redundancy gradient on MIND. The + + SHE NDCG@10 lift descends monotonically as the base features get stronger ( L 0 → L 3 L_{0}\\!\\to\\!L_{3} ) and is largest on sparse (cold-start) histories. The strong-text rung is not significant; the effect is a gradient, not a chasm. 5.2 A controlled ordered-vs-unordered test To ask specifically whether ordered sequential access makes SHE redundant, we run a 2 × 2 2\\times 2 on MIND (the clean testbed: long, multi-topic histories, median n = 19 n{=}19 ) holding split, slate, labels and the late-fusion ranker fixed and varying only two factors: (unordered mean-pool vs. ordered GRU [ 3 ] ) × \\times (no LLM vs. + + SHE). Because MIND histories are long and multi-topic, the ordered GRU ( 0.3992 0.3992 ) is genuinely stronger than mean-pool ( 0.3701 0.3701 )—so this is a clean test of ordering, unlike Amazon-Beauty (median history 5 5 , where the GRU is weaker than mean-pool and thus cannot isolate ordering; we report Amazon in Appendix E as an additional backbone check, not a clean ordering test). Table 2: MIND 2 × 2 2\\times 2 (NDCG@10, N = 1263 N{=}1263 ; 95 % 95\\% bootstrap CI). The global redundancy gap (interaction) is statistically indistinguishable from zero, while the SHE branch remains significant over the ordered GRU backbone. Slice analyses show regime-dependent absorption vs. complementarity. Quantity Estimate 95 % 95\\% CI p p Mean-pool base (A) 0.3701 0.3701 — — Ordered GRU base (C) 0.3992 0.3992 — — + + SHE over mean-pool + 0.0109 +0.0109 [ − 0.0046 , + 0.0277 ] [-0.0046,+0.0277] 0.165 0.165 + + SHE over ordered GRU + 0.0114 \\mathbf{+0.0114} [ + 0.0030 , + 0.0209 ] [+0.0030,+0.0209] 0.005 \\mathbf{0.005} Redundancy gap (interaction) − 0.0005 -0.0005 [ − 0.0164 , + 0.0150 ] [-0.0164,+0.0150] 0.919 0.919 The reading of Table 2 is deliberately careful. Ordered access does not globally absorb the LLM signal : SHE adds a significant gain over the ordered GRU ( + 0.0114 +0.0114 , p = 0.005 p{=}0.005 ), and the interaction/redundancy gap is statistically indistinguishable from zero ( − 0.0005 -0.0005 , p = 0.919 p{=}0.919 ). What is real is a regime split (Figure 8 ): the gap is positive on sparse/short histories ( + 0.033 +0.033 / + 0.022 +0.022 , absorption—the ordered backbone already captures the little intent present) and reverses on long/multi-intent histories ( − 0.006 -0.006 / − 0.005 -0.005 , complementarity—SHE contributes semantic structure the sequence model cannot subsume). Thus SHE’s value is a function of backbone strength × \\times history regime , not of ordering per se. Figure 8: Backbone-conditional value on MIND. SHE adds value over both an unordered and an ordered backbone; the global redundancy gap is ≈ 0 \\approx 0 , but slices show absorption in sparse histories and complementarity in long multi-intent histories. Robustness (B1–B5). Five checks defend the finding (Appendix F ). (B1) A 5-seed sweep: every seed has GRU > > mean-pool and a significant SHE gain over the GRU ( + 0.011 +0.011 to + 0.023 +0.023 ). (B2) A degradation sweep (full/truncate/shuffle/mean-pool): the SHE gain is stable and reliably significant only over ordered backbones . (B3) Residualization—projecting SHE onto the sequential state and keeping the residual—retains 101 % 101\\% of the gain (raw + 0.0114 → +0.0114\\to resid + 0.0115 +0.0115 ); the sequence state explains SHE features with R 2 ≈ 0.00 R^{2}\\!\\approx\\!0.00 – 0.01 0.01 , i.e. SHE is largely orthogonal. (B4) A redundancy probe (predict SHE from the sequence state) gives R 2 ≤ 0.010 R^{2}\\!\\leq\\!0.010 on all slices. (B5) A structurally different ordered backbone, SASRec [ 5 ] (causal self-attention), replicates the pattern: SHE gain over ordered SASRec + 0.0179 +0.0179 [ + 0.0076 , + 0.0281 ] [+0.0076,+0.0281] , same regime split. We treat SASRec as an additional ordered-backbone check, not a uniformly stronger backbone (here SASRec 0.3713 0.3713 is on par with mean-pool and below the GRU; attention over-fits at N ≈ 1.4 N\\!\\approx\\!1.4 k). 6 Learning When to Acquire Fails at Every Granularity The recommender results concern the average value of always acquiring SHE. We now ask the acquisition question: can we learn a per-example policy that spends a fixed budget on the impressions where SHE helps most? The answer, across three datasets and the full granularity axis, is no . Per-impression. A learned out-of-fold policy (predict Δ i \\Delta_{i} from cheap features, act out-of-sample) does not beat random acquisition at any budget; neither does an uncertainty or sparse heuristic. The only “winner” is an in-sample oracle that ranks impressions by realized Δ i \\Delta_{i} —and a matched-moment i.i.d.- noise placebo reproduces ≥ 100 % \\geq 100\\% of that oracle’s apparent gain (MIND + 0.0518 = + 0.0518 +0.0518=+0.0518 ). The oracle is order statistics of noise, not exploitable structure. Cluster / regime / tree. We test representation clusters ( K = 4 , 8 , 16 , 32 , 64 K{=}4,8,16,32,64 via KMeans on the sequence-state vector), hand-defined cross-product regimes (sparse × \\times multi-intent × \\times determinacy × \\times diversity), and honest uplift trees, each with per-fold EB-shrunk cluster means and label-free test assignment. No tested granularity significantly beats random at any budget on either MIND or Amazon-Beauty (Figure 9 ); the granularity curve is flat and near zero. Crucially, a positive control (Appendix G ) shows the same deployable pipeline does recover a synthetic cluster signal once its cluster-SNR exceeds ≈ 0.20 \\approx 0.20 (MIND) / 0.35 0.35 (Amazon); the real data sit at 0.075 0.075 / 0.056 0.056 , an order of magnitude below. So the null is a genuine low-SNR limit, not a broken or underpowered pipeline. A power analysis confirms the observed | d | |d| is below each granularity’s own MDE 80 on both datasets, so we phrase the result as not detectable at these N N , not impossible . Figure 9: Acquisition collapse across granularity (MIND). From per-impression through K = 4 K{=}4 – 64 64 clusters, hand-defined regimes and uplift trees, no deployable policy significantly beats random (all CIs cross zero). The in-sample oracle is largely reproduced by a matched-noise placebo. What is realizable. The regime cell means are sensible and consistent (dense-single ≈ − 0.001 \\approx-0.001 ; multi-intent + 0.0112 +0.0112 ; cold-start + 0.0109 +0.0109 ). Because pooling averages the reward noise down by n \\sqrt{n} , a design-time subsystem split —apply SHE to a cold-start / multi-intent subsystem, skip dense-single—is realizable, even though a learned per-example policy is not. This is the actionable unit. 7 The Mechanism: a Three-Dataset Reward-SNR Story Why does acquisition collapse? Because the per-example reward effect is buried in noise. Across three datasets spanning domain × \\times content-richness, the reward SNR is small and the conclusion is identical (Table 5 ): • MIND (content-rich news): tiny positive per-impression lift ( + 0.0094 +0.0094 ), ρ = 0.048 \\rho=0.048 . • REES46 (content-poor e-commerce): ≈ 0 \\approx 0 /negative per-window lift ( − 0.0158 -0.0158 ; ROC-AUC → 0.833 0.840\\!\\to\\!0.833 , LLM hurts ), ρ = 0.138 \\rho=0.138 . • Amazon-Beauty (content-rich e-commerce): near-zero lift ( + 0.0012 +0.0012 ), ρ = 0.014 \\rho=0.014 (lowest of the three). In all three, no deployable per-unit policy beats random and the in-sample oracle gap is reproduced by a noise placebo. The acquisition-limits result is therefore a mechanism (low per-unit reward SNR), not a MIND-specific quirk. Note we do not claim a global backbone redundancy is significant on MIND; the global gap is indistinguishable from zero (§ 5 ), while slices suggest regime-dependent absorption/complementarity. 8 The Reward–SNR Detectability Floor We now state the law that ties the sections together. Proposition 1 (reward–SNR detectability floor). Consider detecting, at significance α \\alpha and power 1 − β 1-\\beta , that the per-example effect Δ i \\Delta_{i} of a costly observation on the reward has positive mean, from N N examples with per-example SNR ρ = μ / σ \\rho=\\mu/\\sigma . Detection requires ρ ≥ ρ ⋆ ​ ( N ) = z 1 − α / 2 + z 1 − β N ≈ 2.8 N , N ≥ N min ​ ( ρ ) = ( z 1 − α / 2 + z 1 − β ρ ) 2 = ( 2.8 ρ ) 2 , \\rho\\;\\geq\\;\\rho^{\\star}(N)\\;=\\;\\frac{z_{1-\\alpha/2}+z_{1-\\beta}}{\\sqrt{N}}\\;\\approx\\;\\frac{2.8}{\\sqrt{N}},\\qquad N\\;\\geq\\;N_{\\min}(\\rho)=\\left(\\frac{z_{1-\\alpha/2}+z_{1-\\beta}}{\\rho}\\right)^{2}=\\left(\\frac{2.8}{\\rho}\\right)^{2}, (2) at α = 0.05 \\alpha{=}0.05 , 1 − β = 0.8 1-\\beta{=}0.8 (so z 1 − α / 2 + z 1 − β ≈ 1.96 + 0.84 = 2.8 z_{1-\\alpha/2}+z_{1-\\beta}\\approx 1.96+0.84=2.8 ). This is a standard one-sample mean-detection bound; its force here is interpretive . A policy that learns when to acquire must at minimum detect that the conditioned-on reward has signal; if even the average effect is below the floor, a heterogeneous policy conditioned on the same noisy reward is a fortiori undetectable. We are explicit that Eq. 2 is a necessary mean-detectability condition, not a sufficient policy-learning / regret bound , and not an impossibility theorem. Consistency and dataset placement. Two independent routes agree on the floor to within 1.3 × 1.3\\times : the closed form gives ρ ⋆ ​ ( 1263 ) = 0.079 \\rho^{\\star}(1263)=0.079 , while a semi-synthetic learnability sweep (inject a feature-predictable effect at controllable SNR, measure the captured fraction of the tau-oracle) locates the threshold near 0.10 0.10 . Placing the datasets against Eq. 2 (Figure 10 , Table 3 ): Table 3: Datasets against the detectability floor. We report precise, dataset-specific gaps rather than an “order of magnitude” shorthand. “Powered” = 1 =1 means the sample is above the floor. Dataset N N ρ \\rho ρ 80 ⋆ ​ ( N ) \\rho^{\\star}_{80}(N) N min N_{\\min} ρ ⋆ / ρ \\rho^{\\star}/\\rho Effect MIND 1263 1263 0.048 0.048 0.0788 0.0788 3403 3403 1.64 1.64 ≈ 0 \\approx 0 (positive) Amazon-Beauty 650 650 0.014 0.014 0.1098 0.1098 40000 40000 7.85 7.85 ≈ 0 \\approx 0 (negative) REES46 498 498 0.138 0.138 0.1255 0.1255 412 412 0.91 0.91 significantly negative MIND sits 1.6 × 1.6\\times below its SNR floor (needing ∼ 2.7 × \\sim 2.7\\times more data, N min ≈ 3400 N_{\\min}\\approx 3400 ); Amazon-Beauty sits 7.9 × 7.9\\times below (needing ∼ 60 × \\sim 60\\times more data). REES46 is the one powered case ( ρ = 0.138 > ρ ⋆ = 0.126 \\rho=0.138>\\rho^{\\star}=0.126 )—and there the effect is significantly negative (the LLM branch hurts). This last point matters for honesty: the acquisition collapse is not merely a power excuse, because the one dataset with enough power shows the acquired signal is net-negative, not net-positive. A sufficiency-side check (HTE-SNR, Appendix H ) closes the “a cleverer heterogeneous policy still wins” loophole: correlation, out-of-fold R 2 R^{2} , and a heterogeneity-SNR against a permutation null are all inside the null band on both datasets—there is no learnable heterogeneity to exploit. Figure 10: The reward–SNR detectability floor ρ ⋆ ​ ( N ) ≈ 2.8 / N \\rho^{\\star}(N)\\approx 2.8/\\sqrt{N} (80% power). MIND and Amazon-Beauty sit below the floor; REES46 is above it and its effect is significantly negative. The floor is a necessary condition, not an impossibility theorem. 9 Related Work LLM-as-feature for recommendation. KAR [ 10 ] and RLMRec [ 7 ] augment recommenders with LLM-derived knowledge or representations. We differ by (i) a structured, evidence-grounded, confidence-scored hypothesis representation with a testable faithfulness metric, and (ii) a focus on when the signal is (un)learnable to acquire rather than average lift. Active learning and value of information [ 8 ] learn what to query; we give a detectability floor that governs whether such a policy is estimable offline at all. Uplift / heterogeneous treatment effects [ 6 ] motivate our per-example Δ i \\Delta_{i} estimation and our HTE-SNR null check. Selective prediction / learning-to-defer [ 1 , 4 ] route examples to an abstain/expert option; our acquisition policy is a deferral to a costly LLM observation, and our contribution is the SNR limit on learning that routing. Calibration [ 2 ] underlies our confidence post-hoc fix. Finally, structured LLM hypotheses with confidences were used for unsupervised cluster-geometry scoring in single-cell gene-set annotation by our prior HypoGeneAgent [ 11 ] ; we reuse ranked hypotheses + + confidence but move to a different domain and add a supervised downstream task , learned conditional weighting, grounded faithfulness, and the acquisition/SNR analysis. Net novelty: the reward–SNR detectability floor for costly semantic acquisition. 10 Discussion, Deployment, and Limitations Deployment prescription. Do not learn per-instance acquisition from noisy offline rewards. Use pre-specified, design-time regime gates : route SHE to (a) cold-start / underdetermined histories, where a strong backbone has little to absorb (absorption-style value), and (b) long multi-intent histories, where SHE contributes complementary semantic structure (complementarity value). These are exactly the two regimes where § 5 finds value, and they are addressable at design time because pooling averages the reward noise down—unlike a per-impression policy. Concretely, a practitioner can follow a four-step recipe: (1) estimate the reward SNR ρ \\rho and check it against the floor N min = ( 2.8 / ρ ) 2 N_{\\min}=(2.8/\\rho)^{2} —if N < N min N<N_{\\min} , do not attempt a learned per-instance router (it will fit noise order statistics); (2) instead pre-specify a small number of gates from cheap, label-free slice features (history length, distinct-category count, sparsity), not from the reward; (3) enable the costly signal only inside the two value regimes above; (4) validate the gate at the pooled-regime level with an out-of-fold 95 % 95\\% CI, never per instance. This turns an unlearnable routing problem into a one-time subsystem-placement decision that is statistically supported. Limitations. (1) The motivating production observation is observed, not controlled ; our public study tests the mechanism, not that observation. (2) The detectability floor is a necessary mean-detection condition, not a policy-learning/regret bound. (3) Downstream hypothesis embeddings on Amazon-Beauty use a local LSA space (embedding-API ACL), which is internally consistent but not identical to the ada-002 space used elsewhere; we flag this and avoid cross-space comparisons (encoder details in App. B ). (4) SASRec is an additional ordered-backbone check at N ≈ 1.4 N\\!\\approx\\!1.4 k, not a claim of a uniformly stronger backbone. (5) All significance is at the sample sizes reached; several nulls are power-limited and labeled as such. Full-recomputation of a few private on-pod metrics is labeled precomputed evidence in the artifact. Conclusion. Costly semantic observations—LLM structured reasoning being a timely instance—obey a reward–SNR detectability floor. When a dataset sits below it, learning when to acquire is not detectable and its apparent in-sample gains are noise order statistics; the realizable unit is a design-time regime gate. Instantiated as Structured Hypothesis Embeddings, the signal is faithful and its downstream value is backbone- and regime-conditional, with a global redundancy gap indistinguishable from zero but a clean absorption / complementarity split. We hope the floor is a useful, honest yardstick for the growing class of pipelines that pay to think. Reproducibility Statement All offline results (R1–R13, appendix) are regenerated by a single command, scripts/reproduce.sh , from committed feature tables (CPU, no LLM calls); only from-scratch hypothesis generation needs an LLM. A 58-claim ledger ( results/paper_claims.csv ) maps every claim to a script, a persisted CSV, and a figure; Appendix I reproduces the reviewer-facing subset. Author contributions. Ying Yuan (corresponding author, yingyuan238@gmail.com ) conceived the research question and the core thesis (that detecting a mean effect is distinct from learning a per-instance acquisition policy), formulated the costly-semantic- observation problem and the reward–SNR detectability floor, designed and implemented the Structured Hypothesis Embeddings method and the full experimental pipeline (data processing, hypothesis generation, backbone and acquisition studies, the positive control, and all robustness analyses), produced all figures and tables, and wrote the manuscript. Any additional authors and their specific contributions will be recorded here upon joining the project. Acknowledgments. We thank colleagues for discussion and feedback. This paper uses only publicly availab",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Skip to main content",
+      "url": "https://arxiv.org/html/2608.10441v1#infobox"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/IgnoreMe"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "Why HTML?",
+      "url": "https://info.arxiv.org/about/accessible_HTML.html"
+    },
+    {
+      "text": "Back to Abstract",
+      "url": "https://arxiv.org/abs/2608.10441v1"
+    },
+    {
+      "text": "Download PDF",
+      "url": "https://arxiv.org/pdf/2608.10441v1"
+    },
+    {
+      "text": "License: arXiv.org perpetual non-exclusive license",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2608.10441v1#S3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2608.10441v1#S4"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2608.10441v1#S5"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2608.10441v1#S6"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2608.10441v1#S7"
+    },
+    {
+      "text": "8",
+      "url": "https://arxiv.org/html/2608.10441v1#S8"
+    },
+    {
+      "text": "10",
+      "url": "https://arxiv.org/html/2608.10441v1#S10"
+    },
+    {
+      "text": "10",
+      "url": "https://arxiv.org/html/2608.10441v1#S8.F10"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2608.10441v1#S2.T1"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2608.10441v1#bib.bib4"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2608.10441v1#S4.F4"
+    },
+    {
+      "text": "B",
+      "url": "https://arxiv.org/html/2608.10441v1#A2"
+    },
+    {
+      "text": "C",
+      "url": "https://arxiv.org/html/2608.10441v1#A3"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2608.10441v1#S4.F6"
+    },
+    {
+      "text": "5.1",
+      "url": "https://arxiv.org/html/2608.10441v1#S5.SS1"
+    },
+    {
+      "text": "5.2",
+      "url": "https://arxiv.org/html/2608.10441v1#S5.SS2"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2608.10441v1#S5.F7"
+    },
+    {
+      "text": "D",
+      "url": "https://arxiv.org/html/2608.10441v1#A4"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2608.10441v1#bib.bib3"
+    },
+    {
+      "text": "E",
+      "url": "https://arxiv.org/html/2608.10441v1#A5"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2608.10441v1#S5.T2"
+    },
+    {
+      "text": "8",
+      "url": "https://arxiv.org/html/2608.10441v1#S5.F8"
+    },
+    {
+      "text": "F",
+      "url": "https://arxiv.org/html/2608.10441v1#A6"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2608.10441v1#bib.bib2"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2608.10441v1#S6.F9"
+    },
+    {
+      "text": "G",
+      "url": "https://arxiv.org/html/2608.10441v1#A7"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2608.10441v1#A9.T5"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2608.10441v1#S8.E2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2608.10441v1#S8.T3"
+    },
+    {
+      "text": "H",
+      "url": "https://arxiv.org/html/2608.10441v1#A8"
+    },
+    {
+      "text": "10",
+      "url": "https://arxiv.org/html/2608.10441v1#bib.bib5"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2608.10441v1#bib.bib6"
+    },
+    {
+      "text": "8",
+      "url": "https://arxiv.org/html/2608.10441v1#bib.bib7"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2608.10441v1#bib.bib8"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2608.10441v1#bib.bib9"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2608.10441v1#bib.bib11"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2608.10441v1#bib.bib10"
+    },
+    {
+      "text": "11",
+      "url": "https://arxiv.org/html/2608.10441v1#bib.bib1"
+    },
+    {
+      "text": "I",
+      "url": "https://arxiv.org/html/2608.10441v1#A9"
+    },
+    {
+      "text": "§9",
+      "url": "https://arxiv.org/html/2608.10441v1#S9.p1.1"
+    },
+    {
+      "text": "§5.2",
+      "url": "https://arxiv.org/html/2608.10441v1#S5.SS2.p1.1"
+    },
+    {
+      "text": "§5.2",
+      "url": "https://arxiv.org/html/2608.10441v1#S5.SS2.SSS0.Px1.p1.1"
+    },
+    {
+      "text": "§2",
+      "url": "https://arxiv.org/html/2608.10441v1#S2.SS0.SSS0.Px1.p1.1"
+    },
+    {
+      "text": "Appendix A",
+      "url": "https://arxiv.org/html/2608.10441v1#A1.p1.1"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2608.10441v1#A1.T4"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2608.10441v1#S3.E1"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2608.10441v1#A10.T6"
+    },
+    {
+      "text": "L",
+      "url": "https://arxiv.org/html/2608.10441v1#A12"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2608.10441v1#A11.T7"
+    },
+    {
+      "text": "8",
+      "url": "https://arxiv.org/html/2608.10441v1#A12.T8"
+    }
+  ],
+  "matching_link_count": 57,
+  "links_truncated": false,
+  "invalid_links": []
+}

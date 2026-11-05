@@ -1,0 +1,575 @@
+{
+  "url": "https://arxiv.org/html/2607.28945v1",
+  "final_url": "https://arxiv.org/html/2607.28945v1",
+  "status": 200,
+  "title": "FairDiffuseVQVAE: Sampling-Time Fairness in Tabular Diffusion via Conditional Refinement of Vector-Quantized Latents",
+  "metadata": {},
+  "paper": {
+    "title": "FairDiffuseVQVAE: Sampling-Time Fairness in Tabular Diffusion via\nConditional Refinement of Vector-Quantized Latents",
+    "title_warning": null,
+    "abstract": "Abstract Synthetic tabular data is increasingly used in privacy-preserving data\nsharing, data augmentation, and to mitigate downstream classifier bias.\nState-of-the-art tabular diffusion models such as TabDDPM and TabSyn\nachieve excellent distributional fidelity but offer no mechanism for\nfairness; conversely, fairness-aware tabular generators (DECAF,\nFairTGAN, FairTabDDPM) impose explicit fairness penalties at training\ntime, yielding modest fairness gains at substantial cost to either\nsample quality or downstream utility. We introduce FairDiffuseVQVAE , a two-stage architecture that decouples\nfidelity from fairness: a vector-quantized autoencoder with a row-level\ndiscriminator (Stage 1, no fairness terms) is followed by a\nDiffuseVAE-style continuous diffusion refiner that conditions on both\nthe Stage-1 reconstruction and the protected attribute via\nclassifier-free guidance (Stage 2). Fairness emerges as a property of\nthe sampling distribution —uniform sampling of the protected\nattribute at inference time enforces demographic parity by\nconstruction—rather than from competing loss terms. On the Yang et al. (2025) benchmark (Adult, Bank, COMPAS),\nFairDiffuseVQVAE achieves the highest mean Demographic Parity Ratio\n( 0.702 0.702 , + 47 % +47\\% over FairTabDDPM) and Equalized Odds Ratio\n( 0.686 0.686 , + 100 % +100\\% ). It also attains the lowest mean pair-wise\ncorrelation error ( 0.034 0.034 ) of any published method, while explicitly\ntrading ∼ \\sim 15 15 AUC points for these fairness gains.",
+    "authors": [
+      {
+        "name": "Nitish Nagesh",
+        "affiliations": [
+          "Affiliation: University of California, Irvine"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Mahdi Bagheri",
+        "affiliations": [
+          "Affiliation: University of California, Irvine"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Amir M. Rahmani",
+        "affiliations": [
+          "Affiliation: University of California, Irvine"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Nitish Nagesh Affiliation: University of California, Irvine Mahdi Bagheri Affiliation: University of California, Irvine Amir M. Rahmani Affiliation: University of California, Irvine",
+    "arxiv_version": "2607.28945v1",
+    "arxiv_version_date": "2026-07-31",
+    "sections": [
+      {
+        "id": "S1",
+        "heading": "1 Introduction",
+        "level": 1,
+        "text": "Tabular data is the dominant modality in healthcare, finance, social science, and public policy ( Borisov et al., 2022 ) . Releasing such data is constrained by privacy regulations (HIPAA, GDPR) ( Jordon et al., 2022 ) , by the difficulty of obtaining representative samples for under-represented populations, and—most critically—by the bias these datasets often encode. A loan approval dataset that historically over-represents one demographic group will train a downstream model that perpetuates that bias, even if the model itself is unbiased ( Caton and Haas, 2024 ; Plečko and Bareinboim, 2024 ) . Synthetic tabular data generation promises to address all three issues simultaneously: produce realistic samples that obey privacy constraints, expand support across under-represented groups, and reduce downstream classifier bias. Recent diffusion models for tabular data have closed most of the quality gap to real data. TabDDPM ( Kotelnikov et al., 2023 ) adapts denoising diffusion to mixed-type tabular features, and TabSyn ( Zhang et al., 2024 ) pushes this further by performing diffusion in the latent space of a learned VAE, achieving sub-1% column-wise density error. However, none of these methods offer any guarantee on the fairness of the generated data: the synthetic distribution inherits whatever statistical bias the training data contained. A complementary line of work explicitly targets fair tabular synthesis. DECAF ( van Breugel et al., 2021 ) introduces causally-aware fairness edits to a GAN; FairTGAN and FairTabDDPM ( Yang et al., 2025 ) add fairness penalty terms to a tabular GAN/DDPM respectively. These methods improve fairness metrics but typically at the cost of sample quality (FairTabDDPM density error 0.119 0.119 vs TabSyn’s 0.015 0.015 ) or downstream utility—a tension we observe sharpens when the underlying generative architecture is forced to balance reconstruction with adversarial or auxiliary losses."
+      },
+      {
+        "id": "S1.SS0.SSS0.Px1",
+        "heading": "Our perspective.",
+        "level": 3,
+        "text": "We argue that the fairness mechanism should not compete with reconstruction during training. Instead, fairness can be enforced at sampling time if the generative model is conditioned on the protected attribute. By drawing the protected attribute from a uniform distribution at sampling time, the marginal synthetic distribution satisfies demographic parity by construction; classifier-free guidance ( Ho and Salimans, 2022 ) provides a tunable knob to control how strongly samples concentrate on the conditional manifold. To make this practical for tabular data, we couple a vector-quantized autoencoder (Stage 1) with a continuous diffusion refiner (Stage 2) trained in input space and conditioned on (i) the Stage-1 reconstruction and (ii) the protected attribute. The Stage-1 model is trained without any fairness term; all fairness regularization is deferred to the conditional structure of Stage 2."
+      },
+      {
+        "id": "S1.SS0.SSS0.Px2",
+        "heading": "Contributions.",
+        "level": 3,
+        "text": "• We introduce FairDiffuseVQVAE , a two-stage architecture that combines a VQGAN-style autoencoder ( Esser et al., 2021 ; van den Oord et al., 2017 ) with a DiffuseVAE-style ( Pandey et al., 2022 ) input-space diffusion refiner. The fairness mechanism is sampling-time classifier-free guidance over the protected attribute; no explicit fairness loss term is required. • We demonstrate that this design beats fairness-specific baselines by large margins on the Yang et al. (2025) benchmark: mean Demographic Parity Ratio of 0.702 0.702 ( + 47 % +47\\% over FairTabDDPM) and mean Equalized Odds Ratio of 0.686 0.686 ( + 100 % +100\\% ). • We also show that the same architecture attains the lowest mean pair-wise column correlation error ( 0.034 0.034 ) of any published method, beating TabSyn ( 0.041 0.041 ); the utility-fairness trade-off costs roughly 15 15 AUC points relative to the strongest baselines. • We provide a reproducible pipeline integrated into the TabSyn repository, supporting all eight datasets used across ( Zhang et al., 2024 ; Yang et al., 2025 ) and reporting density, pair-correlation, AUC, DCR, DPR, and EOR consistently."
+      },
+      {
+        "id": "S2.SS1",
+        "heading": "2.1 Vector Quantization and the VQGAN",
+        "level": 2,
+        "text": "A vector-quantized variational autoencoder (VQ-VAE, van den Oord et al., 2017 ), built on the variational autoencoder foundation ( Kingma and Welling, 2014 ; Rezende et al., 2014 ) , augments a standard autoencoder with a discrete codebook 𝒵 = { e k } k = 1 K \\mathcal{Z}=\\{e_{k}\\}_{k=1}^{K} of learned embedding vectors. The encoder output z e z_{e} is replaced by its nearest codebook entry z q z_{q} , and gradients propagate through the quantization step via the straight-through estimator ( Bengio et al., 2013 ) . The codebook plus a commitment loss ( β ​ ‖ z e − sg ⁡ [ z q ] ‖ 2 \\beta\\|z_{e}-\\mathrm{sg}[z_{q}]\\|^{2} ) regularize the latent space. VQGAN ( Esser et al., 2021 ) extends VQ-VAE with a perceptual loss ( Zhang et al., 2018 ) and a patch-level discriminator ( Goodfellow et al., 2014 ) , producing high-fidelity image reconstructions that admit downstream generative modelling (typically by an autoregressive prior over codebook indices)."
+      },
+      {
+        "id": "S2.SS2",
+        "heading": "2.2 Diffusion Models and EDM",
+        "level": 2,
+        "text": "Denoising diffusion probabilistic models (DDPMs, Ho et al., 2020 ) generate samples by reversing a Markov chain that gradually adds Gaussian noise. We adopt the Karras et al. (2022) (EDM) formulation, which expresses the forward process by a continuous noise level σ \\sigma drawn from a log-normal distribution and trains a denoiser D θ D_{\\theta} with the weighted MSE objective 𝔼 σ , ϵ , x ​ [ w ⁡ ( σ ) ​ ‖ D θ ​ ( x + σ ​ ϵ , σ ) − x ‖ 2 ] \\mathbb{E}_{\\sigma,\\epsilon,x}\\big[w(\\sigma)\\|D_{\\theta}(x+\\sigma\\epsilon,\\sigma)-x\\|^{2}\\big] , where w ⁡ ( σ ) = ( σ 2 + σ data 2 ) / ( σ ​ σ data ) 2 w(\\sigma)=(\\sigma^{2}+\\sigma_{\\mathrm{data}}^{2})/(\\sigma\\sigma_{\\mathrm{data}})^{2} . EDM samplers (Heun) require fewer function evaluations than vanilla DDPM at comparable sample quality. Latent diffusion models (LDM, Rombach et al., 2022 ) compose a VAE with an EDM/DDPM in the latent space; DiffuseVAE ( Pandey et al., 2022 ) composes them differently—a DDPM in input space conditioned on the VAE’s reconstruction."
+      },
+      {
+        "id": "S2.SS3",
+        "heading": "2.3 Classifier-Free Guidance",
+        "level": 2,
+        "text": "Classifier-free guidance (CFG, Ho and Salimans, 2022 ) trains a single denoiser jointly on conditional and unconditional examples (by stochastically dropping the conditioning signal during training), then at sampling time interpolates the two predictions: D ^ cfg = D ∅ + w ⁡ ( D c − D ∅ ) \\hat{D}^{\\mathrm{cfg}}=D^{\\varnothing}+w(D^{c}-D^{\\varnothing}) . For w > 1 w>1 , samples are pushed further into the conditional manifold; for w = 1 w=1 , behaviour matches standard conditional sampling."
+      },
+      {
+        "id": "S2.SS4",
+        "heading": "2.4 Fairness Metrics",
+        "level": 2,
+        "text": "Following Yang et al. (2025) , who follow Agarwal et al. (2018) ; Hardt et al. (2016) , we use Demographic Parity Ratio (DPR) and Equalized Odds Ratio (EOR) , both in [ 0 , 1 ] [0,1] with 1 1 denoting perfect parity. Let Y ^ \\hat{Y} be a downstream classifier trained on synthetic data and evaluated on real data with sensitive attribute A A : DPR \\displaystyle\\mathrm{DPR} = min a ⁡ Pr ⁡ ( Y ^ = 1 ∣ A = a ) max a ⁡ Pr ⁡ ( Y ^ = 1 ∣ A = a ) , \\displaystyle=\\frac{\\min_{a}\\Pr(\\hat{Y}=1\\mid A=a)}{\\max_{a}\\Pr(\\hat{Y}=1\\mid A=a)}, (1) EOR \\displaystyle\\mathrm{EOR} = min ⁡ ( min a ⁡ TPR a max a ⁡ TPR a , min a ⁡ FPR a max a ⁡ FPR a ) . \\displaystyle=\\min\\left(\\frac{\\min_{a}\\mathrm{TPR}_{a}}{\\max_{a}\\mathrm{TPR}_{a}},\\,\\frac{\\min_{a}\\mathrm{FPR}_{a}}{\\max_{a}\\mathrm{FPR}_{a}}\\right). (2) DPR captures equal allocation; EOR captures equal performance."
+      },
+      {
+        "id": "S3.SS0.SSS0.Px1",
+        "heading": "Tabular data synthesis.",
+        "level": 3,
+        "text": "Early work used GANs (CTGAN and TVAE, Xu et al., 2019 ; CTAB-GAN+, Zhao et al., 2023 ) and copula methods. More recent diffusion-based methods include TabDDPM ( Kotelnikov et al., 2023 ) , which applies categorical and Gaussian diffusion in input space; STaSy ( Kim et al., 2023 ) , which uses score-based generative modelling; CoDi ( Lee et al., 2023 ) , which contrasts sub-tables; and TabSyn ( Zhang et al., 2024 ) , which performs EDM diffusion in the latent space of a learned tabular VAE and is the current state of the art on column-wise density estimation. GReaT ( Borisov et al., 2023 ) treats tabular rows as text and fine-tunes a language model; GOGGLE ( Liu et al., 2023 ) learns a graph structure over columns. None of these methods address fairness explicitly."
+      },
+      {
+        "id": "S3.SS0.SSS0.Px2",
+        "heading": "Fairness in tabular synthesis.",
+        "level": 3,
+        "text": "Early fair tabular GANs include FairGAN ( Xu et al., 2018 ) and TabFairGAN ( Rajabi and Garibay, 2022 ) , which add adversarial fairness losses to a tabular GAN. DECAF ( van Breugel et al., 2021 ) fits a causal DAG over the columns and re-weights or removes edges to enforce one of three fairness notions (Fairness Through Unawareness, Demographic Parity, Counterfactual Fairness) at sampling time. Abroshan et al. (2024) impose post-hoc fairness constraints on synthetic data via re-sampling, and CuTS ( Vero et al., 2024 ) learns a customisable bias-aware tabular generator. TabFairGDT ( Panagiotou et al., 2025 ) uses autoregressive decision trees for fast fair generation. FairTGAN and FairTabDDPM ( Yang et al., 2025 ) —the closest prior work to ours—add fairness penalties to a tabular GAN and a tabular DDPM respectively, achieving moderate fairness improvements at the cost of density-estimation quality ( Table 2 ). Our work differs in three important ways: (i) we use a two-stage architecture where the autoencoder is trained without any fairness term, isolating fidelity from fairness; (ii) we enforce fairness at sampling time via classifier-free guidance, providing a tunable knob rather than a fixed penalty; (iii) we operate the diffusion refiner in input space conditioned on the Stage-1 reconstruction, following the DiffuseVAE recipe ( Pandey et al., 2022 ) but with a quantized autoencoder. As Section 6 shows, this combination beats all published baselines on DPR and EOR."
+      },
+      {
+        "id": "S3.SS0.SSS0.Px3",
+        "heading": "Generative fairness more broadly.",
+        "level": 3,
+        "text": "The Variational Fair Autoencoder ( Louizos et al., 2016 ) pioneered information-theoretic fairness via Maximum Mean Discrepancy ( Gretton et al., 2012 ) on the latent space. Many follow-ups ( Madras et al., 2018 ; Creager et al., 2019 ) use adversarial debiasing or disentanglement-style losses. Beyond representation-level approaches, the broader fair-ML landscape is surveyed by Caton and Haas (2024) and Wan et al. (2023) ; Plečko and Bareinboim (2024) provide a causal-inference perspective; and Le Quy et al. (2022) catalogue fairness datasets. Path-specific counterfactual fairness ( Chiappa, 2019 ) and the broader counterfactual framework ( Kusner et al., 2017 ) provide alternative formalisms. We initially explored an in-training fairness direction (MMD on z e z_{e} plus a correlation penalty on the decoder output) but found it consistently traded off quality for negligible fairness gains in our two-stage setting; the conditional-sampling mechanism we adopt here was both simpler and more effective."
+      },
+      {
+        "id": "S3.SS0.SSS0.Px4",
+        "heading": "Discrete diffusion as an alternative.",
+        "level": 3,
+        "text": "An alternative to our quantize-then-refine approach is to perform diffusion directly in a discrete state space. D3PM ( Austin et al., 2021 ) extends DDPM with categorical transition kernels; TabDDPM ( Kotelnikov et al., 2023 ) uses a related multinomial-diffusion process for the categorical columns of tabular data. We chose continuous diffusion in the rich (one-hot) representation followed by argmax decoding for two reasons: (i) it admits the standard EDM toolkit unchanged, including classifier-free guidance; (ii) Stage 1’s autoencoder already learns a smooth latent geometry that the diffusion refiner can condition on in input space."
+      },
+      {
+        "id": "S3.SS0.SSS0.Px5",
+        "heading": "Vector-quantized generative models.",
+        "level": 3,
+        "text": "Beyond images, VQ-VAEs have been applied widely; the closest tabular precedents combine VQ with downstream generative priors. To our knowledge, this is the first application of VQGAN-style vector quantization combined with input-space DiffuseVAE refinement ( Pandey et al., 2022 ) to fair tabular synthesis."
+      },
+      {
+        "id": "S3.SS0.SSS0.Px6",
+        "heading": "Evaluation methodology.",
+        "level": 3,
+        "text": "We follow established sample-quality protocols: column-shape and column-pair-trend scores from SDMetrics ( DataCebo, Inc., 2023 ) , manifold precision/recall at the sample level ( Sajjadi et al., 2018 ; Alaa et al., 2022 ) , and the TSTR (train on synthetic, test on real) protocol popularized by PATE-GAN ( Jordon et al., 2019 ) ."
+      },
+      {
+        "id": "S4",
+        "heading": "4 Method: FairDiffuseVQVAE",
+        "level": 1,
+        "text": "x ¯ \\bar{x} Encoder E ϕ E_{\\phi} z e z_{e} VQ z q z_{q} Decoder G θ G_{\\theta} x ¯ ^ VQ \\hat{\\bar{x}}_{\\mathrm{VQ}} Codebook 𝒵 \\mathcal{Z} { e k } k = 1 K \\{e_{k}\\}_{k=1}^{K} protected s s Discriminator D ξ D_{\\xi} ℒ recon \\mathcal{L}_{\\mathrm{recon}} (MSE + CE) ℒ codebook , ℒ commit \\mathcal{L}_{\\mathrm{codebook}},\\;\\mathcal{L}_{\\mathrm{commit}} ℒ GAN \\mathcal{L}_{\\mathrm{GAN}} nearest-nb. lookup condition fake real x ¯ \\bar{x} ( E ϕ E_{\\phi} does not see s s ) x ¯ \\bar{x} + + x ¯ t \\bar{x}_{t} Conditional denoiser D ψ D_{\\psi} 5-layer MLP, 512-d, EDM x ¯ ^ \\hat{\\bar{x}} σ ∼ LogNormal ⁡ ( P mean , P std 2 ) \\sigma\\sim\\mathrm{LogNormal}(P_{\\mathrm{mean}},P_{\\mathrm{std}}^{2}) s s / ∅ \\varnothing ℒ Stage2 \\mathcal{L}_{\\mathrm{Stage2}} x ¯ + σ ​ ϵ \\bar{x}+\\sigma\\epsilon ϵ ∼ 𝒩 ⁡ ( 0 , I ) \\epsilon\\sim\\mathcal{N}(0,I) σ \\sigma classifier-free guidance drop s s w.p. p cfg = 0.3 p_{\\mathrm{cfg}}{=}0.3 x ¯ ^ VQ \\hat{\\bar{x}}_{\\mathrm{VQ}} : frozen Stage-1 reconstruction (conditioning input) Draw s ∼ Bernoulli ⁡ ( 0.5 ) s\\sim\\mathrm{Bernoulli}(0.5) (uniform protected attr.) Draw random codes { k i } i = 1 n ∼ Unif \\{k_{i}\\}_{i=1}^{n}\\sim\\mathrm{Unif} Decode G θ ​ ( { e k i } , s ) G_{\\theta}(\\{e_{k_{i}}\\},s) = x ¯ ^ VQ ( 0 ) =\\hat{\\bar{x}}_{\\mathrm{VQ}}^{(0)} Heun EDM refiner 50 steps, CFG w cfg w_{\\mathrm{cfg}} Synthetic row ( x ¯ , s ) (\\bar{x},s) demographic parity s s also conditions the refiner Stage 1 — Fair Vector-Quantized Autoencoder Stage 2 — Fair Refinement via Conditional Input-Space Diffusion Sampling — Demographic-Parity Generation Figure 1 : Overview of FairDiffuseVQVAE . A two-stage architecture for fair mixed-type tabular synthesis. Stage 1 trains a vector-quantized autoencoder: an encoder E ϕ E_{\\phi} maps a row x ¯ \\bar{x} to latent tokens z e z_{e} , which are quantized against a learned codebook 𝒵 \\mathcal{Z} and decoded by G θ G_{\\theta} into a reconstruction x ¯ ^ VQ \\hat{\\bar{x}}_{\\mathrm{VQ}} , with a row-level discriminator D ξ D_{\\xi} providing an adversarial signal. The decoder is conditioned on the protected attribute s s while the encoder is not, and Stage 1 carries no explicit fairness term. Stage 2 trains a conditional EDM denoiser D ψ D_{\\psi} that refines the (frozen) Stage-1 reconstruction in input space: x ¯ \\bar{x} is perturbed to x ¯ t \\bar{x}_{t} at noise scale σ \\sigma , and D ψ D_{\\psi} is conditioned on x ¯ ^ VQ \\hat{\\bar{x}}_{\\mathrm{VQ}} , on σ \\sigma , and on s s with classifier-free-guidance dropout ( p cfg p_{\\mathrm{cfg}} ). Sampling draws s ∼ Bernoulli ⁡ ( 0.5 ) s\\sim\\mathrm{Bernoulli}(0.5) , decodes random codebook indices into an initial guess, and refines it with a 50-step Heun EDM sampler. Because s s is drawn uniformly while D ψ D_{\\psi} models p ⁡ ( x ¯ ∣ s ) p(\\bar{x}\\mid s) , the synthetic distribution satisfies demographic parity by construction. Dashed teal arrows denote conditioning on s s ; red italic labels mark training losses. We propose FairDiffuseVQVAE , a two-stage tabular synthesis architecture that combines a vector-quantized autoencoder with a conditional denoising diffusion refiner. Fairness is enforced not by adding penalty terms during training, but as a property of the conditional generative process at sampling time, via classifier-free guidance over the protected attribute."
+      },
+      {
+        "id": "S4.SS1",
+        "heading": "4.1 Notation and Setup",
+        "level": 2,
+        "text": "Let x ∈ ℝ d c × { 0 , 1 } d d x\\in\\mathbb{R}^{d_{c}}\\times\\{0,1\\}^{d_{d}} denote a mixed-type tabular row with d c d_{c} continuous and d d d_{d} categorical features, s ∈ { 0 , 1 } s\\in\\{0,1\\} the binary protected attribute, and y ∈ { 0 , 1 } y\\in\\{0,1\\} the outcome label. Categorical columns are encoded one-hot; we write x ¯ ∈ ℝ D \\bar{x}\\in\\mathbb{R}^{D} for the resulting concatenated representation of dimension D = d c + ∑ j K j D=d_{c}+\\sum_{j}K_{j} where K j K_{j} is the cardinality of the j j -th categorical column."
+      },
+      {
+        "id": "S4.SS1.SSS0.Px1",
+        "heading": "Overview.",
+        "level": 3,
+        "text": "Figure 1 summarizes FairDiffuseVQVAE . The central design choice is to decouple fidelity from fairness : Stage 1 is responsible only for learning a faithful, compact representation of mixed-type rows, while Stage 2 and the sampling procedure are responsible for fairness. Neither stage optimizes a fairness penalty during training. Instead, fairness emerges at sampling time—the diffusion refiner is trained as a conditional model p ⁡ ( x ¯ ∣ s ) p(\\bar{x}\\mid s) with classifier-free guidance, so drawing s s from a uniform prior rather than the (typically biased) data marginal yields a synthetic joint p synth ​ ( x ¯ , s ) = Unif ⁡ ( s ) ​ p ​ ( x ¯ ∣ s ) p_{\\mathrm{synth}}(\\bar{x},s)=\\mathrm{Unif}(s)\\,p(\\bar{x}\\mid s) that satisfies demographic parity by construction. This separation lets the guidance scale w cfg w_{\\mathrm{cfg}} serve as a single, interpretable knob that trades conditional concentration against utility, with no retraining. The remainder of this section details the two stages ( Sections 4.2 and 4.3 ) and the sampling procedure ( Section 4.3 )."
+      },
+      {
+        "id": "S4.SS2.SSS0.Px1",
+        "heading": "Architecture.",
+        "level": 3,
+        "text": "The Stage 1 model is a VQGAN ( Esser et al., 2021 ) adapted to mixed-type tabular data. The encoder E ϕ ​ ( x ¯ ) = z e ∈ ℝ n ⋅ d z E_{\\phi}(\\bar{x})=z_{e}\\in\\mathbb{R}^{n\\cdot d_{z}} is a fully-connected network producing n n pre-quantization latent tokens, each of dimension d z d_{z} . A learned codebook 𝒵 = { e k ∈ ℝ d z } k = 1 K \\mathcal{Z}=\\{e_{k}\\in\\mathbb{R}^{d_{z}}\\}_{k=1}^{K} quantizes each token by nearest-neighbor lookup, z q ( i ) = e k i ∗ , k i ∗ = arg ⁡ min k ∈ { 1 , … , K } ⁡ ‖ z e ( i ) − e k ‖ 2 2 . z_{q}^{(i)}=e_{k^{\\ast}_{i}},\\quad k^{\\ast}_{i}=\\arg\\min_{k\\in\\{1,\\ldots,K\\}}\\|z_{e}^{(i)}-e_{k}\\|_{2}^{2}. (3) The decoder G θ ​ ( z q , s ) = x ¯ ^ G_{\\theta}(z_{q},s)=\\hat{\\bar{x}} reconstructs the row from the quantized latents conditioned on the protected attribute s s , and a row-level discriminator D ξ D_{\\xi} distinguishes real and reconstructed rows. The encoder E ϕ E_{\\phi} does not receive s s as input."
+      },
+      {
+        "id": "S4.SS2.SSS0.Px2",
+        "heading": "Mixed-type reconstruction.",
+        "level": 3,
+        "text": "The decoder emits per-column heads: a scalar for each continuous column and a K j K_{j} -dimensional logit vector for each categorical column. The reconstruction loss combines mean-squared error on continuous columns with cross-entropy on categorical columns: ℒ recon = 1 d c ​ ∑ j ∈ 𝒞 cont MSE ⁡ ( x ^ j , x j ) + 1 d d ​ ∑ j ∈ 𝒞 cat CE ⁡ ( ℓ ^ j , x j ) , \\mathcal{L}_{\\mathrm{recon}}\\;=\\;\\frac{1}{d_{c}}\\sum_{j\\in\\mathcal{C}_{\\mathrm{cont}}}\\mathrm{MSE}(\\hat{x}_{j},x_{j})+\\frac{1}{d_{d}}\\sum_{j\\in\\mathcal{C}_{\\mathrm{cat}}}\\mathrm{CE}(\\hat{\\ell}_{j},x_{j}), (4) where ℓ ^ j ∈ ℝ K j \\hat{\\ell}_{j}\\in\\mathbb{R}^{K_{j}} are the predicted logits for column j j . This replaces the pure MSE-on-integer-codes formulation used in earlier tabular VAEs and substantially improves column-wise distribution fidelity."
+      },
+      {
+        "id": "S4.SS2.SSS0.Px3",
+        "heading": "Codebook and adversarial losses.",
+        "level": 3,
+        "text": "We use the standard VQ-VAE codebook and commitment losses ( van den Oord et al., 2017 ) : ℒ codebook \\displaystyle\\mathcal{L}_{\\mathrm{codebook}} = ‖ sg ⁡ [ z e ] − z q ‖ 2 2 , \\displaystyle=\\|\\mathrm{sg}[z_{e}]-z_{q}\\|_{2}^{2}, (5) ℒ commit \\displaystyle\\mathcal{L}_{\\mathrm{commit}} = ‖ z e − sg ⁡ [ z q ] ‖ 2 2 , \\displaystyle=\\|z_{e}-\\mathrm{sg}[z_{q}]\\|_{2}^{2}, (6) where sg ⁡ [ ⋅ ] \\mathrm{sg}[\\cdot] denotes the stop-gradient operator. Gradients through the quantization step are propagated by the straight-through estimator. The adversarial objective is the standard non-saturating GAN loss with the autoencoder ( E ϕ , G θ ) (E_{\\phi},G_{\\theta}) as generator and D ξ D_{\\xi} as discriminator."
+      },
+      {
+        "id": "S4.SS2.SSS0.Px4",
+        "heading": "Stage 1 objective.",
+        "level": 3,
+        "text": "The total generator-side loss is ℒ Stage1 gen = ℒ recon + ℒ codebook + β ​ ℒ commit + λ adv ​ ℒ GAN , \\mathcal{L}^{\\mathrm{gen}}_{\\mathrm{Stage1}}=\\mathcal{L}_{\\mathrm{recon}}+\\mathcal{L}_{\\mathrm{codebook}}+\\beta\\,\\mathcal{L}_{\\mathrm{commit}}+\\lambda_{\\mathrm{adv}}\\,\\mathcal{L}_{\\mathrm{GAN}}, (7) with β = 0.25 \\beta=0.25 following van den Oord et al. (2017) and λ adv = 0.1 \\lambda_{\\mathrm{adv}}=0.1 . The discriminator is updated with the standard adversarial objective, gated by a 60-epoch warm-up during which only the reconstructive losses are active. Stage 1 does not include any explicit fairness term."
+      },
+      {
+        "id": "S4.SS3.SSS0.Px1",
+        "heading": "Motivation.",
+        "level": 3,
+        "text": "A trained Stage 1 model produces a reconstruction x ¯ ^ VQ \\hat{\\bar{x}}_{\\mathrm{VQ}} for any row, but generation requires sampling the codebook. Rather than fitting an autoregressive prior over discrete codes ( van den Oord et al., 2017 ; Esser et al., 2021 ) , we adopt the DiffuseVAE ( Pandey et al., 2022 ) recipe, refining a Stage-1 reconstruction with a DDPM in input space and conditioning explicitly on the protected attribute s s . Fairness is then a property of the sampling distribution rather than an explicit loss term."
+      },
+      {
+        "id": "S4.SS3.SSS0.Px2",
+        "heading": "Input-space diffusion refiner.",
+        "level": 3,
+        "text": "We train a denoiser D ψ ​ ( x ¯ t , σ , x ¯ ^ VQ , s ) D_{\\psi}(\\bar{x}_{t},\\sigma;\\hat{\\bar{x}}_{\\mathrm{VQ}},s) directly on the one-hot input representation x ¯ ∈ ℝ D \\bar{x}\\in\\mathbb{R}^{D} , conditioned on the frozen Stage-1 reconstruction x ¯ ^ VQ = G θ ​ ( z q , s ) \\hat{\\bar{x}}_{\\mathrm{VQ}}=G_{\\theta}(z_{q},s) . The denoiser is trained under the EDM ( Karras et al., 2022 ) formulation: σ \\displaystyle\\sigma ∼ LogNormal ⁡ ( P mean , P std 2 ) , \\displaystyle\\sim\\mathrm{LogNormal}(P_{\\mathrm{mean}},P_{\\mathrm{std}}^{2}), (8) x ¯ t \\displaystyle\\bar{x}_{t} = x ¯ + σ ⋅ ϵ , ϵ ∼ 𝒩 ⁡ ( 0 , I ) , \\displaystyle=\\bar{x}+\\sigma\\cdot\\epsilon,\\quad\\epsilon\\sim\\mathcal{N}(0,I), (9) ℒ Stage2 \\displaystyle\\mathcal{L}_{\\mathrm{Stage2}} = 𝔼 ⁡ [ w ⁡ ( σ ) ​ ‖ D ψ ​ ( x ¯ t , σ , x ¯ ^ VQ , s ) − x ¯ ‖ 2 2 ] , \\displaystyle=\\mathbb{E}\\bigl[w(\\sigma)\\,\\|D_{\\psi}(\\bar{x}_{t},\\sigma;\\hat{\\bar{x}}_{\\mathrm{VQ}},s)-\\bar{x}\\|_{2}^{2}\\bigr], (10) with w ⁡ ( σ ) = ( σ 2 + σ data 2 ) / ( σ ​ σ data ) 2 w(\\sigma)=(\\sigma^{2}+\\sigma_{\\mathrm{data}}^{2})/(\\sigma\\sigma_{\\mathrm{data}})^{2} , P mean = − 1.2 P_{\\mathrm{mean}}=-1.2 , P std = 1.2 P_{\\mathrm{std}}=1.2 , σ data = 0.5 \\sigma_{\\mathrm{data}}=0.5 . This places FairDiffuseVQVAE in the family of DiffuseVAE-style input-space refiners ( Pandey et al., 2022 ) , distinct from latent-diffusion generators that denoise in a learned latent space ( Rombach et al., 2022 ; Zhang et al., 2024 ) . x ¯ ^ VQ \\hat{\\bar{x}}_{\\mathrm{VQ}} is concatenated to the denoiser’s input alongside the sinusoidal embedding of σ \\sigma , and s s is injected through a learned conditioning embedding. The denoiser D ψ D_{\\psi} is a 5-layer MLP with 512-dim hidden width."
+      },
+      {
+        "id": "S4.SS3.SSS0.Px3",
+        "heading": "Classifier-free guidance.",
+        "level": 3,
+        "text": "We train with classifier-free guidance ( Ho and Salimans, 2022 ) : with probability p cfg = 0.3 p_{\\mathrm{cfg}}=0.3 , s s is replaced by a learned null token during training. At sampling time, the conditional and unconditional predictions are combined as D ψ cfg ​ ( x ¯ t , σ , x ¯ ^ VQ , s ) = D ψ ∅ + w cfg ⋅ ( D ψ s − D ψ ∅ ) , D_{\\psi}^{\\mathrm{cfg}}(\\bar{x}_{t},\\sigma;\\hat{\\bar{x}}_{\\mathrm{VQ}},s)=D_{\\psi}^{\\varnothing}+w_{\\mathrm{cfg}}\\cdot(D_{\\psi}^{s}-D_{\\psi}^{\\varnothing}), (11) with guidance strength w cfg ≥ 1 w_{\\mathrm{cfg}}\\geq 1 . This single mechanism both enables conditional generation and provides a tunable fairness knob."
+      },
+      {
+        "id": "S4.SS3.SSS0.Px4",
+        "heading": "Sampling.",
+        "level": 3,
+        "text": "Generation proceeds in three steps: (i) draw s ∼ Bernoulli ⁡ ( 0.5 ) s\\sim\\mathrm{Bernoulli}(0.5) to enforce demographic-parity sampling; (ii) draw random codebook indices { k i } i = 1 n \\{k_{i}\\}_{i=1}^{n} uniformly and decode them to an initial guess x ¯ ^ VQ ( 0 ) = G θ ​ ( { e k i } , s ) \\hat{\\bar{x}}_{\\mathrm{VQ}}^{(0)}=G_{\\theta}(\\{e_{k_{i}}\\},s) ; (iii) refine via 50 steps of Heun’s second-order EDM sampler conditioned on ( x ¯ ^ VQ ( 0 ) , s ) (\\hat{\\bar{x}}_{\\mathrm{VQ}}^{(0)},s) . Categorical columns are recovered from the refined output by argmax over the per-column logit slices; continuous columns are inverse-standardised."
+      },
+      {
+        "id": "S4.SS3.SSS0.Px5",
+        "heading": "Why this enforces fairness.",
+        "level": 3,
+        "text": "At sampling time, s s is drawn from a uniform distribution rather than the (typically biased) data marginal. Because the denoiser is trained as p ⁡ ( x ¯ ∣ s ) p(\\bar{x}\\mid s) with classifier-free guidance dropout, the marginal synthetic distribution p synth ​ ( x ¯ , s ) = Unif ⁡ ( s ) ⋅ p ⁡ ( x ¯ ∣ s ) p_{\\mathrm{synth}}(\\bar{x},s)=\\mathrm{Unif}(s)\\cdot p(\\bar{x}\\mid s) satisfies demographic parity by construction: for any downstream binary predictor g g , the demographic-parity gap reduces to | 𝔼 p ( ⋅ | 0 ) [ g ] − 𝔼 p ( ⋅ | 1 ) [ g ] | |\\mathbb{E}_{p(\\cdot|0)}[g]-\\mathbb{E}_{p(\\cdot|1)}[g]| , which shrinks as the conditional distributions p ⁡ ( x ¯ ∣ s = 0 ) p(\\bar{x}\\mid s{=}0) and p ⁡ ( x ¯ ∣ s = 1 ) p(\\bar{x}\\mid s{=}1) are pulled closer together by the guidance mechanism. The guidance scale w cfg w_{\\mathrm{cfg}} trades off conditional concentration against utility preservation. We use w cfg = 1 w_{\\mathrm{cfg}}=1 throughout unless otherwise noted."
+      },
+      {
+        "id": "S5.SS1",
+        "heading": "5.1 Datasets",
+        "level": 2,
+        "text": "We evaluate FairDiffuseVQVAE on two complementary benchmarks: the six datasets used by TabSyn ( Zhang et al., 2024 ) for general tabular synthesis quality, and the three datasets used by fair-tab-diffusion ( Yang et al., 2025 ) for fair tabular synthesis. Three datasets (Adult, Default) overlap; the union is eight datasets covering ∼ \\sim 5,000 to ∼ \\sim 45,000 rows. Adult is the canonical UCI income-prediction dataset ( Becker and Kohavi, 1996 ) ; Default and Bank are UCI clinical and marketing datasets respectively; COMPAS is the ProPublica recidivism dataset ( Angwin et al., 2016 ) ; Shoppers, Magic, Beijing, and News follow the Zhang et al. (2024) benchmark protocol. For each dataset we use the 80/10/10 train/val/test split. Synthetic data is generated with the same number of rows as the training split. Continuous columns are standard-scaled; categorical columns are integer encoded by the data adapter and one-hot expanded internally before being passed to the encoder. For Bank, the age column is binarised at age < 25 <25 to match the binarisation used by Yang et al. (2025) ."
+      },
+      {
+        "id": "S5.SS2",
+        "heading": "5.2 Baselines",
+        "level": 2,
+        "text": "We compare against the union of baselines reported by both reference papers. From Zhang et al. (2024) : SMOTE , CTGAN , TVAE , GOGGLE , GReaT , STaSy , CoDi , TabDDPM , and TabSyn itself. From Yang et al. (2025) : in addition to the above, the fairness-aware FairCB (Fair Class Balancing) and FairTGAN (fair tabular GAN), as well as their FairTabDDPM contribution. We report all baseline numbers as published; our model is denoted Ours and is run with three random seeds for the fairness benchmark. Note that SMOTE and FairCB are resampling/interpolation techniques rather than deep generative models, and are reported for context alongside, rather than as directly comparable competitors to, the deep generative baselines."
+      },
+      {
+        "id": "S5.SS3",
+        "heading": "5.3 Metrics",
+        "level": 2,
+        "text": "We report six metrics, mirroring the Yang et al. (2025) evaluation protocol exactly: • Density error ↓ \\downarrow : 1 − shape score 1-\\text{shape score} from SDMetrics ( DataCebo, Inc., 2023 ) , the column-wise marginal similarity. • Pair-correlation error ↓ \\downarrow : 1 − trend score 1-\\text{trend score} from SDMetrics, the pairwise correlation similarity. • AUC ↑ \\uparrow : Train on Synthetic, Test on Real (TSTR) classifier accuracy. Following Yang et al. (2025) , we report the best of two classifiers (logistic regression and a 100-unit MLP). • DCR ( ∼ 0.5 \\sim 0.5 ): Distance to Closest Record ( Zhang et al., 2024 ) , the fraction of synthetic samples nearer to a training row than to a held-out test row. Values close to 0.5 0.5 indicate no memorization. • DPR ↑ \\uparrow : Demographic Parity Ratio ( Weerts et al., 2023 ) , min a ⁡ P ⁡ ( Y ^ = 1 ∣ A = a ) / max a ⁡ P ⁡ ( Y ^ = 1 ∣ A = a ) \\min_{a}P(\\hat{Y}=1\\mid A=a)/\\max_{a}P(\\hat{Y}=1\\mid A=a) . • EOR ↑ \\uparrow : Equalized Odds Ratio ( Weerts et al., 2023 ) , the smaller of the TPR and FPR ratios across sensitive groups. DPR and EOR are computed only on datasets with an annotated sensitive attribute (Adult, Bank, COMPAS); on the four TabSyn-only datasets (Shoppers, Magic, Beijing, News) we report quality, utility, and privacy metrics. We additionally report manifold precision/recall ( Sajjadi et al., 2018 ; Alaa et al., 2022 ; Kynkäänniemi et al., 2019 ) as a secondary fidelity check."
+      },
+      {
+        "id": "S5.SS4.SSS0.Px1",
+        "heading": "Stage 1.",
+        "level": 3,
+        "text": "Encoder/decoder hidden width 256, n = 8 n=8 tokens of d z = 32 d_{z}=32 each, codebook size K = 1024 K=1024 , batch size 256, 80 epochs with a 60-epoch GAN warm-up, Adam ( β 1 = 0.5 , β 2 = 0.9 ) (\\beta_{1}=0.5,\\beta_{2}=0.9) at lr 10 − 3 10^{-3} ."
+      },
+      {
+        "id": "S5.SS4.SSS0.Px2",
+        "heading": "Stage 2.",
+        "level": 3,
+        "text": "5-layer MLP denoiser of base width 512, EDM preconditioning with σ data = 0.5 \\sigma_{\\mathrm{data}}=0.5 , lognormal σ \\sigma -sampling at ( P mean , P std ) = ( − 1.2 , 1.2 ) (P_{\\mathrm{mean}},P_{\\mathrm{std}})=(-1.2,1.2) . Trained for up to 400 epochs with early stopping (patience 30 on a 10% validation split), batch size 256, classifier-free guidance dropout p cfg = 0.3 p_{\\mathrm{cfg}}=0.3 . Sampling uses 50 Heun steps with σ min = 0.002 \\sigma_{\\mathrm{min}}=0.002 , σ max = 80 \\sigma_{\\mathrm{max}}=80 , ρ = 7 \\rho=7 , guidance w cfg = 1 w_{\\mathrm{cfg}}=1 ."
+      },
+      {
+        "id": "S5.SS4.SSS0.Px3",
+        "heading": "Compute.",
+        "level": 3,
+        "text": "All models trained on a single Quadro RTX 5000. End-to-end training and sampling take ∼ \\sim 15–30 min per dataset, depending on size."
+      },
+      {
+        "id": "S6.SS1",
+        "heading": "6.1 Headline: Fair Tabular Synthesis Benchmark",
+        "level": 2,
+        "text": "Table 1 reports DPR and EOR on the Yang et al. (2025) fairness benchmark. FairDiffuseVQVAE achieves the highest mean DPR ( 0.702 0.702 ) and EOR ( 0.686 0.686 ) of all methods, surpassing the strongest fairness-aware baseline FairTabDDPM by + 𝟒𝟕 % \\mathbf{+47\\%} and + 𝟏𝟎𝟎 % \\mathbf{+100\\%} respectively. The gain is driven by Bank and COMPAS, where the demographic-parity sampling mechanism substantially decouples the protected attribute from the synthesised features. DPR ( ↑ \\uparrow ) EOR ( ↑ \\uparrow ) Method Adult Bank COMPAS Mean Adult Bank COMPAS Mean Real 0.309 0.402 0.675 0.462 0.193 0.367 0.645 0.402 CoDi 0.293 0.189 0.855 0.446 0.247 0.172 0.857 0.425 GReaT 0.249 0.572 0.624 0.482 0.155 0.380 0.543 0.359 SMOTE 0.321 0.405 0.648 0.458 0.254 0.381 0.589 0.408 STaSy 0.261 0.468 0.436 0.388 0.182 0.451 0.433 0.355 TabDDPM 0.261 0.337 0.558 0.385 0.156 0.334 0.540 0.343 TabSyn 0.281 0.336 0.697 0.438 0.178 0.317 0.664 0.386 FairCB 0.286 0.719 0.675 0.560 0.192 0.801 0.638 0.544 FairTGAN 0.554 0.338 0.448 0.447 0.697 0.158 0.392 0.416 FairTabDDPM 0.543 0.337 0.558 0.479 0.156 0.334 0.540 0.343 Ours 0.533 0.687 0.885 0.702 0.594 0.697 0.767 0.686 Table 1 : Demographic Parity Ratio (DPR) and Equalized Odds Ratio (EOR) on the Yang et al. (2025) benchmark. All values are means over three random seeds; standard deviations are reported in Table 4 . Ours achieves the highest mean on both metrics, + 𝟒𝟕 % \\mathbf{+47\\%} over FairTabDDPM on DPR and + 𝟏𝟎𝟎 % \\mathbf{+100\\%} on EOR."
+      },
+      {
+        "id": "S6.SS2",
+        "heading": "6.2 Quality and Utility on the Fairness Benchmark",
+        "level": 2,
+        "text": "Table 2 reports density / pair-correlation error and TSTR AUC on the same three datasets. FairDiffuseVQVAE achieves the lowest mean pair-correlation error ( 0.034 0.034 ) of all evaluated methods (improving on TabSyn’s 0.041 0.041 ), at the cost of higher density error ( 0.194 0.194 , vs. TabSyn 0.015 0.015 and FairTabDDPM 0.119 0.119 ) and reduced TSTR AUC ( 0.708 0.708 , vs. FairTabDDPM 0.852 0.852 ). This reflects an explicit utility–fairness trade-off : stronger fairness conditioning at sampling time decouples synthetic features from the protected attribute, which downstream classifiers cannot then exploit. Density ( ↓ \\downarrow ) Pair-corr ( ↓ \\downarrow ) AUC ( ↑ \\uparrow ) Method Adult Bank COMPAS Mean Adult Bank COMPAS Mean Adult Bank COMPAS Mean SMOTE 0.025 0.020 0.021 0.022 0.054 0.042 0.047 0.048 0.914 0.928 0.778 0.873 STaSy 0.102 0.182 0.108 0.131 0.163 0.221 0.138 0.174 0.885 0.895 0.728 0.836 TabDDPM 0.037 0.028 0.057 0.041 0.055 0.052 0.090 0.066 0.907 0.917 0.745 0.856 TabSyn 0.010 0.009 0.027 0.015 0.035 0.033 0.054 0.041 0.911 0.919 0.749 0.860 FairCB 0.076 0.066 0.039 0.060 0.125 0.111 0.074 0.103 0.915 0.907 0.771 0.864 FairTGAN 0.034 0.030 0.055 0.040 0.080 0.053 0.087 0.073 0.881 0.863 0.705 0.816 FairTabDDPM 0.126 0.121 0.109 0.119 0.201 0.174 0.174 0.183 0.893 0.917 0.745 0.852 Ours 0.174 0.228 0.180 0.194 0.016 0.044 0.042 0.034 0.826 0.689 0.609 0.708 Table 2 : Quality and utility on the fairness benchmark. Best value per column is bolded among the deep-generative baselines (SMOTE and FairCB are resampling-based rather than generative and are shown for reference, not counted toward the bolded best). Ours achieves the lowest mean pair-correlation error of any method, while trading off TSTR AUC in exchange for fairness ( Section 6.1 )."
+      },
+      {
+        "id": "S6.SS3",
+        "heading": "6.3 Privacy: Distance to Closest Record",
+        "level": 2,
+        "text": "Table 3 reports DCR scores. Values close to 0.5 0.5 are desired (no memorisation of training data). Adult and Bank show DCR within 12% and 8% of the ideal respectively, comparable to or better than FairTabDDPM. COMPAS is the exception: at ∼ \\sim 5,000 rows, the input-space denoiser partially memorises the training set, yielding DCR ≈ 0.81 \\approx 0.81 . We discuss this limitation in Section 8 . DCR ( ∼ 0.5 \\sim 0.5 ) Adult Bank COMPAS Mean CoDi 0.331 0.348 0.400 0.360 SMOTE 0.327 0.265 0.273 0.288 STaSy 0.344 0.345 0.362 0.350 TabDDPM 0.339 0.350 0.367 0.352 TabSyn 0.339 0.351 0.367 0.352 FairCB 0.054 0.031 0.012 0.032 FairTGAN 0.348 0.348 0.374 0.357 FairTabDDPM 0.344 0.350 0.370 0.355 Ours 0.357 0.538 0.812 0.569 Table 3 : Distance to Closest Record (DCR). FairCB exhibits severe memorisation across all three datasets. Ours is healthy on Adult, near-ideal on Bank, and elevated on COMPAS due to dataset size (see Section 8 )."
+      },
+      {
+        "id": "S6.SS4",
+        "heading": "6.4 Per-seed Variance",
+        "level": 2,
+        "text": "Table 4 reports per-dataset means and standard deviations across three seeds for the fairness benchmark. The variance on DPR and EOR is higher than typical published baselines ( σ DPR ≈ 0.14 \\sigma_{\\mathrm{DPR}}\\approx 0.14 – 0.24 0.24 vs. ∼ 0.005 \\sim 0.005 – 0.07 0.07 for the published methods). We attribute this to the interaction between classifier-free-guidance dropout, the early-stopping checkpoint, and the two-stage architecture, and discuss mitigation in Section 8 . shape ↑ \\uparrow trend ↑ \\uparrow AUC ↑ \\uparrow DPR ↑ \\uparrow EOR ↑ \\uparrow DCR ( ∼ 0.5 \\sim 0.5 ) mean std mean std mean std mean std mean std mean std Adult 0.826 0.012 0.984 0.001 0.826 0.044 0.533 0.142 0.594 0.187 0.357 0.082 Bank 0.772 0.029 0.956 0.002 0.689 0.144 0.687 0.236 0.697 0.207 0.538 0.069 COMPAS 0.820 0.008 0.958 0.004 0.609 0.052 0.885 0.114 0.767 0.131 0.812 0.054 Table 4 : FairDiffuseVQVAE per-dataset mean and standard deviation across three random seeds on the fairness benchmark. Best classifier per metric (LR vs. MLP) is selected per seed."
+      },
+      {
+        "id": "S7.SS0.SSS0.Px1",
+        "heading": "When does sampling-time fairness work?",
+        "level": 3,
+        "text": "Our results suggest that sampling-time fairness via CFG is most effective on datasets where the protected attribute exerts a strong marginal influence on the target (Adult: real DPR 0.31 0.31 ; COMPAS: 0.68 0.68 ). On Bank, where binarising age at 25 produces a tiny minority class ( ∼ 3 % \\sim 3\\% ), our method still doubles the fairness improvement over FairTabDDPM (DPR + 103 % +103\\% , EOR + 108 % +108\\% ) but at a larger AUC cost. This is consistent with the intuition that demographic-parity sampling decouples the protected attribute from features that are class-imbalance-correlated; when class imbalance is extreme, the conditional model must extrapolate, harming utility."
+      },
+      {
+        "id": "S7.SS0.SSS0.Px2",
+        "heading": "The two-stage decomposition pays off.",
+        "level": 3,
+        "text": "Comparing to FairTabDDPM, which trains a single DDPM with an explicit fairness penalty, we attain dramatically better fairness numbers without sacrificing pair-wise correlation fidelity (lowest of any method). We attribute this to the architectural separation: Stage 1 is free to optimise pure reconstruction (yielding fidelity), while Stage 2 is free to push samples toward the conditional manifold (yielding fairness). The two losses do not compete during training."
+      },
+      {
+        "id": "S7.SS0.SSS0.Px3",
+        "heading": "The utility-fairness trade-off is explicit.",
+        "level": 3,
+        "text": "Our mean TSTR AUC ( 0.708 0.708 ) is roughly 15 15 points below the highest per-column AUC values recorded among the deep generative baselines in Table 2 (TabSyn 0.860 0.860 , TabDDPM 0.856 0.856 ); the gap widens further ( ∼ \\sim 17 17 points) relative to SMOTE ( 0.873 0.873 ), the resampling baseline that best preserves the real correlation between features and the protected attribute (and, correspondingly, offers no fairness guarantee). This is the price of demographic parity in the synthetic distribution: a downstream classifier trained on synthetic data where features are conditionally independent of A A cannot exploit the bias that gives high AUC on real data. We argue this is the correct behaviour for fairness-aware synthesis; practitioners who want both fairness and downstream accuracy must combine our method with an in-processing fair-classifier algorithm."
+      },
+      {
+        "id": "S7.SS0.SSS0.Px4",
+        "heading": "Comparison to causally-grounded methods (DECAF).",
+        "level": 3,
+        "text": "DECAF ( van Breugel et al., 2021 ) achieves fairness via causal-graph edits with theoretical justification, but requires the causal DAG to be specified or estimated, and its fairness depends on this specification being correct. Our approach is purely empirical—no causal assumptions, no DAG to specify—but offers no theoretical guarantee. We view the two as complementary: where a reliable causal graph exists, DECAF’s guarantees are valuable; where it does not, our method provides a practical alternative with strong empirical results."
+      },
+      {
+        "id": "S8.SS0.SSS0.Px1",
+        "heading": "Seed sensitivity.",
+        "level": 3,
+        "text": "DPR and EOR exhibit higher seed-to-seed variance ( σ ∈ [ 0.11 , 0.24 ] \\sigma\\in[0.11,0.24] , Table 4 ) than published fairness-aware baselines ( σ ≈ 0.005 \\sigma\\approx 0.005 – 0.07 0.07 ). We mitigate with three-seed averaging; tighter early stopping or an ensemble-of-denoisers ( Karras et al., 2024 ) would likely reduce this further. Single-seed reporting risks landing at substantially different points along the fairness-utility frontier."
+      },
+      {
+        "id": "S8.SS0.SSS0.Px2",
+        "heading": "Dataset-size-driven memorization.",
+        "level": 3,
+        "text": "On COMPAS ( ∼ \\sim 5,000 train rows), the input-space denoiser partially memorises the training set, yielding DCR ≈ 0.81 \\approx 0.81 vs. the ideal 0.5 0.5 . We tried more aggressive regularisation (smaller denoiser, higher CFG dropout) but those changes traded off fairness for DCR. Adult and Bank, both larger, exhibit DCR within 12 % 12\\% and 8 % 8\\% of ideal respectively. Latent-space diffusion (à la Rombach et al., 2022 ) may be the right architectural choice for small tabular datasets and is left to future work."
+      },
+      {
+        "id": "S8.SS0.SSS0.Px3",
+        "heading": "Utility cost.",
+        "level": 3,
+        "text": "Mean TSTR AUC is ∼ 15 \\sim 15 points below the highest per-column AUC values among the deep-generative baselines ( Section 6.2 ). This is the explicit utility cost of demographic-parity sampling and is consistent with the trade-off reported by other fairness-aware tabular methods."
+      },
+      {
+        "id": "S8.SS0.SSS0.Px4",
+        "heading": "Binary sensitive attributes.",
+        "level": 3,
+        "text": "Our experiments use binary sex/age-group as sensitive attributes, matching the Yang et al. (2025) benchmark. Extending to multi-valued protected attributes (e.g. race) is straightforward via multi-class classifier-free guidance, but we have not evaluated this."
+      },
+      {
+        "id": "S8.SS0.SSS0.Px5",
+        "heading": "No theoretical guarantee.",
+        "level": 3,
+        "text": "Unlike DECAF ( van Breugel et al., 2021 ) , our fairness is not provable from first principles—it is an empirical property of the sampling distribution under uniform s s . Counterexamples may exist where conditional dependencies cause the sampling-time mechanism to fail; we did not observe this in practice on the datasets evaluated."
+      },
+      {
+        "id": "S9",
+        "heading": "9 Broader Impact",
+        "level": 1,
+        "text": "Synthetic tabular data has dual-use potential. Positive uses include sharing data across organisational boundaries without exposing individuals, training models on under-represented populations through augmentation, and—directly relevant to this work—producing training data that downstream classifiers cannot easily use to discriminate. Healthcare applications are an important motivating case ( Bhanot et al., 2021 ; Vallevik et al., 2024 ) . Negative uses include generating realistic-looking records to evade detection, masking the presence of bias in a downstream pipeline (a model trained on debiased synthetic data may appear fair while operating in a biased world), and the false sense of privacy that elevated DCR scores expose ( Section 8 , COMPAS). Wyllie et al. (2024) demonstrate an additional risk: fairness feedback loops , where models trained on synthetic data generated by previous-generation generators amplify bias over time. Practitioners must be aware that the protected-attribute coverage we report is a property of a single sampling round; recursively training on our synthesised data without periodic re-grounding in real data may exhibit drift. We caution that fairness metrics computed on a downstream classifier trained on our synthetic data measure the classifier’s fairness on the original test distribution—not the fairness of any decisions made about real individuals using a model trained on our synthetic data. A synthetic dataset that produces a fairer classifier may still embed representational harms via column-level distributional choices that DPR and EOR do not capture. We strongly recommend that practitioners combine our method with qualitative fairness audits, classifier-side fairness interventions ( Bellamy et al., 2019 ; Weerts et al., 2023 ) , and broader fairness frameworks ( Verma and Rubin, 2018 ; Dwork et al., 2012 ; Hardt et al., 2016 ) , rather than treating synthetic data as a stand-alone fairness solution. We release source code under a permissive licence and provide reproducible pipelines for all benchmarks reported. We do not release trained model checkpoints, both to avoid the risk of users unintentionally reusing synthetic data with embedded biases and to encourage retraining with locally appropriate data."
+      },
+      {
+        "id": "S10",
+        "heading": "10 Conclusion",
+        "level": 1,
+        "text": "We presented FairDiffuseVQVAE, a two-stage tabular synthesis architecture in which fairness is enforced at sampling time via classifier-free guidance over the protected attribute, rather than via explicit penalty terms during training. Empirically, the architecture attains the highest demographic parity ratio ( 0.702 0.702 mean, + 47 % +47\\% over FairTabDDPM) and equalized odds ratio ( 0.686 0.686 , + 100 % +100\\% ) of any method evaluated on the Yang et al. (2025) benchmark, alongside the lowest mean pair-wise correlation error ( 0.034 0.034 ) of any method on the same set of datasets. The utility-fairness trade-off is explicit and quantified at approximately 15 15 AUC points. We hope the architectural decoupling of fidelity from fairness opens up further work on sampling-time control of generative behaviour."
+      },
+      {
+        "id": "S10.SS0.SSS0.Px1",
+        "heading": "Reproducibility.",
+        "level": 3,
+        "text": "Source code, preprocessing scripts, and the eight-dataset evaluation pipeline are integrated into the TabSyn repository. All experiments were conducted on a single NVIDIA Quadro RTX 5000 GPU. Detailed hyperparameters are reported in Section 5.4 . Experiments use seeds { 42,123,456 } \\{42,123,456\\} ."
+      },
+      {
+        "id": "bib",
+        "heading": "References",
+        "level": 1,
+        "text": "Abroshan et al. (2024) Mahed Abroshan, Andrew Elliott, and Mohammad Mahdi Khalili. Imposing fairness constraints in synthetic data generation. In Proceedings of the 27th International Conference on Artificial Intelligence and Statistics (AISTATS) , volume 238 of PMLR , 2024. Agarwal et al. (2018) Alekh Agarwal, Alina Beygelzimer, Miroslav Dudík, John Langford, and Hanna Wallach. A reductions approach to fair classification. In Proceedings of the 35th International Conference on Machine Learning (ICML) , 2018. arXiv:1803.02453. Alaa et al. (2022) Ahmed M. Alaa, Boris van Breugel, Evgeny S. Saveliev, and Mihaela van der Schaar. How faithful is your synthetic data? sample-level metrics for evaluating and auditing generative models. In Proceedings of the 39th International Conference on Machine Learning (ICML) , pages 290–306, 2022. arXiv:2102.08921. Angwin et al. (2016) Julia Angwin, Jeff Larson, Surya Mattu, and Lauren Kirchner. Machine bias: There’s software used across the country to predict future criminals. and it’s biased against blacks, 2016. ProPublica, May 23, 2016. Austin et al. (2021) Jacob Austin, Daniel D. Johnson, Jonathan Ho, Daniel Tarlow, and Rianne van den Berg. Structured denoising diffusion models in discrete state-spaces. In Advances in Neural Information Processing Systems (NeurIPS) , volume 34, 2021. arXiv:2107.03006. Becker and Kohavi (1996) Barry Becker and Ronny Kohavi. Adult (census income) data set, 1996. UCI Machine Learning Repository. Bellamy et al. (2019) Rachel K. E. Bellamy, Kuntal Dey, Michael Hind, Samuel C. Hoffman, Stephanie Houde, Kalapriya Kannan, Pranay Lohia, Jacquelyn Martino, Sameep Mehta, Aleksandra Mojsilović, Seema Nagar, Karthikeyan Natesan Ramamurthy, John Richards, Diptikalyan Saha, Prasanna Sattigeri, Moninder Singh, Kush R. Varshney, and Yunfeng Zhang. AI fairness 360: An extensible toolkit for detecting and mitigating algorithmic bias. IBM Journal of Research and Development , 63(4/5):4:1–4:15, 2019. arXiv:1810.01943. Bengio et al. (2013) Yoshua Bengio, Nicholas Léonard, and Aaron Courville. Estimating or propagating gradients through stochastic neurons for conditional computation. arXiv preprint arXiv:1308.3432 , 2013. Bhanot et al. (2021) Karan Bhanot, Miao Qi, John S. Erickson, Isabelle Guyon, and Kristin P. Bennett. The problem of fairness in synthetic healthcare data. Entropy , 23(9):1165, 2021. Borisov et al. (2022) Vadim Borisov, Tobias Leemann, Kathrin Seßler, Johannes Haug, Martin Pawelczyk, and Gjergji Kasneci. Deep neural networks and tabular data: A survey. IEEE Transactions on Neural Networks and Learning Systems , 2022. arXiv:2110.01889. Borisov et al. (2023) Vadim Borisov, Kathrin Seßler, Tobias Leemann, Martin Pawelczyk, and Gjergji Kasneci. Language models are realistic tabular data generators. In Proceedings of the 11th International Conference on Learning Representations (ICLR) , 2023. arXiv:2210.06280. Introduces GReaT. Caton and Haas (2024) Simon Caton and Christian Haas. Fairness in machine learning: A survey. ACM Computing Surveys , 56(7):1–38, 2024. Article 166, arXiv:2010.04053. Chiappa (2019) Silvia Chiappa. Path-specific counterfactual fairness. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 33, pages 7801–7808, 2019. Creager et al. (2019) Elliot Creager, David Madras, Jörn-Henrik Jacobsen, Marissa A. Weis, Kevin Swersky, Toniann Pitassi, and Richard Zemel. Flexibly fair representation learning by disentanglement. In Proceedings of the 36th International Conference on Machine Learning (ICML) , 2019. arXiv:1906.02589. DataCebo, Inc. (2023) DataCebo, Inc. SDMetrics: Metrics for evaluating synthetic tabular data, 2023. Open-source Python library, Synthetic Data Vault (SDV) project, MIT Data to AI Lab. Dwork et al. (2012) Cynthia Dwork, Moritz Hardt, Toniann Pitassi, Omer Reingold, and Richard Zemel. Fairness through awareness. In Proceedings of the 3rd Innovations in Theoretical Computer Science Conference (ITCS) , pages 214–226, 2012. Esser et al. (2021) Patrick Esser, Robin Rombach, and Björn Ommer. Taming transformers for high-resolution image synthesis. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 2021. arXiv:2012.09841. Goodfellow et al. (2014) Ian Goodfellow, Jean Pouget-Abadie, Mehdi Mirza, Bing Xu, David Warde-Farley, Sherjil Ozair, Aaron Courville, and Yoshua Bengio. Generative adversarial nets. In Advances in Neural Information Processing Systems (NeurIPS) , volume 27, 2014. Gretton et al. (2012) Arthur Gretton, Karsten M. Borgwardt, Malte J. Rasch, Bernhard Schölkopf, and Alexander Smola. A kernel two-sample test. Journal of Machine Learning Research , 13(1):723–773, 2012. Hardt et al. (2016) Moritz Hardt, Eric Price, and Nathan Srebro. Equality of opportunity in supervised learning. In Advances in Neural Information Processing Systems (NeurIPS) , volume 29, 2016. arXiv:1610.02413. Ho and Salimans (2022) Jonathan Ho and Tim Salimans. Classifier-free diffusion guidance. arXiv preprint arXiv:2207.12598 , 2022. Ho et al. (2020) Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffusion probabilistic models. In Advances in Neural Information Processing Systems (NeurIPS) , volume 33, 2020. arXiv:2006.11239. Jordon et al. (2019) James Jordon, Jinsung Yoon, and Mihaela van der Schaar. PATE-GAN: Generating synthetic data with differential privacy guarantees. In Proceedings of the 7th International Conference on Learning Representations (ICLR) , 2019. Jordon et al. (2022) James Jordon, Lukasz Szpruch, Florimond Houssiau, Mirko Bottarelli, Giovanni Cherubin, Carsten Maple, Samuel N. Cohen, and Adrian Weller. Synthetic data – what, why and how? arXiv preprint arXiv:2205.03257 , 2022. Karras et al. (2022) Tero Karras, Miika Aittala, Timo Aila, and Samuli Laine. Elucidating the design space of diffusion-based generative models. In Advances in Neural Information Processing Systems (NeurIPS) , volume 35, 2022. arXiv:2206.00364. Karras et al. (2024) Tero Karras, Miika Aittala, Jaakko Lehtinen, Janne Hellsten, Timo Aila, and Samuli Laine. Analyzing and improving the training dynamics of diffusion models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 2024. arXiv:2312.02696. Introduces EDM2. Kim et al. (2023) Jayoung Kim, Chaejeong Lee, and Noseong Park. STaSy: Score-based tabular data synthesis. In Proceedings of the 11th International Conference on Learning Representations (ICLR) , 2023. arXiv:2210.04018. Kingma and Welling (2014) Diederik P. Kingma and Max Welling. Auto-encoding variational bayes. In Proceedings of the 2nd International Conference on Learning Representations (ICLR) , 2014. arXiv:1312.6114. Kotelnikov et al. (2023) Akim Kotelnikov, Dmitry Baranchuk, Ivan Rubachev, and Artem Babenko. TabDDPM: Modelling tabular data with diffusion models. In Proceedings of the 40th International Conference on Machine Learning (ICML) , 2023. arXiv:2209.15421. Kusner et al. (2017) Matt J. Kusner, Joshua Loftus, Chris Russell, and Ricardo Silva. Counterfactual fairness. In Advances in Neural Information Processing Systems (NeurIPS) , volume 30, 2017. arXiv:1703.06856. Kynkäänniemi et al. (2019) Tuomas Kynkäänniemi, Tero Karras, Samuli Laine, Jaakko Lehtinen, and Timo Aila. Improved precision and recall metric for assessing generative models. In Advances in Neural Information Processing Systems (NeurIPS) , volume 32, 2019. arXiv:1904.06991. Le Quy et al. (2022) Tai Le Quy, Arjun Roy, Vasileios Iosifidis, Wenbin Zhang, and Eirini Ntoutsi. A survey on datasets for fairness-aware machine learning. WIREs Data Mining and Knowledge Discovery , 12(3), 2022. arXiv:2110.00530. Lee et al. (2023) Chaejeong Lee, Jayoung Kim, and Noseong Park. CoDi: Co-evolving contrastive diffusion models for mixed-type tabular synthesis. In Proceedings of the 40th International Conference on Machine Learning (ICML) , 2023. arXiv:2304.12654. Liu et al. (2023) Tennison Liu, Zhaozhi Qian, Jeroen Berrevoets, and Mihaela van der Schaar. GOGGLE: Generative modelling for tabular data by learning relational structure. In Proceedings of the 11th International Conference on Learning Representations (ICLR) , 2023. Louizos et al. (2016) Christos Louizos, Kevin Swersky, Yujia Li, Max Welling, and Richard Zemel. The variational fair autoencoder. In Proceedings of the 4th International Conference on Learning Representations (ICLR) , 2016. arXiv:1511.00830. Madras et al. (2018) David Madras, Elliot Creager, Toniann Pitassi, and Richard Zemel. Learning adversarially fair and transferable representations. In Proceedings of the 35th International Conference on Machine Learning (ICML) , 2018. arXiv:1802.06309. Panagiotou et al. (2025) Emmanouil Panagiotou, Benoît Ronval, Arjun Roy, Ludwig Bothmann, Bernd Bischl, Siegfried Nijssen, and Eirini Ntoutsi. TabFairGDT: A fast fair tabular data generator using autoregressive decision trees. In Proceedings of the IEEE International Conference on Data Mining (ICDM) , 2025. arXiv:2509.19927. Pandey et al. (2022) Kushagra Pandey, Avideep Mukherjee, Piyush Rai, and Abhishek Kumar. DiffuseVAE: Efficient, controllable and high-fidelity generation from low-dimensional latents. Transactions on Machine Learning Research (TMLR) , 2022. arXiv:2201.00308. Plečko and Bareinboim (2024) Drago Plečko and Elias Bareinboim. Causal fairness analysis: A causal toolkit for fair machine learning. Foundations and Trends in Machine Learning , 17(3):304–589, 2024. arXiv:2207.11385. Rajabi and Garibay (2022) Amirarsalan Rajabi and Ozlem Ozmen Garibay. TabFairGAN: Fair tabular data generation with generative adversarial networks. Machine Learning and Knowledge Extraction , 4(2):488–501, 2022. arXiv:2109.00666. Rezende et al. (2014) Danilo Jimenez Rezende, Shakir Mohamed, and Daan Wierstra. Stochastic backpropagation and approximate inference in deep generative models. In Proceedings of the 31st International Conference on Machine Learning (ICML) , 2014. arXiv:1401.4082. Rombach et al. (2022) Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Björn Ommer. High-resolution image synthesis with latent diffusion models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 2022. arXiv:2112.10752. Sajjadi et al. (2018) Mehdi S. M. Sajjadi, Olivier Bachem, Mario Lucic, Olivier Bousquet, and Sylvain Gelly. Assessing generative models via precision and recall. In Advances in Neural Information Processing Systems (NeurIPS) , volume 31, 2018. arXiv:1806.00035. Vallevik et al. (2024) Vegard Antun Vallevik, Aleksandar Babic, Serena E. Marshall, Severin Elvatun, Helga Mønsted Brødersen, Sharmini Alagaratnam, Bjorn Edwin, and Narasimha Raghavan Veeraragavan. Can i trust my fake data – a comprehensive quality assessment framework for synthetic tabular data in healthcare. International Journal of Medical Informatics , 185:105413, 2024. arXiv:2401.13716. van Breugel et al. (2021) Boris van Breugel, Trent Kyono, Jeroen Berrevoets, and Mihaela van der Schaar. DECAF: Generating fair synthetic data using causally-aware generative networks. In Advances in Neural Information Processing Systems (NeurIPS) , volume 34, 2021. arXiv:2110.12884. van den Oord et al. (2017) Aaron van den Oord, Oriol Vinyals, and Koray Kavukcuoglu. Neural discrete representation learning. In Advances in Neural Information Processing Systems (NeurIPS) , volume 30, 2017. arXiv:1711.00937. Verma and Rubin (2018) Sahil Verma and Julia Rubin. Fairness definitions explained. In Proceedings of the International Workshop on Software Fairness (FairWare) , pages 1–7, 2018. Vero et al. (2024) Mark Vero, Mislav Balunović, and Martin Vechev. CuTS: Customizable tabular synthetic data generation. In Proceedings of the 41st International Conference on Machine Learning (ICML) , volume 235 of PMLR , 2024. arXiv:2307.03577. Wan et al. (2023) Mingyang Wan, Daochen Zha, Ninghao Liu, and Na Zou. In-processing modeling techniques for machine learning fairness: A survey. ACM Transactions on Knowledge Discovery from Data , 17(3), 2023. arXiv:2111.03015. Weerts et al. (2023) Hilde Weerts, Miroslav Dudík, Richard Edgar, Adrin Jalali, Roman Lutz, and Michael Madaio. Fairlearn: Assessing and improving fairness of AI systems. Journal of Machine Learning Research , 24(257):1–8, 2023. arXiv:2303.16626. Wyllie et al. (2024) Sierra Wyllie, Ilia Shumailov, and Nicolas Papernot. Fairness feedback loops: Training on synthetic data amplifies bias. In Proceedings of the 2024 ACM Conference on Fairness, Accountability, and Transparency (FAccT) , 2024. arXiv:2403.07857. Xu et al. (2018) Depeng Xu, Shuhan Yuan, Lu Zhang, and Xintao Wu. FairGAN: Fairness-aware generative adversarial networks. In Proceedings of the 2018 IEEE International Conference on Big Data (Big Data) , 2018. arXiv:1805.11202. Xu et al. (2019) Lei Xu, Maria Skoularidou, Alfredo Cuesta-Infante, and Kalyan Veeramachaneni. Modeling tabular data using conditional GAN. In Advances in Neural Information Processing Systems (NeurIPS) , volume 32, 2019. arXiv:1907.00503. Introduces CTGAN and TVAE. Yang et al. (2025) Zeyu Yang, Han Yu, Peikun Guo, Khadija Zanna, Xiaoxue Yang, and Akane Sano. Balanced mixed-type tabular data synthesis with diffusion models. Transactions on Machine Learning Research , 2025. arXiv:2404.08254. Zhang et al. (2024) Hengrui Zhang, Jiani Zhang, Balasubramaniam Srinivasan, Zhengyuan Shen, Xiao Qin, Christos Faloutsos, Huzefa Rangwala, and George Karypis. Mixed-type tabular data synthesis with score-based diffusion in latent space. In Proceedings of the 12th International Conference on Learning Representations (ICLR) , 2024. arXiv:2310.09656. Zhang et al. (2018) Richard Zhang, Phillip Isola, Alexei A. Efros, Eli Shechtman, and Oliver Wang. The unreasonable effectiveness of deep features as a perceptual metric. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR) , 2018. arXiv:1801.03924. Zhao et al. (2023) Zilong Zhao, Aditya Kunar, Robert Birke, and Lydia Y. Chen. CTAB-GAN+: Enhancing tabular data synthesis. Frontiers in Big Data , 6, 2023. arXiv:2204.00401."
+      }
+    ]
+  },
+  "text": "FairDiffuseVQVAE: Sampling-Time Fairness in Tabular Diffusion via Conditional Refinement of Vector-Quantized Latents Skip to main content Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: Why HTML? Report Issue Back to Abstract Download PDF Contents Reading mode Colour theme License: CC BY 4.0 arXiv:2607.28945v1 [cs.LG] 31 Jul 2026 FairDiffuseVQVAE: Sampling-Time Fairness in Tabular Diffusion via Conditional Refinement of Vector-Quantized Latents Nitish Nagesh Affiliation: University of California, Irvine Mahdi Bagheri Affiliation: University of California, Irvine Amir M. Rahmani Affiliation: University of California, Irvine Abstract Synthetic tabular data is increasingly used in privacy-preserving data sharing, data augmentation, and to mitigate downstream classifier bias. State-of-the-art tabular diffusion models such as TabDDPM and TabSyn achieve excellent distributional fidelity but offer no mechanism for fairness; conversely, fairness-aware tabular generators (DECAF, FairTGAN, FairTabDDPM) impose explicit fairness penalties at training time, yielding modest fairness gains at substantial cost to either sample quality or downstream utility. We introduce FairDiffuseVQVAE , a two-stage architecture that decouples fidelity from fairness: a vector-quantized autoencoder with a row-level discriminator (Stage 1, no fairness terms) is followed by a DiffuseVAE-style continuous diffusion refiner that conditions on both the Stage-1 reconstruction and the protected attribute via classifier-free guidance (Stage 2). Fairness emerges as a property of the sampling distribution —uniform sampling of the protected attribute at inference time enforces demographic parity by construction—rather than from competing loss terms. On the Yang et al. (2025) benchmark (Adult, Bank, COMPAS), FairDiffuseVQVAE achieves the highest mean Demographic Parity Ratio ( 0.702 0.702 , + 47 % +47\\% over FairTabDDPM) and Equalized Odds Ratio ( 0.686 0.686 , + 100 % +100\\% ). It also attains the lowest mean pair-wise correlation error ( 0.034 0.034 ) of any published method, while explicitly trading ∼ \\sim 15 15 AUC points for these fairness gains. 1 Introduction Tabular data is the dominant modality in healthcare, finance, social science, and public policy ( Borisov et al., 2022 ) . Releasing such data is constrained by privacy regulations (HIPAA, GDPR) ( Jordon et al., 2022 ) , by the difficulty of obtaining representative samples for under-represented populations, and—most critically—by the bias these datasets often encode. A loan approval dataset that historically over-represents one demographic group will train a downstream model that perpetuates that bias, even if the model itself is unbiased ( Caton and Haas, 2024 ; Plečko and Bareinboim, 2024 ) . Synthetic tabular data generation promises to address all three issues simultaneously: produce realistic samples that obey privacy constraints, expand support across under-represented groups, and reduce downstream classifier bias. Recent diffusion models for tabular data have closed most of the quality gap to real data. TabDDPM ( Kotelnikov et al., 2023 ) adapts denoising diffusion to mixed-type tabular features, and TabSyn ( Zhang et al., 2024 ) pushes this further by performing diffusion in the latent space of a learned VAE, achieving sub-1% column-wise density error. However, none of these methods offer any guarantee on the fairness of the generated data: the synthetic distribution inherits whatever statistical bias the training data contained. A complementary line of work explicitly targets fair tabular synthesis. DECAF ( van Breugel et al., 2021 ) introduces causally-aware fairness edits to a GAN; FairTGAN and FairTabDDPM ( Yang et al., 2025 ) add fairness penalty terms to a tabular GAN/DDPM respectively. These methods improve fairness metrics but typically at the cost of sample quality (FairTabDDPM density error 0.119 0.119 vs TabSyn’s 0.015 0.015 ) or downstream utility—a tension we observe sharpens when the underlying generative architecture is forced to balance reconstruction with adversarial or auxiliary losses. Our perspective. We argue that the fairness mechanism should not compete with reconstruction during training. Instead, fairness can be enforced at sampling time if the generative model is conditioned on the protected attribute. By drawing the protected attribute from a uniform distribution at sampling time, the marginal synthetic distribution satisfies demographic parity by construction; classifier-free guidance ( Ho and Salimans, 2022 ) provides a tunable knob to control how strongly samples concentrate on the conditional manifold. To make this practical for tabular data, we couple a vector-quantized autoencoder (Stage 1) with a continuous diffusion refiner (Stage 2) trained in input space and conditioned on (i) the Stage-1 reconstruction and (ii) the protected attribute. The Stage-1 model is trained without any fairness term; all fairness regularization is deferred to the conditional structure of Stage 2. Contributions. • We introduce FairDiffuseVQVAE , a two-stage architecture that combines a VQGAN-style autoencoder ( Esser et al., 2021 ; van den Oord et al., 2017 ) with a DiffuseVAE-style ( Pandey et al., 2022 ) input-space diffusion refiner. The fairness mechanism is sampling-time classifier-free guidance over the protected attribute; no explicit fairness loss term is required. • We demonstrate that this design beats fairness-specific baselines by large margins on the Yang et al. (2025) benchmark: mean Demographic Parity Ratio of 0.702 0.702 ( + 47 % +47\\% over FairTabDDPM) and mean Equalized Odds Ratio of 0.686 0.686 ( + 100 % +100\\% ). • We also show that the same architecture attains the lowest mean pair-wise column correlation error ( 0.034 0.034 ) of any published method, beating TabSyn ( 0.041 0.041 ); the utility-fairness trade-off costs roughly 15 15 AUC points relative to the strongest baselines. • We provide a reproducible pipeline integrated into the TabSyn repository, supporting all eight datasets used across ( Zhang et al., 2024 ; Yang et al., 2025 ) and reporting density, pair-correlation, AUC, DCR, DPR, and EOR consistently. 2 Background 2.1 Vector Quantization and the VQGAN A vector-quantized variational autoencoder (VQ-VAE, van den Oord et al., 2017 ), built on the variational autoencoder foundation ( Kingma and Welling, 2014 ; Rezende et al., 2014 ) , augments a standard autoencoder with a discrete codebook 𝒵 = { e k } k = 1 K \\mathcal{Z}=\\{e_{k}\\}_{k=1}^{K} of learned embedding vectors. The encoder output z e z_{e} is replaced by its nearest codebook entry z q z_{q} , and gradients propagate through the quantization step via the straight-through estimator ( Bengio et al., 2013 ) . The codebook plus a commitment loss ( β ​ ‖ z e − sg ⁡ [ z q ] ‖ 2 \\beta\\|z_{e}-\\mathrm{sg}[z_{q}]\\|^{2} ) regularize the latent space. VQGAN ( Esser et al., 2021 ) extends VQ-VAE with a perceptual loss ( Zhang et al., 2018 ) and a patch-level discriminator ( Goodfellow et al., 2014 ) , producing high-fidelity image reconstructions that admit downstream generative modelling (typically by an autoregressive prior over codebook indices). 2.2 Diffusion Models and EDM Denoising diffusion probabilistic models (DDPMs, Ho et al., 2020 ) generate samples by reversing a Markov chain that gradually adds Gaussian noise. We adopt the Karras et al. (2022) (EDM) formulation, which expresses the forward process by a continuous noise level σ \\sigma drawn from a log-normal distribution and trains a denoiser D θ D_{\\theta} with the weighted MSE objective 𝔼 σ , ϵ , x ​ [ w ⁡ ( σ ) ​ ‖ D θ ​ ( x + σ ​ ϵ , σ ) − x ‖ 2 ] \\mathbb{E}_{\\sigma,\\epsilon,x}\\big[w(\\sigma)\\|D_{\\theta}(x+\\sigma\\epsilon,\\sigma)-x\\|^{2}\\big] , where w ⁡ ( σ ) = ( σ 2 + σ data 2 ) / ( σ ​ σ data ) 2 w(\\sigma)=(\\sigma^{2}+\\sigma_{\\mathrm{data}}^{2})/(\\sigma\\sigma_{\\mathrm{data}})^{2} . EDM samplers (Heun) require fewer function evaluations than vanilla DDPM at comparable sample quality. Latent diffusion models (LDM, Rombach et al., 2022 ) compose a VAE with an EDM/DDPM in the latent space; DiffuseVAE ( Pandey et al., 2022 ) composes them differently—a DDPM in input space conditioned on the VAE’s reconstruction. 2.3 Classifier-Free Guidance Classifier-free guidance (CFG, Ho and Salimans, 2022 ) trains a single denoiser jointly on conditional and unconditional examples (by stochastically dropping the conditioning signal during training), then at sampling time interpolates the two predictions: D ^ cfg = D ∅ + w ⁡ ( D c − D ∅ ) \\hat{D}^{\\mathrm{cfg}}=D^{\\varnothing}+w(D^{c}-D^{\\varnothing}) . For w > 1 w>1 , samples are pushed further into the conditional manifold; for w = 1 w=1 , behaviour matches standard conditional sampling. 2.4 Fairness Metrics Following Yang et al. (2025) , who follow Agarwal et al. (2018) ; Hardt et al. (2016) , we use Demographic Parity Ratio (DPR) and Equalized Odds Ratio (EOR) , both in [ 0 , 1 ] [0,1] with 1 1 denoting perfect parity. Let Y ^ \\hat{Y} be a downstream classifier trained on synthetic data and evaluated on real data with sensitive attribute A A : DPR \\displaystyle\\mathrm{DPR} = min a ⁡ Pr ⁡ ( Y ^ = 1 ∣ A = a ) max a ⁡ Pr ⁡ ( Y ^ = 1 ∣ A = a ) , \\displaystyle=\\frac{\\min_{a}\\Pr(\\hat{Y}=1\\mid A=a)}{\\max_{a}\\Pr(\\hat{Y}=1\\mid A=a)}, (1) EOR \\displaystyle\\mathrm{EOR} = min ⁡ ( min a ⁡ TPR a max a ⁡ TPR a , min a ⁡ FPR a max a ⁡ FPR a ) . \\displaystyle=\\min\\left(\\frac{\\min_{a}\\mathrm{TPR}_{a}}{\\max_{a}\\mathrm{TPR}_{a}},\\,\\frac{\\min_{a}\\mathrm{FPR}_{a}}{\\max_{a}\\mathrm{FPR}_{a}}\\right). (2) DPR captures equal allocation; EOR captures equal performance. 3 Related Work Tabular data synthesis. Early work used GANs (CTGAN and TVAE, Xu et al., 2019 ; CTAB-GAN+, Zhao et al., 2023 ) and copula methods. More recent diffusion-based methods include TabDDPM ( Kotelnikov et al., 2023 ) , which applies categorical and Gaussian diffusion in input space; STaSy ( Kim et al., 2023 ) , which uses score-based generative modelling; CoDi ( Lee et al., 2023 ) , which contrasts sub-tables; and TabSyn ( Zhang et al., 2024 ) , which performs EDM diffusion in the latent space of a learned tabular VAE and is the current state of the art on column-wise density estimation. GReaT ( Borisov et al., 2023 ) treats tabular rows as text and fine-tunes a language model; GOGGLE ( Liu et al., 2023 ) learns a graph structure over columns. None of these methods address fairness explicitly. Fairness in tabular synthesis. Early fair tabular GANs include FairGAN ( Xu et al., 2018 ) and TabFairGAN ( Rajabi and Garibay, 2022 ) , which add adversarial fairness losses to a tabular GAN. DECAF ( van Breugel et al., 2021 ) fits a causal DAG over the columns and re-weights or removes edges to enforce one of three fairness notions (Fairness Through Unawareness, Demographic Parity, Counterfactual Fairness) at sampling time. Abroshan et al. (2024) impose post-hoc fairness constraints on synthetic data via re-sampling, and CuTS ( Vero et al., 2024 ) learns a customisable bias-aware tabular generator. TabFairGDT ( Panagiotou et al., 2025 ) uses autoregressive decision trees for fast fair generation. FairTGAN and FairTabDDPM ( Yang et al., 2025 ) —the closest prior work to ours—add fairness penalties to a tabular GAN and a tabular DDPM respectively, achieving moderate fairness improvements at the cost of density-estimation quality ( Table 2 ). Our work differs in three important ways: (i) we use a two-stage architecture where the autoencoder is trained without any fairness term, isolating fidelity from fairness; (ii) we enforce fairness at sampling time via classifier-free guidance, providing a tunable knob rather than a fixed penalty; (iii) we operate the diffusion refiner in input space conditioned on the Stage-1 reconstruction, following the DiffuseVAE recipe ( Pandey et al., 2022 ) but with a quantized autoencoder. As Section 6 shows, this combination beats all published baselines on DPR and EOR. Generative fairness more broadly. The Variational Fair Autoencoder ( Louizos et al., 2016 ) pioneered information-theoretic fairness via Maximum Mean Discrepancy ( Gretton et al., 2012 ) on the latent space. Many follow-ups ( Madras et al., 2018 ; Creager et al., 2019 ) use adversarial debiasing or disentanglement-style losses. Beyond representation-level approaches, the broader fair-ML landscape is surveyed by Caton and Haas (2024) and Wan et al. (2023) ; Plečko and Bareinboim (2024) provide a causal-inference perspective; and Le Quy et al. (2022) catalogue fairness datasets. Path-specific counterfactual fairness ( Chiappa, 2019 ) and the broader counterfactual framework ( Kusner et al., 2017 ) provide alternative formalisms. We initially explored an in-training fairness direction (MMD on z e z_{e} plus a correlation penalty on the decoder output) but found it consistently traded off quality for negligible fairness gains in our two-stage setting; the conditional-sampling mechanism we adopt here was both simpler and more effective. Discrete diffusion as an alternative. An alternative to our quantize-then-refine approach is to perform diffusion directly in a discrete state space. D3PM ( Austin et al., 2021 ) extends DDPM with categorical transition kernels; TabDDPM ( Kotelnikov et al., 2023 ) uses a related multinomial-diffusion process for the categorical columns of tabular data. We chose continuous diffusion in the rich (one-hot) representation followed by argmax decoding for two reasons: (i) it admits the standard EDM toolkit unchanged, including classifier-free guidance; (ii) Stage 1’s autoencoder already learns a smooth latent geometry that the diffusion refiner can condition on in input space. Vector-quantized generative models. Beyond images, VQ-VAEs have been applied widely; the closest tabular precedents combine VQ with downstream generative priors. To our knowledge, this is the first application of VQGAN-style vector quantization combined with input-space DiffuseVAE refinement ( Pandey et al., 2022 ) to fair tabular synthesis. Evaluation methodology. We follow established sample-quality protocols: column-shape and column-pair-trend scores from SDMetrics ( DataCebo, Inc., 2023 ) , manifold precision/recall at the sample level ( Sajjadi et al., 2018 ; Alaa et al., 2022 ) , and the TSTR (train on synthetic, test on real) protocol popularized by PATE-GAN ( Jordon et al., 2019 ) . 4 Method: FairDiffuseVQVAE x ¯ \\bar{x} Encoder E ϕ E_{\\phi} z e z_{e} VQ z q z_{q} Decoder G θ G_{\\theta} x ¯ ^ VQ \\hat{\\bar{x}}_{\\mathrm{VQ}} Codebook 𝒵 \\mathcal{Z} { e k } k = 1 K \\{e_{k}\\}_{k=1}^{K} protected s s Discriminator D ξ D_{\\xi} ℒ recon \\mathcal{L}_{\\mathrm{recon}} (MSE + CE) ℒ codebook , ℒ commit \\mathcal{L}_{\\mathrm{codebook}},\\;\\mathcal{L}_{\\mathrm{commit}} ℒ GAN \\mathcal{L}_{\\mathrm{GAN}} nearest-nb. lookup condition fake real x ¯ \\bar{x} ( E ϕ E_{\\phi} does not see s s ) x ¯ \\bar{x} + + x ¯ t \\bar{x}_{t} Conditional denoiser D ψ D_{\\psi} 5-layer MLP, 512-d, EDM x ¯ ^ \\hat{\\bar{x}} σ ∼ LogNormal ⁡ ( P mean , P std 2 ) \\sigma\\sim\\mathrm{LogNormal}(P_{\\mathrm{mean}},P_{\\mathrm{std}}^{2}) s s / ∅ \\varnothing ℒ Stage2 \\mathcal{L}_{\\mathrm{Stage2}} x ¯ + σ ​ ϵ \\bar{x}+\\sigma\\epsilon ϵ ∼ 𝒩 ⁡ ( 0 , I ) \\epsilon\\sim\\mathcal{N}(0,I) σ \\sigma classifier-free guidance drop s s w.p. p cfg = 0.3 p_{\\mathrm{cfg}}{=}0.3 x ¯ ^ VQ \\hat{\\bar{x}}_{\\mathrm{VQ}} : frozen Stage-1 reconstruction (conditioning input) Draw s ∼ Bernoulli ⁡ ( 0.5 ) s\\sim\\mathrm{Bernoulli}(0.5) (uniform protected attr.) Draw random codes { k i } i = 1 n ∼ Unif \\{k_{i}\\}_{i=1}^{n}\\sim\\mathrm{Unif} Decode G θ ​ ( { e k i } , s ) G_{\\theta}(\\{e_{k_{i}}\\},s) = x ¯ ^ VQ ( 0 ) =\\hat{\\bar{x}}_{\\mathrm{VQ}}^{(0)} Heun EDM refiner 50 steps, CFG w cfg w_{\\mathrm{cfg}} Synthetic row ( x ¯ , s ) (\\bar{x},s) demographic parity s s also conditions the refiner Stage 1 — Fair Vector-Quantized Autoencoder Stage 2 — Fair Refinement via Conditional Input-Space Diffusion Sampling — Demographic-Parity Generation Figure 1 : Overview of FairDiffuseVQVAE . A two-stage architecture for fair mixed-type tabular synthesis. Stage 1 trains a vector-quantized autoencoder: an encoder E ϕ E_{\\phi} maps a row x ¯ \\bar{x} to latent tokens z e z_{e} , which are quantized against a learned codebook 𝒵 \\mathcal{Z} and decoded by G θ G_{\\theta} into a reconstruction x ¯ ^ VQ \\hat{\\bar{x}}_{\\mathrm{VQ}} , with a row-level discriminator D ξ D_{\\xi} providing an adversarial signal. The decoder is conditioned on the protected attribute s s while the encoder is not, and Stage 1 carries no explicit fairness term. Stage 2 trains a conditional EDM denoiser D ψ D_{\\psi} that refines the (frozen) Stage-1 reconstruction in input space: x ¯ \\bar{x} is perturbed to x ¯ t \\bar{x}_{t} at noise scale σ \\sigma , and D ψ D_{\\psi} is conditioned on x ¯ ^ VQ \\hat{\\bar{x}}_{\\mathrm{VQ}} , on σ \\sigma , and on s s with classifier-free-guidance dropout ( p cfg p_{\\mathrm{cfg}} ). Sampling draws s ∼ Bernoulli ⁡ ( 0.5 ) s\\sim\\mathrm{Bernoulli}(0.5) , decodes random codebook indices into an initial guess, and refines it with a 50-step Heun EDM sampler. Because s s is drawn uniformly while D ψ D_{\\psi} models p ⁡ ( x ¯ ∣ s ) p(\\bar{x}\\mid s) , the synthetic distribution satisfies demographic parity by construction. Dashed teal arrows denote conditioning on s s ; red italic labels mark training losses. We propose FairDiffuseVQVAE , a two-stage tabular synthesis architecture that combines a vector-quantized autoencoder with a conditional denoising diffusion refiner. Fairness is enforced not by adding penalty terms during training, but as a property of the conditional generative process at sampling time, via classifier-free guidance over the protected attribute. 4.1 Notation and Setup Let x ∈ ℝ d c × { 0 , 1 } d d x\\in\\mathbb{R}^{d_{c}}\\times\\{0,1\\}^{d_{d}} denote a mixed-type tabular row with d c d_{c} continuous and d d d_{d} categorical features, s ∈ { 0 , 1 } s\\in\\{0,1\\} the binary protected attribute, and y ∈ { 0 , 1 } y\\in\\{0,1\\} the outcome label. Categorical columns are encoded one-hot; we write x ¯ ∈ ℝ D \\bar{x}\\in\\mathbb{R}^{D} for the resulting concatenated representation of dimension D = d c + ∑ j K j D=d_{c}+\\sum_{j}K_{j} where K j K_{j} is the cardinality of the j j -th categorical column. Overview. Figure 1 summarizes FairDiffuseVQVAE . The central design choice is to decouple fidelity from fairness : Stage 1 is responsible only for learning a faithful, compact representation of mixed-type rows, while Stage 2 and the sampling procedure are responsible for fairness. Neither stage optimizes a fairness penalty during training. Instead, fairness emerges at sampling time—the diffusion refiner is trained as a conditional model p ⁡ ( x ¯ ∣ s ) p(\\bar{x}\\mid s) with classifier-free guidance, so drawing s s from a uniform prior rather than the (typically biased) data marginal yields a synthetic joint p synth ​ ( x ¯ , s ) = Unif ⁡ ( s ) ​ p ​ ( x ¯ ∣ s ) p_{\\mathrm{synth}}(\\bar{x},s)=\\mathrm{Unif}(s)\\,p(\\bar{x}\\mid s) that satisfies demographic parity by construction. This separation lets the guidance scale w cfg w_{\\mathrm{cfg}} serve as a single, interpretable knob that trades conditional concentration against utility, with no retraining. The remainder of this section details the two stages ( Sections 4.2 and 4.3 ) and the sampling procedure ( Section 4.3 ). 4.2 Stage 1: Fair Vector-Quantized Autoencoder Architecture. The Stage 1 model is a VQGAN ( Esser et al., 2021 ) adapted to mixed-type tabular data. The encoder E ϕ ​ ( x ¯ ) = z e ∈ ℝ n ⋅ d z E_{\\phi}(\\bar{x})=z_{e}\\in\\mathbb{R}^{n\\cdot d_{z}} is a fully-connected network producing n n pre-quantization latent tokens, each of dimension d z d_{z} . A learned codebook 𝒵 = { e k ∈ ℝ d z } k = 1 K \\mathcal{Z}=\\{e_{k}\\in\\mathbb{R}^{d_{z}}\\}_{k=1}^{K} quantizes each token by nearest-neighbor lookup, z q ( i ) = e k i ∗ , k i ∗ = arg ⁡ min k ∈ { 1 , … , K } ⁡ ‖ z e ( i ) − e k ‖ 2 2 . z_{q}^{(i)}=e_{k^{\\ast}_{i}},\\quad k^{\\ast}_{i}=\\arg\\min_{k\\in\\{1,\\ldots,K\\}}\\|z_{e}^{(i)}-e_{k}\\|_{2}^{2}. (3) The decoder G θ ​ ( z q , s ) = x ¯ ^ G_{\\theta}(z_{q},s)=\\hat{\\bar{x}} reconstructs the row from the quantized latents conditioned on the protected attribute s s , and a row-level discriminator D ξ D_{\\xi} distinguishes real and reconstructed rows. The encoder E ϕ E_{\\phi} does not receive s s as input. Mixed-type reconstruction. The decoder emits per-column heads: a scalar for each continuous column and a K j K_{j} -dimensional logit vector for each categorical column. The reconstruction loss combines mean-squared error on continuous columns with cross-entropy on categorical columns: ℒ recon = 1 d c ​ ∑ j ∈ 𝒞 cont MSE ⁡ ( x ^ j , x j ) + 1 d d ​ ∑ j ∈ 𝒞 cat CE ⁡ ( ℓ ^ j , x j ) , \\mathcal{L}_{\\mathrm{recon}}\\;=\\;\\frac{1}{d_{c}}\\sum_{j\\in\\mathcal{C}_{\\mathrm{cont}}}\\mathrm{MSE}(\\hat{x}_{j},x_{j})+\\frac{1}{d_{d}}\\sum_{j\\in\\mathcal{C}_{\\mathrm{cat}}}\\mathrm{CE}(\\hat{\\ell}_{j},x_{j}), (4) where ℓ ^ j ∈ ℝ K j \\hat{\\ell}_{j}\\in\\mathbb{R}^{K_{j}} are the predicted logits for column j j . This replaces the pure MSE-on-integer-codes formulation used in earlier tabular VAEs and substantially improves column-wise distribution fidelity. Codebook and adversarial losses. We use the standard VQ-VAE codebook and commitment losses ( van den Oord et al., 2017 ) : ℒ codebook \\displaystyle\\mathcal{L}_{\\mathrm{codebook}} = ‖ sg ⁡ [ z e ] − z q ‖ 2 2 , \\displaystyle=\\|\\mathrm{sg}[z_{e}]-z_{q}\\|_{2}^{2}, (5) ℒ commit \\displaystyle\\mathcal{L}_{\\mathrm{commit}} = ‖ z e − sg ⁡ [ z q ] ‖ 2 2 , \\displaystyle=\\|z_{e}-\\mathrm{sg}[z_{q}]\\|_{2}^{2}, (6) where sg ⁡ [ ⋅ ] \\mathrm{sg}[\\cdot] denotes the stop-gradient operator. Gradients through the quantization step are propagated by the straight-through estimator. The adversarial objective is the standard non-saturating GAN loss with the autoencoder ( E ϕ , G θ ) (E_{\\phi},G_{\\theta}) as generator and D ξ D_{\\xi} as discriminator. Stage 1 objective. The total generator-side loss is ℒ Stage1 gen = ℒ recon + ℒ codebook + β ​ ℒ commit + λ adv ​ ℒ GAN , \\mathcal{L}^{\\mathrm{gen}}_{\\mathrm{Stage1}}=\\mathcal{L}_{\\mathrm{recon}}+\\mathcal{L}_{\\mathrm{codebook}}+\\beta\\,\\mathcal{L}_{\\mathrm{commit}}+\\lambda_{\\mathrm{adv}}\\,\\mathcal{L}_{\\mathrm{GAN}}, (7) with β = 0.25 \\beta=0.25 following van den Oord et al. (2017) and λ adv = 0.1 \\lambda_{\\mathrm{adv}}=0.1 . The discriminator is updated with the standard adversarial objective, gated by a 60-epoch warm-up during which only the reconstructive losses are active. Stage 1 does not include any explicit fairness term. 4.3 Stage 2: Fair Refinement via Conditional Input-Space Diffusion Motivation. A trained Stage 1 model produces a reconstruction x ¯ ^ VQ \\hat{\\bar{x}}_{\\mathrm{VQ}} for any row, but generation requires sampling the codebook. Rather than fitting an autoregressive prior over discrete codes ( van den Oord et al., 2017 ; Esser et al., 2021 ) , we adopt the DiffuseVAE ( Pandey et al., 2022 ) recipe, refining a Stage-1 reconstruction with a DDPM in input space and conditioning explicitly on the protected attribute s s . Fairness is then a property of the sampling distribution rather than an explicit loss term. Input-space diffusion refiner. We train a denoiser D ψ ​ ( x ¯ t , σ , x ¯ ^ VQ , s ) D_{\\psi}(\\bar{x}_{t},\\sigma;\\hat{\\bar{x}}_{\\mathrm{VQ}},s) directly on the one-hot input representation x ¯ ∈ ℝ D \\bar{x}\\in\\mathbb{R}^{D} , conditioned on the frozen Stage-1 reconstruction x ¯ ^ VQ = G θ ​ ( z q , s ) \\hat{\\bar{x}}_{\\mathrm{VQ}}=G_{\\theta}(z_{q},s) . The denoiser is trained under the EDM ( Karras et al., 2022 ) formulation: σ \\displaystyle\\sigma ∼ LogNormal ⁡ ( P mean , P std 2 ) , \\displaystyle\\sim\\mathrm{LogNormal}(P_{\\mathrm{mean}},P_{\\mathrm{std}}^{2}), (8) x ¯ t \\displaystyle\\bar{x}_{t} = x ¯ + σ ⋅ ϵ , ϵ ∼ 𝒩 ⁡ ( 0 , I ) , \\displaystyle=\\bar{x}+\\sigma\\cdot\\epsilon,\\quad\\epsilon\\sim\\mathcal{N}(0,I), (9) ℒ Stage2 \\displaystyle\\mathcal{L}_{\\mathrm{Stage2}} = 𝔼 ⁡ [ w ⁡ ( σ ) ​ ‖ D ψ ​ ( x ¯ t , σ , x ¯ ^ VQ , s ) − x ¯ ‖ 2 2 ] , \\displaystyle=\\mathbb{E}\\bigl[w(\\sigma)\\,\\|D_{\\psi}(\\bar{x}_{t},\\sigma;\\hat{\\bar{x}}_{\\mathrm{VQ}},s)-\\bar{x}\\|_{2}^{2}\\bigr], (10) with w ⁡ ( σ ) = ( σ 2 + σ data 2 ) / ( σ ​ σ data ) 2 w(\\sigma)=(\\sigma^{2}+\\sigma_{\\mathrm{data}}^{2})/(\\sigma\\sigma_{\\mathrm{data}})^{2} , P mean = − 1.2 P_{\\mathrm{mean}}=-1.2 , P std = 1.2 P_{\\mathrm{std}}=1.2 , σ data = 0.5 \\sigma_{\\mathrm{data}}=0.5 . This places FairDiffuseVQVAE in the family of DiffuseVAE-style input-space refiners ( Pandey et al., 2022 ) , distinct from latent-diffusion generators that denoise in a learned latent space ( Rombach et al., 2022 ; Zhang et al., 2024 ) . x ¯ ^ VQ \\hat{\\bar{x}}_{\\mathrm{VQ}} is concatenated to the denoiser’s input alongside the sinusoidal embedding of σ \\sigma , and s s is injected through a learned conditioning embedding. The denoiser D ψ D_{\\psi} is a 5-layer MLP with 512-dim hidden width. Classifier-free guidance. We train with classifier-free guidance ( Ho and Salimans, 2022 ) : with probability p cfg = 0.3 p_{\\mathrm{cfg}}=0.3 , s s is replaced by a learned null token during training. At sampling time, the conditional and unconditional predictions are combined as D ψ cfg ​ ( x ¯ t , σ , x ¯ ^ VQ , s ) = D ψ ∅ + w cfg ⋅ ( D ψ s − D ψ ∅ ) , D_{\\psi}^{\\mathrm{cfg}}(\\bar{x}_{t},\\sigma;\\hat{\\bar{x}}_{\\mathrm{VQ}},s)=D_{\\psi}^{\\varnothing}+w_{\\mathrm{cfg}}\\cdot(D_{\\psi}^{s}-D_{\\psi}^{\\varnothing}), (11) with guidance strength w cfg ≥ 1 w_{\\mathrm{cfg}}\\geq 1 . This single mechanism both enables conditional generation and provides a tunable fairness knob. Sampling. Generation proceeds in three steps: (i) draw s ∼ Bernoulli ⁡ ( 0.5 ) s\\sim\\mathrm{Bernoulli}(0.5) to enforce demographic-parity sampling; (ii) draw random codebook indices { k i } i = 1 n \\{k_{i}\\}_{i=1}^{n} uniformly and decode them to an initial guess x ¯ ^ VQ ( 0 ) = G θ ​ ( { e k i } , s ) \\hat{\\bar{x}}_{\\mathrm{VQ}}^{(0)}=G_{\\theta}(\\{e_{k_{i}}\\},s) ; (iii) refine via 50 steps of Heun’s second-order EDM sampler conditioned on ( x ¯ ^ VQ ( 0 ) , s ) (\\hat{\\bar{x}}_{\\mathrm{VQ}}^{(0)},s) . Categorical columns are recovered from the refined output by argmax over the per-column logit slices; continuous columns are inverse-standardised. Why this enforces fairness. At sampling time, s s is drawn from a uniform distribution rather than the (typically biased) data marginal. Because the denoiser is trained as p ⁡ ( x ¯ ∣ s ) p(\\bar{x}\\mid s) with classifier-free guidance dropout, the marginal synthetic distribution p synth ​ ( x ¯ , s ) = Unif ⁡ ( s ) ⋅ p ⁡ ( x ¯ ∣ s ) p_{\\mathrm{synth}}(\\bar{x},s)=\\mathrm{Unif}(s)\\cdot p(\\bar{x}\\mid s) satisfies demographic parity by construction: for any downstream binary predictor g g , the demographic-parity gap reduces to | 𝔼 p ( ⋅ | 0 ) [ g ] − 𝔼 p ( ⋅ | 1 ) [ g ] | |\\mathbb{E}_{p(\\cdot|0)}[g]-\\mathbb{E}_{p(\\cdot|1)}[g]| , which shrinks as the conditional distributions p ⁡ ( x ¯ ∣ s = 0 ) p(\\bar{x}\\mid s{=}0) and p ⁡ ( x ¯ ∣ s = 1 ) p(\\bar{x}\\mid s{=}1) are pulled closer together by the guidance mechanism. The guidance scale w cfg w_{\\mathrm{cfg}} trades off conditional concentration against utility preservation. We use w cfg = 1 w_{\\mathrm{cfg}}=1 throughout unless otherwise noted. 5 Experiments 5.1 Datasets We evaluate FairDiffuseVQVAE on two complementary benchmarks: the six datasets used by TabSyn ( Zhang et al., 2024 ) for general tabular synthesis quality, and the three datasets used by fair-tab-diffusion ( Yang et al., 2025 ) for fair tabular synthesis. Three datasets (Adult, Default) overlap; the union is eight datasets covering ∼ \\sim 5,000 to ∼ \\sim 45,000 rows. Adult is the canonical UCI income-prediction dataset ( Becker and Kohavi, 1996 ) ; Default and Bank are UCI clinical and marketing datasets respectively; COMPAS is the ProPublica recidivism dataset ( Angwin et al., 2016 ) ; Shoppers, Magic, Beijing, and News follow the Zhang et al. (2024) benchmark protocol. For each dataset we use the 80/10/10 train/val/test split. Synthetic data is generated with the same number of rows as the training split. Continuous columns are standard-scaled; categorical columns are integer encoded by the data adapter and one-hot expanded internally before being passed to the encoder. For Bank, the age column is binarised at age < 25 <25 to match the binarisation used by Yang et al. (2025) . 5.2 Baselines We compare against the union of baselines reported by both reference papers. From Zhang et al. (2024) : SMOTE , CTGAN , TVAE , GOGGLE , GReaT , STaSy , CoDi , TabDDPM , and TabSyn itself. From Yang et al. (2025) : in addition to the above, the fairness-aware FairCB (Fair Class Balancing) and FairTGAN (fair tabular GAN), as well as their FairTabDDPM contribution. We report all baseline numbers as published; our model is denoted Ours and is run with three random seeds for the fairness benchmark. Note that SMOTE and FairCB are resampling/interpolation techniques rather than deep generative models, and are reported for context alongside, rather than as directly comparable competitors to, the deep generative baselines. 5.3 Metrics We report six metrics, mirroring the Yang et al. (2025) evaluation protocol exactly: • Density error ↓ \\downarrow : 1 − shape score 1-\\text{shape score} from SDMetrics ( DataCebo, Inc., 2023 ) , the column-wise marginal similarity. • Pair-correlation error ↓ \\downarrow : 1 − trend score 1-\\text{trend score} from SDMetrics, the pairwise correlation similarity. • AUC ↑ \\uparrow : Train on Synthetic, Test on Real (TSTR) classifier accuracy. Following Yang et al. (2025) , we report the best of two classifiers (logistic regression and a 100-unit MLP). • DCR ( ∼ 0.5 \\sim 0.5 ): Distance to Closest Record ( Zhang et al., 2024 ) , the fraction of synthetic samples nearer to a training row than to a held-out test row. Values close to 0.5 0.5 indicate no memorization. • DPR ↑ \\uparrow : Demographic Parity Ratio ( Weerts et al., 2023 ) , min a ⁡ P ⁡ ( Y ^ = 1 ∣ A = a ) / max a ⁡ P ⁡ ( Y ^ = 1 ∣ A = a ) \\min_{a}P(\\hat{Y}=1\\mid A=a)/\\max_{a}P(\\hat{Y}=1\\mid A=a) . • EOR ↑ \\uparrow : Equalized Odds Ratio ( Weerts et al., 2023 ) , the smaller of the TPR and FPR ratios across sensitive groups. DPR and EOR are computed only on datasets with an annotated sensitive attribute (Adult, Bank, COMPAS); on the four TabSyn-only datasets (Shoppers, Magic, Beijing, News) we report quality, utility, and privacy metrics. We additionally report manifold precision/recall ( Sajjadi et al., 2018 ; Alaa et al., 2022 ; Kynkäänniemi et al., 2019 ) as a secondary fidelity check. 5.4 Implementation Details Stage 1. Encoder/decoder hidden width 256, n = 8 n=8 tokens of d z = 32 d_{z}=32 each, codebook size K = 1024 K=1024 , batch size 256, 80 epochs with a 60-epoch GAN warm-up, Adam ( β 1 = 0.5 , β 2 = 0.9 ) (\\beta_{1}=0.5,\\beta_{2}=0.9) at lr 10 − 3 10^{-3} . Stage 2. 5-layer MLP denoiser of base width 512, EDM preconditioning with σ data = 0.5 \\sigma_{\\mathrm{data}}=0.5 , lognormal σ \\sigma -sampling at ( P mean , P std ) = ( − 1.2 , 1.2 ) (P_{\\mathrm{mean}},P_{\\mathrm{std}})=(-1.2,1.2) . Trained for up to 400 epochs with early stopping (patience 30 on a 10% validation split), batch size 256, classifier-free guidance dropout p cfg = 0.3 p_{\\mathrm{cfg}}=0.3 . Sampling uses 50 Heun steps with σ min = 0.002 \\sigma_{\\mathrm{min}}=0.002 , σ max = 80 \\sigma_{\\mathrm{max}}=80 , ρ = 7 \\rho=7 , guidance w cfg = 1 w_{\\mathrm{cfg}}=1 . Compute. All models trained on a single Quadro RTX 5000. End-to-end training and sampling take ∼ \\sim 15–30 min per dataset, depending on size. 6 Results 6.1 Headline: Fair Tabular Synthesis Benchmark Table 1 reports DPR and EOR on the Yang et al. (2025) fairness benchmark. FairDiffuseVQVAE achieves the highest mean DPR ( 0.702 0.702 ) and EOR ( 0.686 0.686 ) of all methods, surpassing the strongest fairness-aware baseline FairTabDDPM by + 𝟒𝟕 % \\mathbf{+47\\%} and + 𝟏𝟎𝟎 % \\mathbf{+100\\%} respectively. The gain is driven by Bank and COMPAS, where the demographic-parity sampling mechanism substantially decouples the protected attribute from the synthesised features. DPR ( ↑ \\uparrow ) EOR ( ↑ \\uparrow ) Method Adult Bank COMPAS Mean Adult Bank COMPAS Mean Real 0.309 0.402 0.675 0.462 0.193 0.367 0.645 0.402 CoDi 0.293 0.189 0.855 0.446 0.247 0.172 0.857 0.425 GReaT 0.249 0.572 0.624 0.482 0.155 0.380 0.543 0.359 SMOTE 0.321 0.405 0.648 0.458 0.254 0.381 0.589 0.408 STaSy 0.261 0.468 0.436 0.388 0.182 0.451 0.433 0.355 TabDDPM 0.261 0.337 0.558 0.385 0.156 0.334 0.540 0.343 TabSyn 0.281 0.336 0.697 0.438 0.178 0.317 0.664 0.386 FairCB 0.286 0.719 0.675 0.560 0.192 0.801 0.638 0.544 FairTGAN 0.554 0.338 0.448 0.447 0.697 0.158 0.392 0.416 FairTabDDPM 0.543 0.337 0.558 0.479 0.156 0.334 0.540 0.343 Ours 0.533 0.687 0.885 0.702 0.594 0.697 0.767 0.686 Table 1 : Demographic Parity Ratio (DPR) and Equalized Odds Ratio (EOR) on the Yang et al. (2025) benchmark. All values are means over three random seeds; standard deviations are reported in Table 4 . Ours achieves the highest mean on both metrics, + 𝟒𝟕 % \\mathbf{+47\\%} over FairTabDDPM on DPR and + 𝟏𝟎𝟎 % \\mathbf{+100\\%} on EOR. 6.2 Quality and Utility on the Fairness Benchmark Table 2 reports density / pair-correlation error and TSTR AUC on the same three datasets. FairDiffuseVQVAE achieves the lowest mean pair-correlation error ( 0.034 0.034 ) of all evaluated methods (improving on TabSyn’s 0.041 0.041 ), at the cost of higher density error ( 0.194 0.194 , vs. TabSyn 0.015 0.015 and FairTabDDPM 0.119 0.119 ) and reduced TSTR AUC ( 0.708 0.708 , vs. FairTabDDPM 0.852 0.852 ). This reflects an explicit utility–fairness trade-off : stronger fairness conditioning at sampling time decouples synthetic features from the protected attribute, which downstream classifiers cannot then exploit. Density ( ↓ \\downarrow ) Pair-corr ( ↓ \\downarrow ) AUC ( ↑ \\uparrow ) Method Adult Bank COMPAS Mean Adult Bank COMPAS Mean Adult Bank COMPAS Mean SMOTE 0.025 0.020 0.021 0.022 0.054 0.042 0.047 0.048 0.914 0.928 0.778 0.873 STaSy 0.102 0.182 0.108 0.131 0.163 0.221 0.138 0.174 0.885 0.895 0.728 0.836 TabDDPM 0.037 0.028 0.057 0.041 0.055 0.052 0.090 0.066 0.907 0.917 0.745 0.856 TabSyn 0.010 0.009 0.027 0.015 0.035 0.033 0.054 0.041 0.911 0.919 0.749 0.860 FairCB 0.076 0.066 0.039 0.060 0.125 0.111 0.074 0.103 0.915 0.907 0.771 0.864 FairTGAN 0.034 0.030 0.055 0.040 0.080 0.053 0.087 0.073 0.881 0.863 0.705 0.816 FairTabDDPM 0.126 0.121 0.109 0.119 0.201 0.174 0.174 0.183 0.893 0.917 0.745 0.852 Ours 0.174 0.228 0.180 0.194 0.016 0.044 0.042 0.034 0.826 0.689 0.609 0.708 Table 2 : Quality and utility on the fairness benchmark. Best value per column is bolded among the deep-generative baselines (SMOTE and FairCB are resampling-based rather than generative and are shown for reference, not counted toward the bolded best). Ours achieves the lowest mean pair-correlation error of any method, while trading off TSTR AUC in exchange for fairness ( Section 6.1 ). 6.3 Privacy: Distance to Closest Record Table 3 reports DCR scores. Values close to 0.5 0.5 are desired (no memorisation of training data). Adult and Bank show DCR within 12% and 8% of the ideal respectively, comparable to or better than FairTabDDPM. COMPAS is the exception: at ∼ \\sim 5,000 rows, the input-space denoiser partially memorises the training set, yielding DCR ≈ 0.81 \\approx 0.81 . We discuss this limitation in Section 8 . DCR ( ∼ 0.5 \\sim 0.5 ) Adult Bank COMPAS Mean CoDi 0.331 0.348 0.400 0.360 SMOTE 0.327 0.265 0.273 0.288 STaSy 0.344 0.345 0.362 0.350 TabDDPM 0.339 0.350 0.367 0.352 TabSyn 0.339 0.351 0.367 0.352 FairCB 0.054 0.031 0.012 0.032 FairTGAN 0.348 0.348 0.374 0.357 FairTabDDPM 0.344 0.350 0.370 0.355 Ours 0.357 0.538 0.812 0.569 Table 3 : Distance to Closest Record (DCR). FairCB exhibits severe memorisation across all three datasets. Ours is healthy on Adult, near-ideal on Bank, and elevated on COMPAS due to dataset size (see Section 8 ). 6.4 Per-seed Variance Table 4 reports per-dataset means and standard deviations across three seeds for the fairness benchmark. The variance on DPR and EOR is higher than typical published baselines ( σ DPR ≈ 0.14 \\sigma_{\\mathrm{DPR}}\\approx 0.14 – 0.24 0.24 vs. ∼ 0.005 \\sim 0.005 – 0.07 0.07 for the published methods). We attribute this to the interaction between classifier-free-guidance dropout, the early-stopping checkpoint, and the two-stage architecture, and discuss mitigation in Section 8 . shape ↑ \\uparrow trend ↑ \\uparrow AUC ↑ \\uparrow DPR ↑ \\uparrow EOR ↑ \\uparrow DCR ( ∼ 0.5 \\sim 0.5 ) mean std mean std mean std mean std mean std mean std Adult 0.826 0.012 0.984 0.001 0.826 0.044 0.533 0.142 0.594 0.187 0.357 0.082 Bank 0.772 0.029 0.956 0.002 0.689 0.144 0.687 0.236 0.697 0.207 0.538 0.069 COMPAS 0.820 0.008 0.958 0.004 0.609 0.052 0.885 0.114 0.767 0.131 0.812 0.054 Table 4 : FairDiffuseVQVAE per-dataset mean and standard deviation across three random seeds on the fairness benchmark. Best classifier per metric (LR vs. MLP) is selected per seed. 7 Discussion When does sampling-time fairness work? Our results suggest that sampling-time fairness via CFG is most effective on datasets where the protected attribute exerts a strong marginal influence on the target (Adult: real DPR 0.31 0.31 ; COMPAS: 0.68 0.68 ). On Bank, where binarising age at 25 produces a tiny minority class ( ∼ 3 % \\sim 3\\% ), our method still doubles the fairness improvement over FairTabDDPM (DPR + 103 % +103\\% , EOR + 108 % +108\\% ) but at a larger AUC cost. This is consistent with the intuition that demographic-parity sampling decouples the protected attribute from features that are class-imbalance-correlated; when class imbalance is extreme, the conditional model must extrapolate, harming utility. The two-stage decomposition pays off. Comparing to FairTabDDPM, which trains a single DDPM with an explicit fairness penalty, we attain dramatically better fairness numbers without sacrificing pair-wise correlation fidelity (lowest of any method). We attribute this to the architectural separation: Stage 1 is free to optimise pure reconstruction (yielding fidelity), while Stage 2 is free to push samples toward the conditional manifold (yielding fairness). The two losses do not compete during training. The utility-fairness trade-off is explicit. Our mean TSTR AUC ( 0.708 0.708 ) is roughly 15 15 points below the highest per-column AUC values recorded among the deep generative baselines in Table 2 (TabSyn 0.860 0.860 , TabDDPM 0.856 0.856 ); the gap widens further ( ∼ \\sim 17 17 points) relative to SMOTE ( 0.873 0.873 ), the resampling baseline that best preserves the real correlation between features and the protected attribute (and, correspondingly, offers no fairness guarantee). This is the price of demographic parity in the synthetic distribution: a downstream classifier trained on synthetic data where features are conditionally independent of A A cannot exploit the bias that gives high AUC on real data. We argue this is the correct behaviour for fairness-aware synthesis; practitioners who want both fairness and downstream accuracy must combine our method with an in-processing fair-classifier algorithm. Comparison to causally-grounded methods (DECAF). DECAF ( van Breugel et al., 2021 ) achieves fairness via causal-graph edits with theoretical justification, but requires the causal DAG to be specified or estimated, and its fairness depends on this specification being correct. Our approach is purely empirical—no causal assumptions, no DAG to specify—but offers no theoretical guarantee. We view the two as complementary: where a reliable causal graph exists, DECAF’s guarantees are valuable; where it does not, our method provides a practical alternative with strong empirical results. 8 Limitations Seed sensitivity. DPR and EOR exhibit higher seed-to-seed variance ( σ ∈ [ 0.11 , 0.24 ] \\sigma\\in[0.11,0.24] , Table 4 ) than published fa",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Skip to main content",
+      "url": "https://arxiv.org/html/2607.28945v1#infobox"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/IgnoreMe"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "Why HTML?",
+      "url": "https://info.arxiv.org/about/accessible_HTML.html"
+    },
+    {
+      "text": "Back to Abstract",
+      "url": "https://arxiv.org/abs/2607.28945v1"
+    },
+    {
+      "text": "Download PDF",
+      "url": "https://arxiv.org/pdf/2607.28945v1"
+    },
+    {
+      "text": "License: CC BY 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "Yang et al. (2025)",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib54"
+    },
+    {
+      "text": "Borisov et al., 2022",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib10"
+    },
+    {
+      "text": "Jordon et al., 2022",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib24"
+    },
+    {
+      "text": "Caton and Haas, 2024",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib12"
+    },
+    {
+      "text": "Plečko and Bareinboim, 2024",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib39"
+    },
+    {
+      "text": "Kotelnikov et al., 2023",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib29"
+    },
+    {
+      "text": "Zhang et al., 2024",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib55"
+    },
+    {
+      "text": "van Breugel et al., 2021",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib45"
+    },
+    {
+      "text": "Ho and Salimans, 2022",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib21"
+    },
+    {
+      "text": "Esser et al., 2021",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib17"
+    },
+    {
+      "text": "van den Oord et al., 2017",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib46"
+    },
+    {
+      "text": "Pandey et al., 2022",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib38"
+    },
+    {
+      "text": "Kingma and Welling, 2014",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib28"
+    },
+    {
+      "text": "Rezende et al., 2014",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib41"
+    },
+    {
+      "text": "Bengio et al., 2013",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib8"
+    },
+    {
+      "text": "Zhang et al., 2018",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib56"
+    },
+    {
+      "text": "Goodfellow et al., 2014",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib18"
+    },
+    {
+      "text": "Ho et al., 2020",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib22"
+    },
+    {
+      "text": "Karras et al. (2022)",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib25"
+    },
+    {
+      "text": "Rombach et al., 2022",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib42"
+    },
+    {
+      "text": "Agarwal et al. (2018)",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib2"
+    },
+    {
+      "text": "Hardt et al. (2016)",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib20"
+    },
+    {
+      "text": "Xu et al., 2019",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib53"
+    },
+    {
+      "text": "Zhao et al., 2023",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib57"
+    },
+    {
+      "text": "Kim et al., 2023",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib27"
+    },
+    {
+      "text": "Lee et al., 2023",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib33"
+    },
+    {
+      "text": "Borisov et al., 2023",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib11"
+    },
+    {
+      "text": "Liu et al., 2023",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib34"
+    },
+    {
+      "text": "Xu et al., 2018",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib52"
+    },
+    {
+      "text": "Rajabi and Garibay, 2022",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib40"
+    },
+    {
+      "text": "Abroshan et al. (2024)",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib1"
+    },
+    {
+      "text": "Vero et al., 2024",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib48"
+    },
+    {
+      "text": "Panagiotou et al., 2025",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib37"
+    },
+    {
+      "text": "Table 2",
+      "url": "https://arxiv.org/html/2607.28945v1#S6.T2"
+    },
+    {
+      "text": "Section 6",
+      "url": "https://arxiv.org/html/2607.28945v1#S6"
+    },
+    {
+      "text": "Louizos et al., 2016",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib35"
+    },
+    {
+      "text": "Gretton et al., 2012",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib19"
+    },
+    {
+      "text": "Madras et al., 2018",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib36"
+    },
+    {
+      "text": "Creager et al., 2019",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib14"
+    },
+    {
+      "text": "Wan et al. (2023)",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib49"
+    },
+    {
+      "text": "Le Quy et al. (2022)",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib32"
+    },
+    {
+      "text": "Chiappa, 2019",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib13"
+    },
+    {
+      "text": "Kusner et al., 2017",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib30"
+    },
+    {
+      "text": "Austin et al., 2021",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib5"
+    },
+    {
+      "text": "DataCebo, Inc., 2023",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib15"
+    },
+    {
+      "text": "Sajjadi et al., 2018",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib43"
+    },
+    {
+      "text": "Alaa et al., 2022",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib3"
+    },
+    {
+      "text": "Jordon et al., 2019",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib23"
+    },
+    {
+      "text": "Figure 1",
+      "url": "https://arxiv.org/html/2607.28945v1#S4.F1"
+    },
+    {
+      "text": "Sections 4.2",
+      "url": "https://arxiv.org/html/2607.28945v1#S4.SS2"
+    },
+    {
+      "text": "4.3",
+      "url": "https://arxiv.org/html/2607.28945v1#S4.SS3"
+    },
+    {
+      "text": "Becker and Kohavi, 1996",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib6"
+    },
+    {
+      "text": "Angwin et al., 2016",
+      "url": "https://arxiv.org/html/2607.28945v1#bib.bib4"
+    }
+  ],
+  "matching_link_count": 76,
+  "links_truncated": true,
+  "invalid_links": []
+}

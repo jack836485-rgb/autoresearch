@@ -1,0 +1,478 @@
+{
+  "url": "https://arxiv.org/html/2609.22973v1",
+  "final_url": "https://arxiv.org/html/2609.22973v1",
+  "status": 200,
+  "title": "An Empirical Study and Open Testbed for Federated Fine-Tuning of Vision-Language-Action Models",
+  "metadata": {},
+  "paper": {
+    "title": "An Empirical Study and Open Testbed for Federated\nFine-Tuning of Vision-Language-Action Models",
+    "title_warning": null,
+    "abstract": "Abstract Adapting a pretrained Vision-Language-Action (VLA) model to a new robot,\nenvironment, or task requires demonstrations that are collected locally\nand often discarded. Federated learning is a promising approach to exploiting such\ndistributed demonstrations by learning a shared policy. However, whether it can adapt large pretrained VLAs remains\nan open question, and a lack of reproducible benchmarks for pretrained\nVLAs and reusable training frameworks makes existing results difficult\nto compare. In this paper, we conduct a systematic study of federated fine-tuning of\nthree modern pretrained VLA policies on the 40 simulated tasks of the\nLIBERO manipulation benchmark, and on six real-world tasks in two real-robot experiments, with demonstrations\ncollected across two and three sites, respectively. Our study analyzes the key choices in this\nsetting, spanning multiple federated parameter scopes, three aggregation\nalgorithms, and evaluation under distribution\nshift. Based on the study, we derive a series of lessons, including the\ndominance of the federated scope over the choice of aggregation\nalgorithm and the difficulty of matching centralized fine-tuning on\nphysical robots, where cross-site heterogeneity is stronger than\nsimulation captures. We also highlight opportunities for\nfederated VLA learning, such as the ability to match centralized\nfine-tuning on heterogeneous data, to remain at least as robust as\ncentralized fine-tuning under\ndistribution shift, and to personalize, with each client federating part\nof the policy and keeping the rest local, which helps where the\npolicy’s pretraining is weak but leaves no usable global model. We open-source decent-vla ,\nthe model- and runtime-agnostic testbed behind the study, to facilitate\nfuture research and fair comparisons in federated VLA learning.",
+    "authors": [
+      {
+        "name": "Zhekai Duan",
+        "affiliations": [
+          "Affiliation: Department of Computer Science, University College London, U.K."
+        ],
+        "notes": []
+      },
+      {
+        "name": "Kevin Ziyang Xie",
+        "affiliations": [
+          "Affiliation: Department of Computer Science, University College London, U.K."
+        ],
+        "notes": []
+      },
+      {
+        "name": "Xinyu Tan",
+        "affiliations": [
+          "Affiliation: Department of Computer Science, University College London, U.K."
+        ],
+        "notes": []
+      },
+      {
+        "name": "Shikai Geng",
+        "affiliations": [
+          "Affiliation: Department of Computer Science, University College London, U.K."
+        ],
+        "notes": []
+      },
+      {
+        "name": "Chengxu Zhou",
+        "affiliations": [
+          "Affiliation: Department of Computer Science, University College London, U.K."
+        ],
+        "notes": []
+      },
+      {
+        "name": "Ramana Kompella",
+        "affiliations": [
+          "Affiliation: Cisco Research, San Jose, CA, USA."
+        ],
+        "notes": []
+      },
+      {
+        "name": "Gaowen Liu",
+        "affiliations": [
+          "Affiliation: Cisco Research, San Jose, CA, USA."
+        ],
+        "notes": []
+      },
+      {
+        "name": "Chris Xiaoxuan Lu",
+        "affiliations": [
+          "Affiliation: Department of Computer Science, University College London, U.K."
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Zhekai Duan Affiliation: Department of Computer Science, University College London, U.K. Kevin Ziyang Xie Affiliation: Department of Computer Science, University College London, U.K. Xinyu Tan Affiliation: Department of Computer Science, University College London, U.K. Shikai Geng Affiliation: Department of Computer Science, University College London, U.K. Chengxu Zhou Affiliation: Department of Computer Science, University College London, U.K. Ramana Kompella Affiliation: Cisco Research, San Jose, CA, USA. Gaowen Liu Affiliation: Cisco Research, San Jose, CA, USA. Chris Xiaoxuan Lu † † thanks: * Corresponding author: zhekaiduan2312@gmail.com Affiliation: Department of Computer Science, University College London, U.K.",
+    "arxiv_version": "2609.22973v1",
+    "arxiv_version_date": "2026-09-19",
+    "sections": [
+      {
+        "id": "S1",
+        "heading": "I Introduction",
+        "level": 1,
+        "text": "Vision-Language-Action (VLA) models map visual observations and natural-language instructions to robot actions, and openly released checkpoints such as π 0.5 \\pi_{0.5} [ 1 ] , SmolVLA [ 2 ] , and GR00T N1.7 [ 3 ] (hereafter GR00T) have made pretrained generalist policies broadly available. Unlike the language and vision models they build on, a pretrained VLA must still be fine-tuned for each new robot, environment, or task, on demonstrations collected at the deployment site. Today this adaptation runs in one direction: each site fine-tunes the released checkpoint in isolation, and the demonstrations collected during deployment are discarded (Fig. 1 ). What is missing is the reverse mechanism: a way for many holders of small, private, heterogeneous datasets to collectively improve a shared open policy. Release & Forget Pretrained VLA home office lab experience discarded decent-vla Shared Policy home office lab shared improvement with privacy Fig. 1: In current practice (left), each site downloads a released VLA checkpoint, and the demonstrations it collects afterwards go unused. decent-vla (right) lets each site fine-tune the shared policy on its private data and exchange only model updates, so the policy keeps improving while data stays local. Federated learning (FL) [ 4 ] provides this mechanism: each site fine-tunes the policy locally and transmits only model updates to an aggregating server, an approach recently explored for large language models (LLMs) [ 5 , 6 ] . VLA data, however, is heterogeneous along axes with no analogue in text or images. Even two sites running the same robot model can differ not only in their tasks, but also in their observations, shaped by environment and camera viewpoint, and in their actions and states, shaped by hardware calibration and operator behavior. Whether federated optimization can adapt a large pretrained VLA across such sites while preserving the capabilities acquired during pretraining is an open question. Existing studies [ 7 , 8 ] use different policies, partitions, aggregation algorithms, and evaluation setups, so their results are difficult to compare, and each rebuilds its training infrastructure from scratch. The field lacks a reusable training framework and a reproducible benchmark on which a new policy, aggregation algorithm, or runtime can be evaluated under identical conditions. We therefore conduct a systematic study and build the testbed it requires. decent-vla is an open testbed with two parts: a framework that federates the fine-tuning of pretrained VLAs, in which an experiment is specified by a configuration file and a new policy, aggregation algorithm, or runtime is added as a small plugin (Sec. IV ); and a reference benchmark that fixes the partition, training budgets, and evaluation protocol (Sec. IV-B ). On this testbed we study three modern pretrained policies on LIBERO in simulation, and π 0.5 \\pi_{0.5} on real SO-101 robot arms at two and three sites. Contributions. 1. Study. A systematic empirical study of federated fine-tuning of π 0.5 \\pi_{0.5} , SmolVLA, and GR00T N1.7, on LIBERO in simulation and on real SO-101 arms. Federated fine-tuning can match centralized fine-tuning when the policy’s pretraining is strong; the federated scope, not the aggregation algorithm, governs the outcome; and the calibration heterogeneity of real sites keeps centralized fine-tuning ahead (Sec. V ). 2. Testbed. decent-vla , an easy-to-use testbed that supports different policies, aggregation algorithms, and FL runtimes; the configuration behind every reported number in the study is released (Sec. IV )."
+      },
+      {
+        "id": "S2.SS1",
+        "heading": "II-A Vision-Language-Action Models",
+        "level": 2,
+        "text": "Modern Vision-Language-Action models adapt pretrained Vision-Language Models (VLMs) into robot controllers by mapping visual observations and language instructions to low-level actions. RT-2 casts actions as language tokens [ 9 ] , while OpenVLA couples a 7 B Llama-2 backbone with DINOv2 and SigLIP encoders, trained on roughly 970 k Open X-Embodiment demonstrations [ 10 , 11 ] . A second family separates perception from control: π 0 \\pi_{0} attaches a flow-matching action head (its “action expert”) to a VLM [ 12 ] , and π 0.5 \\pi_{0.5} adds open-world generalization through heterogeneous co-training [ 1 ] . SmolVLA targets single-GPU budgets with a 0.45 B SmolVLM2 backbone [ 2 ] , and GR00T N1 pairs a vision language System 2 with a diffusion-transformer (DiT) action System 1 [ 13 ] . We benchmark π 0.5 \\pi_{0.5} , SmolVLA, and GR00T N1.7, whose Cosmos-Reason2 backbone replaces the Eagle-2 of N1 [ 3 ] , all pretrained by centralizing large-scale, video-heavy datasets [ 11 , 14 ] . decent-vla treats each such policy as an interchangeable plugin and instead studies how their adaptation data can be exploited without centralization."
+      },
+      {
+        "id": "S2.SS2",
+        "heading": "II-B Federated Learning",
+        "level": 2,
+        "text": "In federated learning , clients exchange model updates rather than data: FedAvg established weighted parameter averaging [ 4 ] ; heterogeneity-robust variants add a proximal term [ 15 ] or control variates [ 16 ] , and adaptive server optimizers treat aggregated updates as pseudo-gradients [ 17 ] . We benchmark FedAvg, FedProx, and FedAdam under one benchmark configuration (Sec. V-C ), and decent-vla drives the production systems Flower [ 18 ] and NVFlare [ 19 ] as interchangeable execution backends rather than competing with them (Sec. IV ). The closest line of work federates the fine-tuning of large pretrained models through compact updates (FedIT [ 5 ] , OpenFedLLM [ 6 ] , FedSA-LoRA [ 20 ] ), but it federates a single modality, language, while the federated systems that do cross modalities train small policies or classifiers from scratch. decent-vla carries this line from language to the adaptation of large pretrained VLAs, over a federated scope that can cover either the full model or a parameter-efficient adapter such as low-rank adaptation (LoRA) [ 21 ] . A complementary line personalizes the federated model by keeping part of it local to each client, through personalization layers [ 22 ] , local batch normalization [ 23 ] , or bi-level objectives [ 24 ] . We study the same split at VLA scale, federating one scope of the policy while each client fine-tunes the remainder locally. On the robotics side, fleet-learning systems aggregate experience across many robots [ 25 , 26 , 27 ] , but do not fine-tune pretrained VLAs. The two closest efforts each miss the intersection we target, a systematic study across multiple modern pretrained VLAs: FLAME federates a small from-scratch policy in simulation only [ 8 ] , and FedVLA is a single method on one bespoke backbone rather than a benchmark [ 7 ] . Spanning multiple pretrained policies, aggregation algorithms, and both a heterogeneous LIBERO partition and a multi-site study on real SO-101 arms, decent-vla reveals effects that neither line of work measured: aggregation algorithms designed for heterogeneous clients that do not improve on FedAvg at a matched round budget (Sec. V-C ), and a calibration heterogeneity that appears only when the clients are physical robots (Sec. V-E )."
+      },
+      {
+        "id": "S3",
+        "heading": "III Problem Setup: Variables and Questions",
+        "level": 1,
+        "text": "We consider K K sites (clients) that each hold a private demonstration dataset 𝒟 k \\mathcal{D}_{k} of n k n_{k} samples that cannot leave the site. All clients start from a common pretrained VLA θ 0 \\theta^{0} , and federated fine-tuning seeks a single global policy that performs well on the union of their tasks. Algorithm 1 summarizes the process of federated fine-tuning: in each of R R rounds, the server broadcasts the parameters in the federated scope 𝒮 \\mathcal{S} , each client updates them on its local data, and the server aggregates the returned updates into the global parameters. We outline five questions about federated fine-tuning of pretrained VLAs: Algorithm 1 Federated fine-tuning of a pretrained VLA. 1: pretrained θ 0 \\theta^{0} ; clients k = 1 , … , K k=1,\\dots,K with private 𝒟 k \\mathcal{D}_{k} ( n k n_{k} samples); scope 𝒮 \\mathcal{S} ; rounds R R 2: for r = 1 , … , R r=1,\\dots,R do 3: server broadcasts θ r − 1 ​ [ 𝒮 ] \\theta^{r-1}[\\mathcal{S}] to all clients 4: for client k = 1 , … , K k=1,\\dots,K in parallel do 5: θ k ← \\theta_{k}\\leftarrow local imitation steps on 𝒟 k \\mathcal{D}_{k} starting from θ r − 1 \\theta^{r-1} 6: upload θ k ​ [ 𝒮 ] \\theta_{k}[\\mathcal{S}] to the server 7: end for 8: θ r ​ [ 𝒮 ] ← Aggregate ​ ( { θ k ​ [ 𝒮 ] } k = 1 K ) \\theta^{r}[\\mathcal{S}]\\leftarrow\\textsc{Aggregate}\\bigl(\\{\\theta_{k}[\\mathcal{S}]\\}_{k=1}^{K}\\bigr) 9: end for Controller one round loop Strategy: FedAvg FedAdam FedProx model θ \\theta Δ ​ θ \\Delta\\theta , n n Clients train on local data; only updates leave a client ⋯ \\cdots each client runs on one pair Pluggable backends two independent axes, both set in the config file of Fig. 3 Policy backend VLA model: openpi lerobot groot Execution backend FL runtime: local flower nvflare Communicator both axes plug in here: the same round loop runs in-process or over a distributed runtime, on one cluster or across sites Fig. 2: The decent-vla architecture. Each round, the server broadcasts the model parameters θ \\theta (restricted to the federated scope), each client trains them on its local data and returns its update Δ ​ θ \\Delta\\theta with its sample count n n , and a pluggable Strategy aggregates the updates. Every client composes a policy backend (the VLA) and an execution backend (the FL runtime) independently, so the same loop runs in-process or over Flower [ 18 ] or NVFlare [ 19 ] ."
+      },
+      {
+        "id": "S3.SS0.SSS0.Px1",
+        "heading": "Federated versus centralized fine-tuning (Q1)",
+        "level": 4,
+        "text": "Robot demonstration data is strongly heterogeneous: sites differ in their tasks, environments, observations, and actions. Federated optimization is known to trail centralized training under such heterogeneity, as local updates drift toward each client’s objective [ 4 , 16 ] , but the size of the gap for billion-parameter pretrained VLAs has not been measured. We assign each client a disjoint subset of tasks and measure how closely federated fine-tuning approaches centralized fine-tuning (Sec. V-A )."
+      },
+      {
+        "id": "S3.SS0.SSS0.Px2",
+        "heading": "Federated scope 𝒮 \\mathcal{S} (Q2)",
+        "level": 4,
+        "text": "VLAs can have billions of parameters, so exchanging the full model between server and clients every round, ∼ 7 {\\sim}7 GB in bf16 for π 0.5 \\pi_{0.5} , limits the practicality of federated fine-tuning. Federating only part of the model reduces this payload, and it also enables personalization: the parameters outside 𝒮 \\mathcal{S} can be fine-tuned locally and kept personal to each client ( partial federation) [ 22 , 24 ] . We therefore investigate LoRA [ 21 ] updates in place of full fine-tuning and the module-wise federation of the action head or the backbone (Sec. V-B )."
+      },
+      {
+        "id": "S3.SS0.SSS0.Px3",
+        "heading": "Aggregation algorithm (Q3)",
+        "level": 4,
+        "text": "Alternatives to FedAvg [ 4 ] designed for heterogeneous clients, such as the proximal term of FedProx [ 15 ] and the server-side adaptivity of FedAdam [ 17 ] , are reported to improve performance under precisely the heterogeneity that robot data presents, but remain untested on large pretrained VLAs. We compare the performance of the three algorithms (Sec. V-C )."
+      },
+      {
+        "id": "S3.SS0.SSS0.Px4",
+        "heading": "Robustness under distribution shift (Q4)",
+        "level": 4,
+        "text": "Pretrained VLAs degrade substantially when instructions, objects, scene layouts, or goals shift at evaluation time [ 28 ] , and whether federated fine-tuning is more or less robust to such shifts than centralized fine-tuning is unknown. We evaluate the federated and centralized fine-tuned VLAs under four axes of evaluation-time shift (Sec. V-D )."
+      },
+      {
+        "id": "S3.SS0.SSS0.Px5",
+        "heading": "Transfer to physical robots (Q5)",
+        "level": 4,
+        "text": "On physical robots, client heterogeneity extends beyond the task differences that simulated benchmarks express: sites differ in their observations, shaped by environment and camera viewpoint, and in their actions and states, shaped by hardware calibration and operator behavior. This heterogeneity has no analogue in federated language models [ 5 , 6 ] . We compare federated and centralized fine-tuning on real SO-101 arms at two and three sites, then rescore the same checkpoints in a simulated environment calibrated to one site for repeatable layouts and stage-wise success rates (Sec. V-E )."
+      },
+      {
+        "id": "S4",
+        "heading": "IV The decent-vla Testbed",
+        "level": 1,
+        "text": "decent-vla has two parts: the framework , a reusable instrument, and the reference benchmark , one configuration of that instrument in which the partition, budgets, and evaluation are fixed once and shared by every result of this study."
+      },
+      {
+        "id": "S4.SS1",
+        "heading": "IV-A The Framework: A Reusable Instrument",
+        "level": 2,
+        "text": "⬇ name : smolvla_libero_fl # one experiment = one file backend : # policy axis: which VLA name : lerobot # smolvla | pi05 | groot ... lora : { r : 64 , alpha : 128 } data : repo_id : HuggingFaceVLA/libero partitioning : scheme : task_round_robin # deterministic split num_clients : 8 fl : execution : flower # local | flower | nvflare strategy : { name : fedavg } # | fedadam | fedprox rounds : 100 local_steps : 250 eval : benchmark : { name : libero } n_episodes_per_task : 10 Fig. 3: One experiment is one YAML file (abridged): the configuration picks the policy, runtime, aggregation algorithm, partition, budgets, and evaluation, and decent-vla run launches it. The framework sets up every experiment from a single YAML file that decent-vla run executes (Fig. 3 ): the configuration picks the policy, the FL runtime, the aggregation algorithm, and all related hyperparameters. Each choice is therefore an independent variable that can be changed one at a time, and a new experiment, or an exact replication of a reported one, can be easily configured. One controller drives the round loop for every such combination (Fig. 2 ). This controller contains no policy- or runtime-specific code: π 0.5 \\pi_{0.5} , SmolVLA, and GR00T reach the loop through policy adapters, and the in-process runner, Flower, and NVFlare through runtime adapters. A client sends only the weight updates over the federated scope of Sec. III and its sample count, never raw data, and the server casts the bf16 deltas into an fp32 master copy so that mixed-precision training stays stable over many rounds. Aggregation follows the scope the policy declares, so the same code federates a full model, a module subset, or a LoRA update. The client partition is derived from a seed in the configuration, so every reported run can be relaunched on the same split."
+      },
+      {
+        "id": "S4.SS2",
+        "heading": "IV-B The Reference Benchmark",
+        "level": 2,
+        "text": "This subsection describes the benchmark configuration behind every result of Sec. V (Fig. 4 ), with a brief rationale for each choice. Spatial 10 tasks Object 10 tasks Goal 10 tasks Long 10 tasks four LIBERO suites ⋅ \\cdot 40 tasks ⋅ \\cdot 1,693 demonstrations ⋅ \\cdot 273,465 frames deterministic task round-robin c 1 c_{1} c 2 c_{2} c 3 c_{3} c 4 c_{4} c 5 c_{5} c 6 c_{6} c 7 c_{7} c 8 c_{8} K = 8 K{=}8 clients ⋅ \\cdot 5 disjoint tasks each ⋅ \\cdot audited partition manifest Δ k \\Delta_{k} over 𝒮 \\mathcal{S} broadcast θ t \\theta^{t} server aggregation: FedAvg / FedAdam / FedProx R R rounds × \\times 250 local steps; only updates leave a site evaluation: all 40 tasks × \\times 10 episodes = = 400 episodes per score Fig. 4: The reference benchmark at a glance: the 40 tasks of the four LIBERO suites are assigned to K = 8 K{=}8 clients by a deterministic task round-robin (five disjoint tasks per client), each round exchanges only parameter updates over the federated scope 𝒮 \\mathcal{S} , and every reported score evaluates the full 40-task suite, including the tasks a client never saw."
+      },
+      {
+        "id": "S4.SS2.SSS1",
+        "heading": "IV-B 1 Policies",
+        "level": 3,
+        "text": "We benchmark three modern VLAs that span the small-to-mid-scale range and three architectural families: π 0.5 \\pi_{0.5} (3.2 B, PaliGemma), SmolVLA (0.45 B, SmolVLM2), and GR00T N1.7 (3.1 B, Cosmos-Reason2 with a DiT action head). For each family we take the strongest openly released checkpoint; for the π \\pi -series that is π 0.5 \\pi_{0.5} , as π 0.7 \\pi_{0.7} [ 29 ] is not public. Following each policy’s published fine-tuning recipe, we fully fine-tune π 0.5 \\pi_{0.5} and SmolVLA and train only GR00T’s DiT action head; LoRA and client-personalized variants are kept as controls that isolate the scope effect (Sec. V-B )."
+      },
+      {
+        "id": "S4.SS2.SSS2",
+        "heading": "IV-B 2 Data and partition",
+        "level": 3,
+        "text": "Our simulated experiments use LIBERO [ 30 ] , as it provides both sufficient demonstration data and a standard evaluation environment: 40 tasks across four suites (Spatial, Object, Goal, and Long) that share one robot and observation space, with 1,693 demonstrations and 273,465 frames in total. We use K = 8 K{=}8 clients, each of which receives five disjoint tasks by a deterministic round-robin (203–225 episodes per client). Our real-world experiments use six cube-stacking tasks on SO-101 arms: each task is one instruction of the form “put the {X} cube on top of the {Y} cube”, where {X} and {Y} name an ordered pair of cube colors. In each experiment, every task has 50 demonstrations, 300 in total, all collected at the site that owns the task. In the two-client experiment each client trains on the three tasks it collected; in the three-client experiment each client trains on the two stacking orders of one color pair (Sec. V-E ). We choose the SO-101 here because federated learning presupposes many potential participating sites, and this open-source, low-cost robot arm is one of the most popular: WowRobo Robotics, one primary vendor of the kits, reports over 10,000 SO-101 units shipped worldwide [ 31 ] ."
+      },
+      {
+        "id": "S4.SS2.SSS3",
+        "heading": "IV-B 3 Training setup",
+        "level": 3,
+        "text": "Unless stated otherwise the server aggregates with FedAvg (FedAdam with server learning rate 10 − 3 10^{-3} and FedProx with μ = 0.01 \\mu{=}0.01 are compared in Sec. V-C ), and clients run 250 local steps per round with AdamW at each policy’s published fine-tuning hyperparameters, so that the benchmark measures the effect of federating rather than of hyperparameter tuning. LoRA controls use rank 64 with α = 128 \\alpha=128 on the attention and MLP projections, applied to backbone and action head for π 0.5 \\pi_{0.5} and SmolVLA; for GR00T the adapters attach to the DiT action head, with the backbone frozen and the embodiment projector trained full-rank. Each simulated result is reported as the run’s best score over the rounds evaluated (Fig. 7 ); the aggregation comparison of Sec. V-C and the personalization runs use a matched 100-round budget, and the robustness evaluation of Sec. V-D rescores the checkpoints of Table I . The centralized references are fine-tuned to convergence on the pooled 40-task data (SmolVLA through decent-vla with one client, GR00T through its official fine-tuning script) or, for π 0.5 \\pi_{0.5} , taken from the publicly released LIBERO checkpoint [ 1 ] and rescored in our harness at 50 episodes per task."
+      },
+      {
+        "id": "S4.SS2.SSS4",
+        "heading": "IV-B 4 Evaluation in simulation",
+        "level": 3,
+        "text": "We evaluate the centralized and federated fine-tuned models on the full 40 tasks in LIBERO with 10 trials each and report the success rate averaged over the 400 episodes; SmolVLA and π 0.5 \\pi_{0.5} execute 10-step action chunks between replans; GR00T replans every 16 steps. The personalization runs of Sec. V-B additionally evaluate the clients: each client’s own model is scored on the five tasks it owns, again at 10 episodes per task, so the eight clients together still yield 400 episodes. overhead wrist Site A Site B Site C Fig. 5: Three physical sites (A–C): the overhead and wrist camera views that form the policy’s input. Heterogeneity is both visual and physical, the latter from differing hardware calibration (Fig. 9 )."
+      },
+      {
+        "id": "S4.SS2.SSS5",
+        "heading": "IV-B 5 Evaluation in the real world",
+        "level": 3,
+        "text": "We evaluate each model on all six tasks at each site, with 10 trials per task judged pass/fail by the operator from the rollout, and report the success rate averaged over the 60 episodes. The two experiments train separate models and are not compared to each other (Sec. V-E )."
+      },
+      {
+        "id": "S4.SS2.SSS6",
+        "heading": "IV-B 6 Real-to-simulation evaluation",
+        "level": 3,
+        "text": "Real-world trials are costly and cannot control object position and pose, so we additionally rescore the three-client checkpoints in a simulated environment (Fig. 6 ), which affords repeatable layouts, automated evaluation at scale, and finer stage-wise success rates. The simulated environment is built in Isaac Sim [ 32 ] with RoboLab [ 33 ] , which provides a photorealistic environment for the SO-101 and objects. We calibrate the simulation with real-world cube positions: for each task, we read where the cubes were at the moment the gripper closed in its demonstrations. This gives 258 layouts that the models were trained on, which serve as the unperturbed 0 cm control. We then shift the cubes by up to 1, 3, or 5 cm from these positions and evaluate the centralized and federated π 0.5 \\pi_{0.5} at each amplitude. Layouts whose cubes would overlap are redrawn. The stage-wise success rate scores each rollout by the furthest of three stages it reaches: contact , any gripper–cube contact; transport , the cube carried in the air over the target; and success , the stack completed and holding. overhead wrist success fail contact transport success Fig. 6: The simulated environment of SO-101. Left: the overhead and wrist views the policy receives. Right: two rollouts of one π 0.5 \\pi_{0.5} checkpoint, one completing the stack and one not, with each stage shown as a composite of the five frames before it triggers."
+      },
+      {
+        "id": "S5",
+        "heading": "V Results",
+        "level": 1,
+        "text": "Each subsection below answers one question of Sec. III by varying the factor under study on the reference benchmark of Sec. IV-B . Success rates and their differences are reported in absolute percentage terms. TABLE I: Federated versus centralized fine-tuning: LIBERO success rate (%); best per column in bold. Training Spatial Object Goal Long Overall 𝝅 0.5 \\pi_{0.5} (3.2 B) [ 1 ] Centralized 97.0 99.0 97.0 95.0 97.00 Federated 92.0 100.0 99.0 99.0 97.50 GR00T N1.7 (3.1 B) [ 3 ] Centralized 97.0 97.0 99.0 94.0 96.75 Federated 91.0 99.0 95.0 79.0 91.00 SmolVLA (0.45 B) [ 2 ] Centralized 89.0 97.0 95.0 79.0 90.00 Federated 75.0 70.0 81.0 75.0 75.25"
+      },
+      {
+        "id": "S5.SS1",
+        "heading": "V-A Federated Versus Centralized Fine-Tuning (Q1)",
+        "level": 2,
+        "text": "Federated fine-tuning matches or approaches centralized fine-tuning for the two 3 B policies. In Table I , federated fine-tuned π 0.5 \\pi_{0.5} achieves 97.50% against its 97.00% centralized reference, and GR00T N1.7 reaches 91.00% against 96.75%, a 5.75% gap that concentrates in Long, whose 15.0% drop supplies two thirds of it. Federated fine-tuning is therefore promising at this scale: no demonstration leaves its client, yet both policies stay within 5.75% of their centralized references, and π 0.5 \\pi_{0.5} exceeds its reference. SmolVLA, in contrast, finishes 14.75% below its centralized reference (75.25% against 90.00%). The deficit is largest on Object (97.0% against 70.0%) and smallest on Long (79.0% against 75.0%). FedAvg differs from centralized fine-tuning in exactly one step: each round it averages the eight client models. Averaging works only while the clients stay close to the shared pretrained model [ 34 , 35 , 36 ] , so the strength of the pretraining decides the outcome. π 0.5 \\pi_{0.5} builds on over 10,000 hours of cross-embodiment robot data [ 12 , 1 ] , and GR00T on real, simulated, and human-video corpora spanning thousands of hours [ 13 ] : fitting LIBERO needs only small updates. SmolVLA is pretrained on roughly 100 hours of community-collected SO-100 data (10.6M frames at ∼ 30 {\\sim}30 fps) [ 2 ] , two orders of magnitude less: each client must move far toward its own five tasks, the models drift apart, and their average degrades [ 16 ] . TABLE II: Full fine-tuning versus LoRA: payload and LIBERO success rate (%); best per policy in bold. Update parameterization Params Payload Success (%) 𝝅 0.5 \\pi_{0.5} Full fine-tuning 3.62 B 7.24 GB 97.50 LoRA 0.12 B 0.24 GB 97.50 GR00T N1.7 Action head (full) 1.62 B 3.24 GB 91.00 Action head (LoRA) 0.39 B 0.77 GB 87.00 SmolVLA Full fine-tuning 0.40 B 0.81 GB 75.25 LoRA 0.04 B 0.08 GB 55.25 TABLE III: Partial federation: personalized LIBERO success rate (%); best per policy in bold. Only the listed scope is federated, the remainder stays client-personal. Federated scope Shared Personal Payload Personalized success (%) 𝝅 0.5 \\pi_{0.5} Action head 0.69 B 2.92 B 1.39 GB 95.25 Backbone 2.92 B 0.69 B 5.85 GB 97.25 GR00T N1.7 Action head 1.62 B 1.52 B 3.24 GB 86.25 Backbone 1.52 B 1.62 B 3.05 GB 71.25 SmolVLA Action head 0.10 B 0.30 B 0.20 GB 81.50 Backbone 0.30 B 0.10 B 0.61 GB 85.75"
+      },
+      {
+        "id": "S5.SS2",
+        "heading": "V-B Effect of the Federated Scope (Q2)",
+        "level": 2,
+        "text": "Choosing 𝒮 \\mathcal{S} involves two decisions: how the update is parameterized, by full fine-tuning or by LoRA, and which parameters are federated at all. Tables II and III ablate the two decisions separately. LoRA matches full fine-tuning for π 0.5 \\pi_{0.5} but trails it by 4.00% for GR00T and by 20.00% for SmolVLA. In Table II , π 0.5 \\pi_{0.5} recovers its full fine-tuning score exactly (97.50%), GR00T falls from 91.00% to 87.00%, and SmolVLA from 75.25% to 55.25%. The performance difference is consistent with the findings in Sec. V-A : the weaker a policy’s pretraining, the larger the update the target demands, while rank 64 fixes how large an update a client can express [ 37 , 38 ] . LoRA reduces the transmission payload but converges more slowly. In Fig. 7 every LoRA curve runs behind its full fine-tuning counterpart, and the lag again follows the pretraining strength: roughly 20 rounds for π 0.5 \\pi_{0.5} , which closes the gap by round 100; 40–60 for GR00T (87.00% at round 140 against 85.75% at the full curve’s round 80); roughly 100 for SmolVLA, which reaches at round 160 what its full curve passed by round 60. In exchange the payload falls 30 × 30\\times , 4.2 × 4.2\\times , and 10 × 10\\times (Table II ). Under limited bandwidth LoRA is therefore practical for a strongly pretrained policy, paying rounds for a smaller per-round payload. 0 20 40 60 80 100 20 40 60 80 100 120 140 160 federated rounds LIBERO success (%) π 0.5 \\pi_{0.5} GR00T N1.7 SmolVLA full fine-tuning LoRA Fig. 7: Full fine-tuning (solid) versus LoRA (dashed) under global federation: LIBERO success rate over the round budget, for π 0.5 \\pi_{0.5} (3.2 B), GR00T N1.7 (3.1 B, action head) and SmolVLA (0.45 B). Every marker is a full 400-episode evaluation. Personalization improves SmolVLA but not the two 3 B policies, and it leaves no usable global model. In Table III only the listed module is federated, the remainder stays client-personal, every client fully fine-tunes (including GR00T’s otherwise-frozen backbone), and each client is scored on its own five tasks ( personalized success ). Personalization helps where averaging hurt: SmolVLA, whose deficit Sec. V-A traced to averaging, recovers 10.50% once its action head stays personal (85.75% with the backbone federated, against its 75.25% federated score). π 0.5 \\pi_{0.5} is essentially unchanged (97.25% against 97.50%), and GR00T reaches 86.25% against its 91.00% federated score, a difference concentrated in two tasks of a single client. The price is the global model: the server checkpoint holds only the shared module, only ever trained alongside the clients’ personal remainders, and scores 0.00% in every configuration we evaluated (not shown). Which module to federate has no universal answer: the backbone wins for π 0.5 \\pi_{0.5} and SmolVLA, the action head for GR00T."
+      },
+      {
+        "id": "S5.SS3",
+        "heading": "V-C Effect of the Aggregation Algorithm (Q3)",
+        "level": 2,
+        "text": "TABLE IV: Aggregation algorithms on π 0.5 \\pi_{0.5} full fine-tuning: LIBERO success rate (%); best per column in bold. Algorithm Spatial Object Goal Long Overall FedAvg [ 4 ] 92.0 100.0 99.0 99.0 97.50 FedAdam [ 17 ] 91.0 100.0 99.0 95.0 96.25 FedProx [ 15 ] 89.0 99.0 95.0 94.0 94.25 Neither FedAdam nor FedProx improves on FedAvg under precisely the client heterogeneity they are designed for. Table IV compares the three algorithms on π 0.5 \\pi_{0.5} full fine-tuning under a matched budget with everything else held fixed: FedAvg finishes highest at 97.50% and matches or exceeds both alternatives on every suite, FedAdam reaches 96.25%, and FedProx 94.25%. Each alternative adds one mechanism to FedAvg, and neither pays off. FedAdam adds server-side adaptivity on top of the AdamW every client already runs locally, and costs 1.25%. FedProx adds a penalty on local drift from the broadcast model, but under the task partition each client’s optimum is genuinely far from the global one, so the penalty withholds part of each round’s progress and costs 3.25%. 0 20 40 60 80 100 0 20 40 60 80 100 cube-stacking success (%) 43.3 66.7 55.0 61.7 80.0 70.8 48.3 56.7 25.0 43.3 65.0 86.7 51.7 67.8 Site A Site B Mean Site A Site B Site C Mean (a) two clients, 3 / 3 task split (b) three clients, 2 / 2 / 2 color-pair split all π 0.5 \\pi_{0.5} centralized federated Fig. 8: Real-robot transfer: SO-101 cube-stacking success on each site’s arm, over all six tasks, for the centralized and the FedAvg server π 0.5 \\pi_{0.5} models. (a) Two clients, task split; (b) three clients, color-pair split; each bar pools 60 trials and the per-experiment means pool 120 and 180. 0 0.05 − 25 -25 0 0 25 25 shoulder_pan 0 0.01 − 100 -100 0 0 shoulder_lift 0 0.01 0.02 0 0 50 50 elbow_flex 0 0.05 0 0 50 50 wrist_flex 0 0.05 − 50 -50 0 0 50 50 wrist_roll 0 0.1 0.2 10 10 20 20 30 30 gripper density density joint target (deg) Site A Site B Site C Fig. 9: Per-joint action-target distributions of the three sites’ demonstrations, with the site colors of Fig. 5 . On wrist_roll , Sites A and B lie on opposite sides of zero with no overlap. per-stage rate (%) 0 1 3 5 perturbation amplitude (cm) 80 85 90 35 40 45 5 10 15 89.5 85.3 86.0 81.4 85.7 84.1 84.5 78.7 47.3 43.4 43.8 37.2 37.2 32.6 35.7 33.7 13.6 11.6 8.9 8.9 7.8 8.5 3.9 5.8 contact transport success centralized federated Fig. 10: Stage-wise success rate (%) for the centralized and federated π 0.5 \\pi_{0.5} under object-pose perturbation in the simulated environment (Fig. 6 ): 258 paired layouts per amplitude, identical between models."
+      },
+      {
+        "id": "S5.SS4",
+        "heading": "V-D Robustness Under Distribution Shift (Q4)",
+        "level": 2,
+        "text": "TABLE V: Robustness to distribution shift: LIBERO-PRO success rate (%); best per column in bold. Training Base Language Object Position Task Overall 𝝅 0.5 \\pi_{0.5} Centralized 97.00 97.50 87.50 22.50 4.50 53.00 Federated 97.50 97.00 83.50 43.25 4.75 57.13 GR00T N1.7 Centralized 96.75 93.25 79.00 2.00 5.00 44.81 Federated 91.00 92.25 73.75 8.75 4.00 44.69 SmolVLA Centralized 90.00 89.50 62.75 0.00 3.25 38.88 Federated 75.25 77.00 56.50 0.50 4.00 34.50 Federated fine-tuning is as robust to distribution shift as centralized fine-tuning. Table V rescores the centralized and federated models on LIBERO-PRO [ 28 ] , which re-renders each suite under instruction paraphrase ( Language ), object appearance change ( Object ), object position swap ( Position ), and goal redefinition ( Task ). Every model degrades sharply, and goal redefinition defeats all of them ( ≤ 5.00 % {\\leq}\\,5.00\\% ). The federated deficits, however, shrink under shift: GR00T’s 5.75% in-distribution gap narrows to 0.12%, SmolVLA’s 14.75% narrows to 4.38%, and π 0.5 \\pi_{0.5} moves 4.13% ahead of the centralized reference it matched in distribution. The federated advantage concentrates in the position swap. Under the swap every federated row leads its centralized counterpart: 43.25% against 22.50% for π 0.5 \\pi_{0.5} , 8.75% against 2.00% for GR00T, and 0.50% against 0.00% for SmolVLA; π 0.5 \\pi_{0.5} ’s 20.75% lead here contributes 5.19% to its 4.13% overall lead, outweighing the centralized advantages under paraphrase and appearance change. A candidate explanation is that federation adds an implicit regularization. LIBERO-PRO traces the collapse under the position swap to policies memorizing the absolute object placements of their training layouts [ 28 ] , and such memorization is what averaging removes: each client can memorize only the layouts of its own five tasks, and the round-wise average keeps what the eight models share while canceling what they do not [ 34 , 39 ] . The centralized model, trained on all 40 layouts in a single run and never averaged, is free to memorize them."
+      },
+      {
+        "id": "S5.SS5",
+        "heading": "V-E Transfer to Physical Robots (Q5)",
+        "level": 2,
+        "text": "In real-world evaluation, federated fine-tuning performs worse than centralized fine-tuning in both experiments. Fig. 8 scores the two π 0.5 \\pi_{0.5} models of each experiment on all six tasks at every site: with two task-split clients the centralized model leads by 15.8% (70.8% against 55.0%), with three color-pair clients by 24.5% (67.8% against 43.3%). Combining the sites’ demonstrations by parameter averaging recovers less than centralizing them directly, although the same policy’s federated fine-tuning matched centralized fine-tuning in simulation (Sec. V-A ). The likely cause is heterogeneity: the real sites differ in more ways than the LIBERO partition expresses. In LIBERO, clients differ only in which tasks they hold, and share one simulated robot. The physical sites differ in their tasks; in their observations, through camera placement, lighting, and background (Fig. 5 ); and, above all, in their actions and states, through each arm’s calibration and each operator’s habits. Fig. 9 measures the action axis: although every arm is the same SO-101 model, the wrist_roll distributions of Sites A and B sit 101.8 ∘ 101.8^{\\circ} apart (Wasserstein distance), on opposite sides of zero with no overlap, and wrist_flex and shoulder_pan also shift across sites. Averaging across this spread degrades action precision rather than task grounding: in the recorded rollouts the federated policy typically reaches the correct cube but cannot grasp it stably or stack it precisely. The real-to-simulation evaluation confirms the real-world result: centralized fine-tuning leads at every perturbation amplitude. We rescore the two three-client checkpoints in the simulated environment of Sec. IV-B6 , on the demonstrated cube layouts and under displacements of up to 1, 3, and 5 cm (Fig. 10 ). At 0 cm, the in-distribution control, centralized fine-tuning reaches transport in 47.3% of episodes against 37.2% and success in 13.6% against 7.8%, reproducing in simulation the lead the two real-world experiments of Fig. 8 found. Moving right in Fig. 10 , both models degrade as the cubes are displaced, and the ordering never flips: no amplitude in the tested range brings the federated policy level with the centralized one."
+      },
+      {
+        "id": "S6",
+        "heading": "VI Conclusion",
+        "level": 1,
+        "text": "This study shows that federated fine-tuning is a promising, privacy-preserving route for Vision-Language-Action models to keep improving after release: when the policy’s pretraining is strong, it matches or approaches centralized fine-tuning without any demonstration leaving its site, so homes, labs, and factories could in principle train a shared policy. Realizing this prospect requires resolving the open problems the study measured. LoRA reduces the transmission payload only by paying rounds, so communication-efficient federation converges slowly. None of the evaluated aggregation algorithms improves on FedAvg, and weakly pretrained policies still trail their centralized counterparts. On physical robots, cross-site heterogeneity is stronger than simulated benchmarks express, especially in the action space. We leave these problems to the community and release decent-vla , with the configuration behind every reported result, as a reproducible benchmark on which to pursue them."
+      },
+      {
+        "id": "bib",
+        "heading": "References",
+        "level": 1,
+        "text": "[1] K. Black et al. , “ π 0.5 \\pi_{0.5} : A vision-language-action model with open-world generalization,” in Proc. Conf. Robot Learn. (CoRL) , 2025, pp. 17–40. [2] M. Shukor et al. , “SmolVLA: A vision-language-action model for affordable and efficient robotics,” arXiv:2506.01844 , 2025. [3] NVIDIA, “Isaac GR00T N1.7: A foundation model for generalist robots,” model card and code release, Apr. 2026. [Online]. Available: https://huggingface.co/nvidia/GR00T-N1.7-3B [4] B. McMahan, E. Moore, D. Ramage, S. Hampson, and B. Agüera y Arcas, “Communication-efficient learning of deep networks from decentralized data,” in Proc. Int. Conf. Artif. Intell. Statist. (AISTATS) , 2017, pp. 1273–1282. [5] J. Zhang, S. Vahidian, M. Kuo, C. Li, R. Zhang, T. Yu, Y. Zhou, G. Wang, and Y. Chen, “Towards building the federated GPT: Federated instruction tuning,” in Proc. IEEE Int. Conf. Acoust., Speech Signal Process. (ICASSP) , 2024, pp. 6915–6919. [6] R. Ye et al. , “OpenFedLLM: Training large language models on decentralized private data via federated learning,” in Proc. ACM SIGKDD Conf. Knowl. Discovery Data Mining (KDD) , 2024, pp. 6137–6147. [7] C. Miao et al. , “FedVLA: Federated vision-language-action learning with dual gating mixture-of-experts for robotic manipulation,” in Proc. IEEE/CVF Int. Conf. Computer Vision (ICCV) , 2025. [8] S. Bou Betrán, A. Longhini, M. Vasco, Y. Zhang, and D. Kragic, “FLAME: A federated learning benchmark for robotic manipulation,” in Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst. (IROS) , 2025. [9] B. Zitkovich et al. , “RT-2: Vision-language-action models transfer web knowledge to robotic control,” in Proc. Conf. Robot Learn. (CoRL) , 2023, pp. 2165–2183. [10] M. J. Kim, K. Pertsch, S. Karamcheti et al. , “OpenVLA: An open-source vision-language-action model,” in Proc. Conf. Robot Learn. (CoRL) , 2024, pp. 2679–2713. [11] A. O’Neill et al. , “Open X-Embodiment: Robotic learning datasets and RT-X models,” in Proc. IEEE Int. Conf. Robot. Autom. (ICRA) , 2024, pp. 6892–6903. [12] K. Black et al. , “ π 0 \\pi_{0} : A vision-language-action flow model for general robot control,” in Proc. Robot.: Sci. Syst. (RSS) , 2025. [13] J. Bjorck et al. , “GR00T N1: An open foundation model for generalist humanoid robots,” arXiv:2503.14734 , 2025. [14] A. Khazatsky et al. , “DROID: A large-scale in-the-wild robot manipulation dataset,” in Proc. Robot.: Sci. Syst. (RSS) , 2024. [15] T. Li, A. K. Sahu, M. Zaheer, M. Sanjabi, A. Talwalkar, and V. Smith, “Federated optimization in heterogeneous networks,” in Proc. Mach. Learn. Syst. (MLSys) , vol. 2, 2020, pp. 429–450. [16] S. P. Karimireddy, S. Kale, M. Mohri, S. J. Reddi, S. U. Stich, and A. T. Suresh, “SCAFFOLD: Stochastic controlled averaging for federated learning,” in Proc. Int. Conf. Mach. Learn. (ICML) , 2020, pp. 5132–5143. [17] S. J. Reddi, Z. Charles, M. Zaheer, Z. Garrett, K. Rush, J. Konečný, S. Kumar, and H. B. McMahan, “Adaptive federated optimization,” in Proc. Int. Conf. Learn. Represent. (ICLR) , 2021. [18] D. J. Beutel et al. , “Flower: A friendly federated learning research framework,” arXiv:2007.14390 , 2020. [19] H. R. Roth et al. , “NVIDIA FLARE: Federated learning from simulation to real-world,” IEEE Data Eng. Bull. , vol. 46, no. 1, pp. 170–184, 2023. [20] P. Guo, S. Zeng, Y. Wang, H. Fan, F. Wang, and L. Qu, “Selective aggregation for low-rank adaptation in federated learning,” in Proc. Int. Conf. Learn. Represent. (ICLR) , 2025. [21] E. J. Hu, Y. Shen, P. Wallis, Z. Allen-Zhu, Y. Li, S. Wang, L. Wang, and W. Chen, “LoRA: Low-rank adaptation of large language models,” in Proc. Int. Conf. Learn. Represent. (ICLR) , 2022. [22] M. G. Arivazhagan, V. Aggarwal, A. K. Singh, and S. Choudhary, “Federated learning with personalization layers,” arXiv:1912.00818 , 2019. [23] X. Li, M. Jiang, X. Zhang, M. Kamp, and Q. Dou, “FedBN: Federated learning on non-IID features via local batch normalization,” in Proc. Int. Conf. Learn. Represent. (ICLR) , 2021. [24] T. Li, S. Hu, A. Beirami, and V. Smith, “Ditto: Fair and robust federated learning through personalization,” in Proc. Int. Conf. Mach. Learn. (ICML) , 2021. [25] B. Liu, L. Wang, and M. Liu, “Lifelong federated reinforcement learning: A learning architecture for navigation in cloud robotic systems,” IEEE Robot. Autom. Lett. , vol. 4, no. 4, pp. 4555–4562, 2019. [26] L. Wang, K. Zhang, A. Zhou, M. Simchowitz, and R. Tedrake, “Robot fleet learning via policy merging,” in Proc. Int. Conf. Learn. Represent. (ICLR) , 2024. [27] M. Müller, S. Brahmbhatt, A. Deka, Q. Leboutet, D. Hafner, and V. Koltun, “OpenBot-Fleet: A system for collective learning with real robots,” in Proc. IEEE Int. Conf. Robot. Autom. (ICRA) , 2024, pp. 4758–4765. [28] X. Zhou et al. , “LIBERO-PRO: Towards robust and fair evaluation of vision-language-action models beyond memorization,” arXiv:2510.03827 , 2025. [29] Physical Intelligence et al. , “ π 0.7 \\pi_{0.7} : A steerable generalist robotic foundation model with emergent capabilities,” arXiv:2604.15483 , 2026. [30] B. Liu, Y. Zhu, C. Gao, Y. Feng, Q. Liu, Y. Zhu, and P. Stone, “LIBERO: Benchmarking knowledge transfer for lifelong robot learning,” in Proc. Adv. Neural Inf. Process. Syst. (NeurIPS) Datasets and Benchmarks Track , 2023. [31] WowRobo Robotics, “SO-ARM101 DIY kit & assembled version,” product page, accessed Aug. 2026. [Online]. Available: https://shop.wowrobo.com/products/so-arm101-diy-kit-assembled-version-1 [32] NVIDIA, “NVIDIA Isaac Sim: Robotics simulation and synthetic data generation,” software, accessed Aug. 2026. [Online]. Available: https://developer.nvidia.com/isaac/sim [33] X. Yang et al. , “RoboLab: A high-fidelity simulation benchmark for analysis of task generalist policies,” arXiv:2604.09860 , 2026. [34] M. Wortsman et al. , “Model soups: Averaging weights of multiple fine-tuned models improves accuracy without increasing inference time,” in Proc. Int. Conf. Mach. Learn. (ICML) , 2022, pp. 23965–23998. [35] H.-Y. Chen, C.-H. Tu, Z. Li, H.-W. Shen, and W.-L. Chao, “On the importance and applicability of pre-training for federated learning,” in Proc. Int. Conf. Learn. Represent. (ICLR) , 2023. [36] J. Nguyen, J. Wang, K. Malik, M. Sanjabi, and M. Rabbat, “Where to begin? On the impact of pre-training and initialization in federated learning,” in Proc. Int. Conf. Learn. Represent. (ICLR) , 2023. [37] A. Aghajanyan, S. Gupta, and L. Zettlemoyer, “Intrinsic dimensionality explains the effectiveness of language model fine-tuning,” in Proc. Annu. Meeting Assoc. Comput. Linguistics (ACL) , 2021, pp. 7319–7328. [38] D. Biderman et al. , “LoRA learns less and forgets less,” Trans. Mach. Learn. Res. , 2024. [39] A. Ramé, M. Kirchmeyer, T. Rahier, A. Rakotomamonjy, P. Gallinari, and M. Cord, “Diverse weight averaging for out-of-distribution generalization,” in Proc. Adv. Neural Inf. Process. Syst. (NeurIPS) , 2022."
+      }
+    ]
+  },
+  "text": "An Empirical Study and Open Testbed for Federated Fine-Tuning of Vision-Language-Action Models Skip to main content Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: Why HTML? Report Issue Back to Abstract Download PDF Contents Reading mode Colour theme License: arXiv.org perpetual non-exclusive license arXiv:2609.22973v1 [cs.RO] 19 Sep 2026 An Empirical Study and Open Testbed for Federated Fine-Tuning of Vision-Language-Action Models Zhekai Duan Affiliation: Department of Computer Science, University College London, U.K. Kevin Ziyang Xie Affiliation: Department of Computer Science, University College London, U.K. Xinyu Tan Affiliation: Department of Computer Science, University College London, U.K. Shikai Geng Affiliation: Department of Computer Science, University College London, U.K. Chengxu Zhou Affiliation: Department of Computer Science, University College London, U.K. Ramana Kompella Affiliation: Cisco Research, San Jose, CA, USA. Gaowen Liu Affiliation: Cisco Research, San Jose, CA, USA. Chris Xiaoxuan Lu † † thanks: * Corresponding author: zhekaiduan2312@gmail.com Affiliation: Department of Computer Science, University College London, U.K. Abstract Adapting a pretrained Vision-Language-Action (VLA) model to a new robot, environment, or task requires demonstrations that are collected locally and often discarded. Federated learning is a promising approach to exploiting such distributed demonstrations by learning a shared policy. However, whether it can adapt large pretrained VLAs remains an open question, and a lack of reproducible benchmarks for pretrained VLAs and reusable training frameworks makes existing results difficult to compare. In this paper, we conduct a systematic study of federated fine-tuning of three modern pretrained VLA policies on the 40 simulated tasks of the LIBERO manipulation benchmark, and on six real-world tasks in two real-robot experiments, with demonstrations collected across two and three sites, respectively. Our study analyzes the key choices in this setting, spanning multiple federated parameter scopes, three aggregation algorithms, and evaluation under distribution shift. Based on the study, we derive a series of lessons, including the dominance of the federated scope over the choice of aggregation algorithm and the difficulty of matching centralized fine-tuning on physical robots, where cross-site heterogeneity is stronger than simulation captures. We also highlight opportunities for federated VLA learning, such as the ability to match centralized fine-tuning on heterogeneous data, to remain at least as robust as centralized fine-tuning under distribution shift, and to personalize, with each client federating part of the policy and keeping the rest local, which helps where the policy’s pretraining is weak but leaves no usable global model. We open-source decent-vla , the model- and runtime-agnostic testbed behind the study, to facilitate future research and fair comparisons in federated VLA learning. Index Terms: Federated learning, vision-language-action models, robot learning, benchmarking, decentralized learning I Introduction Vision-Language-Action (VLA) models map visual observations and natural-language instructions to robot actions, and openly released checkpoints such as π 0.5 \\pi_{0.5} [ 1 ] , SmolVLA [ 2 ] , and GR00T N1.7 [ 3 ] (hereafter GR00T) have made pretrained generalist policies broadly available. Unlike the language and vision models they build on, a pretrained VLA must still be fine-tuned for each new robot, environment, or task, on demonstrations collected at the deployment site. Today this adaptation runs in one direction: each site fine-tunes the released checkpoint in isolation, and the demonstrations collected during deployment are discarded (Fig. 1 ). What is missing is the reverse mechanism: a way for many holders of small, private, heterogeneous datasets to collectively improve a shared open policy. Release & Forget Pretrained VLA home office lab experience discarded decent-vla Shared Policy home office lab shared improvement with privacy Fig. 1: In current practice (left), each site downloads a released VLA checkpoint, and the demonstrations it collects afterwards go unused. decent-vla (right) lets each site fine-tune the shared policy on its private data and exchange only model updates, so the policy keeps improving while data stays local. Federated learning (FL) [ 4 ] provides this mechanism: each site fine-tunes the policy locally and transmits only model updates to an aggregating server, an approach recently explored for large language models (LLMs) [ 5 , 6 ] . VLA data, however, is heterogeneous along axes with no analogue in text or images. Even two sites running the same robot model can differ not only in their tasks, but also in their observations, shaped by environment and camera viewpoint, and in their actions and states, shaped by hardware calibration and operator behavior. Whether federated optimization can adapt a large pretrained VLA across such sites while preserving the capabilities acquired during pretraining is an open question. Existing studies [ 7 , 8 ] use different policies, partitions, aggregation algorithms, and evaluation setups, so their results are difficult to compare, and each rebuilds its training infrastructure from scratch. The field lacks a reusable training framework and a reproducible benchmark on which a new policy, aggregation algorithm, or runtime can be evaluated under identical conditions. We therefore conduct a systematic study and build the testbed it requires. decent-vla is an open testbed with two parts: a framework that federates the fine-tuning of pretrained VLAs, in which an experiment is specified by a configuration file and a new policy, aggregation algorithm, or runtime is added as a small plugin (Sec. IV ); and a reference benchmark that fixes the partition, training budgets, and evaluation protocol (Sec. IV-B ). On this testbed we study three modern pretrained policies on LIBERO in simulation, and π 0.5 \\pi_{0.5} on real SO-101 robot arms at two and three sites. Contributions. 1. Study. A systematic empirical study of federated fine-tuning of π 0.5 \\pi_{0.5} , SmolVLA, and GR00T N1.7, on LIBERO in simulation and on real SO-101 arms. Federated fine-tuning can match centralized fine-tuning when the policy’s pretraining is strong; the federated scope, not the aggregation algorithm, governs the outcome; and the calibration heterogeneity of real sites keeps centralized fine-tuning ahead (Sec. V ). 2. Testbed. decent-vla , an easy-to-use testbed that supports different policies, aggregation algorithms, and FL runtimes; the configuration behind every reported number in the study is released (Sec. IV ). II Related Work II-A Vision-Language-Action Models Modern Vision-Language-Action models adapt pretrained Vision-Language Models (VLMs) into robot controllers by mapping visual observations and language instructions to low-level actions. RT-2 casts actions as language tokens [ 9 ] , while OpenVLA couples a 7 B Llama-2 backbone with DINOv2 and SigLIP encoders, trained on roughly 970 k Open X-Embodiment demonstrations [ 10 , 11 ] . A second family separates perception from control: π 0 \\pi_{0} attaches a flow-matching action head (its “action expert”) to a VLM [ 12 ] , and π 0.5 \\pi_{0.5} adds open-world generalization through heterogeneous co-training [ 1 ] . SmolVLA targets single-GPU budgets with a 0.45 B SmolVLM2 backbone [ 2 ] , and GR00T N1 pairs a vision language System 2 with a diffusion-transformer (DiT) action System 1 [ 13 ] . We benchmark π 0.5 \\pi_{0.5} , SmolVLA, and GR00T N1.7, whose Cosmos-Reason2 backbone replaces the Eagle-2 of N1 [ 3 ] , all pretrained by centralizing large-scale, video-heavy datasets [ 11 , 14 ] . decent-vla treats each such policy as an interchangeable plugin and instead studies how their adaptation data can be exploited without centralization. II-B Federated Learning In federated learning , clients exchange model updates rather than data: FedAvg established weighted parameter averaging [ 4 ] ; heterogeneity-robust variants add a proximal term [ 15 ] or control variates [ 16 ] , and adaptive server optimizers treat aggregated updates as pseudo-gradients [ 17 ] . We benchmark FedAvg, FedProx, and FedAdam under one benchmark configuration (Sec. V-C ), and decent-vla drives the production systems Flower [ 18 ] and NVFlare [ 19 ] as interchangeable execution backends rather than competing with them (Sec. IV ). The closest line of work federates the fine-tuning of large pretrained models through compact updates (FedIT [ 5 ] , OpenFedLLM [ 6 ] , FedSA-LoRA [ 20 ] ), but it federates a single modality, language, while the federated systems that do cross modalities train small policies or classifiers from scratch. decent-vla carries this line from language to the adaptation of large pretrained VLAs, over a federated scope that can cover either the full model or a parameter-efficient adapter such as low-rank adaptation (LoRA) [ 21 ] . A complementary line personalizes the federated model by keeping part of it local to each client, through personalization layers [ 22 ] , local batch normalization [ 23 ] , or bi-level objectives [ 24 ] . We study the same split at VLA scale, federating one scope of the policy while each client fine-tunes the remainder locally. On the robotics side, fleet-learning systems aggregate experience across many robots [ 25 , 26 , 27 ] , but do not fine-tune pretrained VLAs. The two closest efforts each miss the intersection we target, a systematic study across multiple modern pretrained VLAs: FLAME federates a small from-scratch policy in simulation only [ 8 ] , and FedVLA is a single method on one bespoke backbone rather than a benchmark [ 7 ] . Spanning multiple pretrained policies, aggregation algorithms, and both a heterogeneous LIBERO partition and a multi-site study on real SO-101 arms, decent-vla reveals effects that neither line of work measured: aggregation algorithms designed for heterogeneous clients that do not improve on FedAvg at a matched round budget (Sec. V-C ), and a calibration heterogeneity that appears only when the clients are physical robots (Sec. V-E ). III Problem Setup: Variables and Questions We consider K K sites (clients) that each hold a private demonstration dataset 𝒟 k \\mathcal{D}_{k} of n k n_{k} samples that cannot leave the site. All clients start from a common pretrained VLA θ 0 \\theta^{0} , and federated fine-tuning seeks a single global policy that performs well on the union of their tasks. Algorithm 1 summarizes the process of federated fine-tuning: in each of R R rounds, the server broadcasts the parameters in the federated scope 𝒮 \\mathcal{S} , each client updates them on its local data, and the server aggregates the returned updates into the global parameters. We outline five questions about federated fine-tuning of pretrained VLAs: Algorithm 1 Federated fine-tuning of a pretrained VLA. 1: pretrained θ 0 \\theta^{0} ; clients k = 1 , … , K k=1,\\dots,K with private 𝒟 k \\mathcal{D}_{k} ( n k n_{k} samples); scope 𝒮 \\mathcal{S} ; rounds R R 2: for r = 1 , … , R r=1,\\dots,R do 3: server broadcasts θ r − 1 ​ [ 𝒮 ] \\theta^{r-1}[\\mathcal{S}] to all clients 4: for client k = 1 , … , K k=1,\\dots,K in parallel do 5: θ k ← \\theta_{k}\\leftarrow local imitation steps on 𝒟 k \\mathcal{D}_{k} starting from θ r − 1 \\theta^{r-1} 6: upload θ k ​ [ 𝒮 ] \\theta_{k}[\\mathcal{S}] to the server 7: end for 8: θ r ​ [ 𝒮 ] ← Aggregate ​ ( { θ k ​ [ 𝒮 ] } k = 1 K ) \\theta^{r}[\\mathcal{S}]\\leftarrow\\textsc{Aggregate}\\bigl(\\{\\theta_{k}[\\mathcal{S}]\\}_{k=1}^{K}\\bigr) 9: end for Controller one round loop Strategy: FedAvg FedAdam FedProx model θ \\theta Δ ​ θ \\Delta\\theta , n n Clients train on local data; only updates leave a client ⋯ \\cdots each client runs on one pair Pluggable backends two independent axes, both set in the config file of Fig. 3 Policy backend VLA model: openpi lerobot groot Execution backend FL runtime: local flower nvflare Communicator both axes plug in here: the same round loop runs in-process or over a distributed runtime, on one cluster or across sites Fig. 2: The decent-vla architecture. Each round, the server broadcasts the model parameters θ \\theta (restricted to the federated scope), each client trains them on its local data and returns its update Δ ​ θ \\Delta\\theta with its sample count n n , and a pluggable Strategy aggregates the updates. Every client composes a policy backend (the VLA) and an execution backend (the FL runtime) independently, so the same loop runs in-process or over Flower [ 18 ] or NVFlare [ 19 ] . Federated versus centralized fine-tuning (Q1) Robot demonstration data is strongly heterogeneous: sites differ in their tasks, environments, observations, and actions. Federated optimization is known to trail centralized training under such heterogeneity, as local updates drift toward each client’s objective [ 4 , 16 ] , but the size of the gap for billion-parameter pretrained VLAs has not been measured. We assign each client a disjoint subset of tasks and measure how closely federated fine-tuning approaches centralized fine-tuning (Sec. V-A ). Federated scope 𝒮 \\mathcal{S} (Q2) VLAs can have billions of parameters, so exchanging the full model between server and clients every round, ∼ 7 {\\sim}7 GB in bf16 for π 0.5 \\pi_{0.5} , limits the practicality of federated fine-tuning. Federating only part of the model reduces this payload, and it also enables personalization: the parameters outside 𝒮 \\mathcal{S} can be fine-tuned locally and kept personal to each client ( partial federation) [ 22 , 24 ] . We therefore investigate LoRA [ 21 ] updates in place of full fine-tuning and the module-wise federation of the action head or the backbone (Sec. V-B ). Aggregation algorithm (Q3) Alternatives to FedAvg [ 4 ] designed for heterogeneous clients, such as the proximal term of FedProx [ 15 ] and the server-side adaptivity of FedAdam [ 17 ] , are reported to improve performance under precisely the heterogeneity that robot data presents, but remain untested on large pretrained VLAs. We compare the performance of the three algorithms (Sec. V-C ). Robustness under distribution shift (Q4) Pretrained VLAs degrade substantially when instructions, objects, scene layouts, or goals shift at evaluation time [ 28 ] , and whether federated fine-tuning is more or less robust to such shifts than centralized fine-tuning is unknown. We evaluate the federated and centralized fine-tuned VLAs under four axes of evaluation-time shift (Sec. V-D ). Transfer to physical robots (Q5) On physical robots, client heterogeneity extends beyond the task differences that simulated benchmarks express: sites differ in their observations, shaped by environment and camera viewpoint, and in their actions and states, shaped by hardware calibration and operator behavior. This heterogeneity has no analogue in federated language models [ 5 , 6 ] . We compare federated and centralized fine-tuning on real SO-101 arms at two and three sites, then rescore the same checkpoints in a simulated environment calibrated to one site for repeatable layouts and stage-wise success rates (Sec. V-E ). IV The decent-vla Testbed decent-vla has two parts: the framework , a reusable instrument, and the reference benchmark , one configuration of that instrument in which the partition, budgets, and evaluation are fixed once and shared by every result of this study. IV-A The Framework: A Reusable Instrument ⬇ name : smolvla_libero_fl # one experiment = one file backend : # policy axis: which VLA name : lerobot # smolvla | pi05 | groot ... lora : { r : 64 , alpha : 128 } data : repo_id : HuggingFaceVLA/libero partitioning : scheme : task_round_robin # deterministic split num_clients : 8 fl : execution : flower # local | flower | nvflare strategy : { name : fedavg } # | fedadam | fedprox rounds : 100 local_steps : 250 eval : benchmark : { name : libero } n_episodes_per_task : 10 Fig. 3: One experiment is one YAML file (abridged): the configuration picks the policy, runtime, aggregation algorithm, partition, budgets, and evaluation, and decent-vla run launches it. The framework sets up every experiment from a single YAML file that decent-vla run executes (Fig. 3 ): the configuration picks the policy, the FL runtime, the aggregation algorithm, and all related hyperparameters. Each choice is therefore an independent variable that can be changed one at a time, and a new experiment, or an exact replication of a reported one, can be easily configured. One controller drives the round loop for every such combination (Fig. 2 ). This controller contains no policy- or runtime-specific code: π 0.5 \\pi_{0.5} , SmolVLA, and GR00T reach the loop through policy adapters, and the in-process runner, Flower, and NVFlare through runtime adapters. A client sends only the weight updates over the federated scope of Sec. III and its sample count, never raw data, and the server casts the bf16 deltas into an fp32 master copy so that mixed-precision training stays stable over many rounds. Aggregation follows the scope the policy declares, so the same code federates a full model, a module subset, or a LoRA update. The client partition is derived from a seed in the configuration, so every reported run can be relaunched on the same split. IV-B The Reference Benchmark This subsection describes the benchmark configuration behind every result of Sec. V (Fig. 4 ), with a brief rationale for each choice. Spatial 10 tasks Object 10 tasks Goal 10 tasks Long 10 tasks four LIBERO suites ⋅ \\cdot 40 tasks ⋅ \\cdot 1,693 demonstrations ⋅ \\cdot 273,465 frames deterministic task round-robin c 1 c_{1} c 2 c_{2} c 3 c_{3} c 4 c_{4} c 5 c_{5} c 6 c_{6} c 7 c_{7} c 8 c_{8} K = 8 K{=}8 clients ⋅ \\cdot 5 disjoint tasks each ⋅ \\cdot audited partition manifest Δ k \\Delta_{k} over 𝒮 \\mathcal{S} broadcast θ t \\theta^{t} server aggregation: FedAvg / FedAdam / FedProx R R rounds × \\times 250 local steps; only updates leave a site evaluation: all 40 tasks × \\times 10 episodes = = 400 episodes per score Fig. 4: The reference benchmark at a glance: the 40 tasks of the four LIBERO suites are assigned to K = 8 K{=}8 clients by a deterministic task round-robin (five disjoint tasks per client), each round exchanges only parameter updates over the federated scope 𝒮 \\mathcal{S} , and every reported score evaluates the full 40-task suite, including the tasks a client never saw. IV-B 1 Policies We benchmark three modern VLAs that span the small-to-mid-scale range and three architectural families: π 0.5 \\pi_{0.5} (3.2 B, PaliGemma), SmolVLA (0.45 B, SmolVLM2), and GR00T N1.7 (3.1 B, Cosmos-Reason2 with a DiT action head). For each family we take the strongest openly released checkpoint; for the π \\pi -series that is π 0.5 \\pi_{0.5} , as π 0.7 \\pi_{0.7} [ 29 ] is not public. Following each policy’s published fine-tuning recipe, we fully fine-tune π 0.5 \\pi_{0.5} and SmolVLA and train only GR00T’s DiT action head; LoRA and client-personalized variants are kept as controls that isolate the scope effect (Sec. V-B ). IV-B 2 Data and partition Our simulated experiments use LIBERO [ 30 ] , as it provides both sufficient demonstration data and a standard evaluation environment: 40 tasks across four suites (Spatial, Object, Goal, and Long) that share one robot and observation space, with 1,693 demonstrations and 273,465 frames in total. We use K = 8 K{=}8 clients, each of which receives five disjoint tasks by a deterministic round-robin (203–225 episodes per client). Our real-world experiments use six cube-stacking tasks on SO-101 arms: each task is one instruction of the form “put the {X} cube on top of the {Y} cube”, where {X} and {Y} name an ordered pair of cube colors. In each experiment, every task has 50 demonstrations, 300 in total, all collected at the site that owns the task. In the two-client experiment each client trains on the three tasks it collected; in the three-client experiment each client trains on the two stacking orders of one color pair (Sec. V-E ). We choose the SO-101 here because federated learning presupposes many potential participating sites, and this open-source, low-cost robot arm is one of the most popular: WowRobo Robotics, one primary vendor of the kits, reports over 10,000 SO-101 units shipped worldwide [ 31 ] . IV-B 3 Training setup Unless stated otherwise the server aggregates with FedAvg (FedAdam with server learning rate 10 − 3 10^{-3} and FedProx with μ = 0.01 \\mu{=}0.01 are compared in Sec. V-C ), and clients run 250 local steps per round with AdamW at each policy’s published fine-tuning hyperparameters, so that the benchmark measures the effect of federating rather than of hyperparameter tuning. LoRA controls use rank 64 with α = 128 \\alpha=128 on the attention and MLP projections, applied to backbone and action head for π 0.5 \\pi_{0.5} and SmolVLA; for GR00T the adapters attach to the DiT action head, with the backbone frozen and the embodiment projector trained full-rank. Each simulated result is reported as the run’s best score over the rounds evaluated (Fig. 7 ); the aggregation comparison of Sec. V-C and the personalization runs use a matched 100-round budget, and the robustness evaluation of Sec. V-D rescores the checkpoints of Table I . The centralized references are fine-tuned to convergence on the pooled 40-task data (SmolVLA through decent-vla with one client, GR00T through its official fine-tuning script) or, for π 0.5 \\pi_{0.5} , taken from the publicly released LIBERO checkpoint [ 1 ] and rescored in our harness at 50 episodes per task. IV-B 4 Evaluation in simulation We evaluate the centralized and federated fine-tuned models on the full 40 tasks in LIBERO with 10 trials each and report the success rate averaged over the 400 episodes; SmolVLA and π 0.5 \\pi_{0.5} execute 10-step action chunks between replans; GR00T replans every 16 steps. The personalization runs of Sec. V-B additionally evaluate the clients: each client’s own model is scored on the five tasks it owns, again at 10 episodes per task, so the eight clients together still yield 400 episodes. overhead wrist Site A Site B Site C Fig. 5: Three physical sites (A–C): the overhead and wrist camera views that form the policy’s input. Heterogeneity is both visual and physical, the latter from differing hardware calibration (Fig. 9 ). IV-B 5 Evaluation in the real world We evaluate each model on all six tasks at each site, with 10 trials per task judged pass/fail by the operator from the rollout, and report the success rate averaged over the 60 episodes. The two experiments train separate models and are not compared to each other (Sec. V-E ). IV-B 6 Real-to-simulation evaluation Real-world trials are costly and cannot control object position and pose, so we additionally rescore the three-client checkpoints in a simulated environment (Fig. 6 ), which affords repeatable layouts, automated evaluation at scale, and finer stage-wise success rates. The simulated environment is built in Isaac Sim [ 32 ] with RoboLab [ 33 ] , which provides a photorealistic environment for the SO-101 and objects. We calibrate the simulation with real-world cube positions: for each task, we read where the cubes were at the moment the gripper closed in its demonstrations. This gives 258 layouts that the models were trained on, which serve as the unperturbed 0 cm control. We then shift the cubes by up to 1, 3, or 5 cm from these positions and evaluate the centralized and federated π 0.5 \\pi_{0.5} at each amplitude. Layouts whose cubes would overlap are redrawn. The stage-wise success rate scores each rollout by the furthest of three stages it reaches: contact , any gripper–cube contact; transport , the cube carried in the air over the target; and success , the stack completed and holding. overhead wrist success fail contact transport success Fig. 6: The simulated environment of SO-101. Left: the overhead and wrist views the policy receives. Right: two rollouts of one π 0.5 \\pi_{0.5} checkpoint, one completing the stack and one not, with each stage shown as a composite of the five frames before it triggers. V Results Each subsection below answers one question of Sec. III by varying the factor under study on the reference benchmark of Sec. IV-B . Success rates and their differences are reported in absolute percentage terms. TABLE I: Federated versus centralized fine-tuning: LIBERO success rate (%); best per column in bold. Training Spatial Object Goal Long Overall 𝝅 0.5 \\pi_{0.5} (3.2 B) [ 1 ] Centralized 97.0 99.0 97.0 95.0 97.00 Federated 92.0 100.0 99.0 99.0 97.50 GR00T N1.7 (3.1 B) [ 3 ] Centralized 97.0 97.0 99.0 94.0 96.75 Federated 91.0 99.0 95.0 79.0 91.00 SmolVLA (0.45 B) [ 2 ] Centralized 89.0 97.0 95.0 79.0 90.00 Federated 75.0 70.0 81.0 75.0 75.25 V-A Federated Versus Centralized Fine-Tuning (Q1) Federated fine-tuning matches or approaches centralized fine-tuning for the two 3 B policies. In Table I , federated fine-tuned π 0.5 \\pi_{0.5} achieves 97.50% against its 97.00% centralized reference, and GR00T N1.7 reaches 91.00% against 96.75%, a 5.75% gap that concentrates in Long, whose 15.0% drop supplies two thirds of it. Federated fine-tuning is therefore promising at this scale: no demonstration leaves its client, yet both policies stay within 5.75% of their centralized references, and π 0.5 \\pi_{0.5} exceeds its reference. SmolVLA, in contrast, finishes 14.75% below its centralized reference (75.25% against 90.00%). The deficit is largest on Object (97.0% against 70.0%) and smallest on Long (79.0% against 75.0%). FedAvg differs from centralized fine-tuning in exactly one step: each round it averages the eight client models. Averaging works only while the clients stay close to the shared pretrained model [ 34 , 35 , 36 ] , so the strength of the pretraining decides the outcome. π 0.5 \\pi_{0.5} builds on over 10,000 hours of cross-embodiment robot data [ 12 , 1 ] , and GR00T on real, simulated, and human-video corpora spanning thousands of hours [ 13 ] : fitting LIBERO needs only small updates. SmolVLA is pretrained on roughly 100 hours of community-collected SO-100 data (10.6M frames at ∼ 30 {\\sim}30 fps) [ 2 ] , two orders of magnitude less: each client must move far toward its own five tasks, the models drift apart, and their average degrades [ 16 ] . TABLE II: Full fine-tuning versus LoRA: payload and LIBERO success rate (%); best per policy in bold. Update parameterization Params Payload Success (%) 𝝅 0.5 \\pi_{0.5} Full fine-tuning 3.62 B 7.24 GB 97.50 LoRA 0.12 B 0.24 GB 97.50 GR00T N1.7 Action head (full) 1.62 B 3.24 GB 91.00 Action head (LoRA) 0.39 B 0.77 GB 87.00 SmolVLA Full fine-tuning 0.40 B 0.81 GB 75.25 LoRA 0.04 B 0.08 GB 55.25 TABLE III: Partial federation: personalized LIBERO success rate (%); best per policy in bold. Only the listed scope is federated, the remainder stays client-personal. Federated scope Shared Personal Payload Personalized success (%) 𝝅 0.5 \\pi_{0.5} Action head 0.69 B 2.92 B 1.39 GB 95.25 Backbone 2.92 B 0.69 B 5.85 GB 97.25 GR00T N1.7 Action head 1.62 B 1.52 B 3.24 GB 86.25 Backbone 1.52 B 1.62 B 3.05 GB 71.25 SmolVLA Action head 0.10 B 0.30 B 0.20 GB 81.50 Backbone 0.30 B 0.10 B 0.61 GB 85.75 V-B Effect of the Federated Scope (Q2) Choosing 𝒮 \\mathcal{S} involves two decisions: how the update is parameterized, by full fine-tuning or by LoRA, and which parameters are federated at all. Tables II and III ablate the two decisions separately. LoRA matches full fine-tuning for π 0.5 \\pi_{0.5} but trails it by 4.00% for GR00T and by 20.00% for SmolVLA. In Table II , π 0.5 \\pi_{0.5} recovers its full fine-tuning score exactly (97.50%), GR00T falls from 91.00% to 87.00%, and SmolVLA from 75.25% to 55.25%. The performance difference is consistent with the findings in Sec. V-A : the weaker a policy’s pretraining, the larger the update the target demands, while rank 64 fixes how large an update a client can express [ 37 , 38 ] . LoRA reduces the transmission payload but converges more slowly. In Fig. 7 every LoRA curve runs behind its full fine-tuning counterpart, and the lag again follows the pretraining strength: roughly 20 rounds for π 0.5 \\pi_{0.5} , which closes the gap by round 100; 40–60 for GR00T (87.00% at round 140 against 85.75% at the full curve’s round 80); roughly 100 for SmolVLA, which reaches at round 160 what its full curve passed by round 60. In exchange the payload falls 30 × 30\\times , 4.2 × 4.2\\times , and 10 × 10\\times (Table II ). Under limited bandwidth LoRA is therefore practical for a strongly pretrained policy, paying rounds for a smaller per-round payload. 0 20 40 60 80 100 20 40 60 80 100 120 140 160 federated rounds LIBERO success (%) π 0.5 \\pi_{0.5} GR00T N1.7 SmolVLA full fine-tuning LoRA Fig. 7: Full fine-tuning (solid) versus LoRA (dashed) under global federation: LIBERO success rate over the round budget, for π 0.5 \\pi_{0.5} (3.2 B), GR00T N1.7 (3.1 B, action head) and SmolVLA (0.45 B). Every marker is a full 400-episode evaluation. Personalization improves SmolVLA but not the two 3 B policies, and it leaves no usable global model. In Table III only the listed module is federated, the remainder stays client-personal, every client fully fine-tunes (including GR00T’s otherwise-frozen backbone), and each client is scored on its own five tasks ( personalized success ). Personalization helps where averaging hurt: SmolVLA, whose deficit Sec. V-A traced to averaging, recovers 10.50% once its action head stays personal (85.75% with the backbone federated, against its 75.25% federated score). π 0.5 \\pi_{0.5} is essentially unchanged (97.25% against 97.50%), and GR00T reaches 86.25% against its 91.00% federated score, a difference concentrated in two tasks of a single client. The price is the global model: the server checkpoint holds only the shared module, only ever trained alongside the clients’ personal remainders, and scores 0.00% in every configuration we evaluated (not shown). Which module to federate has no universal answer: the backbone wins for π 0.5 \\pi_{0.5} and SmolVLA, the action head for GR00T. V-C Effect of the Aggregation Algorithm (Q3) TABLE IV: Aggregation algorithms on π 0.5 \\pi_{0.5} full fine-tuning: LIBERO success rate (%); best per column in bold. Algorithm Spatial Object Goal Long Overall FedAvg [ 4 ] 92.0 100.0 99.0 99.0 97.50 FedAdam [ 17 ] 91.0 100.0 99.0 95.0 96.25 FedProx [ 15 ] 89.0 99.0 95.0 94.0 94.25 Neither FedAdam nor FedProx improves on FedAvg under precisely the client heterogeneity they are designed for. Table IV compares the three algorithms on π 0.5 \\pi_{0.5} full fine-tuning under a matched budget with everything else held fixed: FedAvg finishes highest at 97.50% and matches or exceeds both alternatives on every suite, FedAdam reaches 96.25%, and FedProx 94.25%. Each alternative adds one mechanism to FedAvg, and neither pays off. FedAdam adds server-side adaptivity on top of the AdamW every client already runs locally, and costs 1.25%. FedProx adds a penalty on local drift from the broadcast model, but under the task partition each client’s optimum is genuinely far from the global one, so the penalty withholds part of each round’s progress and costs 3.25%. 0 20 40 60 80 100 0 20 40 60 80 100 cube-stacking success (%) 43.3 66.7 55.0 61.7 80.0 70.8 48.3 56.7 25.0 43.3 65.0 86.7 51.7 67.8 Site A Site B Mean Site A Site B Site C Mean (a) two clients, 3 / 3 task split (b) three clients, 2 / 2 / 2 color-pair split all π 0.5 \\pi_{0.5} centralized federated Fig. 8: Real-robot transfer: SO-101 cube-stacking success on each site’s arm, over all six tasks, for the centralized and the FedAvg server π 0.5 \\pi_{0.5} models. (a) Two clients, task split; (b) three clients, color-pair split; each bar pools 60 trials and the per-experiment means pool 120 and 180. 0 0.05 − 25 -25 0 0 25 25 shoulder_pan 0 0.01 − 100 -100 0 0 shoulder_lift 0 0.01 0.02 0 0 50 50 elbow_flex 0 0.05 0 0 50 50 wrist_flex 0 0.05 − 50 -50 0 0 50 50 wrist_roll 0 0.1 0.2 10 10 20 20 30 30 gripper density density joint target (deg) Site A Site B Site C Fig. 9: Per-joint action-target distributions of the three sites’ demonstrations, with the site colors of Fig. 5 . On wrist_roll , Sites A and B lie on opposite sides of zero with no overlap. per-stage rate (%) 0 1 3 5 perturbation amplitude (cm) 80 85 90 35 40 45 5 10 15 89.5 85.3 86.0 81.4 85.7 84.1 84.5 78.7 47.3 43.4 43.8 37.2 37.2 32.6 35.7 33.7 13.6 11.6 8.9 8.9 7.8 8.5 3.9 5.8 contact transport success centralized federated Fig. 10: Stage-wise success rate (%) for the centralized and federated π 0.5 \\pi_{0.5} under object-pose perturbation in the simulated environment (Fig. 6 ): 258 paired layouts per amplitude, identical between models. V-D Robustness Under Distribution Shift (Q4) TABLE V: Robustness to distribution shift: LIBERO-PRO success rate (%); best per column in bold. Training Base Language Object Position Task Overall 𝝅 0.5 \\pi_{0.5} Centralized 97.00 97.50 87.50 22.50 4.50 53.00 Federated 97.50 97.00 83.50 43.25 4.75 57.13 GR00T N1.7 Centralized 96.75 93.25 79.00 2.00 5.00 44.81 Federated 91.00 92.25 73.75 8.75 4.00 44.69 SmolVLA Centralized 90.00 89.50 62.75 0.00 3.25 38.88 Federated 75.25 77.00 56.50 0.50 4.00 34.50 Federated fine-tuning is as robust to distribution shift as centralized fine-tuning. Table V rescores the centralized and federated models on LIBERO-PRO [ 28 ] , which re-renders each suite under instruction paraphrase ( Language ), object appearance change ( Object ), object position swap ( Position ), and goal redefinition ( Task ). Every model degrades sharply, and goal redefinition defeats all of them ( ≤ 5.00 % {\\leq}\\,5.00\\% ). The federated deficits, however, shrink under shift: GR00T’s 5.75% in-distribution gap narrows to 0.12%, SmolVLA’s 14.75% narrows to 4.38%, and π 0.5 \\pi_{0.5} moves 4.13% ahead of the centralized reference it matched in distribution. The federated advantage concentrates in the position swap. Under the swap every federated row leads its centralized counterpart: 43.25% against 22.50% for π 0.5 \\pi_{0.5} , 8.75% against 2.00% for GR00T, and 0.50% against 0.00% for SmolVLA; π 0.5 \\pi_{0.5} ’s 20.75% lead here contributes 5.19% to its 4.13% overall lead, outweighing the centralized advantages under paraphrase and appearance change. A candidate explanation is that federation adds an implicit regularization. LIBERO-PRO traces the collapse under the position swap to policies memorizing the absolute object placements of their training layouts [ 28 ] , and such memorization is what averaging removes: each client can memorize only the layouts of its own five tasks, and the round-wise average keeps what the eight models share while canceling what they do not [ 34 , 39 ] . The centralized model, trained on all 40 layouts in a single run and never averaged, is free to memorize them. V-E Transfer to Physical Robots (Q5) In real-world evaluation, federated fine-tuning performs worse than centralized fine-tuning in both experiments. Fig. 8 scores the two π 0.5 \\pi_{0.5} models of each experiment on all six tasks at every site: with two task-split clients the centralized model leads by 15.8% (70.8% against 55.0%), with three color-pair clients by 24.5% (67.8% against 43.3%). Combining the sites’ demonstrations by parameter averaging recovers less than centralizing them directly, although the same policy’s federated fine-tuning matched centralized fine-tuning in simulation (Sec. V-A ). The likely cause is heterogeneity: the real sites differ in more ways than the LIBERO partition expresses. In LIBERO, clients differ only in which tasks they hold, and share one simulated robot. The physical sites differ in their tasks; in their observations, through camera placement, lighting, and background (Fig. 5 ); and, above all, in their actions and states, through each arm’s calibration and each operator’s habits. Fig. 9 measures the action axis: although every arm is the same SO-101 model, the wrist_roll distributions of Sites A and B sit 101.8 ∘ 101.8^{\\circ} apart (Wasserstein distance), on opposite sides of zero with no overlap, and wrist_flex and shoulder_pan also shift across sites. Averaging across this spread degrades action precision rather than task grounding: in the recorded rollouts the federated policy typically reaches the correct cube but cannot grasp it stably or stack it precisely. The real-to-simulation evaluation confirms the real-world result: centralized fine-tuning leads at every perturbation amplitude. We rescore the two three-client checkpoints in the simulated environment of Sec. IV-B6 , on the demonstrated cube layouts and under displacements of up to 1, 3, and 5 cm (Fig. 10 ). At 0 cm, the in-distribution control, centralized fine-tuning reaches transport in 47.3% of episodes against 37.2% and success in 13.6% against 7.8%, reproducing in simulation the lead the two real-world experiments of Fig. 8 found. Moving right in Fig. 10 , both models degrade as the cubes are displaced, and the ordering never flips: no amplitude in the tested range brings the federated policy level with the centralized one. VI Conclusion This study shows that federated fine-tuning is a promising, privacy-preserving route for Vision-Language-Action models to keep improving after release: when the policy’s pretraining is strong, it matches or approaches centralized fine-tuning without any demonstration leaving its site, so homes, labs, and factories could in principle train a shared policy. Realizing this prospect requires resolving the open problems the study measured. LoRA reduces the transmission payload only by paying rounds, so communication-efficient federation converges slowly. None of the evaluated aggregation algorithms improves on FedAvg, and weakly pretrained policies still trail their centralized counterparts. On physical robots, cross-site heterogeneity is stronger than simulated benchmarks express, especially in the action space. We leave these problems to the community and release decent-vla , with the configuration behind every reported result, as a reproducible benchmark on which to pursue them. References [1] K. Black et al. , “ π 0.5 \\pi_{0.5} : A vision-language-action model with open-world generalization,” in Proc. Conf. Robot Learn. (CoRL) , 2025, pp. 17–40. [2] M. Shukor et al. , “SmolVLA: A vision-language-action model for affordable and efficient robotics,” arXiv:2506.01844 , 2025. [3] NVIDIA, “Isaac GR00T N1.7: A foundation model for generalist robots,” model card and code release, Apr. 2026. [Online]. Available: https://huggingface.co/nvidia/GR00T-N1.7-3B [4] B. McMahan, E. Moore, D. Ramage, S. Hampson, and B. Agüera y Arcas, “Communication-efficient learning of deep networks from decentralized data,” in Proc. Int. Conf. Artif. Intell. Statist. (AISTATS) , 2017, pp. 1273–1282. [5] J. Zhang, S. Vahidian, M. Kuo, C. Li, R. Zhang, T. Yu, Y. Zhou, G. Wang, and Y. Chen, “Towards building the federated GPT: Federated instruction tuning,” in Proc. IEEE Int. Conf. Acoust., Speech Signal Process. (ICASSP) , 2024, pp. 6915–6919. [6] R. Ye et al. , “OpenFedLLM: Training large language models on decentralized private data via federated learning,” in Proc. ACM SIGKDD Conf. Knowl. Discovery Data Mining (KDD) , 2024, pp. 6137–6147. [7] C. Miao et al. , “FedVLA: Federated vision-language-action learning with dual gating mixture-of-experts for robotic manipulation,” in Proc. IEEE/CVF Int. Conf. Computer Vision (ICCV) , 2025. [8] S. Bou Betrán, A. Longhini, M. Vasco, Y. Zhang, and D. Kragic, “FLAME: A federated learning benchmark for robotic manipulation,” in Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst. (IROS) , 2025. [9] B. Zitkovich et al. , “RT-2: Vision-language-action models transfer web knowledge to robotic control,” in Proc. Conf. Robot Learn. (CoRL) , 2023, pp. 2165–2183. [10] M. J. Kim, K. Pert",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Skip to main content",
+      "url": "https://arxiv.org/html/2609.22973v1#infobox"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/IgnoreMe"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "Why HTML?",
+      "url": "https://info.arxiv.org/about/accessible_HTML.html"
+    },
+    {
+      "text": "Back to Abstract",
+      "url": "https://arxiv.org/abs/2609.22973v1"
+    },
+    {
+      "text": "Download PDF",
+      "url": "https://arxiv.org/pdf/2609.22973v1"
+    },
+    {
+      "text": "License: arXiv.org perpetual non-exclusive license",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.22973v1#bib.bib1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2609.22973v1#bib.bib2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2609.22973v1#bib.bib3"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.22973v1#S1.F1"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2609.22973v1#bib.bib4"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2609.22973v1#bib.bib5"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2609.22973v1#bib.bib6"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2609.22973v1#bib.bib7"
+    },
+    {
+      "text": "8",
+      "url": "https://arxiv.org/html/2609.22973v1#bib.bib8"
+    },
+    {
+      "text": "IV",
+      "url": "https://arxiv.org/html/2609.22973v1#S4"
+    },
+    {
+      "text": "IV-B",
+      "url": "https://arxiv.org/html/2609.22973v1#S4.SS2"
+    },
+    {
+      "text": "V",
+      "url": "https://arxiv.org/html/2609.22973v1#S5"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2609.22973v1#bib.bib9"
+    },
+    {
+      "text": "10",
+      "url": "https://arxiv.org/html/2609.22973v1#bib.bib10"
+    },
+    {
+      "text": "11",
+      "url": "https://arxiv.org/html/2609.22973v1#bib.bib11"
+    },
+    {
+      "text": "12",
+      "url": "https://arxiv.org/html/2609.22973v1#bib.bib12"
+    },
+    {
+      "text": "13",
+      "url": "https://arxiv.org/html/2609.22973v1#bib.bib13"
+    },
+    {
+      "text": "14",
+      "url": "https://arxiv.org/html/2609.22973v1#bib.bib14"
+    },
+    {
+      "text": "15",
+      "url": "https://arxiv.org/html/2609.22973v1#bib.bib15"
+    },
+    {
+      "text": "16",
+      "url": "https://arxiv.org/html/2609.22973v1#bib.bib16"
+    },
+    {
+      "text": "17",
+      "url": "https://arxiv.org/html/2609.22973v1#bib.bib17"
+    },
+    {
+      "text": "V-C",
+      "url": "https://arxiv.org/html/2609.22973v1#S5.SS3"
+    },
+    {
+      "text": "18",
+      "url": "https://arxiv.org/html/2609.22973v1#bib.bib18"
+    },
+    {
+      "text": "19",
+      "url": "https://arxiv.org/html/2609.22973v1#bib.bib19"
+    },
+    {
+      "text": "20",
+      "url": "https://arxiv.org/html/2609.22973v1#bib.bib20"
+    },
+    {
+      "text": "21",
+      "url": "https://arxiv.org/html/2609.22973v1#bib.bib21"
+    },
+    {
+      "text": "22",
+      "url": "https://arxiv.org/html/2609.22973v1#bib.bib22"
+    },
+    {
+      "text": "23",
+      "url": "https://arxiv.org/html/2609.22973v1#bib.bib23"
+    },
+    {
+      "text": "24",
+      "url": "https://arxiv.org/html/2609.22973v1#bib.bib24"
+    },
+    {
+      "text": "25",
+      "url": "https://arxiv.org/html/2609.22973v1#bib.bib25"
+    },
+    {
+      "text": "26",
+      "url": "https://arxiv.org/html/2609.22973v1#bib.bib26"
+    },
+    {
+      "text": "27",
+      "url": "https://arxiv.org/html/2609.22973v1#bib.bib27"
+    },
+    {
+      "text": "V-E",
+      "url": "https://arxiv.org/html/2609.22973v1#S5.SS5"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.22973v1#alg1"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2609.22973v1#S4.F3"
+    },
+    {
+      "text": "V-A",
+      "url": "https://arxiv.org/html/2609.22973v1#S5.SS1"
+    },
+    {
+      "text": "V-B",
+      "url": "https://arxiv.org/html/2609.22973v1#S5.SS2"
+    },
+    {
+      "text": "28",
+      "url": "https://arxiv.org/html/2609.22973v1#bib.bib28"
+    },
+    {
+      "text": "V-D",
+      "url": "https://arxiv.org/html/2609.22973v1#S5.SS4"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2609.22973v1#S3.F2"
+    },
+    {
+      "text": "III",
+      "url": "https://arxiv.org/html/2609.22973v1#S3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2609.22973v1#S4.F4"
+    },
+    {
+      "text": "29",
+      "url": "https://arxiv.org/html/2609.22973v1#bib.bib29"
+    },
+    {
+      "text": "30",
+      "url": "https://arxiv.org/html/2609.22973v1#bib.bib30"
+    },
+    {
+      "text": "31",
+      "url": "https://arxiv.org/html/2609.22973v1#bib.bib31"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2609.22973v1#S5.F7"
+    },
+    {
+      "text": "I",
+      "url": "https://arxiv.org/html/2609.22973v1#S5.T1"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2609.22973v1#S5.F9"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2609.22973v1#S4.F6"
+    },
+    {
+      "text": "32",
+      "url": "https://arxiv.org/html/2609.22973v1#bib.bib32"
+    },
+    {
+      "text": "33",
+      "url": "https://arxiv.org/html/2609.22973v1#bib.bib33"
+    },
+    {
+      "text": "34",
+      "url": "https://arxiv.org/html/2609.22973v1#bib.bib34"
+    },
+    {
+      "text": "35",
+      "url": "https://arxiv.org/html/2609.22973v1#bib.bib35"
+    }
+  ],
+  "matching_link_count": 75,
+  "links_truncated": true,
+  "invalid_links": []
+}

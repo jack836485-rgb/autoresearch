@@ -1,0 +1,5 @@
+# 审查记录
+
+- Call 1（常规，effort high）：IDEA-006，5.3/10，promising_needs_revision，贡献三项 {'importance': 6.0, 'novelty': 6.5, 'effectiveness': 5.0}，可行性 pass，Gate 结果 failed。主贡献是第一次测量 REPA 在数据受限下对 τ_gen/τ_mem/泛化窗口的作用，并把作用归因到'实例可识别性 vs 语义'。测量空位真实存在，但影响面有限（从头加 REPA 训练小数据的场景不多），核心预测与 Marion & Wu（模型规模同时提前拟合与记忆化）、Gu 等（唯一随机标签触发记忆化）相邻。效应方向两边都有依据，没有直接证据。归因设计不可识别：去噪目标本身已携带实例身份，DIN
+- Call 2（常规，effort high）：IDEA-007，5.0/10，promising_needs_revision，贡献三项 {'importance': 6.0, 'novelty': 6.0, 'effectiveness': 4.5}，可行性 pass，Gate 结果 failed。主贡献若成立：潜空间选择改变 τ_mem 与泛化窗口，且可由训练前的 t* 预测。'潜空间是否为记忆化因素'未见直接测量，有空位；但 t* 即 Biroli 等的 collapse time t_C，Achilli 等已证其由内在维度控制，新意只剩'跨 tokenizer 用作训练期预测器'。有效性缺少从采样期坍缩时间到训练期 τ_mem 的任何机制或证据；d≈2e5、n=2k 时 t* 很可能在
+- Call 3（常规，effort high）：IDEA-008，4.5/10，needs_rethink，贡献三项 {'importance': 5.5, 'novelty': 6.0, 'effectiveness': 4.0}，可行性 pass，Gate 结果 failed。主贡献是对齐累计等效算力倍数 M(N,C) 降到 1 的交叉点 C*(N) 及其随学生规模的规律。重要性有限：只覆盖 S/B/L 和单一配方，HASTE 已按规模给出固定关闭点。新意在于 FLOPs 归一和跨规模外推，没有检索到直接先例，但框架是 Busbridge 搬过来的，现象来自 HASTE。有效性依据有错配：HASTE 的反转是边际收益反转（继续对齐 vs 关闭分叉），不是累计优势归零；R

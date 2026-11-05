@@ -1,0 +1,503 @@
+{
+  "url": "https://arxiv.org/html/2606.10487v1",
+  "final_url": "https://arxiv.org/html/2606.10487v1",
+  "status": 200,
+  "title": "Stop Early, Spend Less: Hidden-State Probes as a Practical Recipe for Streaming Moderation of LLM Outputs",
+  "metadata": {},
+  "paper": {
+    "title": "Stop Early, Spend Less: Hidden-State Probes as a Practical Recipe for Streaming Moderation of LLM Outputs",
+    "title_warning": null,
+    "abstract": "Abstract Deploying large language models (LLMs) in user-facing products\nrequires output safety filtering that can act during generation. The prevailing recipe chains a second moderation\nmodel—a moderation API, Llama Guard, or programmable guardrails—after\nthe generator, but such a guard reads the completed text: it\nroughly doubles serving cost and can only flag a violation after the\nunsafe content has reached the user. We start from a simple\nobservation: the signal needed for moderation already lives inside the\ngenerating model. We train lightweight token-level probes on the\nmodel’s own hidden states and aggregate their per-token unsafe scores\ninto either an offline verdict on a finished response or an online\ndecision that fires the moment a generation turns unsafe. Because the\nprobe reuses activations the model has already computed, it needs no\nsecond forward pass and runs inside the vLLM decode loop.\nA small probe on a single mid-network layer recovers the large majority\nof a strong guard model’s verdicts; it is best understood as a cheap,\ninlined surrogate for that guard rather than a more accurate moderator,\nso its value lies in cost and timing rather than raw accuracy.\nStreaming, it halts or rewrites an unsafe response before most of it\nreaches the user, replacing a roughly half-second, end-of-response\nguard call with a sub-millisecond, per-token check. Benchmarked against\nboth a post-hoc and a streaming guard model on neutral human labels,\nthe probe is the weaker classifier but adds two-to-four orders of\nmagnitude less moderation compute and near-zero latency. We distill our\nsweeps into a concrete deployment recipe—which layer to read, how to\naggregate scores, how often to probe, and how to set the trigger—so\nthe method drops into an existing serving stack. Finally, since the\nprobe’s linear component is a direction in residual space, the same\nhidden state could in principle be written to for activation steering;\nwe sketch this read/write symmetry as a preliminary direction for\nfuture work.",
+    "authors": [
+      {
+        "name": "Huizhen Shu",
+        "affiliations": [
+          "Affiliation: ModelOneAI,shuhuizhen@modeloneai.cn"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Xuying Li",
+        "affiliations": [
+          "Affiliation: yunshanai, {lixuying,piaoxue}@yunshanai.org.cn"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Piao Xue",
+        "affiliations": [
+          "Affiliation: yunshanai, {lixuying,piaoxue}@yunshanai.org.cn"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Huizhen Shu Affiliation: ModelOneAI,shuhuizhen@modeloneai.cn Xuying Li Affiliation: yunshanai, {lixuying,piaoxue}@yunshanai.org.cn Piao Xue Affiliation: yunshanai, {lixuying,piaoxue}@yunshanai.org.cn",
+    "arxiv_version": "2606.10487v1",
+    "arxiv_version_date": "2026-06-09",
+    "sections": [
+      {
+        "id": "S1",
+        "heading": "1 Introduction",
+        "level": 1,
+        "text": "LLM providers must intercept unsafe model outputs before they reach end users. The standard recipe is to chain a separate classifier after generation: a moderation API, a guard model such as Llama Guard ( Inan et al., 2023 ) , or rule-based guardrails ( Rebedea et al., 2023 ) . Two limitations motivate this work. (i) Latency. A second model must read the full response before deciding, so the user has already seen the unsafe content by the time the verdict arrives. In our measurements, a Qwen3Guard-Gen-8B ( Zhao et al., 2025 ) post-hoc moderator adds roughly 480 480 ms per response. (ii) Cost. Running an extra LLM as a moderator can double serving cost, which becomes prohibitive for long, streamed responses. Prior work on representation engineering ( Zou et al., 2023 ) , truthfulness probes ( Li et al., 2023 ) , latent-knowledge classifiers ( Burns et al., 2023 ) , and sleeper-agent detection ( MacDiarmid et al., 2024 ) suggests that simple classifiers on the hidden states of a base LLM can recover surprisingly strong signals about model behaviour. Most directly, Anthropic’s Constitutional Classifiers ( Sharma and others, 2025 ) and their successor Constitutional Classifiers++ ( Cunningham et al., 2026 ) deploy lightweight activation probes as a cheap first-stage screen inside a production jailbreak-defence cascade, reusing the model’s own internal states almost for free. Our setting pushes this idea in two practically important directions. First, we run the probe per token, during generation, so it can stop or rewrite a response before it finishes rather than only screen a completed exchange. Second, we let the probe be the moderation decision instead of a first-stage filter that escalates flagged exchanges to a heavier classifier; this keeps the second model off the inference path and turns probe cost into an explicit, tunable operating point. We build on this use of internal probes and take the line of work to its operational conclusion: the same hidden states that already exist inside the serving model can be probed cheaply, per token, to decide whether the current generation is becoming unsafe."
+      },
+      {
+        "id": "S1.SS0.SSS0.Px1",
+        "heading": "Contributions.",
+        "level": 3,
+        "text": "1. A self-monitoring formulation. We cast output safety as a probing problem on the generator’s own hidden states, supervised by an existing guard model’s labels, with a per-token weighted-BCE objective and a topK pool that concentrates supervision on the few tokens where unsafe content actually surfaces (Sec. 3 ). The resulting probe distills the guard into the generator’s forward pass and needs no second model at inference. 2. A streaming safety monitor, as the main contribution. We integrate the probe into the vLLM decode loop so that it emits a verdict per token and can stop or rewrite a response before the user sees it. We evaluate it end to end on three benchmarks and characterise its behaviour across probe-interval, score-aggregation, and trigger modes (Sec. 8 ), distilling a practical deployment recipe and a tunable accuracy–cost trade-off. We also benchmark its cost and latency head-to-head against post-hoc and streaming guard models on neutral human labels (Sec. 8.4 ). 3. An autonomous architecture search. An AutoResearch -style agent searches the probe design space on top of a hand-designed baseline and converges on a Dual-head probe, which we then retrain at full data scale (Secs. 5 – 6 ); we report offline results, including a per-category breakdown, in Sec. 7 . Beyond these contributions, we note a conceptual bridge to activation steering : because the linear branch of Dual-head is a direction in residual space, the hidden state read for detection can in principle be written to in order to re-route the generator. We report a preliminary prototype but leave a quantitative evaluation to future work (Sec. 9 )."
+      },
+      {
+        "id": "S2",
+        "heading": "2 Related work",
+        "level": 1,
+        "text": "Probing classifiers. Linear and shallow MLP probes have a long history as diagnostic tools for transformer representations ( Alain and Bengio, 2017 ; Tenney et al., 2019 ) . Recent work uses them operationally: contrast-consistent search ( Burns et al., 2023 ) extracts latent truthfulness; Li et al. (2023) and Zou et al. (2023) use probe directions for steering; MacDiarmid et al. (2024) demonstrate that very simple probes catch backdoored sleeper-agent models. Closest to our setting, Constitutional Classifiers++ ( Cunningham et al., 2026 ) use a linear activation probe as a cheap first-stage screen that reuses the model’s internal states, escalating only flagged exchanges to a heavier classifier; our streaming monitor pushes the same idea to a per-token, intervene-during-generation regime. Safety filtering for LLMs. Production stacks rely on a second classifier: Llama Guard ( Inan et al., 2023 ) fine-tunes a separate LLM as a moderator; OpenAI’s moderation pipeline ( Markov et al., 2023 ) uses a calibrated text classifier; NeMo Guardrails ( Rebedea et al., 2023 ) adds programmable rails; and Constitutional Classifiers ( Sharma and others, 2025 ) train input/output classifiers on constitution-guided synthetic data. All of these read the completed text and therefore cannot intervene during streaming. Safety benchmarks. BeaverTails ( Ji et al., 2023 ) and ToxicChat ( Lin et al., 2023 ) provide English content-safety labels; we additionally use a Chinese, fine-grained 49-category compliance dataset ( Zhuyi ) that exposes both broad harm types (state security, discrimination, infringement) and adversarial categories ( leetspeak_homoglyph , pinyin_homophone , roleplay_jailbreak , injection_and_hijack , etc.). Autonomous research loops. Our autonomous-search workflow follows the spirit of AutoResearch ( Karpathy, 2026 ) : an LLM agent holds the only writable file in the repository, edits it, runs training, reads the metric, and decides whether to keep or revert the change."
+      },
+      {
+        "id": "S3.SS1",
+        "heading": "3.1 Background and notation",
+        "level": 2,
+        "text": "Let ℳ \\mathcal{M} be a frozen autoregressive LLM with L L transformer layers. For an input sequence x 1 : T x_{1{:}T} we denote the hidden state of layer ℓ \\ell at position t t as h t ℓ ∈ ℝ H h^{\\ell}_{t}\\in\\mathbb{R}^{H} , and the attention mask as m t ∈ { 0 , 1 } m_{t}\\in\\{0,1\\} . We aim to produce a per-token unsafe logit z t ∈ ℝ z_{t}\\in\\mathbb{R} such that σ ( z t ) ≈ Pr [ token t is part of an unsafe generation ] \\sigma(z_{t})\\approx\\Pr[\\text{token~$t$ is part of an unsafe generation}] , and a sequence-level decision y ^ = 𝟏 { Agg ( z 1 : T ) ≥ 0 } \\hat{y}=\\mathbf{1}\\{\\text{Agg}(z_{1:T})\\geq 0\\} ."
+      },
+      {
+        "id": "S3.SS2",
+        "heading": "3.2 Probe heads",
+        "level": 2,
+        "text": "We train three token-level heads that share the LLM forward pass and extract a single layer’s hidden state h t ℓ h^{\\ell}_{t} : Linear-token : z t = w ⊤ ​ h t ℓ + b , w ∈ ℝ H \\displaystyle z_{t}=w^{\\top}h^{\\ell}_{t}+b,\\quad w\\in\\mathbb{R}^{H} MLP-token : z t = w 2 ⊤ ​ σ ​ ( W 1 ​ h t ℓ + b 1 ) + b 2 , W 1 ∈ ℝ d × H \\displaystyle z_{t}=w_{2}^{\\top}\\,\\sigma\\!\\left(W_{1}h^{\\ell}_{t}+b_{1}\\right)+b_{2},\\quad W_{1}\\in\\mathbb{R}^{d\\times H} Dual-head : z t = α ⋅ z t mlp + ( 1 − α ) ⋅ z t lin \\displaystyle z_{t}=\\alpha\\cdot z_{t}^{\\text{mlp}}+(1-\\alpha)\\cdot z_{t}^{\\text{lin}} with d = 1024 d=1024 throughout and σ \\sigma being ReLU after the autonomous search ( GELU in the hand-designed baseline). The Dual-head head is a linear convex combination of a two-layer MLP and a single linear branch, both reading the same h t ℓ h^{\\ell}_{t} . The LLM parameters are frozen ( ∇ θ ℳ = 0 \\nabla_{\\theta_{\\mathcal{M}}}=0 ); only the heads are trained."
+      },
+      {
+        "id": "S3.SS3",
+        "heading": "3.3 Per-token weighted BCE loss",
+        "level": 2,
+        "text": "Following the use of lightweight activation probes for safety screening in Constitutional Classifiers++ ( Cunningham et al., 2026 ) , we use z t z_{t} itself to softly select the most informative tokens of each sequence. Let Pool K denote either a length- M M sliding-window mean ( SWiM M ) or a topK pooling that retains the K K largest per-token logits. We use both: SWiM during the hand- designed exploration and topK once the autonomous search identifies it (Sec. 6 ). Writing the pooled logit as z ¯ t \\bar{z}_{t} , w t = exp ⁡ ( z ¯ t / τ ) ∑ t ′ ∈ V exp ⁡ ( z ¯ t ′ / τ ) , ℒ = ∑ t ∈ V w t ⋅ BCE ⁡ ( z ¯ t , y ) w_{t}=\\frac{\\exp(\\bar{z}_{t}/\\tau)}{\\sum_{t^{\\prime}\\in V}\\exp(\\bar{z}_{t^{\\prime}}/\\tau)}\\,,\\quad\\mathcal{L}=\\sum_{t\\in V}w_{t}\\cdot\\mathrm{BCE}(\\bar{z}_{t},\\,y) where V = { t : m t = 1 } V=\\{t:m_{t}=1\\} is the set of non-pad positions, y ∈ { 0 , 1 } y\\in\\{0,1\\} is the sequence -level label (Safe = 0 =0 , Unsafe = 1 =1 ), and τ = 1 \\tau=1 unless stated otherwise."
+      },
+      {
+        "id": "S3.SS4",
+        "heading": "3.4 Sequence-level aggregation at inference",
+        "level": 2,
+        "text": "Given { z t } t ∈ V \\{z_{t}\\}_{t\\in V} we form a single sequence score via one of max , topk_mean ( k = 3 k{=}3 ), window_max (last w = 20 w{=}20 tokens), percentile ( p = 90 p{=}90 ), logsumexp (temperature τ = 1 \\tau{=}1 ), or softmax (weighted mean with w t ∝ exp ⁡ ( z t / τ ) w_{t}\\propto\\exp(z_{t}/\\tau) ). Max is the natural choice for online monitoring because it matches a streaming early-stop rule “trigger the first time z t ≥ 0 z_{t}\\geq 0 ”; the others are studied for offline robustness."
+      },
+      {
+        "id": "S3.SS5",
+        "heading": "3.5 Online streaming monitor",
+        "level": 2,
+        "text": "For online monitoring the probe shares the forward pass of the generator: at each decoding step the cached hidden state of layer ℓ \\ell is forwarded through the (small) probe head, giving z t z_{t} in 𝒪 ⁡ ( H ​ d ) \\mathcal{O}(Hd) time per token. We register a forward_hook on the chosen layer inside vLLM ( Kwon et al., 2023 ) , and let the worker maintain a small running state s t = ϕ ⁡ ( z ≤ t ) s_{t}=\\phi(z_{\\leq t}) for one of seven score-aggregation modes ( raw , ema , softmax , window_max , topk_mean , percentile , logsumexp ). A separate trigger mode then converts s t s_{t} to a binary firing decision, ranging from firing on a single threshold crossing ( instant ) to requiring K K cumulative or consecutive crossings ( cumulative , consecutive ), a leaky counter ( decay ), or an accumulated-excess budget ( budget ). A separate warmup phase (steps ≤ W 0 \\leq W_{0} ) optionally uses a higher threshold to suppress false positives from chain-of-thought prefixes. To reduce per-token overhead we additionally allow a probe interval pi : the hook only runs every pi decode steps. The cost–accuracy trade-off of pi is the focus of Sec. 8 ."
+      },
+      {
+        "id": "S4.SS0.SSS0.Px1",
+        "heading": "Backbones.",
+        "level": 3,
+        "text": "All reported results use DeepSeek-R1-0528-Qwen3-8B , a DeepSeek-R1 ( Guo et al., 2025 ) reasoning model distilled into a Qwen3 ( Yang et al., 2025 ) backbone. We also trained probes on other backbones, including Qwen3-8B and Qwen3-30B-A3B-Thinking-2507 ( Yang et al., 2025 ) , and observed qualitatively similar behaviour—a sharp mid-network rise in probe quality and the same head and aggregation preferences; for brevity we omit these runs and report the DeepSeek-R1-0528-Qwen3-8B results throughout. The backbone is loaded with bfloat16 via transformers.AutoModelForCausalLM and frozen during probe training."
+      },
+      {
+        "id": "S4.SS0.SSS0.Px2",
+        "heading": "Datasets.",
+        "level": 3,
+        "text": "Zhuyi is an in-house Chinese safety/compliance dataset with 49 fine-grained categories grouped under broader headings (state security, discrimination, infringement, rights, jailbreak, obfuscation, etc.). Each example consists of a prompt and a response obtained by querying an LLM with that prompt; the sequence-level risk label in {Safe, Unsafe} is assigned by Qwen3Guard-Gen-8B , and is accompanied by per-category soft scores in [ 0 , 1 ] [0,1] . We partition the data into disjoint training, validation ( 5,000 5{,}000 examples), and held-out test ( 2,444 2{,}444 examples) splits, and report all offline numbers on the test split. For online evaluation we additionally use BeaverTails ( Ji et al., 2023 ) and CSSBench ( Zhou et al., 2026 ) , a benchmark of Chinese-specific adversarial safety patterns."
+      },
+      {
+        "id": "S4.SS0.SSS0.Px3",
+        "heading": "Training.",
+        "level": 3,
+        "text": "We sample 10 5 10^{5} training rows per epoch from the training split; the sampler is label-balanced and supplements the main pool with a length-filtered short-text pool (prompt/response < 100 <100 characters) so that the probe sees ample short adversarial prompts. We train for 3–4 epochs with AdamW, learning rate × 10 − 4 1\\!\\times\\!10^{-4} , batch = 8 \\text{batch}{=}8 – 64 64 , warmup ratio 0.05 0.05 – 0.1 0.1 , weight decay 0.01 0.01 , gradient clipping at 1.0 1.0 , bfloat16 , max-length 1024 1024 . Evaluation and checkpointing happen every 4000 4000 steps; the best model by validation F 1 F_{1} is restored at the end of training. The autonomous search of Sec. 6 works on a cached-hidden-states fast path: a data-preparation step pre-extracts layer 20/21/22 activations for 10,000 10{,}000 training and 2,000 2{,}000 validation rows so that each agent iteration takes 1–3 minutes instead of ∼ 7 \\sim 7 minutes."
+      },
+      {
+        "id": "S4.SS0.SSS0.Px4",
+        "heading": "Metrics.",
+        "level": 3,
+        "text": "Offline: accuracy, binary F 1 F_{1} , precision, recall, and AUC on the Zhuyi test split. Online: F 1 F_{1} , precision, recall, plus operational signals (average stop step, average tokens saved, probe-call savings)."
+      },
+      {
+        "id": "S5.SS1",
+        "heading": "5.1 Layer selection",
+        "level": 2,
+        "text": "Sweeping the MLP-token probe (max aggregation) across layers on the held-out test split (top block of Table 2 ), all metrics rise sharply between layers 18 and 21 and plateau around layer 21 ( F 1 F_{1} = 0.941 =0.941 , AUC = 0.942 =0.942 ), then saturate beyond layer 24: the relevant “unsafe” feature is already linearly readable by mid-network. We adopt layer 21 as the default primary layer for online inference; the autonomous search of Sec. 6 also converges on layer 21."
+      },
+      {
+        "id": "S5.SS2",
+        "heading": "5.2 Linear vs. MLP head",
+        "level": 2,
+        "text": "Replacing the MLP-token head with a single Linear-token projection drops F 1 F_{1} from 0.941 0.941 to 0.892 0.892 at layer 21 (Table 2 , matched training budget), with the gap widening on fine-grained obfuscation categories where the unsafe signal is least linearly separable. The linear head nonetheless retains a property we exploit in Sec. 9 : its weight vector w w is a usable steering direction in residual space."
+      },
+      {
+        "id": "S5.SS3",
+        "heading": "5.3 Token-logit aggregation",
+        "level": 2,
+        "text": "We hold the probe fixed ( MLP-token , layer 21) and vary the inference-time aggregation in Fig. 1 . Max dominates: it is the natural “trigger as soon as any token looks unsafe” rule and matches an online early-stop policy. Topk_mean and window_max closely track max ( Δ \\Delta F 1 F_{1} < 0.005 <0.005 ) and are more robust to noisy single-token spikes. Percentile ( p = 90 p{=}90 ) collapses for long sequences because the 90th percentile of safe prefixes can dominate the unsafe suffix. Logsumexp is between topk_mean and max . Figure 1 : Token-logit aggregation strategies vs. layer ( MLP-token , test set). Max matches online behaviour; topk_mean and window_max are the most robust offline aggregations."
+      },
+      {
+        "id": "S6",
+        "heading": "6 Training, stage 2: AutoResearch search over probe architecture",
+        "level": 1,
+        "text": "After the hand-designed ablation of Sec. 5 converged on a strong but conservative configuration ( MLP-token layer 21, max aggregation, sliding-window pooling), we let an LLM agent drive the next round of search autonomously, in the style of Karpathy (2026) . The setup mirrors that work closely: • A fixed data-preparation step pre-extracts hidden states for layers { 20 , 21 , 22 } \\{20,21,22\\} on 10,000 10{,}000 training and 2,000 2{,}000 validation rows into a local cache. • A single training module—containing the probe head, optimiser, loss, and training loop—is the only file the agent may edit. • A protocol specification fixes the experimental rules (one hypothesis per iteration, keep iff the validation F 1 F_{1} improves, revert otherwise, never stop the loop). We ran a single overnight loop of 177 177 training trials. The agent accepted 11 11 of them (validation F 1 F_{1} strictly improved) and rejected 163 163 ( F 1 F_{1} matched or regressed); 3 3 runs crashed and were discarded. Table 1 reports the accepted chain. The whole search lifted validation F 1 F_{1} from 0.9264 0.9264 (the hand-designed baseline) to 0.9495 0.9495 ( + 0.0231 +0.0231 , ∼ 25 \\sim 25 % relative error reduction on 1 − F 1 1-\\text{$F_{1}$} ). Table 1: The accepted changes along the AutoResearch loop, in chronological order. Step 0 is the hand-designed baseline; each subsequent step is the smallest single-variable change that improved validation F 1 F_{1} on the cached validation subset (N=2000). The final step is the global best. Step val F 1 F_{1} val AUC Δ \\Delta vs. start Change 0 (baseline) 0.9264 0.9808 — MLP-token , MLP_HIDDEN=1024, 2 layers, LR= 10 − 4 10^{-4} , 3 epochs 1 0.9281 0.9809 +0.0017 DROPOUT 0 → 0.1 0\\to 0.1 2 0.9301 0.9804 +0.0037 EPOCHS 3 → 4 3\\to 4 3 0.9310 0.9805 +0.0046 activation → \\to ReLU 4 0.9386 0.9874 +0.0122 aggregation → \\to topk16 5 0.9401 0.9872 +0.0137 WARMUP_RATIO → 0.1 \\to 0.1 6 0.9403 0.9876 +0.0139 DROPOUT → 0.05 \\to 0.05 7 0.9415 0.9870 +0.0151 DROPOUT → 0.15 \\to 0.15 8 0.9440 0.9873 +0.0176 DROPOUT → 0.18 \\to 0.18 9 0.9476 0.9886 +0.0212 Dual-head architecture, α = 0.7 \\alpha=0.7 10 0.9495 0.9886 +0.0231 Dual-head α = 0.8 \\alpha=0.8"
+      },
+      {
+        "id": "S6.SS0.SSS0.Px1",
+        "heading": "What the agent found.",
+        "level": 3,
+        "text": "Two changes dominate the gain: 1. topk16 loss-time pooling (step 4, + 0.0076 +0.0076 ). Instead of pooling the per-token logits with a length- M M sliding-window mean, the agent kept only the K = 16 K{=}16 tokens with the largest z t z_{t} per sequence before computing the weighted-BCE loss of Sec. 3.3 . The intuition is the mirror of max -at-inference: the unsafe signal lives in a small fraction of the response, and asking the head to fit the average over all tokens dilutes it. The agent also explicitly verified K ∈ { 8 , 12 , 24 , 32 } K\\in\\{8,12,24,32\\} ; all of them are worse than K = 16 K{=}16 but by ≤ 0.002 \\leq 0.002 F 1 F_{1} , indicating K K is robust within that range. 2. Dual-head architecture (steps 9 and 10, + 0.0089 +0.0089 ). The final architecture interpolates the MLP branch and a single linear branch on the same hidden state: z t = α ​ z t mlp + ( 1 − α ) ​ z t lin z_{t}=\\alpha z_{t}^{\\text{mlp}}+(1-\\alpha)z_{t}^{\\text{lin}} . The agent swept α \\alpha in { 0.1 , 0.3 , 0.5 , 0.7 , 0.8 , 0.85 , 0.9 } \\{0.1,0.3,0.5,0.7,0.8,0.85,0.9\\} and identified α = 0.8 \\alpha=0.8 as the optimum. We hypothesise that the linear branch behaves as a strong prior in the early steps of training (the linear direction is recovered very quickly, see Sec. 5.2 ), while the MLP branch is allowed to specialise on the remaining non-linear cases. The remaining keeps are mild regulariser adjustments ( Dropout ∈ [ 0.15 , 0.18 ] \\in[0.15,0.18] , ReLU , warmup ratio 0.1 0.1 ). Several other directions explored by the agent did not improve validation F 1 F_{1} and were reverted; we summarise the negative results below because they are themselves informative."
+      },
+      {
+        "id": "S6.SS0.SSS0.Px2",
+        "heading": "What the agent ruled out.",
+        "level": 3,
+        "text": "Each of the following was tested in ≥ 3 \\geq 3 trials and rejected: larger MLP hidden ( 1,536 1{,}536 / 2,048 2{,}048 ), three-layer MLP, LayerNorm , focal loss, label smoothing, attention pooling heads ( attn , attn_mlp ), residual MLP blocks ( res_token ), gated MLP blocks ( gated_token ), dual-path aggregation, batch sizes outside { 32 , 64 } \\{32,64\\} , learning rates outside { ⋅ 10 − 5 , 10 − 4 } \\{8\\!\\cdot\\!10^{-5},10^{-4}\\} , and seed swaps. We take this as evidence that Dual-head is not merely the product of exhaustive hyper-parameter tuning: the agent did try many things, and only the two architectural changes above survived. The final configuration is Dual-head at layer 21 (MLP hidden 1024 1024 , two layers, ReLU , dropout 0.18 0.18 , topk16 training-time pool, α = 0.8 \\alpha{=}0.8 ), trained with weighted-BCE for 4 4 epochs."
+      },
+      {
+        "id": "S6.SS0.SSS0.Px3",
+        "heading": "Full-data retraining.",
+        "level": 3,
+        "text": "The autonomous search of Table 1 was carried out on the cached 10,000 10{,}000 -row training subset for fast iteration. Once the architecture ( Dual-head , α = 0.8 \\alpha{=}0.8 ) and the hyper-parameter recipe had stabilised we re-trained the probe on the full Zhuyi training split ( ∼ 600 \\sim 600 K rows, 72,423 72{,}423 optimiser steps over 3 3 epochs), still freezing the LLM. To obtain a layer-sensitivity sweep at no additional cost, we launched seven jobs in parallel, one per layer index in { 18 , 19 , … , 24 } \\{18,19,\\ldots,24\\} , sharing the same Dual-head recipe. Figure 2 plots training loss and the five validation metrics, taking the median ± [ min , max ] \\pm\\,[\\min,\\max] over the seven parallel layers at each eval-step. All seven jobs converge above F 1 F_{1} = 0.97 =0.97 within the first ∼ 30 \\sim 30 K steps and continue improving slowly until the end of epoch 3; the best layer reaches a final F 1 F_{1} of 0.9746 0.9746 ( AUC = 0.9865 =0.9865 , precision = 0.985 =0.985 , recall = 0.965 =0.965 ) on the validation split, ∼ 3 \\sim 3 points above the hand-designed MLP-token baseline of Sec. 5 . Figure 2 : Full-data training of the AutoResearch-best Dual-head probe. Left: training loss (median ± \\pm min/max over seven parallel layer jobs ℓ ∈ { 18 , … , 24 } \\ell\\in\\{18,\\ldots,24\\} ) and held-out validation loss at the same eval steps. Right: held-out validation F 1 F_{1} / accuracy / AUC / precision / recall, again median ± \\pm min/max across the seven parallel layers. The horizontal dotted line marks the best layer’s final F 1 F_{1} = 0.9746 =0.9746 ."
+      },
+      {
+        "id": "S7.SS0.SSS0.Px1",
+        "heading": "Setting.",
+        "level": 3,
+        "text": "The offline evaluation feeds the probe a complete ( prompt , response ) pair, runs one forward pass through the frozen LLM, and aggregates per-token unsafe logits into a sequence verdict. This mirrors how a post-hoc moderator (Llama Guard) is normally used, except that the moderator and the generator share parameters. Since the probe is trained on the guard model’s labels, the F 1 F_{1} reported here measures agreement with the guard rather than ground-truth accuracy; the probe is a distilled surrogate and is not expected to exceed the guard it learns from."
+      },
+      {
+        "id": "S7.SS0.SSS0.Px2",
+        "heading": "Main results.",
+        "level": 3,
+        "text": "Table 2 reports the offline numbers. The hand-designed MLP-token at layer 21 with max aggregation already agrees closely with the guard on the held-out test set ( N = 2444 N{=}2444 ): F 1 F_{1} = 0.941 =0.941 , AUC = 0.942 =0.942 . The autonomous-search Dual-head configuration (Sec. 6 ) further improves F 1 F_{1} on the cached validation subset to 0.9495 0.9495 ; re-training the same Dual-head recipe on the full training split and evaluating on the validation split raises it again to F 1 F_{1} = 0.9746 =0.9746 ( AUC = 0.987 =0.987 ) for the best layer (Fig. 2 ). The hand-designed MLP-token remains the configuration we deploy in the online experiments of Sec. 8 : the streaming worker was integrated against it, and the full-data Dual-head checkpoint has not yet been re-run through vLLM. Table 2: Offline probe results on Zhuyi . The top block is the hand-designed sweep evaluated on the held-out test split. The bottom block is the autonomous-search Dual-head configuration: in its cached form (Sec. 6 , validation subset) and after retraining on the full training split (Sec. 6 , validation split). Probe head Layer Agg. ACC F 1 F_{1} Precision AUC Hand-designed (Sec. 5 ), test split MLP-token 18 max 0.924 0.921 0.950 0.924 MLP-token 19 max 0.940 0.939 0.956 0.940 MLP-token 20 max 0.940 0.938 0.959 0.940 MLP-token 21 max 0.942 0.941 0.961 0.942 MLP-token 22 max 0.938 0.937 0.952 0.938 MLP-token 24 max 0.941 0.940 0.952 0.941 Linear-token 21 max 0.897 0.892 0.932 0.897 MLP-token 21 topk_mean 0.918 0.912 0.984 0.918 MLP-token 21 window_max 0.867 0.846 0.995 0.866 MLP-token 21 logsumexp 0.706 0.584 0.987 0.705 MLP-token 21 percentile 0.528 0.097 1.000 0.525 Autonomous search (Sec. 6 ) Dual-head , α = 0.8 \\alpha{=}0.8 21 topk16-loss + max-eval — 0.9495 — 0.9886 Dual-head , α = 0.8 \\alpha{=}0.8 (full data) 18–24 best topk16-loss + max-eval — 0.9746 0.985 0.9865 Figure 3 : Per-category F 1 F_{1} across layers. Rows are sorted from easiest to hardest; the bottom block highlights the obfuscation / homophone categories where the probe lags."
+      },
+      {
+        "id": "S7.SS0.SSS0.Px3",
+        "heading": "Per-category analysis.",
+        "level": 3,
+        "text": "The per-category heatmap (Fig. 3 ) clusters categories into three regimes: near-perfect ( F 1 ≈ 1.0 F_{1}\\approx 1.0 ; e.g. age_discrimination , self_harm , internal_docs_code ), robust ( F 1 ∈ [ 0.92 , 0.97 ] F_{1}\\in[0.92,0.97] ; e.g. ethics_violation , misinfo_harmful , roleplay_jailbreak ), and hard ( F 1 ∈ [ 0.80 , 0.88 ] F_{1}\\in[0.80,0.88] ; the obfuscation/homophone categories pinyin_homophone , leetspeak_homoglyph , content_masking_obfuscation ). Two facts matter for deployment: the probe is uniformly excellent on the high-stakes categories where production tolerance is lowest ( subvert_state , terrorism_extremism , violence_pornography , child_sexual_content ), and it reproduces the guard’s labels with F 1 ≥ 0.96 F_{1}\\geq 0.96 even on the prompt-injection-style roleplay_jailbreak / instruction_override categories; the obfuscation categories remain the main bottleneck."
+      },
+      {
+        "id": "S8",
+        "heading": "8 Online (real-time) evaluation",
+        "level": 1,
+        "text": "This section presents our central results: we run the MLP-token probe inside the vLLM decode loop on three benchmarks, with three different aggregation/trigger configurations selected by an offline grid search, and report end-to-end F 1 F_{1} , average stop step, and probe-call savings."
+      },
+      {
+        "id": "S8.SS1",
+        "heading": "8.1 Streaming pipeline",
+        "level": 2,
+        "text": "At every decode step t t , vLLM produces h t ℓ h^{\\ell}_{t} in its KV cache; a forward hook on layer ℓ = 21 \\ell{=}21 forwards h t ℓ h^{\\ell}_{t} through the probe head. The worker maintains: (i) a raw per-step probe logit z t z_{t} , (ii) a per-step effective score s t = ϕ ⁡ ( z ≤ t ) s_{t}=\\phi(z_{\\leq t}) according to a score_mode (Sec. 3.5 ), (iii) a binary firing decision according to a trigger_mode . Once the trigger latches, the decoder is signalled to stop and the final response is the prefix produced up to step t t . The probe overhead per call is ≤ 0.6 \\leq 0.6 ms on a single A100 (one matrix–vector product for MLP-token , hidden dim 1024 1024 )."
+      },
+      {
+        "id": "S8.SS2",
+        "heading": "8.2 Calibration via offline parameter search",
+        "level": 2,
+        "text": "We pick score_mode , trigger_mode , θ \\theta , W 0 W_{0} , the warmup threshold, K K , and pi jointly by an offline grid search. We first run the probe once per benchmark with permissive thresholds ( θ = − 999 \\theta=-999 , W 0 = 0 W_{0}=0 ), logging the per-token raw score for every sample, and label the produced responses with Qwen3Guard-Gen-8B . We then replay each per-token event log through the trigger logic for every cell of a ∼ 20,000 \\sim 20{,}000 -cell grid and keep the highest- F 1 F_{1} cell. Because it operates on cached logs, this procedure is purely CPU-bound and turns a normally expensive search into a sub-minute replay."
+      },
+      {
+        "id": "S8.SS3",
+        "heading": "8.3 End-to-end results",
+        "level": 2,
+        "text": "With max_new_tokens = 1024 =1024 and the per-dataset best score_mode / trigger_mode selected by the offline search (Sec. 8.2 ), the MLP-token probe at pi = 2 =2 reaches F 1 F_{1} = 0.899 =0.899 on zhuyi-inner , 0.750 0.750 on BeaverTails , and 0.792 0.792 on CSSBench (the pi = 2 =2 rows of Table 4 ). For reference, the Linear-token probe reaches F 1 = 0.823 F_{1}\\ =0.823 on zhuyi-inner , ∼ 7.6 \\sim 7.6 points below MLP-token , in line with the offline gap of Sec. 5.2 . The probe interrupts ∼ 92 % \\sim 92\\% of unsafe sequences within their first 20 % 20\\% of generated tokens on zhuyi-inner , allowing the orchestrator to terminate or rewrite the response well before the user sees it. The remaining ∼ 8 % \\sim 8\\% are concentrated in the obfuscation categories of Fig. 3 , where the unsafe content only crystallises near the end of the response. We quantify the attendant cost and latency savings against full guard models next."
+      },
+      {
+        "id": "S8.SS4",
+        "heading": "8.4 Cost and latency against guard baselines",
+        "level": 2,
+        "text": "The token-level F 1 F_{1} above measures agreement with a guard; it does not by itself show why one would deploy the probe instead of the guard. Table 3 makes that case directly. We take 1,000 1{,}000 BeaverTails examples ( 500 500 unsafe / 500 500 safe) with their native human safety labels—a neutral referee that none of the three systems was trained on—and feed each response, token by token, to (i) our probe, (ii) the post-hoc Qwen3Guard-Gen-8B moderator, and (iii) the streaming Qwen3Guard-Stream-8B moderator, recording both accuracy and the cost and latency each adds on top of the same 8 8 B generator. Table 3: Accuracy vs. cost on 1,000 1{,}000 BeaverTails examples ( 500 500 unsafe / 500 500 safe), scored against native human labels (positive = {=} unsafe). For the probe we report two operating points: its default threshold ( z t ≥ 0 z_{t}{\\geq}0 ) and a per-task threshold calibrated to maximise F 1 F_{1} ; the precision and recall on each row are those of that operating point. The guards emit a discrete verdict and have a single operating point. Δ \\Delta VRAM, Δ \\Delta tok, compute, and FLOPs are the resources the moderator adds on top of an 8 8 B generator (identical for both probe rows); tail latency is the end-to-end added latency (P50/P95/P99). G = {=} GFLOP, T = {=} TFLOP. Method F 1 F_{1} Prec. Rec. Δ \\Delta VRAM Δ \\Delta tok Compute Tail P50/95/99 (ms/req, FLOPs/req) (ms) Probe (default thr.) 0.504 0.930 0.346 8 MB 0 7.2 ms, 0.6 G 0.1 / 0.1 / 0.1 Probe (calibrated) 0.795 0.798 0.792 Post-hoc (Gen-8B) 0.855 0.832 0.880 15.5 GB 14 466 ms, 8.02 T 448 / 551 / 602 Streaming (Stream-8B) 0.846 0.829 0.864 14.2 GB 0 3089 ms, 1.32 T 39 / 43 / 54"
+      },
+      {
+        "id": "S8.SS4.SSS0.Px1",
+        "heading": "Accuracy: the probe is the weaker classifier.",
+        "level": 3,
+        "text": "Against human labels both guards reach F 1 F_{1} ≈ 0.85 \\approx 0.85 . At its default threshold the probe is strongly precision-biased ( F 1 F_{1} = 0.50 =0.50 , precision 0.93 0.93 , recall 0.35 0.35 ): it fires only when very confident and misses unsafe spans the larger guards catch. Re-tuning the threshold per task rebalances it to precision 0.80 0.80 / recall 0.79 0.79 and lifts F 1 F_{1} to 0.795 0.795 —close to, but still below, the guards, as expected for a distilled surrogate. (The higher online F 1 F_{1} of Sec. 8.3 is measured against guard relabelling with a calibrated trigger, not the native human labels and fixed threshold used here.)"
+      },
+      {
+        "id": "S8.SS4.SSS0.Px2",
+        "heading": "Cost and latency: the probe wins by orders of magnitude.",
+        "level": 3,
+        "text": "The trade lives in the remaining columns. Because the probe reuses the generator’s own forward pass, it adds 8 8 MB of weights and ∼ 0.6 \\sim 0.6 GFLOP per request, against a full second 8 8 B model ( 14 14 – 16 16 GB, 1.3 1.3 – 8.0 8.0 TFLOP) for either guard. End to end it adds ≈ 0.1 \\approx 0.1 ms of tail latency, whereas the post-hoc guard inserts a serial 0.45 0.45 – 0.60 0.60 s stage and even the streaming guard adds ∼ 40 \\sim 40 – 54 54 ms while occupying a second GPU. The probe therefore trades a bounded, recalibratable accuracy gap for two-to-four orders of magnitude less moderation compute and essentially zero added latency —precisely the regime in which an always-on, first-stage screen is attractive, with a full guard reserved for the small flagged fraction (the cascade of CC++)."
+      },
+      {
+        "id": "S8.SS5",
+        "heading": "8.5 Probe-interval sweep",
+        "level": 2,
+        "text": "Probing every decode step is unnecessary. Re-running the calibration grid separately for each pi ∈ { 1 , 2 , 5 , 10 , 20 , 50 , 100 } \\in\\{1,2,5,10,20,50,100\\} (full results in Table 4 , App. A ), pi = 2 =2 stays within ± 1 \\pm 1 F 1 F_{1} point of pi = 1 =1 on all three datasets while halving probe calls and even improving precision—a cheap temporal-smoothing denoiser. F 1 F_{1} then decays monotonically from pi = 5 =5 , and recall collapses before precision (at pi = 100 =100 precision stays ≥ 0.70 \\geq 0.70 but recall falls to 0.19 0.19 – 0.27 0.27 ) as sparse sampling skips short unsafe spans. We therefore default to pi = 2 =2 , with pi = 5 =5 a viable cost-sensitive option ( 80 % 80\\% fewer calls, 3 3 – 6 6 F 1 F_{1} points) and pi ≥ 10 \\geq 10 not recommended; App. B gives the full deployment recipe."
+      },
+      {
+        "id": "S9",
+        "heading": "9 Discussion and future work",
+        "level": 1,
+        "text": "Why does a mid-network probe already work so well? Our results are consistent with the literature on probe-based safety detection ( Zou et al., 2023 ; MacDiarmid et al., 2024 ; Cunningham et al., 2026 ) : RLHF-aligned LLMs encode a fairly explicit “compliance” direction in mid-network. The MLP-token advantage over Linear-token (Sec. 5.2 ) and the Dual-head result of the autonomous search (Sec. 6 ) suggest the boundary is mildly non-linear — and yet the linear branch still carries enough signal to act as a useful prior. From detection to activation steering . The linear branch of Dual-head is more than a regulariser. Its weight vector w / ∥ w ∥ w/\\lVert w\\rVert is a usable direction in residual space: subtracting a small multiple of it from h t ℓ h^{\\ell}_{t} during decoding nudges the generator away from the “unsafe” half-space the probe has just detected. We prototype this in a separate steering module: a dedicated vLLM worker registers the same forward hook used for detection, and when the trigger fires it injects h t ℓ ← h t ℓ − β ​ w / ∥ w ∥ h^{\\ell}_{t}\\leftarrow h^{\\ell}_{t}-\\beta\\,w/\\lVert w\\rVert on the current decoding step (and optionally latches for the rest of the sequence). Preliminary experiments suggest the model produces a safer continuation rather than an abrupt refusal, but a careful quantitative evaluation (refusal vs. safe completion vs. jailbreak recovery) is outside the scope of this paper. We see steering as the most natural extension of this work: the same hidden state that the probe consumed for free can also be written to at the same per-token cost. Other future directions. (i) Re-running the online experiments with the AutoResearch Dual-head checkpoint instead of MLP-token ; (ii) multi-layer routing (weighted ensembles of layer 19–24, currently blocked by the cache key constraint of the agent loop); (iii) a character-level companion probe for obfuscation categories ( pinyin_homophone , leetspeak_homoglyph ); (iv) adversarial training of the probe against red-team prompts that explicitly try to evade the probe’s hidden-state signature; (v) English coverage — our current online results on BeaverTails are encouraging but F 1 F_{1} is still ∼ 15 \\sim 15 points below the Chinese in-domain numbers. Limitations. (i) Single reported backbone. All reported numbers use DeepSeek-R1-0528-Qwen3-8B ; we observed similar behaviour on other RLHF-aligned Qwen3 backbones but do not report it, and transfer to backbones with substantially different alignment (e.g. a base model without RLHF) is not studied here. (ii) Adversarial robustness. We have not yet tested adaptive attacks against the probe head; in principle an attacker who knows the probe direction could steer activations away from it — the same mechanism we exploit in steering can be turned against the detector. (iii) Calibration. The reported AUC is high, but the operating threshold for streaming was tuned on a fixed validation set per dataset; deployment should re-calibrate per task."
+      },
+      {
+        "id": "S10",
+        "heading": "10 Conclusion",
+        "level": 1,
+        "text": "We have argued that real-time output safety does not require a second model: the signal is already present in the generator’s hidden states and can be read, per token, for a negligible cost. A small probe on a single mid-network layer recovers most of a strong guard model’s verdicts at a fraction of its cost, and—crucially—the same probe runs inside the vLLM decode loop, letting the system intervene while a response is still being produced rather than after the user has seen it. Across three benchmarks this streaming monitor halts or rewrites unsafe generations early, avoiding a large share of their decode tokens, and its decision frequency can be halved with no meaningful loss of accuracy—a simple, tunable operating point for deployment. An autonomous search over the probe design space, run on the same training infrastructure, recovers a stronger Dual-head architecture without manual tuning. Looking ahead, we see the detector and an activation-steering controller as two uses of one mechanism: the linear branch of the probe is, by construction, a direction in residual space, so the hidden state we read cheaply for detection can also be written to in order to steer the generator toward a safer continuation. We regard this unified read/write interface for safety at decode time as the most natural next step."
+      },
+      {
+        "id": "bib",
+        "heading": "References",
+        "level": 1,
+        "text": "Alain and Bengio (2017) G. Alain and Y. Bengio Understanding intermediate layers using linear classifier probes . In ICLR Workshop Track , Cited by: §2 . Burns et al. (2023) C. Burns, H. Ye, D. Klein, and J. Steinhardt Discovering latent knowledge in language models without supervision . In ICLR , Cited by: §1 , §2 . Cunningham et al. (2026) H. Cunningham, J. Wei, Z. Wang, A. Persic, A. Peng, J. Kaplan, J. Leike, V. Mikulik, E. Perez, M. Sharma, et al. Constitutional classifiers++: efficient production-grade defenses against universal jailbreaks . arXiv preprint arXiv:2601.04603 . Cited by: §1 , §2 , §3.3 , §9 . Guo et al. (2025) D. Guo, D. Yang, H. Zhang, J. Song, P. Wang, Q. Zhu, R. Xu, R. Zhang, S. Ma, X. Bi, X. Zhang, X. Yu, Y. Wu, Z. F. Wu, Z. Gou, Z. Shao, Z. Li, Z. Gao, A. Liu, B. Xue, B. Wang, B. Wu, B. Feng, C. Lu, C. Zhao, C. Deng, C. Ruan, D. Dai, D. Chen, D. Ji, E. Li, F. Lin, F. Dai, F. Luo, G. Hao, G. Chen, G. Li, H. Zhang, H. Xu, H. Ding, H. Gao, H. Qu, H. Li, J. Guo, J. Li, J. Chen, J. Yuan, J. Tu, J. Qiu, J. Li, J. L. Cai, J. Ni, J. Liang, J. Chen, K. Dong, K. Hu, K. You, K. Gao, K. Guan, K. Huang, K. Yu, L. Wang, L. Zhang, L. Zhao, L. Wang, L. Zhang, L. Xu, L. Xia, M. Zhang, M. Zhang, M. Tang, M. Zhou, M. Li, M. Wang, M. Li, N. Tian, P. Huang, P. Zhang, Q. Wang, Q. Chen, Q. Du, R. Ge, R. Zhang, R. Pan, R. Wang, R. J. Chen, R. L. Jin, R. Chen, S. Lu, S. Zhou, S. Chen, S. Ye, S. Wang, S. Yu, S. Zhou, S. Pan, S. S. Li, S. Zhou, S. Wu, T. Yun, T. Pei, T. Sun, T. Wang, W. Zeng, W. Liu, W. Liang, W. Gao, W. Yu, W. Zhang, W. L. Xiao, W. An, X. Liu, X. Wang, X. Chen, X. Nie, X. Cheng, X. Liu, X. Xie, X. Liu, X. Yang, X. Li, X. Su, X. Lin, X. Q. Li, X. Jin, X. Shen, X. Chen, X. Sun, X. Wang, X. Song, X. Zhou, X. Wang, X. Shan, Y. K. Li, Y. Q. Wang, Y. X. Wei, Y. Zhang, Y. Xu, Y. Li, Y. Zhao, Y. Sun, Y. Wang, Y. Yu, Y. Zhang, Y. Shi, Y. Xiong, Y. He, Y. Piao, Y. Wang, Y. Tan, Y. Ma, Y. Liu, Y. Guo, Y. Ou, Y. Wang, Y. Gong, Y. Zou, Y. He, Y. Xiong, Y. Luo, Y. You, Y. Liu, Y. Zhou, Y. X. Zhu, Y. Huang, Y. Li, Y. Zheng, Y. Zhu, Y. Ma, Y. Tang, Y. Zha, Y. Yan, Z. Z. Ren, Z. Ren, Z. Sha, Z. Fu, Z. Xu, Z. Xie, Z. Zhang, Z. Hao, Z. Ma, Z. Yan, Z. Wu, Z. Gu, Z. Zhu, Z. Liu, Z. Li, Z. Xie, Z. Song, Z. Pan, Z. Huang, Z. Xu, Z. Zhang, and Z. Zhang DeepSeek-r1 incentivizes reasoning in llms through reinforcement learning . Nature 645 ( 8081 ), pp. 633–638 . External Links: ISSN 1476-4687 , Link , Document Cited by: §4 . Inan et al. (2023) H. Inan, K. Upasani, J. Chi, R. Rungta, K. Iyer, Y. Mao, M. Tontchev, Q. Hu, B. Fuller, D. Testuggine, and M. Khabsa Llama Guard: LLM-based input-output safeguard for human-AI conversations . In arXiv preprint arXiv:2312.06674 , Cited by: §1 , §2 . Ji et al. (2023) J. Ji, M. Liu, J. Dai, X. Pan, C. Zhang, C. Bian, R. Sun, Y. Wang, and Y. Yang BeaverTails: towards improved safety alignment of LLMs via a human-preference dataset . In NeurIPS , Cited by: §2 , §4 . Karpathy (2026) A. Karpathy autoresearch: AI agents running research on single-GPU nanochat training automatically . Note: https://github.com/karpathy/autoresearch GitHub repository. Accessed: 2026-06-02 Cited by: §2 , §6 . Kwon et al. (2023) W. Kwon, Z. Li, S. Zhuang, Y. Sheng, L. Zheng, C. H. Yu, J. E. Gonzalez, H. Zhang, and I. Stoica Efficient memory management for large language model serving with PagedAttention . In SOSP , Cited by: §3.5 . Li et al. (2023) K. Li, O. Patel, F. Viégas, H. Pfister, and M. Wattenberg Inference-time intervention: eliciting truthful answers from a language model . In NeurIPS , Cited by: §1 , §2 . Lin et al. (2023) Z. Lin, Z. Wang, Y. Tong, Y. Wang, Y. Guo, Y. Wang, and J. Shang ToxicChat: unveiling hidden challenges of toxicity detection in real-world user-AI conversation . In EMNLP Findings , Cited by: §2 . MacDiarmid et al. (2024) M. MacDiarmid, T. Maxwell, N. Schiefer, J. Mu, J. Kaplan, D. Duvenaud, S. Bowman, A. Tamkin, E. Perez, M. Sharma, C. Denison, and E. Hubinger Simple probes can catch sleeper agents . Anthropic Technical Report . Cited by: §1 , §2 , §9 . Markov et al. (2023) T. Markov, C. Zhang, S. Agarwal, T. Eloundou, T. Lee, S. Adler, A. Jiang, and L. Weng A holistic approach to undesired content detection in the real world . In AAAI , Cited by: §2 . Rebedea et al. (2023) T. Rebedea, R. Dinu, M. N. Sreedhar, C. Parisien, and J. Cohen NeMo Guardrails: a toolkit for controllable and safe LLM applications with programmable rails . In EMNLP System Demonstrations , Cited by: §1 , §2 . Sharma et al. (2025) M. Sharma et al. Constitutional classifiers: defending against universal jailbreaks across thousands of hours of red teaming . arXiv preprint arXiv:2501.18837 . Cited by: §1 , §2 . Tenney et al. (2019) I. Tenney, D. Das, and E. Pavlick BERT rediscovers the classical NLP pipeline . In ACL , Cited by: §2 . Yang et al. (2025) A. Yang, A. Li, B. Yang, B. Zhang, B. Hui, B. Zheng, B. Yu, C. Gao, C. Huang, C. Lv, C. Zheng, D. Liu, F. Zhou, F. Huang, F. Hu, H. Ge, H. Wei, H. Lin, J. Tang, J. Yang, J. Tu, J. Zhang, J. Yang, J. Yang, J. Zhou, J. Zhou, J. Lin, K. Dang, K. Bao, K. Yang, L. Yu, L. Deng, M. Li, M. Xue, M. Li, P. Zhang, P. Wang, Q. Zhu, R. Men, R. Gao, S. Liu, S. Luo, T. Li, T. Tang, W. Yin, X. Ren, X. Wang, X. Zhang, X. Ren, Y. Fan, Y. Su, Y. Zhang, Y. Zhang, Y. Wan, Y. Liu, Z. Wang, Z. Cui, Z. Zhang, Z. Zhou, and Z. Qiu Qwen3 technical report . External Links: 2505.09388 , Link Cited by: §4 . Zhao et al. (2025) H. Zhao, C. Yuan, F. Huang, X. Hu, Y. Zhang, A. Yang, B. Yu, D. Liu, J. Zhou, J. Lin, B. Yang, C. Cheng, J. Tang, J. Jiang, J. Zhang, J. Xu, M. Yan, M. Sun, P. Zhang, P. Xie, Q. Tang, Q. Zhu, R. Zhang, S. Wu, S. Zhang, T. He, T. Tang, T. Xia, W. Liao, W. Shen, W. Yin, W. Zhou, W. Yu, X. Wang, X. Deng, X. Xu, X. Zhang, Y. Liu, Y. Li, Y. Zhang, Y. Jiang, Y. Wan, and Y. Zhou Qwen3Guard technical report . External Links: 2510.14276 , Link Cited by: §1 . Zhou et al. (2026) Z. Zhou, S. Yan, C. Liu, Q. Li, K. Wang, and Z. Zeng CSSBench: evaluating the safety of lightweight llms against chinese-specific adversarial patterns . External Links: 2601.00588 , Link Cited by: §4 . Zou et al. (2023) A. Zou, L. Phan, S. Chen, J. Campbell, P. Guo, R. Ren, A. Pan, X. Yin, M. Mazeika, A. Dombrowski, et al. Representation engineering: a top-down approach to AI transparency . arXiv preprint arXiv:2310.01405 . Cited by: §1 , §2 , §9 ."
+      },
+      {
+        "id": "A1",
+        "heading": "Appendix A Probe-interval sweep: full results",
+        "level": 1,
+        "text": "We sweep pi ∈ { 1 , 2 , 5 , 10 , 20 , 50 , 100 } \\in\\{1,2,5,10,20,50,100\\} on all three datasets under the calibration protocol of Sec. 8.2 : the grid is re-searched separately for every pi , so each row of Table 4 is the best achievable F 1 F_{1} at that probe-call frequency. Three observations stand out. Table 4: Probe-interval sweep on three datasets, all with max_new_tokens = 1024 =1024 . Each row is the best ( F 1 F_{1} , precision, recall) cell of the offline grid for that (dataset, pi ). “Call saving” is ( 1 − 1 / pi ) (1-1/\\texttt{pi}) ; avg_stop_step_tp is the average decode step at which the probe fires on true positives, and avg_tokens_saved the average number of decode tokens not generated thanks to the stop signal. The pi = 2 =2 rows are the end-to-end operating point of Sec. 8.3 . Dataset pi Call saving F 1 F_{1} Precision Recall avg_stop_step_tp avg_tokens_saved zhuyi-inner 1 0% 0.892 0.861 0.925 417 517 2 50% 0.899 0.935 0.866 474 495 5 80% 0.863 0.833 0.896 405 519 10 90% 0.807 0.923 0.716 483 473 20 95% 0.735 0.860 0.642 480 500 50 98% 0.667 0.878 0.537 524 401 100 99% 0.414 0.900 0.269 594 350 BeaverTails 1 0% 0.743 0.684 0.813 494 377 2 50% 0.750 0.750 0.750 511 370 5 80% 0.686 0.632 0.750 483 396 10 90% 0.667 0.714 0.625 548 327 20 95% 0.583 0.875 0.438 591 320 50 98% 0.381 0.800 0.250 638 330 100 99% 0.316 1.000 0.188 667 267 CSSBench 1 0% 0.800 0.886 0.729 545 370 2 50% 0.792 0.842 0.748 520 385 5 80% 0.774 0.781 0.766 510 381 10 90% 0.710 0.835 0.617 534 386 20 95% 0.667 0.725 0.617 515 380 50 98% 0.506 0.745 0.383 567 305 100 99% 0.307 0.700 0.196 619 250 (O1) pi = 2 =2 is a stable, almost-free operating point. Relative to pi = 1 =1 , F 1 F_{1} moves by at most ± 1 \\pm 1 point on each dataset ( + 0.7 +0.7 / + 0.7 +0.7 / − 0.8 -0.8 ), but precision systematically improves (false positives roughly halve on zhuyi-inner and BeaverTails ). Halving the probe-call rate appears to act as a cheap temporal-smoothing denoiser without losing meaningful signal. (O2) From pi = 5 =5 F 1 F_{1} decays monotonically across all three datasets. The cross-dataset trend is remarkably stable: − 3.6 / − 6.4 / − 1.8 -3.6/-6.4/-1.8 F 1 F_{1} points at pi = 5 =5 vs. pi = 2 =2 , growing to ≥ − 10 \\geq-10 at pi = 20 =20 . (O3) Recall collapses before precision. At pi = 100 =100 all three datasets keep precision ≥ 0.70 \\geq 0.70 (one is at 1.0 1.0 ) but recall falls to 0.19 0.19 – 0.27 0.27 . With sparse sampling the trigger only sees the few unsafe tokens that happen to align with the sampling grid; many short unsafe spans are skipped outright, while the few sampled high-score points remain easy to classify."
+      },
+      {
+        "id": "A1.SS0.SSS0.Px1",
+        "heading": "Mechanistic reading.",
+        "level": 3,
+        "text": "Writing ρ \\rho for the density of risky tokens in a generation, sparse sampling acts as a low-pass filter on the score series: for small pi it suppresses CoT- and sampling-induced jitter and lifts precision, but once pi ≳ 1 / ρ \\gtrsim 1/\\rho entire unsafe spans fall between samples and recall collapses. On our datasets ρ ≈ 10 − 2 \\rho\\approx 10^{-2} (unsafe spans of 10 10 – 100 100 tokens out of 1024 1024 ), so the empirical knee at pi ≈ 5 \\approx 5 matches this estimate."
+      },
+      {
+        "id": "A2",
+        "heading": "Appendix B Deployment recipe",
+        "level": 1,
+        "text": "We recommend the following default for production: • Probe head: MLP-token , layer 21, hidden 1024 (or the autonomous-search Dual-head , α = 0.8 \\alpha=0.8 once ported through the worker). • pi = 2 =2 (saves 50 % 50\\% of probe calls at near-zero F 1 F_{1} cost). • score_mode = = window_max with window 10 10 ; trigger_mode = = cumulative with min_trigger_count = 20 =20 ; warmup 0 0 , θ warmup = θ run = 2.0 \\theta_{\\text{warmup}}=\\theta_{\\text{run}}=2.0 . • For cost-sensitive deployments, pi = 5 =5 is acceptable and saves 80 % 80\\% of probe calls at the cost of 3 3 – 6 6 F 1 F_{1} points; pi ≥ 10 \\geq 10 is not recommended."
+      }
+    ]
+  },
+  "text": "Stop Early, Spend Less: Hidden-State Probes as a Practical Recipe for Streaming Moderation of LLM Outputs Skip to main content Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: Why HTML? Report Issue Back to Abstract Download PDF Contents Reading mode Colour theme License: CC BY-NC-SA 4.0 arXiv:2606.10487v1 [cs.LG] 09 Jun 2026 Stop Early, Spend Less: Hidden-State Probes as a Practical Recipe for Streaming Moderation of LLM Outputs Huizhen Shu Affiliation: ModelOneAI,shuhuizhen@modeloneai.cn Xuying Li Affiliation: yunshanai, {lixuying,piaoxue}@yunshanai.org.cn Piao Xue Affiliation: yunshanai, {lixuying,piaoxue}@yunshanai.org.cn Abstract Deploying large language models (LLMs) in user-facing products requires output safety filtering that can act during generation. The prevailing recipe chains a second moderation model—a moderation API, Llama Guard, or programmable guardrails—after the generator, but such a guard reads the completed text: it roughly doubles serving cost and can only flag a violation after the unsafe content has reached the user. We start from a simple observation: the signal needed for moderation already lives inside the generating model. We train lightweight token-level probes on the model’s own hidden states and aggregate their per-token unsafe scores into either an offline verdict on a finished response or an online decision that fires the moment a generation turns unsafe. Because the probe reuses activations the model has already computed, it needs no second forward pass and runs inside the vLLM decode loop. A small probe on a single mid-network layer recovers the large majority of a strong guard model’s verdicts; it is best understood as a cheap, inlined surrogate for that guard rather than a more accurate moderator, so its value lies in cost and timing rather than raw accuracy. Streaming, it halts or rewrites an unsafe response before most of it reaches the user, replacing a roughly half-second, end-of-response guard call with a sub-millisecond, per-token check. Benchmarked against both a post-hoc and a streaming guard model on neutral human labels, the probe is the weaker classifier but adds two-to-four orders of magnitude less moderation compute and near-zero latency. We distill our sweeps into a concrete deployment recipe—which layer to read, how to aggregate scores, how often to probe, and how to set the trigger—so the method drops into an existing serving stack. Finally, since the probe’s linear component is a direction in residual space, the same hidden state could in principle be written to for activation steering; we sketch this read/write symmetry as a preliminary direction for future work. 1 Introduction LLM providers must intercept unsafe model outputs before they reach end users. The standard recipe is to chain a separate classifier after generation: a moderation API, a guard model such as Llama Guard ( Inan et al., 2023 ) , or rule-based guardrails ( Rebedea et al., 2023 ) . Two limitations motivate this work. (i) Latency. A second model must read the full response before deciding, so the user has already seen the unsafe content by the time the verdict arrives. In our measurements, a Qwen3Guard-Gen-8B ( Zhao et al., 2025 ) post-hoc moderator adds roughly 480 480 ms per response. (ii) Cost. Running an extra LLM as a moderator can double serving cost, which becomes prohibitive for long, streamed responses. Prior work on representation engineering ( Zou et al., 2023 ) , truthfulness probes ( Li et al., 2023 ) , latent-knowledge classifiers ( Burns et al., 2023 ) , and sleeper-agent detection ( MacDiarmid et al., 2024 ) suggests that simple classifiers on the hidden states of a base LLM can recover surprisingly strong signals about model behaviour. Most directly, Anthropic’s Constitutional Classifiers ( Sharma and others, 2025 ) and their successor Constitutional Classifiers++ ( Cunningham et al., 2026 ) deploy lightweight activation probes as a cheap first-stage screen inside a production jailbreak-defence cascade, reusing the model’s own internal states almost for free. Our setting pushes this idea in two practically important directions. First, we run the probe per token, during generation, so it can stop or rewrite a response before it finishes rather than only screen a completed exchange. Second, we let the probe be the moderation decision instead of a first-stage filter that escalates flagged exchanges to a heavier classifier; this keeps the second model off the inference path and turns probe cost into an explicit, tunable operating point. We build on this use of internal probes and take the line of work to its operational conclusion: the same hidden states that already exist inside the serving model can be probed cheaply, per token, to decide whether the current generation is becoming unsafe. Contributions. 1. A self-monitoring formulation. We cast output safety as a probing problem on the generator’s own hidden states, supervised by an existing guard model’s labels, with a per-token weighted-BCE objective and a topK pool that concentrates supervision on the few tokens where unsafe content actually surfaces (Sec. 3 ). The resulting probe distills the guard into the generator’s forward pass and needs no second model at inference. 2. A streaming safety monitor, as the main contribution. We integrate the probe into the vLLM decode loop so that it emits a verdict per token and can stop or rewrite a response before the user sees it. We evaluate it end to end on three benchmarks and characterise its behaviour across probe-interval, score-aggregation, and trigger modes (Sec. 8 ), distilling a practical deployment recipe and a tunable accuracy–cost trade-off. We also benchmark its cost and latency head-to-head against post-hoc and streaming guard models on neutral human labels (Sec. 8.4 ). 3. An autonomous architecture search. An AutoResearch -style agent searches the probe design space on top of a hand-designed baseline and converges on a Dual-head probe, which we then retrain at full data scale (Secs. 5 – 6 ); we report offline results, including a per-category breakdown, in Sec. 7 . Beyond these contributions, we note a conceptual bridge to activation steering : because the linear branch of Dual-head is a direction in residual space, the hidden state read for detection can in principle be written to in order to re-route the generator. We report a preliminary prototype but leave a quantitative evaluation to future work (Sec. 9 ). 2 Related work Probing classifiers. Linear and shallow MLP probes have a long history as diagnostic tools for transformer representations ( Alain and Bengio, 2017 ; Tenney et al., 2019 ) . Recent work uses them operationally: contrast-consistent search ( Burns et al., 2023 ) extracts latent truthfulness; Li et al. (2023) and Zou et al. (2023) use probe directions for steering; MacDiarmid et al. (2024) demonstrate that very simple probes catch backdoored sleeper-agent models. Closest to our setting, Constitutional Classifiers++ ( Cunningham et al., 2026 ) use a linear activation probe as a cheap first-stage screen that reuses the model’s internal states, escalating only flagged exchanges to a heavier classifier; our streaming monitor pushes the same idea to a per-token, intervene-during-generation regime. Safety filtering for LLMs. Production stacks rely on a second classifier: Llama Guard ( Inan et al., 2023 ) fine-tunes a separate LLM as a moderator; OpenAI’s moderation pipeline ( Markov et al., 2023 ) uses a calibrated text classifier; NeMo Guardrails ( Rebedea et al., 2023 ) adds programmable rails; and Constitutional Classifiers ( Sharma and others, 2025 ) train input/output classifiers on constitution-guided synthetic data. All of these read the completed text and therefore cannot intervene during streaming. Safety benchmarks. BeaverTails ( Ji et al., 2023 ) and ToxicChat ( Lin et al., 2023 ) provide English content-safety labels; we additionally use a Chinese, fine-grained 49-category compliance dataset ( Zhuyi ) that exposes both broad harm types (state security, discrimination, infringement) and adversarial categories ( leetspeak_homoglyph , pinyin_homophone , roleplay_jailbreak , injection_and_hijack , etc.). Autonomous research loops. Our autonomous-search workflow follows the spirit of AutoResearch ( Karpathy, 2026 ) : an LLM agent holds the only writable file in the repository, edits it, runs training, reads the metric, and decides whether to keep or revert the change. 3 Method 3.1 Background and notation Let ℳ \\mathcal{M} be a frozen autoregressive LLM with L L transformer layers. For an input sequence x 1 : T x_{1{:}T} we denote the hidden state of layer ℓ \\ell at position t t as h t ℓ ∈ ℝ H h^{\\ell}_{t}\\in\\mathbb{R}^{H} , and the attention mask as m t ∈ { 0 , 1 } m_{t}\\in\\{0,1\\} . We aim to produce a per-token unsafe logit z t ∈ ℝ z_{t}\\in\\mathbb{R} such that σ ( z t ) ≈ Pr [ token t is part of an unsafe generation ] \\sigma(z_{t})\\approx\\Pr[\\text{token~$t$ is part of an unsafe generation}] , and a sequence-level decision y ^ = 𝟏 { Agg ( z 1 : T ) ≥ 0 } \\hat{y}=\\mathbf{1}\\{\\text{Agg}(z_{1:T})\\geq 0\\} . 3.2 Probe heads We train three token-level heads that share the LLM forward pass and extract a single layer’s hidden state h t ℓ h^{\\ell}_{t} : Linear-token : z t = w ⊤ ​ h t ℓ + b , w ∈ ℝ H \\displaystyle z_{t}=w^{\\top}h^{\\ell}_{t}+b,\\quad w\\in\\mathbb{R}^{H} MLP-token : z t = w 2 ⊤ ​ σ ​ ( W 1 ​ h t ℓ + b 1 ) + b 2 , W 1 ∈ ℝ d × H \\displaystyle z_{t}=w_{2}^{\\top}\\,\\sigma\\!\\left(W_{1}h^{\\ell}_{t}+b_{1}\\right)+b_{2},\\quad W_{1}\\in\\mathbb{R}^{d\\times H} Dual-head : z t = α ⋅ z t mlp + ( 1 − α ) ⋅ z t lin \\displaystyle z_{t}=\\alpha\\cdot z_{t}^{\\text{mlp}}+(1-\\alpha)\\cdot z_{t}^{\\text{lin}} with d = 1024 d=1024 throughout and σ \\sigma being ReLU after the autonomous search ( GELU in the hand-designed baseline). The Dual-head head is a linear convex combination of a two-layer MLP and a single linear branch, both reading the same h t ℓ h^{\\ell}_{t} . The LLM parameters are frozen ( ∇ θ ℳ = 0 \\nabla_{\\theta_{\\mathcal{M}}}=0 ); only the heads are trained. 3.3 Per-token weighted BCE loss Following the use of lightweight activation probes for safety screening in Constitutional Classifiers++ ( Cunningham et al., 2026 ) , we use z t z_{t} itself to softly select the most informative tokens of each sequence. Let Pool K denote either a length- M M sliding-window mean ( SWiM M ) or a topK pooling that retains the K K largest per-token logits. We use both: SWiM during the hand- designed exploration and topK once the autonomous search identifies it (Sec. 6 ). Writing the pooled logit as z ¯ t \\bar{z}_{t} , w t = exp ⁡ ( z ¯ t / τ ) ∑ t ′ ∈ V exp ⁡ ( z ¯ t ′ / τ ) , ℒ = ∑ t ∈ V w t ⋅ BCE ⁡ ( z ¯ t , y ) w_{t}=\\frac{\\exp(\\bar{z}_{t}/\\tau)}{\\sum_{t^{\\prime}\\in V}\\exp(\\bar{z}_{t^{\\prime}}/\\tau)}\\,,\\quad\\mathcal{L}=\\sum_{t\\in V}w_{t}\\cdot\\mathrm{BCE}(\\bar{z}_{t},\\,y) where V = { t : m t = 1 } V=\\{t:m_{t}=1\\} is the set of non-pad positions, y ∈ { 0 , 1 } y\\in\\{0,1\\} is the sequence -level label (Safe = 0 =0 , Unsafe = 1 =1 ), and τ = 1 \\tau=1 unless stated otherwise. 3.4 Sequence-level aggregation at inference Given { z t } t ∈ V \\{z_{t}\\}_{t\\in V} we form a single sequence score via one of max , topk_mean ( k = 3 k{=}3 ), window_max (last w = 20 w{=}20 tokens), percentile ( p = 90 p{=}90 ), logsumexp (temperature τ = 1 \\tau{=}1 ), or softmax (weighted mean with w t ∝ exp ⁡ ( z t / τ ) w_{t}\\propto\\exp(z_{t}/\\tau) ). Max is the natural choice for online monitoring because it matches a streaming early-stop rule “trigger the first time z t ≥ 0 z_{t}\\geq 0 ”; the others are studied for offline robustness. 3.5 Online streaming monitor For online monitoring the probe shares the forward pass of the generator: at each decoding step the cached hidden state of layer ℓ \\ell is forwarded through the (small) probe head, giving z t z_{t} in 𝒪 ⁡ ( H ​ d ) \\mathcal{O}(Hd) time per token. We register a forward_hook on the chosen layer inside vLLM ( Kwon et al., 2023 ) , and let the worker maintain a small running state s t = ϕ ⁡ ( z ≤ t ) s_{t}=\\phi(z_{\\leq t}) for one of seven score-aggregation modes ( raw , ema , softmax , window_max , topk_mean , percentile , logsumexp ). A separate trigger mode then converts s t s_{t} to a binary firing decision, ranging from firing on a single threshold crossing ( instant ) to requiring K K cumulative or consecutive crossings ( cumulative , consecutive ), a leaky counter ( decay ), or an accumulated-excess budget ( budget ). A separate warmup phase (steps ≤ W 0 \\leq W_{0} ) optionally uses a higher threshold to suppress false positives from chain-of-thought prefixes. To reduce per-token overhead we additionally allow a probe interval pi : the hook only runs every pi decode steps. The cost–accuracy trade-off of pi is the focus of Sec. 8 . 4 Experimental setup Backbones. All reported results use DeepSeek-R1-0528-Qwen3-8B , a DeepSeek-R1 ( Guo et al., 2025 ) reasoning model distilled into a Qwen3 ( Yang et al., 2025 ) backbone. We also trained probes on other backbones, including Qwen3-8B and Qwen3-30B-A3B-Thinking-2507 ( Yang et al., 2025 ) , and observed qualitatively similar behaviour—a sharp mid-network rise in probe quality and the same head and aggregation preferences; for brevity we omit these runs and report the DeepSeek-R1-0528-Qwen3-8B results throughout. The backbone is loaded with bfloat16 via transformers.AutoModelForCausalLM and frozen during probe training. Datasets. Zhuyi is an in-house Chinese safety/compliance dataset with 49 fine-grained categories grouped under broader headings (state security, discrimination, infringement, rights, jailbreak, obfuscation, etc.). Each example consists of a prompt and a response obtained by querying an LLM with that prompt; the sequence-level risk label in {Safe, Unsafe} is assigned by Qwen3Guard-Gen-8B , and is accompanied by per-category soft scores in [ 0 , 1 ] [0,1] . We partition the data into disjoint training, validation ( 5,000 5{,}000 examples), and held-out test ( 2,444 2{,}444 examples) splits, and report all offline numbers on the test split. For online evaluation we additionally use BeaverTails ( Ji et al., 2023 ) and CSSBench ( Zhou et al., 2026 ) , a benchmark of Chinese-specific adversarial safety patterns. Training. We sample 10 5 10^{5} training rows per epoch from the training split; the sampler is label-balanced and supplements the main pool with a length-filtered short-text pool (prompt/response < 100 <100 characters) so that the probe sees ample short adversarial prompts. We train for 3–4 epochs with AdamW, learning rate × 10 − 4 1\\!\\times\\!10^{-4} , batch = 8 \\text{batch}{=}8 – 64 64 , warmup ratio 0.05 0.05 – 0.1 0.1 , weight decay 0.01 0.01 , gradient clipping at 1.0 1.0 , bfloat16 , max-length 1024 1024 . Evaluation and checkpointing happen every 4000 4000 steps; the best model by validation F 1 F_{1} is restored at the end of training. The autonomous search of Sec. 6 works on a cached-hidden-states fast path: a data-preparation step pre-extracts layer 20/21/22 activations for 10,000 10{,}000 training and 2,000 2{,}000 validation rows so that each agent iteration takes 1–3 minutes instead of ∼ 7 \\sim 7 minutes. Metrics. Offline: accuracy, binary F 1 F_{1} , precision, recall, and AUC on the Zhuyi test split. Online: F 1 F_{1} , precision, recall, plus operational signals (average stop step, average tokens saved, probe-call savings). 5 Training, stage 1: hand-designed probe ablation 5.1 Layer selection Sweeping the MLP-token probe (max aggregation) across layers on the held-out test split (top block of Table 2 ), all metrics rise sharply between layers 18 and 21 and plateau around layer 21 ( F 1 F_{1} = 0.941 =0.941 , AUC = 0.942 =0.942 ), then saturate beyond layer 24: the relevant “unsafe” feature is already linearly readable by mid-network. We adopt layer 21 as the default primary layer for online inference; the autonomous search of Sec. 6 also converges on layer 21. 5.2 Linear vs. MLP head Replacing the MLP-token head with a single Linear-token projection drops F 1 F_{1} from 0.941 0.941 to 0.892 0.892 at layer 21 (Table 2 , matched training budget), with the gap widening on fine-grained obfuscation categories where the unsafe signal is least linearly separable. The linear head nonetheless retains a property we exploit in Sec. 9 : its weight vector w w is a usable steering direction in residual space. 5.3 Token-logit aggregation We hold the probe fixed ( MLP-token , layer 21) and vary the inference-time aggregation in Fig. 1 . Max dominates: it is the natural “trigger as soon as any token looks unsafe” rule and matches an online early-stop policy. Topk_mean and window_max closely track max ( Δ \\Delta F 1 F_{1} < 0.005 <0.005 ) and are more robust to noisy single-token spikes. Percentile ( p = 90 p{=}90 ) collapses for long sequences because the 90th percentile of safe prefixes can dominate the unsafe suffix. Logsumexp is between topk_mean and max . Figure 1 : Token-logit aggregation strategies vs. layer ( MLP-token , test set). Max matches online behaviour; topk_mean and window_max are the most robust offline aggregations. 6 Training, stage 2: AutoResearch search over probe architecture After the hand-designed ablation of Sec. 5 converged on a strong but conservative configuration ( MLP-token layer 21, max aggregation, sliding-window pooling), we let an LLM agent drive the next round of search autonomously, in the style of Karpathy (2026) . The setup mirrors that work closely: • A fixed data-preparation step pre-extracts hidden states for layers { 20 , 21 , 22 } \\{20,21,22\\} on 10,000 10{,}000 training and 2,000 2{,}000 validation rows into a local cache. • A single training module—containing the probe head, optimiser, loss, and training loop—is the only file the agent may edit. • A protocol specification fixes the experimental rules (one hypothesis per iteration, keep iff the validation F 1 F_{1} improves, revert otherwise, never stop the loop). We ran a single overnight loop of 177 177 training trials. The agent accepted 11 11 of them (validation F 1 F_{1} strictly improved) and rejected 163 163 ( F 1 F_{1} matched or regressed); 3 3 runs crashed and were discarded. Table 1 reports the accepted chain. The whole search lifted validation F 1 F_{1} from 0.9264 0.9264 (the hand-designed baseline) to 0.9495 0.9495 ( + 0.0231 +0.0231 , ∼ 25 \\sim 25 % relative error reduction on 1 − F 1 1-\\text{$F_{1}$} ). Table 1: The accepted changes along the AutoResearch loop, in chronological order. Step 0 is the hand-designed baseline; each subsequent step is the smallest single-variable change that improved validation F 1 F_{1} on the cached validation subset (N=2000). The final step is the global best. Step val F 1 F_{1} val AUC Δ \\Delta vs. start Change 0 (baseline) 0.9264 0.9808 — MLP-token , MLP_HIDDEN=1024, 2 layers, LR= 10 − 4 10^{-4} , 3 epochs 1 0.9281 0.9809 +0.0017 DROPOUT 0 → 0.1 0\\to 0.1 2 0.9301 0.9804 +0.0037 EPOCHS 3 → 4 3\\to 4 3 0.9310 0.9805 +0.0046 activation → \\to ReLU 4 0.9386 0.9874 +0.0122 aggregation → \\to topk16 5 0.9401 0.9872 +0.0137 WARMUP_RATIO → 0.1 \\to 0.1 6 0.9403 0.9876 +0.0139 DROPOUT → 0.05 \\to 0.05 7 0.9415 0.9870 +0.0151 DROPOUT → 0.15 \\to 0.15 8 0.9440 0.9873 +0.0176 DROPOUT → 0.18 \\to 0.18 9 0.9476 0.9886 +0.0212 Dual-head architecture, α = 0.7 \\alpha=0.7 10 0.9495 0.9886 +0.0231 Dual-head α = 0.8 \\alpha=0.8 What the agent found. Two changes dominate the gain: 1. topk16 loss-time pooling (step 4, + 0.0076 +0.0076 ). Instead of pooling the per-token logits with a length- M M sliding-window mean, the agent kept only the K = 16 K{=}16 tokens with the largest z t z_{t} per sequence before computing the weighted-BCE loss of Sec. 3.3 . The intuition is the mirror of max -at-inference: the unsafe signal lives in a small fraction of the response, and asking the head to fit the average over all tokens dilutes it. The agent also explicitly verified K ∈ { 8 , 12 , 24 , 32 } K\\in\\{8,12,24,32\\} ; all of them are worse than K = 16 K{=}16 but by ≤ 0.002 \\leq 0.002 F 1 F_{1} , indicating K K is robust within that range. 2. Dual-head architecture (steps 9 and 10, + 0.0089 +0.0089 ). The final architecture interpolates the MLP branch and a single linear branch on the same hidden state: z t = α ​ z t mlp + ( 1 − α ) ​ z t lin z_{t}=\\alpha z_{t}^{\\text{mlp}}+(1-\\alpha)z_{t}^{\\text{lin}} . The agent swept α \\alpha in { 0.1 , 0.3 , 0.5 , 0.7 , 0.8 , 0.85 , 0.9 } \\{0.1,0.3,0.5,0.7,0.8,0.85,0.9\\} and identified α = 0.8 \\alpha=0.8 as the optimum. We hypothesise that the linear branch behaves as a strong prior in the early steps of training (the linear direction is recovered very quickly, see Sec. 5.2 ), while the MLP branch is allowed to specialise on the remaining non-linear cases. The remaining keeps are mild regulariser adjustments ( Dropout ∈ [ 0.15 , 0.18 ] \\in[0.15,0.18] , ReLU , warmup ratio 0.1 0.1 ). Several other directions explored by the agent did not improve validation F 1 F_{1} and were reverted; we summarise the negative results below because they are themselves informative. What the agent ruled out. Each of the following was tested in ≥ 3 \\geq 3 trials and rejected: larger MLP hidden ( 1,536 1{,}536 / 2,048 2{,}048 ), three-layer MLP, LayerNorm , focal loss, label smoothing, attention pooling heads ( attn , attn_mlp ), residual MLP blocks ( res_token ), gated MLP blocks ( gated_token ), dual-path aggregation, batch sizes outside { 32 , 64 } \\{32,64\\} , learning rates outside { ⋅ 10 − 5 , 10 − 4 } \\{8\\!\\cdot\\!10^{-5},10^{-4}\\} , and seed swaps. We take this as evidence that Dual-head is not merely the product of exhaustive hyper-parameter tuning: the agent did try many things, and only the two architectural changes above survived. The final configuration is Dual-head at layer 21 (MLP hidden 1024 1024 , two layers, ReLU , dropout 0.18 0.18 , topk16 training-time pool, α = 0.8 \\alpha{=}0.8 ), trained with weighted-BCE for 4 4 epochs. Full-data retraining. The autonomous search of Table 1 was carried out on the cached 10,000 10{,}000 -row training subset for fast iteration. Once the architecture ( Dual-head , α = 0.8 \\alpha{=}0.8 ) and the hyper-parameter recipe had stabilised we re-trained the probe on the full Zhuyi training split ( ∼ 600 \\sim 600 K rows, 72,423 72{,}423 optimiser steps over 3 3 epochs), still freezing the LLM. To obtain a layer-sensitivity sweep at no additional cost, we launched seven jobs in parallel, one per layer index in { 18 , 19 , … , 24 } \\{18,19,\\ldots,24\\} , sharing the same Dual-head recipe. Figure 2 plots training loss and the five validation metrics, taking the median ± [ min , max ] \\pm\\,[\\min,\\max] over the seven parallel layers at each eval-step. All seven jobs converge above F 1 F_{1} = 0.97 =0.97 within the first ∼ 30 \\sim 30 K steps and continue improving slowly until the end of epoch 3; the best layer reaches a final F 1 F_{1} of 0.9746 0.9746 ( AUC = 0.9865 =0.9865 , precision = 0.985 =0.985 , recall = 0.965 =0.965 ) on the validation split, ∼ 3 \\sim 3 points above the hand-designed MLP-token baseline of Sec. 5 . Figure 2 : Full-data training of the AutoResearch-best Dual-head probe. Left: training loss (median ± \\pm min/max over seven parallel layer jobs ℓ ∈ { 18 , … , 24 } \\ell\\in\\{18,\\ldots,24\\} ) and held-out validation loss at the same eval steps. Right: held-out validation F 1 F_{1} / accuracy / AUC / precision / recall, again median ± \\pm min/max across the seven parallel layers. The horizontal dotted line marks the best layer’s final F 1 F_{1} = 0.9746 =0.9746 . 7 Offline evaluation Setting. The offline evaluation feeds the probe a complete ( prompt , response ) pair, runs one forward pass through the frozen LLM, and aggregates per-token unsafe logits into a sequence verdict. This mirrors how a post-hoc moderator (Llama Guard) is normally used, except that the moderator and the generator share parameters. Since the probe is trained on the guard model’s labels, the F 1 F_{1} reported here measures agreement with the guard rather than ground-truth accuracy; the probe is a distilled surrogate and is not expected to exceed the guard it learns from. Main results. Table 2 reports the offline numbers. The hand-designed MLP-token at layer 21 with max aggregation already agrees closely with the guard on the held-out test set ( N = 2444 N{=}2444 ): F 1 F_{1} = 0.941 =0.941 , AUC = 0.942 =0.942 . The autonomous-search Dual-head configuration (Sec. 6 ) further improves F 1 F_{1} on the cached validation subset to 0.9495 0.9495 ; re-training the same Dual-head recipe on the full training split and evaluating on the validation split raises it again to F 1 F_{1} = 0.9746 =0.9746 ( AUC = 0.987 =0.987 ) for the best layer (Fig. 2 ). The hand-designed MLP-token remains the configuration we deploy in the online experiments of Sec. 8 : the streaming worker was integrated against it, and the full-data Dual-head checkpoint has not yet been re-run through vLLM. Table 2: Offline probe results on Zhuyi . The top block is the hand-designed sweep evaluated on the held-out test split. The bottom block is the autonomous-search Dual-head configuration: in its cached form (Sec. 6 , validation subset) and after retraining on the full training split (Sec. 6 , validation split). Probe head Layer Agg. ACC F 1 F_{1} Precision AUC Hand-designed (Sec. 5 ), test split MLP-token 18 max 0.924 0.921 0.950 0.924 MLP-token 19 max 0.940 0.939 0.956 0.940 MLP-token 20 max 0.940 0.938 0.959 0.940 MLP-token 21 max 0.942 0.941 0.961 0.942 MLP-token 22 max 0.938 0.937 0.952 0.938 MLP-token 24 max 0.941 0.940 0.952 0.941 Linear-token 21 max 0.897 0.892 0.932 0.897 MLP-token 21 topk_mean 0.918 0.912 0.984 0.918 MLP-token 21 window_max 0.867 0.846 0.995 0.866 MLP-token 21 logsumexp 0.706 0.584 0.987 0.705 MLP-token 21 percentile 0.528 0.097 1.000 0.525 Autonomous search (Sec. 6 ) Dual-head , α = 0.8 \\alpha{=}0.8 21 topk16-loss + max-eval — 0.9495 — 0.9886 Dual-head , α = 0.8 \\alpha{=}0.8 (full data) 18–24 best topk16-loss + max-eval — 0.9746 0.985 0.9865 Figure 3 : Per-category F 1 F_{1} across layers. Rows are sorted from easiest to hardest; the bottom block highlights the obfuscation / homophone categories where the probe lags. Per-category analysis. The per-category heatmap (Fig. 3 ) clusters categories into three regimes: near-perfect ( F 1 ≈ 1.0 F_{1}\\approx 1.0 ; e.g. age_discrimination , self_harm , internal_docs_code ), robust ( F 1 ∈ [ 0.92 , 0.97 ] F_{1}\\in[0.92,0.97] ; e.g. ethics_violation , misinfo_harmful , roleplay_jailbreak ), and hard ( F 1 ∈ [ 0.80 , 0.88 ] F_{1}\\in[0.80,0.88] ; the obfuscation/homophone categories pinyin_homophone , leetspeak_homoglyph , content_masking_obfuscation ). Two facts matter for deployment: the probe is uniformly excellent on the high-stakes categories where production tolerance is lowest ( subvert_state , terrorism_extremism , violence_pornography , child_sexual_content ), and it reproduces the guard’s labels with F 1 ≥ 0.96 F_{1}\\geq 0.96 even on the prompt-injection-style roleplay_jailbreak / instruction_override categories; the obfuscation categories remain the main bottleneck. 8 Online (real-time) evaluation This section presents our central results: we run the MLP-token probe inside the vLLM decode loop on three benchmarks, with three different aggregation/trigger configurations selected by an offline grid search, and report end-to-end F 1 F_{1} , average stop step, and probe-call savings. 8.1 Streaming pipeline At every decode step t t , vLLM produces h t ℓ h^{\\ell}_{t} in its KV cache; a forward hook on layer ℓ = 21 \\ell{=}21 forwards h t ℓ h^{\\ell}_{t} through the probe head. The worker maintains: (i) a raw per-step probe logit z t z_{t} , (ii) a per-step effective score s t = ϕ ⁡ ( z ≤ t ) s_{t}=\\phi(z_{\\leq t}) according to a score_mode (Sec. 3.5 ), (iii) a binary firing decision according to a trigger_mode . Once the trigger latches, the decoder is signalled to stop and the final response is the prefix produced up to step t t . The probe overhead per call is ≤ 0.6 \\leq 0.6 ms on a single A100 (one matrix–vector product for MLP-token , hidden dim 1024 1024 ). 8.2 Calibration via offline parameter search We pick score_mode , trigger_mode , θ \\theta , W 0 W_{0} , the warmup threshold, K K , and pi jointly by an offline grid search. We first run the probe once per benchmark with permissive thresholds ( θ = − 999 \\theta=-999 , W 0 = 0 W_{0}=0 ), logging the per-token raw score for every sample, and label the produced responses with Qwen3Guard-Gen-8B . We then replay each per-token event log through the trigger logic for every cell of a ∼ 20,000 \\sim 20{,}000 -cell grid and keep the highest- F 1 F_{1} cell. Because it operates on cached logs, this procedure is purely CPU-bound and turns a normally expensive search into a sub-minute replay. 8.3 End-to-end results With max_new_tokens = 1024 =1024 and the per-dataset best score_mode / trigger_mode selected by the offline search (Sec. 8.2 ), the MLP-token probe at pi = 2 =2 reaches F 1 F_{1} = 0.899 =0.899 on zhuyi-inner , 0.750 0.750 on BeaverTails , and 0.792 0.792 on CSSBench (the pi = 2 =2 rows of Table 4 ). For reference, the Linear-token probe reaches F 1 = 0.823 F_{1}\\ =0.823 on zhuyi-inner , ∼ 7.6 \\sim 7.6 points below MLP-token , in line with the offline gap of Sec. 5.2 . The probe interrupts ∼ 92 % \\sim 92\\% of unsafe sequences within their first 20 % 20\\% of generated tokens on zhuyi-inner , allowing the orchestrator to terminate or rewrite the response well before the user sees it. The remaining ∼ 8 % \\sim 8\\% are concentrated in the obfuscation categories of Fig. 3 , where the unsafe content only crystallises near the end of the response. We quantify the attendant cost and latency savings against full guard models next. 8.4 Cost and latency against guard baselines The token-level F 1 F_{1} above measures agreement with a guard; it does not by itself show why one would deploy the probe instead of the guard. Table 3 makes that case directly. We take 1,000 1{,}000 BeaverTails examples ( 500 500 unsafe / 500 500 safe) with their native human safety labels—a neutral referee that none of the three systems was trained on—and feed each response, token by token, to (i) our probe, (ii) the post-hoc Qwen3Guard-Gen-8B moderator, and (iii) the streaming Qwen3Guard-Stream-8B moderator, recording both accuracy and the cost and latency each adds on top of the same 8 8 B generator. Table 3: Accuracy vs. cost on 1,000 1{,}000 BeaverTails examples ( 500 500 unsafe / 500 500 safe), scored against native human labels (positive = {=} unsafe). For the probe we report two operating points: its default threshold ( z t ≥ 0 z_{t}{\\geq}0 ) and a per-task threshold calibrated to maximise F 1 F_{1} ; the precision and recall on each row are those of that operating point. The guards emit a discrete verdict and have a single operating point. Δ \\Delta VRAM, Δ \\Delta tok, compute, and FLOPs are the resources the moderator adds on top of an 8 8 B generator (identical for both probe rows); tail latency is the end-to-end added latency (P50/P95/P99). G = {=} GFLOP, T = {=} TFLOP. Method F 1 F_{1} Prec. Rec. Δ \\Delta VRAM Δ \\Delta tok Compute Tail P50/95/99 (ms/req, FLOPs/req) (ms) Probe (default thr.) 0.504 0.930 0.346 8 MB 0 7.2 ms, 0.6 G 0.1 / 0.1 / 0.1 Probe (calibrated) 0.795 0.798 0.792 Post-hoc (Gen-8B) 0.855 0.832 0.880 15.5 GB 14 466 ms, 8.02 T 448 / 551 / 602 Streaming (Stream-8B) 0.846 0.829 0.864 14.2 GB 0 3089 ms, 1.32 T 39 / 43 / 54 Accuracy: the probe is the weaker classifier. Against human labels both guards reach F 1 F_{1} ≈ 0.85 \\approx 0.85 . At its default threshold the probe is strongly precision-biased ( F 1 F_{1} = 0.50 =0.50 , precision 0.93 0.93 , recall 0.35 0.35 ): it fires only when very confident and misses unsafe spans the larger guards catch. Re-tuning the threshold per task rebalances it to precision 0.80 0.80 / recall 0.79 0.79 and lifts F 1 F_{1} to 0.795 0.795 —close to, but still below, the guards, as expected for a distilled surrogate. (The higher online F 1 F_{1} of Sec. 8.3 is measured against guard relabelling with a calibrated trigger, not the native human labels and fixed threshold used here.) Cost and latency: the probe wins by orders of magnitude. The trade lives in the remaining columns. Because the probe reuses the generator’s own forward pass, it adds 8 8 MB of weights and ∼ 0.6 \\sim 0.6 GFLOP per request, against a full second 8 8 B model ( 14 14 – 16 16 GB, 1.3 1.3 – 8.0 8.0 TFLOP) for either guard. End to end it adds ≈ 0.1 \\approx 0.1 ms of tail latency, whereas the post-hoc guard inserts a serial 0.45 0.45 – 0.60 0.60 s stage and even the streaming guard adds ∼ 40 \\sim 40 – 54 54 ms while occupying a second GPU. The probe therefore trades a bounded, recalibratable accuracy gap for two-to-four orders of magnitude less moderation compute and essentially zero added latency —precisely the regime in which an always-on, first-stage screen is attractive, with a full guard reserved for the small flagged fraction (the cascade of CC++). 8.5 Probe-interval sweep Probing every decode step is unnecessary. Re-running the calibration grid separately for each pi ∈ { 1 , 2 , 5 , 10 , 20 , 50 , 100 } \\in\\{1,2,5,10,20,50,100\\} (full results in Table 4 , App. A ), pi = 2 =2 stays within ± 1 \\pm 1 F 1 F_{1} point of pi = 1 =1 on all three datasets while halving probe calls and even improving precision—a cheap temporal-smoothing denoiser. F 1 F_{1} then decays monotonically from pi = 5 =5 , and recall collapses before precision (at pi = 100 =100 precision stays ≥ 0.70 \\geq 0.70 but recall falls to 0.19 0.19 – 0.27 0.27 ) as sparse sampling skips short unsafe spans. We therefore default to pi = 2 =2 , with pi = 5 =5 a viable cost-sensitive option ( 80 % 80\\% fewer calls, 3 3 – 6 6 F 1 F_{1} points) and pi ≥ 10 \\geq 10 not recommended; App. B gives the full deployment recipe. 9 Discussion and future work Why does a mid-network probe already work so well? Our results are consistent with the literature on probe-based safety detection ( Zou et al., 2023 ; MacDiarmid et al., 2024 ; Cunningham et al., 2026 ) : RLHF-aligned LLMs encode a fairly explicit “compliance” direction in mid-network. The MLP-token advantage over Linear-token (Sec. 5.2 ) and the Dual-head result of the autonomous search (Sec. 6 ) suggest the boundary is mildly non-linear — and yet the linear branch still carries enough signal to act as a useful prior. From detection to activation steering . The linear branch of Dual-head is more than a regulariser. Its weight vector w / ∥ w ∥ w/\\lVert w\\rVert is a usable direction in residual space: subtracting a small multiple of it from h t ℓ h^{\\ell}_{t} during decoding nudges the generator away from the “unsafe” half-space the probe has just detected. We prototype this in a separate steering module: a dedicated vLLM worker registers the same forward hook used for detection, and when the trigger fires it injects h t ℓ ← h t ℓ − β ​ w / ∥ w ∥ h^{\\ell}_{t}\\leftarrow h^{\\ell}_{t}-\\beta\\,w/\\lVert w\\rVert on the current decoding step (and optionally latches for the rest of the sequence). Preliminary experiments suggest the model produces a safer continuation rather than an abrupt refusal, but a careful quantitative evaluation (refusal vs. safe completion vs. jailbreak recovery) is outside the scope of this paper. We see steering as the most natural extension of this work: the same hidden state that the probe consumed for free can also be written to at the same per-token cost. Other future directions. (i) Re-running the online experiments with the AutoResearch Dual-head checkpoint instead of MLP-token ; (ii) multi-layer routing (weighted ensembles of layer 19–24, currently blocked by the cache key constraint of the agent loop); (iii) a character-level companion probe for obfuscation categories ( pinyin_homophone , leetspeak_homoglyph ); (iv) adversarial training of the probe against red-team prompts that explicitly try to evade the probe’s hidden-state signature; (v) English coverage — our current online results on BeaverTails are encouraging but F 1 F_{1} is still ∼ 15 \\sim 15 points below the Chinese in-domain numbers. Limitations. (i) Single reported backbone. All reported numbers use DeepSeek-R1-0528-Qwen3-8B ; we observed similar behaviour on other RLHF-aligned Qwen3 backbones but do not report it, and transfer to backbones with substantially different alignment (e.g. a base model without RLHF) is not studied here. (ii) Adversarial robustness. We have not yet tested adaptive attacks against the probe head; in principle an attacker who knows the probe direction could steer activations away from it — the same mechanism we exploit in steering can be turned against the detector. (iii) Calibration. The reported AUC is high, but the operating threshold for streaming was tuned on a fixed validation set per dataset; deployment should re-calibrate per task. 10 Conclusion We have argued that real-time output safety does not require a second model: the signal is already present in the generator’s hidden states and can be read, per token, for a negligible cost. A small probe on a single mid-network layer recovers most of a strong guard model’s verdicts at a fraction of its cost, and—crucially—the same probe runs inside the vLLM decode loop, letting the system intervene while a response is still being produced rather than after the user has seen it. Across three benchmarks this streaming monitor halts or rewrites unsafe generations early, avoiding a large share of their decode tokens, and its decision frequency can be halved with no meaningful loss of accuracy—a simple, tunable operating point for deployment. An autonomous search over the probe design space, run on the same training infrastructure, recovers a stronger Dual-head architecture without manual tuning. Looking ahead, we see the detector and an activation-steering controller as two uses of one mechanism: the linear branch of the probe is, by construction, a direction in residual space, so the hidden state we read cheaply for detection can also be written to in order to steer the generator toward a safer continuation. We regard this unified read/write interface for safety at decode time as the most natural next step. References Alain and Bengio (2017) G. Alain and Y. Bengio Understanding intermediate layers using linear classifier probes . In ICLR Workshop Track , Cited by: §2 . Burns et al. (2023) C. Burns, H. Ye, D. Klein, and J. Steinhardt Discovering latent knowledge in language models without supervision . In ICLR , Cited by: §1 , §2 . Cunningham et al. (2026) H. Cunningham, J. Wei, Z. Wang, A. Persic, A. Peng, J. Kaplan, J. Leike, V. Mikulik, E. Perez, M. Sharma, et al. Constitutional classifiers++: efficient production-grade defenses against universal jailbreaks . arXiv preprint arXiv:2601.04603 . Cited by: §1 , §2 , §3.3 , §9 . Guo et al. (2025) D. Guo, D. Yang, H. Zhang, J. Song, P. Wang, Q. Zhu, R. Xu, R. Zhang, S. Ma, X. Bi, X. Zhang, X. Yu, Y. Wu, Z. F. Wu, Z. Gou, Z. Shao, Z. Li, Z. Gao, A. Liu, B. Xue, B. Wang, B. Wu, B. Feng, C. Lu, C. Zhao, C. Deng, C. Ruan, D. Dai, D. Chen, D. Ji, E. Li, F. Lin, F. Dai, F. Luo, G. Hao, G. Chen, G. Li, H. Zhang, H. Xu, H. Ding, H. Gao, H. Qu, H. Li, J. Guo, J. Li, J. Chen, J. Yuan, J. Tu, J. Qiu, J. Li, J. L. Cai, J. Ni, J. Liang, J. Chen, K. Dong, K. Hu, K. You, K. Gao, K. Guan, K. Huang, K. Yu, L. Wang, L. Zhang, L. Zhao, L. Wang, L. Zhang, L. Xu, L. Xia, M. Zhang, M. Zhang, M. Tang, M. Zhou, M. Li, M. Wang, M. Li, N. Tian, P. Huang, P. Zhang, Q. Wang, Q. Chen, Q. Du, R. Ge, R. Zhang, R. Pan, R. Wang, R. J. Chen, R. L. Jin, R. Chen, S. Lu, S. Zhou, S. Chen, S. Ye, S. Wang, S. Yu, S. Zhou, S. Pan, S. S. Li, S. Zhou, S. Wu, T. Yun, T. Pei, T. Sun, T. Wang, W. Zeng, W. Liu, W. Liang, W. Gao, W. Yu, W. Zhang, W. L. Xiao, W. An, X. Liu, ",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Skip to main content",
+      "url": "https://arxiv.org/html/2606.10487v1#infobox"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/IgnoreMe"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "Why HTML?",
+      "url": "https://info.arxiv.org/about/accessible_HTML.html"
+    },
+    {
+      "text": "Back to Abstract",
+      "url": "https://arxiv.org/abs/2606.10487v1"
+    },
+    {
+      "text": "Download PDF",
+      "url": "https://arxiv.org/pdf/2606.10487v1"
+    },
+    {
+      "text": "License: CC BY-NC-SA 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "Inan et al., 2023",
+      "url": "https://arxiv.org/html/2606.10487v1#bib.bib9"
+    },
+    {
+      "text": "Rebedea et al., 2023",
+      "url": "https://arxiv.org/html/2606.10487v1#bib.bib13"
+    },
+    {
+      "text": "Zhao et al., 2025",
+      "url": "https://arxiv.org/html/2606.10487v1#bib.bib19"
+    },
+    {
+      "text": "Zou et al., 2023",
+      "url": "https://arxiv.org/html/2606.10487v1#bib.bib7"
+    },
+    {
+      "text": "Li et al., 2023",
+      "url": "https://arxiv.org/html/2606.10487v1#bib.bib6"
+    },
+    {
+      "text": "Burns et al., 2023",
+      "url": "https://arxiv.org/html/2606.10487v1#bib.bib5"
+    },
+    {
+      "text": "MacDiarmid et al., 2024",
+      "url": "https://arxiv.org/html/2606.10487v1#bib.bib8"
+    },
+    {
+      "text": "Sharma and others, 2025",
+      "url": "https://arxiv.org/html/2606.10487v1#bib.bib15"
+    },
+    {
+      "text": "Cunningham et al., 2026",
+      "url": "https://arxiv.org/html/2606.10487v1#bib.bib16"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2606.10487v1#S3"
+    },
+    {
+      "text": "8",
+      "url": "https://arxiv.org/html/2606.10487v1#S8"
+    },
+    {
+      "text": "8.4",
+      "url": "https://arxiv.org/html/2606.10487v1#S8.SS4"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2606.10487v1#S5"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2606.10487v1#S6"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2606.10487v1#S7"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2606.10487v1#S9"
+    },
+    {
+      "text": "Alain and Bengio, 2017",
+      "url": "https://arxiv.org/html/2606.10487v1#bib.bib3"
+    },
+    {
+      "text": "Tenney et al., 2019",
+      "url": "https://arxiv.org/html/2606.10487v1#bib.bib4"
+    },
+    {
+      "text": "Markov et al., 2023",
+      "url": "https://arxiv.org/html/2606.10487v1#bib.bib10"
+    },
+    {
+      "text": "Ji et al., 2023",
+      "url": "https://arxiv.org/html/2606.10487v1#bib.bib11"
+    },
+    {
+      "text": "Lin et al., 2023",
+      "url": "https://arxiv.org/html/2606.10487v1#bib.bib12"
+    },
+    {
+      "text": "Karpathy, 2026",
+      "url": "https://arxiv.org/html/2606.10487v1#bib.bib14"
+    },
+    {
+      "text": "Kwon et al., 2023",
+      "url": "https://arxiv.org/html/2606.10487v1#bib.bib17"
+    },
+    {
+      "text": "Guo et al., 2025",
+      "url": "https://arxiv.org/html/2606.10487v1#bib.bib2"
+    },
+    {
+      "text": "Yang et al., 2025",
+      "url": "https://arxiv.org/html/2606.10487v1#bib.bib1"
+    },
+    {
+      "text": "Zhou et al., 2026",
+      "url": "https://arxiv.org/html/2606.10487v1#bib.bib18"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2606.10487v1#S7.T2"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2606.10487v1#S5.F1"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2606.10487v1#S6.T1"
+    },
+    {
+      "text": "3.3",
+      "url": "https://arxiv.org/html/2606.10487v1#S3.SS3"
+    },
+    {
+      "text": "5.2",
+      "url": "https://arxiv.org/html/2606.10487v1#S5.SS2"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2606.10487v1#S6.F2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2606.10487v1#S7.F3"
+    },
+    {
+      "text": "3.5",
+      "url": "https://arxiv.org/html/2606.10487v1#S3.SS5"
+    },
+    {
+      "text": "8.2",
+      "url": "https://arxiv.org/html/2606.10487v1#S8.SS2"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2606.10487v1#A1.T4"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2606.10487v1#S8.T3"
+    },
+    {
+      "text": "8.3",
+      "url": "https://arxiv.org/html/2606.10487v1#S8.SS3"
+    },
+    {
+      "text": "A",
+      "url": "https://arxiv.org/html/2606.10487v1#A1"
+    },
+    {
+      "text": "B",
+      "url": "https://arxiv.org/html/2606.10487v1#A2"
+    },
+    {
+      "text": "§2",
+      "url": "https://arxiv.org/html/2606.10487v1#S2.p1.1"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2606.10487v1#S1.p2.1"
+    },
+    {
+      "text": "§3.3",
+      "url": "https://arxiv.org/html/2606.10487v1#S3.SS3.p1.1"
+    },
+    {
+      "text": "§9",
+      "url": "https://arxiv.org/html/2606.10487v1#S9.p1.1"
+    },
+    {
+      "text": "Link",
+      "url": "http://dx.doi.org/10.1038/s41586-025-09422-z"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.1038/s41586-025-09422-z"
+    },
+    {
+      "text": "§4",
+      "url": "https://arxiv.org/html/2606.10487v1#S4.SS0.SSS0.Px1.p1.1"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2606.10487v1#S1.p1.1"
+    },
+    {
+      "text": "§2",
+      "url": "https://arxiv.org/html/2606.10487v1#S2.p2.1"
+    },
+    {
+      "text": "§2",
+      "url": "https://arxiv.org/html/2606.10487v1#S2.p3.1"
+    },
+    {
+      "text": "§4",
+      "url": "https://arxiv.org/html/2606.10487v1#S4.SS0.SSS0.Px2.p1.1"
+    },
+    {
+      "text": "https://github.com/karpathy/autoresearch",
+      "url": "https://github.com/karpathy/autoresearch"
+    },
+    {
+      "text": "§2",
+      "url": "https://arxiv.org/html/2606.10487v1#S2.p4.1"
+    }
+  ],
+  "matching_link_count": 65,
+  "links_truncated": true,
+  "invalid_links": []
+}

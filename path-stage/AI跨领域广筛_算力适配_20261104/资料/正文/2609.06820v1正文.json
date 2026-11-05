@@ -1,0 +1,347 @@
+{
+  "url": "https://arxiv.org/html/2609.06820v1",
+  "final_url": "https://arxiv.org/html/2609.06820v1",
+  "status": 200,
+  "title": "Diagnosing and Dynamically Filtering Occupancy World Models for Active Mapping",
+  "metadata": {},
+  "paper": {
+    "title": "Diagnosing and Dynamically Filtering Occupancy World Models for Active Mapping",
+    "title_warning": null,
+    "abstract": "Abstract Active mapping requires a robot to select camera viewpoints that efficiently reconstruct an unknown 3D scene. To reason about unobserved regions, recent systems use pretrained occupancy networks as world models that complete missing geometry. The predicted structure contributes to expected coverage gain and constrains feasible robot motion. Consequently, occupancy errors can change both what the robot chooses to explore and where it is able to move. We diagnose these effects by holding the planner fixed and varying only the occupancy representation provided to it. We consider planning without completion, with learned occupancy, with false positives removed by a ground truth oracle, with false negatives restored by an oracle, and with ground truth occupancy. Our experiments show that correcting false positives or false negatives alone does not consistently improve final coverage. This finding reveals a gap between occupancy accuracy and downstream planning performance. Ground truth occupancy provides a much larger improvement in coverage efficiency than in endpoint coverage, suggesting that planning and reachability remain important bottlenecks even when the geometric world model is accurate. Based on these findings, we introduce a dynamic filtering strategy that preserves predictions in unexplored space while suppressing repeatedly unsupported occupancy using online observations. Preliminary examples show that this strategy can redirect viewpoint selection toward reachable surfaces that would otherwise remain unobserved.",
+    "authors": [
+      {
+        "name": "Jiahui Zhang",
+        "affiliations": [
+          "Affiliation: Boise State University"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Gongbo Liang",
+        "affiliations": [
+          "Affiliation: Texas A&M University–San Antonio"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Yu Zhang",
+        "affiliations": [],
+        "notes": []
+      }
+    ],
+    "author_block": "Jiahui Zhang Affiliation: Boise State University Gongbo Liang Affiliation: Texas A&M University–San Antonio Yu Zhang † † thanks: $ˆ 🖂 $Correspondence to: Yu Zhang: yzhang@boisestate.edu",
+    "arxiv_version": "2609.06820v1",
+    "arxiv_version_date": "2026-09-06",
+    "sections": [
+      {
+        "id": "S1",
+        "heading": "I Introduction",
+        "level": 1,
+        "text": "Active mapping [ 1 ] asks a robot to reconstruct an unknown 3D scene while deciding where to observe next. Because future measurements depend on the selected camera path, inefficient planning can leave substantial geometry unobserved [ 2 ] . Figure 1 illustrates this problem. The yellow curves show the camera trajectories, while the red surfaces show geometry missed by those trajectories. The goal is to maximize surface coverage under a limited motion budget. Planning is difficult because the robot initially observes only part of the scene [ 3 ] [ 4 ] [ 5 ] [ 6 ] . Recent systems use pretrained occupancy networks to complete unobserved geometry [ 2 ] [ 7 ] . The predicted occupancy acts as a geometric world model in two ways. It provides expected coverage gain for candidate viewpoints and constrains collision-free motion. A false positive may create gain around nonexistent geometry or block a free path, while a false negative may hide a useful target or alter apparent reachability. Occupancy accuracy alone does not reveal these planning effects [ 8 ] . Active mapping is a closed-loop process in which each viewpoint changes later observations, predictions, and decisions [ 2 ] . A more accurate occupancy map can therefore produce a different trajectory without improving final coverage. The world model must be evaluated through its effect on the complete exploration process. We study this interaction using MAGICIAN [ 2 ] on 25 scene-start configurations from the Macarons++ benchmark. We hold the planner and all other components fixed while varying only the occupancy supplied to it, including learned occupancy, no completion, oracle correction of false positives or false negatives, and ground-truth occupancy. We also decompose the planner’s rendered gain to measure how phantom predictions enter viewpoint scoring. The results show that the value of completion depends on the starting condition, correcting one error type does not produce a monotonic improvement, and ground-truth occupancy benefits coverage efficiency much more than endpoint coverage. Motivated by these findings, we introduce an observation-gated dynamic filter. It retains predictions in insufficiently explored regions and suppresses them from both gain estimation and collision checking only after repeated frustum exposure without nearby RGB-D surface support. The filter requires no ground truth or retraining. On two collapse-prone starts, it improves mean final coverage by 0.163 0.163 and 0.122 0.122 over three repetitions. Our contributions are summarized as follows. • We provide a controlled diagnosis of how occupancy completion and its errors affect active mapping, combining decision-level gain decomposition with fixed-planner occupancy interventions. • We show that occupancy accuracy and planning performance are not equivalent. The effects depend on the starting condition and differ between trajectory efficiency and final coverage. • We introduce an observation-gated dynamic filter that uses online RGB-D observations to suppress repeatedly unsupported occupancy, with preliminary improvements on two targeted failure cases."
+      },
+      {
+        "id": "S2.SS1",
+        "heading": "II-A Occupancy Networks",
+        "level": 2,
+        "text": "Neural implicit models encode geometry as continuous occupancy or distance functions. Occupancy Networks introduced continuous inside–outside classification [ 8 ] ; IF-Net and Convolutional Occupancy Networks added spatially aligned features for detailed object and scene reconstruction [ 9 ] . Neural-Pull [ 10 ] and POCO [ 11 ] reconstruct implicit surfaces from point clouds, while MonoScene [ 12 ] , VoxFormer [ 13 ] , and OccFormer [ 14 ] predict dense semantic occupancy from images. For embodied tasks, Occupancy Anticipation completes unseen free and occupied space [ 15 ] , whereas NICE-SLAM [ 16 ] and iSDF [ 17 ] update implicit geometry online [ 18 ] . These works improve geometric representation and prediction. We instead examine occupancy as a planner-facing world model whose errors alter both coverage gain and collision checking, and therefore the complete trajectory."
+      },
+      {
+        "id": "S2.SS2",
+        "heading": "II-B Active Mapping",
+        "level": 2,
+        "text": "Active mapping selects observations under sensing and motion budgets. Classical methods combine information or frontier objectives with path planning. PC-NBV [ 19 ] learns view selection from partial point clouds, while FUEL [ 20 ] and TARE [ 21 ] organize large-scale exploration; uncertainty-guided systems instead target uncertain geometry or scene properties [ 22 ] [ 23 ] . Neural methods increasingly plan over learned scene representations. ActiveNeRF [ 24 ] uses radiance-field uncertainty, while SCONE [ 25 ] and MACARONS [ 7 ] use learned occupancy and coverage prediction for view selection. Active Neural Mapping [ 26 ] , NARUTO [ 27 ] , and FisherRF [ 28 ] guide motion from map uncertainty or information, and NextBestPath [ 29 ] plans beyond a single view. MAGICIAN [ 2 ] converts pretrained occupancy into imagined Gaussians for long-horizon trajectory search, coupling completion with rendered gain and collision checking. We keep this planner fixed and vary only its occupancy input to isolate the effects of hallucinated geometry and motivate dynamic filtering."
+      },
+      {
+        "id": "S3.SS1",
+        "heading": "III-A Problem Formulation",
+        "level": 2,
+        "text": "We formulate the problem by folowing prior active mapping works [ 7 ] [ 2 ] . At planning step t t , the agent has accumulated a surface point cloud 𝒮 t \\mathcal{S}_{t} from its RGB-D observations and a set of previously visited camera poses 𝒞 t \\mathcal{C}_{t} . A pretrained occupancy network predicts the probability that a query point 𝐱 \\mathbf{x} is occupied, σ ^ t ​ ( 𝐱 ) = f θ ​ ( 𝐱 , 𝒮 t , 𝒞 t ) , σ ^ t ​ ( 𝐱 ) ∈ [ 0 , 1 ] . \\hat{\\sigma}_{t}(\\mathbf{x})=f_{\\theta}(\\mathbf{x},\\mathcal{S}_{t},\\mathcal{C}_{t}),\\qquad\\hat{\\sigma}_{t}(\\mathbf{x})\\in[0,1]. (1) We denote the thresholded predicted occupancy by 𝒪 ^ t = { 𝐱 ∣ σ ^ t ​ ( 𝐱 ) > 0.5 } . \\widehat{\\mathcal{O}}_{t}=\\left\\{\\mathbf{x}\\mid\\hat{\\sigma}_{t}(\\mathbf{x})>0.5\\right\\}. (2) These predictions complete geometry beyond the currently observed surface and serve as a world model for planning. We instantiate our diagnosis using MAGICIAN [ 2 ] , which consumes the predicted occupancy through two coupled channels. First, predicted occupied points are represented as Gaussian primitives and rendered from each candidate viewpoint. The rendered novelty map produces the predicted coverage gain G t ​ ( 𝐜 , 𝒪 ~ t ) = ∑ 𝐩 ∈ 𝒫 valid w ⁡ ( D 𝐜 ​ ( 𝐩 ) ) ​ I t novel ​ ( 𝐩 , 𝒪 ~ t ) , G_{t}(\\mathbf{c};\\widetilde{\\mathcal{O}}_{t})=\\sum_{\\mathbf{p}\\in\\mathcal{P}_{\\mathrm{valid}}}w\\!\\left(D_{\\mathbf{c}}(\\mathbf{p})\\right)I^{\\mathrm{novel}}_{t}\\!\\left(\\mathbf{p};\\widetilde{\\mathcal{O}}_{t}\\right), (3) where 𝒪 ~ t \\widetilde{\\mathcal{O}}_{t} is the occupancy supplied to the planner, I t novel I^{\\mathrm{novel}}_{t} is the rendered contribution of predicted surfaces that have not been covered, and w ⁡ ( ⋅ ) w(\\cdot) is the planner’s depth-dependent weighting. Second, the same occupancy is used during collision checking. The planner therefore selects a trajectory schematically as 𝝉 t ∗ = arg ⁡ max ⁡ ∑ 𝐜 ∈ 𝝉 𝝉 ∈ 𝒯 t ⁡ G t ​ ( 𝐜 , 𝒪 ~ t ) s . t . Free ⁡ ( 𝝉 ; 𝒪 ~ t ) = 1 . \\bm{\\tau}^{*}_{t}=\\arg\\max_{\\bm{\\tau}\\in\\mathcal{T}_{t}}\\sum_{\\mathbf{c}\\in\\bm{\\tau}}G_{t}(\\mathbf{c};\\widetilde{\\mathcal{O}}_{t})\\quad\\mathrm{s.t.}\\quad\\operatorname{Free}(\\bm{\\tau};\\widetilde{\\mathcal{O}}_{t})=1. (4) Consequently, an occupancy prediction can affect both the score of a candidate trajectory and whether that trajectory is considered feasible. A false positive can generate gain around nonexistent geometry or block a free path, while a false negative can remove a useful target or alter apparent reachability. The net effect must therefore be measured through the resulting closed-loop trajectory rather than occupancy accuracy alone."
+      },
+      {
+        "id": "S3.SS2",
+        "heading": "III-B Dataset",
+        "level": 2,
+        "text": "We conduct all experiments on Macarons++ [ 2 ] , an extension of the Macarons benchmark [ 7 ] containing large-scale indoor and outdoor 3D scenes. The benchmark supports free six-degree-of-freedom exploration and provides RGB-D observations from arbitrary camera poses. We use five scenes with five fixed starting poses per scene, resulting in 25 scene-start configurations. Each trajectory contains 100 planning actions and 101 camera poses. The planner receives only the RGB-D observations generated along its trajectory. Direct access to the ground-truth mesh is restricted to coverage evaluation, the diagnostic visualizations in Figure 2 , and the oracle interventions in Table I . Fig. 2: Decision-level audit of predicted coverage gain. Top: Neuschwanstein Castle at start 3. Bottom: Fushimi Momoyama Castle at start 0. Each row analyzes a viewpoint selected by the learned-occupancy planner at steps 6 and 2, respectively. Panels (a) and (b) show the RGB and depth observations from that pose, while (c) shows the per-pixel coverage gain used by the planner. For analysis only, ground-truth tags decompose the same rendered gain into (d) predictions near real structure and (e) phantom predictions, with (c) equal to (d) plus (e) pixel-wise on a shared color scale. Phantom occupancy contributes 53.5% and 35.0% of the gain in the displayed frames respectively. Panel (f) shows the same decomposition over all steps."
+      },
+      {
+        "id": "S3.SS3",
+        "heading": "III-C Controlled Occupancy Interventions",
+        "level": 2,
+        "text": "To isolate this effect, we hold the occupancy network, beam search, candidate viewpoints, collision rule, motion budget, and reconstruction pipeline fixed. We vary only 𝒪 ~ t \\widetilde{\\mathcal{O}}_{t} , the occupancy supplied to the planner at each step. Let 𝒪 ∗ \\mathcal{O}^{*} denote the ground-truth occupied samples under the benchmark discretization. For diagnostic analysis, a predicted point is classified as a false positive when it lies farther than δ = 0.03 ​ d scene \\delta=0.03d_{\\mathrm{scene}} from the ground-truth surface. A ground-truth point is classified as a false negative when no predicted point lies within the same tolerance: FP t \\displaystyle\\mathrm{FP}_{t} = { 𝐱 ∈ 𝒪 ^ t ∣ d ⁡ ( 𝐱 , 𝒪 ∗ ) > δ } , \\displaystyle=\\left\\{\\mathbf{x}\\in\\widehat{\\mathcal{O}}_{t}\\mid d(\\mathbf{x},\\mathcal{O}^{*})>\\delta\\right\\}, (5) FN t \\displaystyle\\mathrm{FN}_{t} = { 𝐲 ∈ 𝒪 ∗ ∣ d ⁡ ( 𝐲 , 𝒪 ^ t ) > δ } . \\displaystyle=\\left\\{\\mathbf{y}\\in\\mathcal{O}^{*}\\mid d(\\mathbf{y},\\widehat{\\mathcal{O}}_{t})>\\delta\\right\\}. (6) These labels require ground truth and are used only to construct diagnostic oracles. We compare the following five planning conditions: 𝒪 ~ t no ​ - ​ imag \\displaystyle\\widetilde{\\mathcal{O}}^{\\mathrm{no\\mbox{-}imag}}_{t} = 𝒮 t , \\displaystyle=\\mathcal{S}_{t}, (7) 𝒪 ~ t − FP \\displaystyle\\widetilde{\\mathcal{O}}^{-\\mathrm{FP}}_{t} = 𝒮 t ∪ ( 𝒪 ^ t ∖ FP t ) , \\displaystyle=\\mathcal{S}_{t}\\cup\\left(\\widehat{\\mathcal{O}}_{t}\\setminus\\mathrm{FP}_{t}\\right), (8) 𝒪 ~ t base \\displaystyle\\widetilde{\\mathcal{O}}^{\\mathrm{base}}_{t} = 𝒮 t ∪ 𝒪 ^ t , \\displaystyle=\\mathcal{S}_{t}\\cup\\widehat{\\mathcal{O}}_{t}, (9) 𝒪 ~ t + FN \\displaystyle\\widetilde{\\mathcal{O}}^{+\\mathrm{FN}}_{t} = 𝒮 t ∪ 𝒪 ^ t ∪ FN t , \\displaystyle=\\mathcal{S}_{t}\\cup\\widehat{\\mathcal{O}}_{t}\\cup\\mathrm{FN}_{t}, (10) 𝒪 ~ t GT \\displaystyle\\widetilde{\\mathcal{O}}^{\\mathrm{GT}}_{t} = 𝒪 ∗ . \\displaystyle=\\mathcal{O}^{*}. (11) The no-imagination condition retains only accumulated observations. The − FP -\\mathrm{FP} condition removes predicted geometry unsupported by ground truth. The + FN +\\mathrm{FN} condition restores missed ground-truth geometry while retaining the model’s false positives. The final condition gives the fixed planner complete ground-truth occupancy. Each condition is executed closed-loop, so different planning decisions lead to different subsequent observations and world-model updates. We evaluate 25 starts from five scenes, with 101 camera poses per trajectory. Let C t C_{t} denote surface coverage after step t t . We report final coverage C T C_{T} , the normalized area under the coverage trajectory, AUC = 1 T ​ ∫ 0 T C ⁡ ( t ) , 𝑑 t , \\mathrm{AUC}=\\frac{1}{T}\\int_{0}^{T}C(t),dt, (12) and the first step at which a method reaches 70 % 70\\% of the learned baseline’s final coverage at the same start, S 70 = min ⁡ { t ∣ C t ≥ 0.7 ​ C T base } . S_{70}=\\min\\left\\{t\\mid C_{t}\\geq 0.7C_{T}^{\\mathrm{base}}\\right\\}. (13) Final coverage measures the endpoint, while AUC and S 70 S_{70} measure how efficiently coverage is acquired. All reported differences are computed relative to the learned-occupancy baseline at the same start before averaging. For descriptive analysis, we additionally separate starts where the baseline ends below 0.75 0.75 coverage and above 0.85 0.85 coverage. We refer to these as baseline low-coverage and high-coverage starts. This grouping is defined from the baseline outcome and is used to expose heterogeneity, not to claim that failure can be predicted from the initial pose. TABLE I: Downstream effects of controlled occupancy interventions. We hold the planner fixed and vary only the occupancy supplied to it. The learned-occupancy row reports absolute values, while all other rows report mean paired differences relative to that baseline. Results are shown for all starts ( n = 25 n{=}25 ), baseline low-coverage starts ( C T base < 0.75 C_{T}^{\\mathrm{base}}<0.75 , n = 5 n{=}5 ), and baseline high-coverage starts ( C T base > 0.85 C_{T}^{\\mathrm{base}}>0.85 , n = 16 n{=}16 ). The four intermediate starts are included only in the pooled results. S 70 S_{70} is the number of steps required to reach 70% of the baseline final coverage at the same start. Lower values and negative differences in S 70 S_{70} indicate faster coverage. The FP, FN, and ground-truth conditions use ground truth only as diagnostic oracles. Pooled ( n = 25 n{=}25 ) Low coverage ( n = 5 n{=}5 ) High coverage ( n = 16 n{=}16 ) Planning occupancy Oracle Δ ​ C T ↑ \\Delta C_{T}\\,\\uparrow Δ ​ AUC ↑ \\Delta\\mathrm{AUC}\\,\\uparrow Δ ​ S 70 ↓ \\Delta S_{70}\\,\\downarrow Δ ​ C T ↑ \\Delta C_{T}\\,\\uparrow Δ ​ AUC ↑ \\Delta\\mathrm{AUC}\\,\\uparrow Δ ​ S 70 ↓ \\Delta S_{70}\\,\\downarrow Δ ​ C T ↑ \\Delta C_{T}\\,\\uparrow Δ ​ AUC ↑ \\Delta\\mathrm{AUC}\\,\\uparrow Δ ​ S 70 ↓ \\Delta S_{70}\\,\\downarrow (i) no imagination no − 0.007 -0.007 − 0.038 -0.038 + 4.6 +4.6 + 0.100 +0.100 + 0.055 +0.055 − 8.6 -8.6 − 0.050 -0.050 − 0.073 -0.073 + 9.4 +9.4 (ii) occ − - FP yes − 0.004 -0.004 − 0.006 -0.006 + 2.5 +2.5 + 0.020 +0.020 + 0.019 +0.019 − 0.6 -0.6 − 0.029 -0.029 − 0.019 -0.019 + 4.2 +4.2 (iii) learned occ. (base, absolute) no 0.846 0.846 0.644 0.644 31.6 31.6 0.676 0.676 0.485 0.485 39.6 39.6 0.908 0.908 0.706 0.706 27.4 27.4 (iv) occ + + FN yes − 0.026 -0.026 + 0.031 +0.031 − 3.0 -3.0 − 0.044 -0.044 + 0.035 +0.035 − 4.0 -4.0 − 0.023 -0.023 + 0.030 +0.030 − 1.9 -1.9 (v) ground truth yes + 0.031 +0.031 + 0.086 +0.086 − 12.7 -12.7 + 0.095 +0.095 + 0.178 +0.178 − 28.4 -28.4 + 0.004 +0.004 + 0.055 +0.055 − 7.4 -7.4"
+      },
+      {
+        "id": "S3.SS4.SSS0.Px1",
+        "heading": "Finding 1. Phantom occupancy enters the planner’s decision signal.",
+        "level": 3,
+        "text": "Figure 2 decomposes the exact coverage gain used for viewpoint selection. In the two representative selected views, phantom occupancy contributes 53.5% and 35.0% of the predicted gain, so the phantom component is substantial even when the planner predicts high information value. Panel (f) further shows that phantom gain is present across the planning horizon. The figure establishes how occupancy errors enter viewpoint scoring, while Table I measures their effect on the resulting trajectories."
+      },
+      {
+        "id": "S3.SS4.SSS0.Px2",
+        "heading": "Finding 2. The value of completion depends on the starting condition.",
+        "level": 3,
+        "text": "Removing completion changes pooled final coverage by only − 0.007 -0.007 , but this average hides opposing effects. On baseline low-coverage starts, it improves final coverage by 0.100 0.100 , increases AUC by 0.055 0.055 , and reaches the coverage milestone 8.6 8.6 steps earlier. On high-coverage starts, it reduces final coverage by 0.050 0.050 , decreases AUC by 0.073 0.073 , and requires 9.4 9.4 additional steps. Completion therefore helps some trajectories explore efficiently while degrading others. Because these groups are defined from baseline outcomes, the result demonstrates heterogeneous behavior rather than an ability to predict failure from the initial pose."
+      },
+      {
+        "id": "S3.SS4.SSS0.Px3",
+        "heading": "Finding 3. Better occupancy does not translate monotonically into better active mapping.",
+        "level": 3,
+        "text": "Oracle removal of false positives does not improve pooled performance, changing final coverage by − 0.004 -0.004 , AUC by − 0.006 -0.006 , and S 70 S_{70} by + 2.5 +2.5 steps. Restoring false negatives produces a different tradeoff. It improves pooled AUC by 0.031 0.031 and reaches the coverage milestone 3.0 3.0 steps earlier, but reduces final coverage by 0.026 0.026 . Even ground-truth occupancy benefits efficiency much more than the endpoint. It improves pooled AUC by 0.086 0.086 and reaches the milestone 12.7 12.7 steps earlier, while final coverage increases by only 0.031 0.031 . On baseline low-coverage starts, ground-truth occupancy reduces S 70 S_{70} from 39.6 39.6 to 11.2 11.2 steps. These results show that occupancy corrections can affect exploration speed and final coverage in different directions. Ground-truth occupancy is therefore a diagnostic reference for the fixed planner rather than a theoretical upper bound on coverage."
+      },
+      {
+        "id": "S3.SS4.SSS0.Px4",
+        "heading": "Implication.",
+        "level": 3,
+        "text": "The results support neither always trusting completion nor discarding it entirely. A practical correction should preserve predictions that guide exploration in unobserved regions and suppress them only after online observations repeatedly fail to provide support. This motivates the dynamic filtering strategy introduced next."
+      },
+      {
+        "id": "S4",
+        "heading": "IV Observation-Gated Dynamic Filtering",
+        "level": 1,
+        "text": "Our diagnosis shows that removing occupancy completion globally can discard useful exploration guidance. We instead filter predictions selectively using two signals available during mapping. For each predicted occupied point, we count how many acquired camera frustums have contained it and check whether a nearby surface has appeared in the accumulated RGB-D observations. A point is marked as unsupported only when it has entered at least K K frustums and no observed surface lies within distance ϵ \\epsilon . We use K = 2 K=2 and ϵ = 0.03 ​ d scene \\epsilon=0.03d_{\\mathrm{scene}} . Predictions with fewer than K K exposures remain unchanged, allowing them to continue guiding exploration in insufficiently observed regions. Unsupported points are removed from both uses of the occupancy world model. They no longer contribute to rendered coverage gain and are excluded from collision checking. The filter is recomputed after every observation, so a point is restored if later RGB-D measurements provide nearby surface support. The procedure requires no ground truth, model retraining, or additional rendering pass. TABLE II: Targeted evaluation on two collapse-prone starts. Final coverage is reported as mean ± \\pm std over three repetitions. MAGICIAN [ 2 ] is used as the baseline. Start Baseline Dynamic filter Δ ​ C T \\Delta C_{T} Pantheon/2 0.309 ± 0.021 0.309\\pm 0.021 0.472 ± 0.078 \\mathbf{0.472\\pm 0.078} + 0.163 \\mathbf{+0.163} Sestino/2 0.836 ± 0.108 0.836\\pm 0.108 0.958 ± 0.021 \\mathbf{0.958\\pm 0.021} + 0.122 \\mathbf{+0.122} Table II provides a focused evaluation on the two collapse-prone starts identified by the diagnostic study. Dynamic filtering increases final coverage by 0.163 0.163 on Pantheon/2 and 0.122 0.122 on Sestino/2, providing preliminary evidence that removing repeatedly unsupported occupancy can recover coverage in the targeted failure cases."
+      },
+      {
+        "id": "S5",
+        "heading": "V Conclusion",
+        "level": 1,
+        "text": "This work diagnoses how pretrained occupancy affects active mapping once used for planning. Phantom geometry changes viewpoint scores, completion can help or harm across starts, and correcting individual error types does not guarantee better trajectories. Ground-truth occupancy mainly improves efficiency, showing that map accuracy is only one planning factor. Our observation-gated filter removes repeatedly unsupported occupancy from gain and collision reasoning, improving both tested collapse-prone starts without retraining or ground truth. These results motivate decision-level evaluation and observation-aware correction of world models as new evidence accumulates."
+      },
+      {
+        "id": "bib",
+        "heading": "References",
+        "level": 1,
+        "text": "[1] I. Lluvia, E. Lazkano, and A. Ansuategi (2021) Active mapping and robot exploration: a survey . Sensors 21 ( 7 ), pp. 2445 . Cited by: §I . [2] S. Li, A. Guédon, S. Chen, and V. Lepetit (2026) MAGICIAN: efficient long-term planning with imagined gaussians for active mapping . In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 21606–21615 . Cited by: §I , §I , §I , §I , §II-B , §III-A , §III-A , §III-B , TABLE II . [3] Y. Wu, W. Zheng, S. Zuo, Y. Huang, J. Zhou, and J. Lu (2025) Embodiedocc: embodied 3d occupancy prediction for vision-based online scene understanding . In Proceedings of the IEEE/CVF International Conference on Computer Vision , Cited by: §I . [4] Y. Zhang, M. U. Rafique, G. Christie, and N. Jacobs (2023) CrossAdapt: cross-scene adaptation for multi-domain depth estimation . In IGARSS 2023-2023 IEEE International Geoscience and Remote Sensing Symposium , pp. 5328–5331 . Cited by: §I . [5] Y. Zhang, M. U. Rafique, and N. Jacobs (2023) Crossseg: cross-scene few-shot aerial segmentation using probabilistic prototypes . In IGARSS 2023-2023 IEEE International Geoscience and Remote Sensing Symposium , pp. 5006–5009 . Cited by: §I . [6] Y. Zhang From static domain adaptation to state-adaptive perception in embodied agents . In NeurIPS 2025 Workshop on Space in Vision, Language, and Embodied AI , Cited by: §I . [7] A. Guédon, T. Monnier, P. Monasse, and V. Lepetit (2023) Macarons: mapping and coverage anticipation with rgb online self-supervision . In 2023 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pp. 940–951 . Cited by: §I , §II-B , §III-A , §III-B . [8] L. Mescheder, M. Oechsle, M. Niemeyer, S. Nowozin, and A. Geiger (2019) Occupancy networks: learning 3d reconstruction in function space . In 2019 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pp. 4455–4465 . Cited by: §I , §II-A . [9] J. Chibane, T. Alldieck, and G. Pons-Moll (2020) Implicit functions in feature space for 3d shape reconstruction and completion . In 2020 IEEE/CVF conference on computer vision and pattern recognition (CVPR) , pp. 6968–6979 . Cited by: §II-A . [10] B. Ma, Z. Han, Y. Liu, and M. Zwicker (2020) Neural-pull: learning signed distance functions from point clouds by learning to pull space onto surfaces . arXiv preprint arXiv:2011.13495 . Cited by: §II-A . [11] A. Boulch and R. Marlet (2022) Poco: point convolution for surface reconstruction . In 2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pp. 6292–6304 . Cited by: §II-A . [12] A. Cao and R. De Charette (2022) Monoscene: monocular 3d semantic scene completion . In 2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pp. 3981–3991 . Cited by: §II-A . [13] Y. Li, Z. Yu, C. Choy, C. Xiao, J. M. Alvarez, S. Fidler, C. Feng, and A. Anandkumar (2023) Voxformer: sparse voxel transformer for camera-based 3d semantic scene completion . In 2023 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pp. 9087–9098 . Cited by: §II-A . [14] Y. Zhang, Z. Zhu, and D. Du (2023) Occformer: dual-path transformer for vision-based 3d semantic occupancy prediction . In 2023 IEEE/CVF International Conference on Computer Vision (ICCV) , pp. 9399–9409 . Cited by: §II-A . [15] S. K. Ramakrishnan, Z. Al-Halah, and K. Grauman (2020) Occupancy anticipation for efficient exploration and navigation . In European conference on computer vision , pp. 400–418 . Cited by: §II-A . [16] Z. Zhu, S. Peng, V. Larsson, W. Xu, H. Bao, Z. Cui, M. R. Oswald, and M. Pollefeys (2022) Nice-slam: neural implicit scalable encoding for slam . In 2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pp. 12776–12786 . Cited by: §II-A . [17] J. Ortiz, A. Clegg, J. Dong, E. Sucar, D. Novotny, M. Zollhoefer, and M. Mukadam (2022) Isdf: real-time neural signed distance fields for robot perception . Proceedings of Robotics: Science and Systems . Cited by: §II-A . [18] Y. Zhang, G. Liang, and N. Jacobs (2021) Dynamic feature alignment for semi-supervised domain adaptation . In British Machine Vision Conference (BMVC) . Cited by: §II-A . [19] R. Zeng, W. Zhao, and Y. Liu (2020) PC-nbv: a point cloud based deep network for efficient next best view planning . In 2020 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , pp. 7050–7057 . Cited by: §II-B . [20] B. Zhou, Y. Zhang, X. Chen, and S. Shen (2021) Fuel: fast uav exploration using incremental frontier structure and hierarchical planning . IEEE Robotics and Automation Letters 6 ( 2 ), pp. 779–786 . Cited by: §II-B . [21] C. Cao, H. Zhu, H. Choset, and J. Zhang (2021) TARE: a hierarchical framework for efficiently exploring complex 3D environments . In Proceedings of Robotics: Science and Systems , Virtual . External Links: Document Cited by: §II-B . [22] G. Georgakis, B. Bucher, A. Arapin, K. Schmeckpeper, N. Matni, and K. Daniilidis (2022) Uncertainty-driven planner for exploration and navigation . In 2022 International Conference on Robotics and Automation (ICRA) , pp. 11295–11302 . Cited by: §II-B . [23] I. Haughton, E. Sucar, A. Mouton, E. Johns, and A. J. Davison (2022) Real-time mapping of physical scene properties with an autonomous robot experimenter . arXiv preprint arXiv:2210.17325 . Cited by: §II-B . [24] X. Pan, Z. Lai, S. Song, and G. Huang (2022) ActiveNeRF: learning where to see with uncertainty estimation . In Computer Vision – ECCV 2022 , pp. 230–246 . External Links: Document Cited by: §II-B . [25] A. Guédon, P. Monasse, and V. Lepetit (2022) SCONE: surface coverage optimization in unknown environments by volumetric integration . In Advances in Neural Information Processing Systems , S. Koyejo, S. Mohamed, A. Agarwal, D. Belgrave, K. Cho, and A. Oh (Eds.) , Vol. 35 , pp. 20731–20743 . External Links: Document Cited by: §II-B . [26] Z. Yan, H. Yang, and H. Zha (2023) Active neural mapping . In Proceedings of the IEEE/CVF International Conference on Computer Vision , pp. 10981–10992 . Cited by: §II-B . [27] Z. Feng, H. Zhan, Z. Chen, Q. Yan, X. Xu, C. Cai, B. Li, Q. Zhu, and Y. Xu (2024) NARUTO: neural active reconstruction from uncertain target observations . In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 21572–21583 . Cited by: §II-B . [28] W. Jiang, B. Lei, and K. Daniilidis (2024) FisherRF: active view selection and mapping with radiance fields using fisher information . In Computer Vision – ECCV 2024 , pp. 422–440 . External Links: Document Cited by: §II-B . [29] S. Li, A. Guédon, C. Boittiaux, S. Chen, and V. Lepetit (2025) NextBestPath: efficient 3D mapping of unseen environments . In International Conference on Learning Representations , pp. 49464–49482 . External Links: Link Cited by: §II-B ."
+      }
+    ]
+  },
+  "text": "Diagnosing and Dynamically Filtering Occupancy World Models for Active Mapping Skip to main content Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: Why HTML? Report Issue Back to Abstract Download PDF Contents Reading mode Colour theme License: CC BY 4.0 arXiv:2609.06820v1 [cs.RO] 06 Sep 2026 Diagnosing and Dynamically Filtering Occupancy World Models for Active Mapping Jiahui Zhang Affiliation: Boise State University Gongbo Liang Affiliation: Texas A&M University–San Antonio Yu Zhang † † thanks: $ˆ 🖂 $Correspondence to: Yu Zhang: yzhang@boisestate.edu Abstract Active mapping requires a robot to select camera viewpoints that efficiently reconstruct an unknown 3D scene. To reason about unobserved regions, recent systems use pretrained occupancy networks as world models that complete missing geometry. The predicted structure contributes to expected coverage gain and constrains feasible robot motion. Consequently, occupancy errors can change both what the robot chooses to explore and where it is able to move. We diagnose these effects by holding the planner fixed and varying only the occupancy representation provided to it. We consider planning without completion, with learned occupancy, with false positives removed by a ground truth oracle, with false negatives restored by an oracle, and with ground truth occupancy. Our experiments show that correcting false positives or false negatives alone does not consistently improve final coverage. This finding reveals a gap between occupancy accuracy and downstream planning performance. Ground truth occupancy provides a much larger improvement in coverage efficiency than in endpoint coverage, suggesting that planning and reachability remain important bottlenecks even when the geometric world model is accurate. Based on these findings, we introduce a dynamic filtering strategy that preserves predictions in unexplored space while suppressing repeatedly unsupported occupancy using online observations. Preliminary examples show that this strategy can redirect viewpoint selection toward reachable surfaces that would otherwise remain unobserved. Fig. 1: Active mapping and missed surface coverage. The left column shows the complete reference scenes, and the right column shows the coverage produced by representative active mapping trajectories. Yellow curves indicate the camera trajectories. Surfaces retaining their original colors were observed, while red surfaces remained unobserved. These examples illustrate how viewpoint selection under a limited motion budget can leave scene geometry uncovered. I Introduction Active mapping [ 1 ] asks a robot to reconstruct an unknown 3D scene while deciding where to observe next. Because future measurements depend on the selected camera path, inefficient planning can leave substantial geometry unobserved [ 2 ] . Figure 1 illustrates this problem. The yellow curves show the camera trajectories, while the red surfaces show geometry missed by those trajectories. The goal is to maximize surface coverage under a limited motion budget. Planning is difficult because the robot initially observes only part of the scene [ 3 ] [ 4 ] [ 5 ] [ 6 ] . Recent systems use pretrained occupancy networks to complete unobserved geometry [ 2 ] [ 7 ] . The predicted occupancy acts as a geometric world model in two ways. It provides expected coverage gain for candidate viewpoints and constrains collision-free motion. A false positive may create gain around nonexistent geometry or block a free path, while a false negative may hide a useful target or alter apparent reachability. Occupancy accuracy alone does not reveal these planning effects [ 8 ] . Active mapping is a closed-loop process in which each viewpoint changes later observations, predictions, and decisions [ 2 ] . A more accurate occupancy map can therefore produce a different trajectory without improving final coverage. The world model must be evaluated through its effect on the complete exploration process. We study this interaction using MAGICIAN [ 2 ] on 25 scene-start configurations from the Macarons++ benchmark. We hold the planner and all other components fixed while varying only the occupancy supplied to it, including learned occupancy, no completion, oracle correction of false positives or false negatives, and ground-truth occupancy. We also decompose the planner’s rendered gain to measure how phantom predictions enter viewpoint scoring. The results show that the value of completion depends on the starting condition, correcting one error type does not produce a monotonic improvement, and ground-truth occupancy benefits coverage efficiency much more than endpoint coverage. Motivated by these findings, we introduce an observation-gated dynamic filter. It retains predictions in insufficiently explored regions and suppresses them from both gain estimation and collision checking only after repeated frustum exposure without nearby RGB-D surface support. The filter requires no ground truth or retraining. On two collapse-prone starts, it improves mean final coverage by 0.163 0.163 and 0.122 0.122 over three repetitions. Our contributions are summarized as follows. • We provide a controlled diagnosis of how occupancy completion and its errors affect active mapping, combining decision-level gain decomposition with fixed-planner occupancy interventions. • We show that occupancy accuracy and planning performance are not equivalent. The effects depend on the starting condition and differ between trajectory efficiency and final coverage. • We introduce an observation-gated dynamic filter that uses online RGB-D observations to suppress repeatedly unsupported occupancy, with preliminary improvements on two targeted failure cases. II Related Work II-A Occupancy Networks Neural implicit models encode geometry as continuous occupancy or distance functions. Occupancy Networks introduced continuous inside–outside classification [ 8 ] ; IF-Net and Convolutional Occupancy Networks added spatially aligned features for detailed object and scene reconstruction [ 9 ] . Neural-Pull [ 10 ] and POCO [ 11 ] reconstruct implicit surfaces from point clouds, while MonoScene [ 12 ] , VoxFormer [ 13 ] , and OccFormer [ 14 ] predict dense semantic occupancy from images. For embodied tasks, Occupancy Anticipation completes unseen free and occupied space [ 15 ] , whereas NICE-SLAM [ 16 ] and iSDF [ 17 ] update implicit geometry online [ 18 ] . These works improve geometric representation and prediction. We instead examine occupancy as a planner-facing world model whose errors alter both coverage gain and collision checking, and therefore the complete trajectory. II-B Active Mapping Active mapping selects observations under sensing and motion budgets. Classical methods combine information or frontier objectives with path planning. PC-NBV [ 19 ] learns view selection from partial point clouds, while FUEL [ 20 ] and TARE [ 21 ] organize large-scale exploration; uncertainty-guided systems instead target uncertain geometry or scene properties [ 22 ] [ 23 ] . Neural methods increasingly plan over learned scene representations. ActiveNeRF [ 24 ] uses radiance-field uncertainty, while SCONE [ 25 ] and MACARONS [ 7 ] use learned occupancy and coverage prediction for view selection. Active Neural Mapping [ 26 ] , NARUTO [ 27 ] , and FisherRF [ 28 ] guide motion from map uncertainty or information, and NextBestPath [ 29 ] plans beyond a single view. MAGICIAN [ 2 ] converts pretrained occupancy into imagined Gaussians for long-horizon trajectory search, coupling completion with rendered gain and collision checking. We keep this planner fixed and vary only its occupancy input to isolate the effects of hallucinated geometry and motivate dynamic filtering. III Diagnosing Occupancy World Models III-A Problem Formulation We formulate the problem by folowing prior active mapping works [ 7 ] [ 2 ] . At planning step t t , the agent has accumulated a surface point cloud 𝒮 t \\mathcal{S}_{t} from its RGB-D observations and a set of previously visited camera poses 𝒞 t \\mathcal{C}_{t} . A pretrained occupancy network predicts the probability that a query point 𝐱 \\mathbf{x} is occupied, σ ^ t ​ ( 𝐱 ) = f θ ​ ( 𝐱 , 𝒮 t , 𝒞 t ) , σ ^ t ​ ( 𝐱 ) ∈ [ 0 , 1 ] . \\hat{\\sigma}_{t}(\\mathbf{x})=f_{\\theta}(\\mathbf{x},\\mathcal{S}_{t},\\mathcal{C}_{t}),\\qquad\\hat{\\sigma}_{t}(\\mathbf{x})\\in[0,1]. (1) We denote the thresholded predicted occupancy by 𝒪 ^ t = { 𝐱 ∣ σ ^ t ​ ( 𝐱 ) > 0.5 } . \\widehat{\\mathcal{O}}_{t}=\\left\\{\\mathbf{x}\\mid\\hat{\\sigma}_{t}(\\mathbf{x})>0.5\\right\\}. (2) These predictions complete geometry beyond the currently observed surface and serve as a world model for planning. We instantiate our diagnosis using MAGICIAN [ 2 ] , which consumes the predicted occupancy through two coupled channels. First, predicted occupied points are represented as Gaussian primitives and rendered from each candidate viewpoint. The rendered novelty map produces the predicted coverage gain G t ​ ( 𝐜 , 𝒪 ~ t ) = ∑ 𝐩 ∈ 𝒫 valid w ⁡ ( D 𝐜 ​ ( 𝐩 ) ) ​ I t novel ​ ( 𝐩 , 𝒪 ~ t ) , G_{t}(\\mathbf{c};\\widetilde{\\mathcal{O}}_{t})=\\sum_{\\mathbf{p}\\in\\mathcal{P}_{\\mathrm{valid}}}w\\!\\left(D_{\\mathbf{c}}(\\mathbf{p})\\right)I^{\\mathrm{novel}}_{t}\\!\\left(\\mathbf{p};\\widetilde{\\mathcal{O}}_{t}\\right), (3) where 𝒪 ~ t \\widetilde{\\mathcal{O}}_{t} is the occupancy supplied to the planner, I t novel I^{\\mathrm{novel}}_{t} is the rendered contribution of predicted surfaces that have not been covered, and w ⁡ ( ⋅ ) w(\\cdot) is the planner’s depth-dependent weighting. Second, the same occupancy is used during collision checking. The planner therefore selects a trajectory schematically as 𝝉 t ∗ = arg ⁡ max ⁡ ∑ 𝐜 ∈ 𝝉 𝝉 ∈ 𝒯 t ⁡ G t ​ ( 𝐜 , 𝒪 ~ t ) s . t . Free ⁡ ( 𝝉 ; 𝒪 ~ t ) = 1 . \\bm{\\tau}^{*}_{t}=\\arg\\max_{\\bm{\\tau}\\in\\mathcal{T}_{t}}\\sum_{\\mathbf{c}\\in\\bm{\\tau}}G_{t}(\\mathbf{c};\\widetilde{\\mathcal{O}}_{t})\\quad\\mathrm{s.t.}\\quad\\operatorname{Free}(\\bm{\\tau};\\widetilde{\\mathcal{O}}_{t})=1. (4) Consequently, an occupancy prediction can affect both the score of a candidate trajectory and whether that trajectory is considered feasible. A false positive can generate gain around nonexistent geometry or block a free path, while a false negative can remove a useful target or alter apparent reachability. The net effect must therefore be measured through the resulting closed-loop trajectory rather than occupancy accuracy alone. III-B Dataset We conduct all experiments on Macarons++ [ 2 ] , an extension of the Macarons benchmark [ 7 ] containing large-scale indoor and outdoor 3D scenes. The benchmark supports free six-degree-of-freedom exploration and provides RGB-D observations from arbitrary camera poses. We use five scenes with five fixed starting poses per scene, resulting in 25 scene-start configurations. Each trajectory contains 100 planning actions and 101 camera poses. The planner receives only the RGB-D observations generated along its trajectory. Direct access to the ground-truth mesh is restricted to coverage evaluation, the diagnostic visualizations in Figure 2 , and the oracle interventions in Table I . Fig. 2: Decision-level audit of predicted coverage gain. Top: Neuschwanstein Castle at start 3. Bottom: Fushimi Momoyama Castle at start 0. Each row analyzes a viewpoint selected by the learned-occupancy planner at steps 6 and 2, respectively. Panels (a) and (b) show the RGB and depth observations from that pose, while (c) shows the per-pixel coverage gain used by the planner. For analysis only, ground-truth tags decompose the same rendered gain into (d) predictions near real structure and (e) phantom predictions, with (c) equal to (d) plus (e) pixel-wise on a shared color scale. Phantom occupancy contributes 53.5% and 35.0% of the gain in the displayed frames respectively. Panel (f) shows the same decomposition over all steps. III-C Controlled Occupancy Interventions To isolate this effect, we hold the occupancy network, beam search, candidate viewpoints, collision rule, motion budget, and reconstruction pipeline fixed. We vary only 𝒪 ~ t \\widetilde{\\mathcal{O}}_{t} , the occupancy supplied to the planner at each step. Let 𝒪 ∗ \\mathcal{O}^{*} denote the ground-truth occupied samples under the benchmark discretization. For diagnostic analysis, a predicted point is classified as a false positive when it lies farther than δ = 0.03 ​ d scene \\delta=0.03d_{\\mathrm{scene}} from the ground-truth surface. A ground-truth point is classified as a false negative when no predicted point lies within the same tolerance: FP t \\displaystyle\\mathrm{FP}_{t} = { 𝐱 ∈ 𝒪 ^ t ∣ d ⁡ ( 𝐱 , 𝒪 ∗ ) > δ } , \\displaystyle=\\left\\{\\mathbf{x}\\in\\widehat{\\mathcal{O}}_{t}\\mid d(\\mathbf{x},\\mathcal{O}^{*})>\\delta\\right\\}, (5) FN t \\displaystyle\\mathrm{FN}_{t} = { 𝐲 ∈ 𝒪 ∗ ∣ d ⁡ ( 𝐲 , 𝒪 ^ t ) > δ } . \\displaystyle=\\left\\{\\mathbf{y}\\in\\mathcal{O}^{*}\\mid d(\\mathbf{y},\\widehat{\\mathcal{O}}_{t})>\\delta\\right\\}. (6) These labels require ground truth and are used only to construct diagnostic oracles. We compare the following five planning conditions: 𝒪 ~ t no ​ - ​ imag \\displaystyle\\widetilde{\\mathcal{O}}^{\\mathrm{no\\mbox{-}imag}}_{t} = 𝒮 t , \\displaystyle=\\mathcal{S}_{t}, (7) 𝒪 ~ t − FP \\displaystyle\\widetilde{\\mathcal{O}}^{-\\mathrm{FP}}_{t} = 𝒮 t ∪ ( 𝒪 ^ t ∖ FP t ) , \\displaystyle=\\mathcal{S}_{t}\\cup\\left(\\widehat{\\mathcal{O}}_{t}\\setminus\\mathrm{FP}_{t}\\right), (8) 𝒪 ~ t base \\displaystyle\\widetilde{\\mathcal{O}}^{\\mathrm{base}}_{t} = 𝒮 t ∪ 𝒪 ^ t , \\displaystyle=\\mathcal{S}_{t}\\cup\\widehat{\\mathcal{O}}_{t}, (9) 𝒪 ~ t + FN \\displaystyle\\widetilde{\\mathcal{O}}^{+\\mathrm{FN}}_{t} = 𝒮 t ∪ 𝒪 ^ t ∪ FN t , \\displaystyle=\\mathcal{S}_{t}\\cup\\widehat{\\mathcal{O}}_{t}\\cup\\mathrm{FN}_{t}, (10) 𝒪 ~ t GT \\displaystyle\\widetilde{\\mathcal{O}}^{\\mathrm{GT}}_{t} = 𝒪 ∗ . \\displaystyle=\\mathcal{O}^{*}. (11) The no-imagination condition retains only accumulated observations. The − FP -\\mathrm{FP} condition removes predicted geometry unsupported by ground truth. The + FN +\\mathrm{FN} condition restores missed ground-truth geometry while retaining the model’s false positives. The final condition gives the fixed planner complete ground-truth occupancy. Each condition is executed closed-loop, so different planning decisions lead to different subsequent observations and world-model updates. We evaluate 25 starts from five scenes, with 101 camera poses per trajectory. Let C t C_{t} denote surface coverage after step t t . We report final coverage C T C_{T} , the normalized area under the coverage trajectory, AUC = 1 T ​ ∫ 0 T C ⁡ ( t ) , 𝑑 t , \\mathrm{AUC}=\\frac{1}{T}\\int_{0}^{T}C(t),dt, (12) and the first step at which a method reaches 70 % 70\\% of the learned baseline’s final coverage at the same start, S 70 = min ⁡ { t ∣ C t ≥ 0.7 ​ C T base } . S_{70}=\\min\\left\\{t\\mid C_{t}\\geq 0.7C_{T}^{\\mathrm{base}}\\right\\}. (13) Final coverage measures the endpoint, while AUC and S 70 S_{70} measure how efficiently coverage is acquired. All reported differences are computed relative to the learned-occupancy baseline at the same start before averaging. For descriptive analysis, we additionally separate starts where the baseline ends below 0.75 0.75 coverage and above 0.85 0.85 coverage. We refer to these as baseline low-coverage and high-coverage starts. This grouping is defined from the baseline outcome and is used to expose heterogeneity, not to claim that failure can be predicted from the initial pose. TABLE I: Downstream effects of controlled occupancy interventions. We hold the planner fixed and vary only the occupancy supplied to it. The learned-occupancy row reports absolute values, while all other rows report mean paired differences relative to that baseline. Results are shown for all starts ( n = 25 n{=}25 ), baseline low-coverage starts ( C T base < 0.75 C_{T}^{\\mathrm{base}}<0.75 , n = 5 n{=}5 ), and baseline high-coverage starts ( C T base > 0.85 C_{T}^{\\mathrm{base}}>0.85 , n = 16 n{=}16 ). The four intermediate starts are included only in the pooled results. S 70 S_{70} is the number of steps required to reach 70% of the baseline final coverage at the same start. Lower values and negative differences in S 70 S_{70} indicate faster coverage. The FP, FN, and ground-truth conditions use ground truth only as diagnostic oracles. Pooled ( n = 25 n{=}25 ) Low coverage ( n = 5 n{=}5 ) High coverage ( n = 16 n{=}16 ) Planning occupancy Oracle Δ ​ C T ↑ \\Delta C_{T}\\,\\uparrow Δ ​ AUC ↑ \\Delta\\mathrm{AUC}\\,\\uparrow Δ ​ S 70 ↓ \\Delta S_{70}\\,\\downarrow Δ ​ C T ↑ \\Delta C_{T}\\,\\uparrow Δ ​ AUC ↑ \\Delta\\mathrm{AUC}\\,\\uparrow Δ ​ S 70 ↓ \\Delta S_{70}\\,\\downarrow Δ ​ C T ↑ \\Delta C_{T}\\,\\uparrow Δ ​ AUC ↑ \\Delta\\mathrm{AUC}\\,\\uparrow Δ ​ S 70 ↓ \\Delta S_{70}\\,\\downarrow (i) no imagination no − 0.007 -0.007 − 0.038 -0.038 + 4.6 +4.6 + 0.100 +0.100 + 0.055 +0.055 − 8.6 -8.6 − 0.050 -0.050 − 0.073 -0.073 + 9.4 +9.4 (ii) occ − - FP yes − 0.004 -0.004 − 0.006 -0.006 + 2.5 +2.5 + 0.020 +0.020 + 0.019 +0.019 − 0.6 -0.6 − 0.029 -0.029 − 0.019 -0.019 + 4.2 +4.2 (iii) learned occ. (base, absolute) no 0.846 0.846 0.644 0.644 31.6 31.6 0.676 0.676 0.485 0.485 39.6 39.6 0.908 0.908 0.706 0.706 27.4 27.4 (iv) occ + + FN yes − 0.026 -0.026 + 0.031 +0.031 − 3.0 -3.0 − 0.044 -0.044 + 0.035 +0.035 − 4.0 -4.0 − 0.023 -0.023 + 0.030 +0.030 − 1.9 -1.9 (v) ground truth yes + 0.031 +0.031 + 0.086 +0.086 − 12.7 -12.7 + 0.095 +0.095 + 0.178 +0.178 − 28.4 -28.4 + 0.004 +0.004 + 0.055 +0.055 − 7.4 -7.4 III-D Diagnostic Findings Finding 1. Phantom occupancy enters the planner’s decision signal. Figure 2 decomposes the exact coverage gain used for viewpoint selection. In the two representative selected views, phantom occupancy contributes 53.5% and 35.0% of the predicted gain, so the phantom component is substantial even when the planner predicts high information value. Panel (f) further shows that phantom gain is present across the planning horizon. The figure establishes how occupancy errors enter viewpoint scoring, while Table I measures their effect on the resulting trajectories. Finding 2. The value of completion depends on the starting condition. Removing completion changes pooled final coverage by only − 0.007 -0.007 , but this average hides opposing effects. On baseline low-coverage starts, it improves final coverage by 0.100 0.100 , increases AUC by 0.055 0.055 , and reaches the coverage milestone 8.6 8.6 steps earlier. On high-coverage starts, it reduces final coverage by 0.050 0.050 , decreases AUC by 0.073 0.073 , and requires 9.4 9.4 additional steps. Completion therefore helps some trajectories explore efficiently while degrading others. Because these groups are defined from baseline outcomes, the result demonstrates heterogeneous behavior rather than an ability to predict failure from the initial pose. Finding 3. Better occupancy does not translate monotonically into better active mapping. Oracle removal of false positives does not improve pooled performance, changing final coverage by − 0.004 -0.004 , AUC by − 0.006 -0.006 , and S 70 S_{70} by + 2.5 +2.5 steps. Restoring false negatives produces a different tradeoff. It improves pooled AUC by 0.031 0.031 and reaches the coverage milestone 3.0 3.0 steps earlier, but reduces final coverage by 0.026 0.026 . Even ground-truth occupancy benefits efficiency much more than the endpoint. It improves pooled AUC by 0.086 0.086 and reaches the milestone 12.7 12.7 steps earlier, while final coverage increases by only 0.031 0.031 . On baseline low-coverage starts, ground-truth occupancy reduces S 70 S_{70} from 39.6 39.6 to 11.2 11.2 steps. These results show that occupancy corrections can affect exploration speed and final coverage in different directions. Ground-truth occupancy is therefore a diagnostic reference for the fixed planner rather than a theoretical upper bound on coverage. Implication. The results support neither always trusting completion nor discarding it entirely. A practical correction should preserve predictions that guide exploration in unobserved regions and suppress them only after online observations repeatedly fail to provide support. This motivates the dynamic filtering strategy introduced next. IV Observation-Gated Dynamic Filtering Our diagnosis shows that removing occupancy completion globally can discard useful exploration guidance. We instead filter predictions selectively using two signals available during mapping. For each predicted occupied point, we count how many acquired camera frustums have contained it and check whether a nearby surface has appeared in the accumulated RGB-D observations. A point is marked as unsupported only when it has entered at least K K frustums and no observed surface lies within distance ϵ \\epsilon . We use K = 2 K=2 and ϵ = 0.03 ​ d scene \\epsilon=0.03d_{\\mathrm{scene}} . Predictions with fewer than K K exposures remain unchanged, allowing them to continue guiding exploration in insufficiently observed regions. Unsupported points are removed from both uses of the occupancy world model. They no longer contribute to rendered coverage gain and are excluded from collision checking. The filter is recomputed after every observation, so a point is restored if later RGB-D measurements provide nearby surface support. The procedure requires no ground truth, model retraining, or additional rendering pass. TABLE II: Targeted evaluation on two collapse-prone starts. Final coverage is reported as mean ± \\pm std over three repetitions. MAGICIAN [ 2 ] is used as the baseline. Start Baseline Dynamic filter Δ ​ C T \\Delta C_{T} Pantheon/2 0.309 ± 0.021 0.309\\pm 0.021 0.472 ± 0.078 \\mathbf{0.472\\pm 0.078} + 0.163 \\mathbf{+0.163} Sestino/2 0.836 ± 0.108 0.836\\pm 0.108 0.958 ± 0.021 \\mathbf{0.958\\pm 0.021} + 0.122 \\mathbf{+0.122} Table II provides a focused evaluation on the two collapse-prone starts identified by the diagnostic study. Dynamic filtering increases final coverage by 0.163 0.163 on Pantheon/2 and 0.122 0.122 on Sestino/2, providing preliminary evidence that removing repeatedly unsupported occupancy can recover coverage in the targeted failure cases. V Conclusion This work diagnoses how pretrained occupancy affects active mapping once used for planning. Phantom geometry changes viewpoint scores, completion can help or harm across starts, and correcting individual error types does not guarantee better trajectories. Ground-truth occupancy mainly improves efficiency, showing that map accuracy is only one planning factor. Our observation-gated filter removes repeatedly unsupported occupancy from gain and collision reasoning, improving both tested collapse-prone starts without retraining or ground truth. These results motivate decision-level evaluation and observation-aware correction of world models as new evidence accumulates. References [1] I. Lluvia, E. Lazkano, and A. Ansuategi (2021) Active mapping and robot exploration: a survey . Sensors 21 ( 7 ), pp. 2445 . Cited by: §I . [2] S. Li, A. Guédon, S. Chen, and V. Lepetit (2026) MAGICIAN: efficient long-term planning with imagined gaussians for active mapping . In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 21606–21615 . Cited by: §I , §I , §I , §I , §II-B , §III-A , §III-A , §III-B , TABLE II . [3] Y. Wu, W. Zheng, S. Zuo, Y. Huang, J. Zhou, and J. Lu (2025) Embodiedocc: embodied 3d occupancy prediction for vision-based online scene understanding . In Proceedings of the IEEE/CVF International Conference on Computer Vision , Cited by: §I . [4] Y. Zhang, M. U. Rafique, G. Christie, and N. Jacobs (2023) CrossAdapt: cross-scene adaptation for multi-domain depth estimation . In IGARSS 2023-2023 IEEE International Geoscience and Remote Sensing Symposium , pp. 5328–5331 . Cited by: §I . [5] Y. Zhang, M. U. Rafique, and N. Jacobs (2023) Crossseg: cross-scene few-shot aerial segmentation using probabilistic prototypes . In IGARSS 2023-2023 IEEE International Geoscience and Remote Sensing Symposium , pp. 5006–5009 . Cited by: §I . [6] Y. Zhang From static domain adaptation to state-adaptive perception in embodied agents . In NeurIPS 2025 Workshop on Space in Vision, Language, and Embodied AI , Cited by: §I . [7] A. Guédon, T. Monnier, P. Monasse, and V. Lepetit (2023) Macarons: mapping and coverage anticipation with rgb online self-supervision . In 2023 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pp. 940–951 . Cited by: §I , §II-B , §III-A , §III-B . [8] L. Mescheder, M. Oechsle, M. Niemeyer, S. Nowozin, and A. Geiger (2019) Occupancy networks: learning 3d reconstruction in function space . In 2019 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pp. 4455–4465 . Cited by: §I , §II-A . [9] J. Chibane, T. Alldieck, and G. Pons-Moll (2020) Implicit functions in feature space for 3d shape reconstruction and completion . In 2020 IEEE/CVF conference on computer vision and pattern recognition (CVPR) , pp. 6968–6979 . Cited by: §II-A . [10] B. Ma, Z. Han, Y. Liu, and M. Zwicker (2020) Neural-pull: learning signed distance functions from point clouds by learning to pull space onto surfaces . arXiv preprint arXiv:2011.13495 . Cited by: §II-A . [11] A. Boulch and R. Marlet (2022) Poco: point convolution for surface reconstruction . In 2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pp. 6292–6304 . Cited by: §II-A . [12] A. Cao and R. De Charette (2022) Monoscene: monocular 3d semantic scene completion . In 2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pp. 3981–3991 . Cited by: §II-A . [13] Y. Li, Z. Yu, C. Choy, C. Xiao, J. M. Alvarez, S. Fidler, C. Feng, and A. Anandkumar (2023) Voxformer: sparse voxel transformer for camera-based 3d semantic scene completion . In 2023 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pp. 9087–9098 . Cited by: §II-A . [14] Y. Zhang, Z. Zhu, and D. Du (2023) Occformer: dual-path transformer for vision-based 3d semantic occupancy prediction . In 2023 IEEE/CVF International Conference on Computer Vision (ICCV) , pp. 9399–9409 . Cited by: §II-A . [15] S. K. Ramakrishnan, Z. Al-Halah, and K. Grauman (2020) Occupancy anticipation for efficient exploration and navigation . In European conference on computer vision , pp. 400–418 . Cited by: §II-A . [16] Z. Zhu, S. Peng, V. Larsson, W. Xu, H. Bao, Z. Cui, M. R. Oswald, and M. Pollefeys (2022) Nice-slam: neural implicit scalable encoding for slam . In 2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pp. 12776–12786 . Cited by: §II-A . [17] J. Ortiz, A. Clegg, J. Dong, E. Sucar, D. Novotny, M. Zollhoefer, and M. Mukadam (2022) Isdf: real-time neural signed distance fields for robot perception . Proceedings of Robotics: Science and Systems . Cited by: §II-A . [18] Y. Zhang, G. Liang, and N. Jacobs (2021) Dynamic feature alignment for semi-supervised domain adaptation . In British Machine Vision Conference (BMVC) . Cited by: §II-A . [19] R. Zeng, W. Zhao, and Y. Liu (2020) PC-nbv: a point cloud based deep network for efficient next best view planning . In 2020 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , pp. 7050–7057 . Cited by: §II-B . [20] B. Zhou, Y. Zhang, X. Chen, and S. Shen (2021) Fuel: fast uav exploration using incremental frontier structure and hierarchical planning . IEEE Robotics and Automation Letters 6 ( 2 ), pp. 779–786 . Cited by: §II-B . [21] C. Cao, H. Zhu, H. Choset, and J. Zhang (2021) TARE: a hierarchical framework for efficiently exploring complex 3D environments . In Proceedings of Robotics: Science and Systems , Virtual . External Links: Document Cited by: §II-B . [22] G. Georgakis, B. Bucher, A. Arapin, K. Schmeckpeper, N. Matni, and K. Daniilidis (2022) Uncertainty-driven planner for exploration and navigation . In 2022 International Conference on Robotics and Automation (ICRA) , pp. 11295–11302 . Cited by: §II-B . [23] I. Haughton, E. Sucar, A. Mouton, E. Johns, and A. J. Davison (2022) Real-time mapping of physical scene properties with an autonomous robot experimenter . arXiv preprint arXiv:2210.17325 . Cited by: §II-B . [24] X. Pan, Z. Lai, S. Song, and G. Huang (2022) ActiveNeRF: learning where to see with uncertainty estimation . In Computer Vision – ECCV 2022 , pp. 230–246 . External Links: Document Cited by: §II-B . [25] A. Guédon, P. Monasse, and V. Lepetit (2022) SCONE: surface coverage optimization in unknown environments by volumetric integration . In Advances in Neural Information Processing Systems , S. Koyejo, S. Mohamed, A. Agarwal, D. Belgrave, K. Cho, and A. Oh (Eds.) , Vol. 35 , pp. 20731–20743 . External Links: Document Cited by: §II-B . [26] Z. Yan, H. Yang, and H. Zha (2023) Active neural mapping . In Proceedings of the IEEE/CVF International Conference on Computer Vision , pp. 10981–10992 . Cited by: §II-B . [27] Z. Feng, H. Zhan, Z. Chen, Q. Yan, X. Xu, C. Cai, B. Li, Q. Zhu, and Y. Xu (2024) NARUTO: neural active reconstruction from uncertain target observations . In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 21572–21583 . Cited by: §II-B . [28] W. Jiang, B. Lei, and K. Daniilidis (2024) FisherRF: active view selection and mapping with radiance fields using fisher information . In Computer Vision – ECCV 2024 , pp. 422–440 . External Links: Document Cited by: §II-B . [29] S. Li, A. Guédon, C. Boittiaux, S. Chen, and V. Lepetit (2025) NextBestPath: efficient 3D mapping of unseen environments . In International Conference on Learning Representations , pp. 49464–49482 . External Links: Link Cited by: §II-B .",
+  "text_truncated": false,
+  "links": [
+    {
+      "text": "Skip to main content",
+      "url": "https://arxiv.org/html/2609.06820v1#infobox"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/IgnoreMe"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "Why HTML?",
+      "url": "https://info.arxiv.org/about/accessible_HTML.html"
+    },
+    {
+      "text": "Back to Abstract",
+      "url": "https://arxiv.org/abs/2609.06820v1"
+    },
+    {
+      "text": "Download PDF",
+      "url": "https://arxiv.org/pdf/2609.06820v1"
+    },
+    {
+      "text": "License: CC BY 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.06820v1#bib.bib6"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2609.06820v1#bib.bib8"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.06820v1#S0.F1"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2609.06820v1#bib.bib5"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2609.06820v1#bib.bib1"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2609.06820v1#bib.bib2"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2609.06820v1#bib.bib3"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2609.06820v1#bib.bib7"
+    },
+    {
+      "text": "8",
+      "url": "https://arxiv.org/html/2609.06820v1#bib.bib9"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2609.06820v1#bib.bib10"
+    },
+    {
+      "text": "10",
+      "url": "https://arxiv.org/html/2609.06820v1#bib.bib11"
+    },
+    {
+      "text": "11",
+      "url": "https://arxiv.org/html/2609.06820v1#bib.bib12"
+    },
+    {
+      "text": "12",
+      "url": "https://arxiv.org/html/2609.06820v1#bib.bib13"
+    },
+    {
+      "text": "13",
+      "url": "https://arxiv.org/html/2609.06820v1#bib.bib14"
+    },
+    {
+      "text": "14",
+      "url": "https://arxiv.org/html/2609.06820v1#bib.bib15"
+    },
+    {
+      "text": "15",
+      "url": "https://arxiv.org/html/2609.06820v1#bib.bib16"
+    },
+    {
+      "text": "16",
+      "url": "https://arxiv.org/html/2609.06820v1#bib.bib17"
+    },
+    {
+      "text": "17",
+      "url": "https://arxiv.org/html/2609.06820v1#bib.bib18"
+    },
+    {
+      "text": "18",
+      "url": "https://arxiv.org/html/2609.06820v1#bib.bib4"
+    },
+    {
+      "text": "19",
+      "url": "https://arxiv.org/html/2609.06820v1#bib.bib19"
+    },
+    {
+      "text": "20",
+      "url": "https://arxiv.org/html/2609.06820v1#bib.bib20"
+    },
+    {
+      "text": "21",
+      "url": "https://arxiv.org/html/2609.06820v1#bib.bib21"
+    },
+    {
+      "text": "22",
+      "url": "https://arxiv.org/html/2609.06820v1#bib.bib22"
+    },
+    {
+      "text": "23",
+      "url": "https://arxiv.org/html/2609.06820v1#bib.bib23"
+    },
+    {
+      "text": "24",
+      "url": "https://arxiv.org/html/2609.06820v1#bib.bib24"
+    },
+    {
+      "text": "25",
+      "url": "https://arxiv.org/html/2609.06820v1#bib.bib25"
+    },
+    {
+      "text": "26",
+      "url": "https://arxiv.org/html/2609.06820v1#bib.bib26"
+    },
+    {
+      "text": "27",
+      "url": "https://arxiv.org/html/2609.06820v1#bib.bib27"
+    },
+    {
+      "text": "28",
+      "url": "https://arxiv.org/html/2609.06820v1#bib.bib28"
+    },
+    {
+      "text": "29",
+      "url": "https://arxiv.org/html/2609.06820v1#bib.bib29"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2609.06820v1#S3.F2"
+    },
+    {
+      "text": "I",
+      "url": "https://arxiv.org/html/2609.06820v1#S3.T1"
+    },
+    {
+      "text": "II",
+      "url": "https://arxiv.org/html/2609.06820v1#S4.T2"
+    },
+    {
+      "text": "§I",
+      "url": "https://arxiv.org/html/2609.06820v1#S1.p1.1"
+    },
+    {
+      "text": "§I",
+      "url": "https://arxiv.org/html/2609.06820v1#S1.p2.1"
+    },
+    {
+      "text": "§I",
+      "url": "https://arxiv.org/html/2609.06820v1#S1.p3.1"
+    },
+    {
+      "text": "§I",
+      "url": "https://arxiv.org/html/2609.06820v1#S1.p4.1"
+    },
+    {
+      "text": "§II-B",
+      "url": "https://arxiv.org/html/2609.06820v1#S2.SS2.p2.1"
+    },
+    {
+      "text": "§III-A",
+      "url": "https://arxiv.org/html/2609.06820v1#S3.SS1.p1.1"
+    },
+    {
+      "text": "§III-A",
+      "url": "https://arxiv.org/html/2609.06820v1#S3.SS1.p2.1"
+    },
+    {
+      "text": "§III-B",
+      "url": "https://arxiv.org/html/2609.06820v1#S3.SS2.p1.1"
+    },
+    {
+      "text": "§II-A",
+      "url": "https://arxiv.org/html/2609.06820v1#S2.SS1.p1.1"
+    },
+    {
+      "text": "§II-A",
+      "url": "https://arxiv.org/html/2609.06820v1#S2.SS1.p2.1"
+    },
+    {
+      "text": "§II-B",
+      "url": "https://arxiv.org/html/2609.06820v1#S2.SS2.p1.1"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.15607/RSS.2021.XVII.018"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.1007/978-3-031-19827-4%5F14"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.52202/068431-1507"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.1007/978-3-031-72624-8%5F24"
+    },
+    {
+      "text": "Link",
+      "url": "https://openreview.net/forum?id=7WaRh4gCXp"
+    }
+  ],
+  "matching_link_count": 56,
+  "links_truncated": false,
+  "invalid_links": []
+}

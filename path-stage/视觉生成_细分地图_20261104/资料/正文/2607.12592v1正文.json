@@ -1,0 +1,498 @@
+{
+  "url": "https://arxiv.org/html/2607.12592v1",
+  "final_url": "https://arxiv.org/html/2607.12592v1",
+  "status": 200,
+  "title": "WanToFight: Real-Time Generative Game Engine for Multi-Player Combat Interaction",
+  "metadata": {},
+  "paper": {
+    "title": "WanToFight: Real-Time Generative Game Engine for Multi-Player Combat Interaction",
+    "title_warning": null,
+    "abstract": "Abstract We present WanToFight , a generative game engine that simulates real-time, two-player The King of Fighters ’97 (KOF ’97) gameplay from keyboard input. Prior generative game engines target either single-player first-person settings or non-real-time cooperative scenarios; multi-player control, real-time inference, complex physical interaction, and adversarial gameplay have not been jointly addressed. WanToFight closes this gap with three components built on the Wan-1.3B video diffusion transformer: a streaming autoregressive generator with block-causal attention and a rolling KV cache; a visually grounded Player Association module that binds each player’s keyboard signal to a character identity; and a gated, locally causal keyboard injection module trained with a single-player-to-full-gameplay curriculum. A four-step DMD-distilled student paired with a pruned VAE decoder sustains 30 30 FPS at 512 × 384 512\\times 384 on a single NVIDIA RTX 5090 over the duration of a complete match. To our knowledge, WanToFight is the first generative game engine to combine multi-player control, real-time inference, complex physical interaction, and adversarial gameplay in one system.\nProject Page: https://humanaigc.github.io/wantofight/",
+    "authors": [
+      {
+        "name": "Li Hu",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Guangyuan Wang",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Peng Zhang",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Bang Zhang",
+        "affiliations": [
+          "Affiliation: Tongyi Lab, Alibaba"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Li Hu Guangyuan Wang Peng Zhang Bang Zhang Affiliation: Tongyi Lab, Alibaba",
+    "arxiv_version": "2607.12592v1",
+    "arxiv_version_date": "2026-07-14",
+    "sections": [
+      {
+        "id": "S1",
+        "heading": "1 Introduction",
+        "level": 1,
+        "text": "Traditional game development relies on three independently authored components: hand-crafted assets, hard-coded game logic, and a rendering engine that composes them into video frames in real time. This pipeline is labor-intensive, and the resulting player experience is bounded by the rules and assets the developers anticipate in advance. Recent advances in video diffusion models ( Kong et al., 2025 ; Brooks et al., 2024 ; Seed, 2025 ; Wan et al., 2025 ) have produced high-fidelity, controllable video synthesis, and a growing body of work has begun to shift from text-to-video generation toward interactive world simulation ( Gao et al., 2026 ; Parker-Holder and Fruchter, 2025 ; Mao et al., 2025 ; Team et al., 2025 ; Xu et al., 2026 ) , in which real-time control signals such as keyboard inputs condition the generated frames. These developments make a single-model alternative to the traditional pipeline—a generative game engine ( Yu et al., 2025a ) that synthesizes game logic and visuals jointly from player input—technically plausible for the first time. Most existing works focus on first-person game videos controlled by arrow keys ( Yu et al., 2025b ; Feng et al., 2024 ; He et al., 2025 ; Tang et al., 2025 ; Xiao et al., 2025 ) . These studies emphasize camera movement and scene consistency, but often lack the ability to generate complex game logic. More recent efforts have demonstrated richer interactive capabilities: GameNGen ( Valevski et al., 2024 ) simulates DOOM with shooting actions, Oasis ( Decart et al., 2024 ) simulates Minecraft with object movement and construction, and Yan ( Ye et al., 2025 ) reproduces collisions during character movement and jumping. A small but rapidly growing line of work explores genuine multi-player settings: Multiverse ( team, 2025 ) implements a dual-perspective racing game where players’ actions influence each other’s screens, while two concurrent works, Solaris ( Savva et al., 2026 ) and MultiWorld ( Wu et al., 2026 ) , build cooperative multi-agent video world models in Minecraft and It Takes Two , respectively. However, these efforts remain confined to either non-real-time generation, cooperative or non-combat scenarios, or single-player physical interactions, and none simultaneously support multi-player control , real-time inference , complex physical interaction , and adversarial gameplay —the four properties required for a true interactive fighting-game engine. Tab. 1 summarizes a capability comparison of representative methods. Figure 1: WanToFight generates game visuals based on real-time keyboard inputs, enabling accurate two-player control and complex character interactions. Table 1: Capability comparison of representative generative game engines and multi-agent video world models. ✓ \\checkmark indicates the capability is explicitly supported and demonstrated; partial indicates limited or domain-specific support; × \\times indicates the capability is not supported; “–” indicates the column does not apply (e.g., adversarial gameplay is undefined for single-player models). Real-Time refers to interactive inference at ≥ 30 \\geq 30 FPS on a single consumer GPU. Complex Physics refers to gameplay in which fast-time-scale physical interactions (e.g., collision, knockback, momentum, vehicle dynamics) materially affect the game outcome, as opposed to incidental physics in voxel or open-world settings. Adversarial refers to direct combat between players involving damage and KO mechanics, distinct from competitive racing or cooperative collaboration. To our knowledge, WanToFight is the first generative game engine that simultaneously satisfies all four capabilities. Method Domain Multi-Player Real-Time Complex Physics Adversarial GameNGen ( Valevski et al., 2024 ) DOOM × \\times ✓ \\checkmark partial – Oasis ( Decart et al., 2024 ) Minecraft × \\times ✓ \\checkmark partial – WorldMem ( Xiao et al., 2025 ) Minecraft × \\times × \\times partial – Multiverse ( team, 2025 ) Gran Turismo 4 ✓ \\checkmark × \\times ✓ \\checkmark competitive Solaris ( Savva et al., 2026 ) Minecraft ✓ \\checkmark × \\times partial partial MultiWorld ( Wu et al., 2026 ) It Takes Two ✓ \\checkmark × \\times partial × \\times WanToFight (Ours) KOF ’97 ✓ \\checkmark ✓ \\checkmark ✓ \\checkmark ✓ \\checkmark We present WanToFight , a generative game engine that simulates two-player gameplay over a complete fighting-game session, as illustrated in Fig. 1 . We focus on the classic title The King of Fighters ’97 (KOF ’97) , which exposes three challenges that prior generative game engines do not jointly address: • Frame-precise physical interaction. An attack animation must connect at the exact frame when the opponent is in range, with contact triggering the correct knockback, hit-stun, and KO mechanics. Errors of even a few frames produce visibly wrong gameplay. • High-frequency, combinatorial inputs. Skilled play issues rapid sequences of simultaneous direction-and-action key combinations from both players, requiring the model to fuse fast input streams with the current game state at every step. • Multi-player identity binding. The 16-key joint input space must remain consistently routed to the correct character even as the two characters swap sides, occlude each other, or change pose—a regime in which naive control schemes degrade into systematic identity confusion. To address these challenges, WanToFight contributes three components, each tied to a specific failure mode of prior multi-player video world models: • Streaming autoregressive game engine. We adapt a pretrained Wan-1.3B video diffusion transformer into a chunk-wise autoregressive generator with block-causal attention and a rolling KV cache. A three-stage training pipeline—bidirectional pretraining, causal adaptation, and DMD-based distillation—combined with a pruned VAE decoder enables sustained 30 30 FPS generation at 512 × 384 512\\times 384 on a single NVIDIA RTX 5090. • Visually grounded Player Association. To prevent identity crosstalk under fast inputs and frequent position swaps, each player’s keyboard signal is bound to that player’s character through a reference-image-driven cross-attention block, using the frozen CLIP encoder reused from Wan-I2V. The serial binding generalizes naturally to N N players. • Gated, locally causal keyboard injection. The keyboard input is encoded by a 1D convolution and injected into the DiT through cross-attention every three blocks. A data-dependent sigmoid gate filters uninformative inputs and a size-3 temporal window enforces local causality of control. Combined with a single-player-to-full-gameplay curriculum, this design yields stable two-player control under bursty input streams. Together, these components yield WanToFight, the first generative game engine that combines multi-player control, real-time inference, complex physical interaction, and adversarial gameplay in one system (Tab. 1 ), sustaining 30 30 FPS two-player KOF ’97 matches on a single NVIDIA RTX 5090."
+      },
+      {
+        "id": "S2.SS1",
+        "heading": "2.1 Generative Game Engines",
+        "level": 2,
+        "text": "Single-player generative game engines simulate one agent’s first-person observation conditioned on its action stream. GameNGen ( Valevski et al., 2024 ) adapts a Stable-Diffusion-style model to render DOOM in real time, Oasis ( Decart et al., 2024 ) extends a similar formulation to Minecraft , and Yan ( Ye et al., 2025 ) explores foundational interactive video generation. A subsequent line of work ( Yu et al., 2025b ; Zhang et al., 2025 ; He et al., 2025 ; Tang et al., 2025 ; Xiao et al., 2025 ; Mao et al., 2025 ) further pushes first-person camera control, long-horizon memory, and environmental dynamics. None of these systems address how multiple human controllers should be jointly modeled. Multi-player video world models form a much smaller line of work. Multiverse ( team, 2025 ) channel-concatenates dual-perspective frames from a Gran Turismo racing game. Concurrent work Solaris ( Savva et al., 2026 ) models cooperative two-player Minecraft with an additive learned player-identity embedding injected at each shared self-attention layer, and trains via a four-stage bidirectional-to-causal-to-Self-Forcing pipeline. MultiWorld ( Wu et al., 2026 ) treats multi-agent multi-view world modeling more broadly, using rotary positional encoding along the agent dimension (Agent Identity Embedding) for identity disambiguation and a VGGT-based Global State Encoder for cross-view consistency. WanToFight differs in three respects: (i) it grounds player identity in a frozen visual reference rather than a learned positional or additive embedding, which is robust to the position swaps and visual occlusions characteristic of fighting games; (ii) it targets adversarial gameplay with frame-precise combat rather than cooperative or competitive-racing settings; and (iii) it combines streaming autoregression with few-step distillation to reach interactive frame rates on a single consumer GPU."
+      },
+      {
+        "id": "S2.SS2",
+        "heading": "2.2 Streaming Autoregressive Video Generation",
+        "level": 2,
+        "text": "Adapting a bidirectional video diffusion model into a streaming, autoregressive generator is essential for any interactive engine. Diffusion Forcing ( Chen et al., 2024 ) introduces independent per-frame timesteps so that autoregressive rollout emerges naturally from training. CausVid ( Yin et al., 2025 ) converts a bidirectional teacher into a few-step causal student through ODE regression followed by distribution-matching distillation. SelfForcing ( Huang et al., 2025 ) closes the train–test gap further by supervising the student on its own generations rather than ground-truth prefixes, mitigating drift accumulation in long autoregressive rollouts. Our Stage 2 training adopts independent per-chunk diffusion timesteps in the spirit of Diffusion Forcing while replacing dense attention with a block-causal mask that exposes each chunk only to itself and the two preceding chunks. At inference, we maintain a rolling KV cache of the two most recent chunks ( 16 16 frames) cached at the penultimate denoising step, which we find empirically sufficient for stable streaming over the duration of a complete fighting match."
+      },
+      {
+        "id": "S2.SS3",
+        "heading": "2.3 Few-Step Distillation for Diffusion Models",
+        "level": 2,
+        "text": "Reducing the number of denoising steps at inference is critical for real-time generation. Distribution Matching Distillation (DMD) ( Yin et al., 2024 ) trains a few-step student by minimizing a divergence between the student’s and the teacher’s distributions at each retained timestep, in contrast to the step-wise teacher–student matching used in earlier consistency-based approaches. We apply DMD in full-parameter form to compress our causal teacher to a four-step student. Combined with a structurally pruned VAE decoder fine-tuned on game-domain frames, this distillation enables WanToFight to sustain 30 30 FPS at 512 × 384 512\\times 384 on a single NVIDIA RTX 5090—a regime that no prior multi-player video world model has demonstrated."
+      },
+      {
+        "id": "S3.SS1",
+        "heading": "3.1 Game Data Collection",
+        "level": 2,
+        "text": "We aim to collect a large-scale corpus of paired (game video, keyboard input) sequences for training. To keep the problem tractable, we focus on the set of fundamental actions —movement, jumping, crouching, and basic attacks—and exclude advanced combos and character-specific special moves. The pipeline proceeds in three stages. (1) Manual recording. A human player plays KOF ’97 while a background utility logs the rendered frames and the keyboard state in synchronized streams. This stage yields several hours of paired data that bootstrap the subsequent automatic pipeline. (2) Keyboard policy training. On top of the manually collected sequences, we train a small autoregressive model that predicts the next keyboard state from a sliding window of past states. The objective is to produce diverse and plausible input sequences for data augmentation, rather than to maximize in-game performance. The resulting policy generates long keyboard trajectories that approximate the distribution of human play while covering a wider range of input patterns than any single human session. (3) Automated playback and recording. The generated keyboard trajectories are fed back into the actual game through a controller emulator, and a recording program captures the rendered frames in lockstep with the injected keys. The pipeline runs unattended and preserves frame-level alignment between visuals and inputs. Figure 2: Overview of WanToFight. The model is an autoregressive video diffusion engine that generates gameplay one chunk at a time. Given an initial frame and a stream of keyboard inputs, the model produces the next chunk by conditioning on the previously generated chunk through cached attention states. The Player Association module binds each player’s keyboard signal to the corresponding character through reference-image-driven attention, and the Window Attention mechanism restricts each video latent to attend only to nearby keyboard latents, enforcing local causality of control."
+      },
+      {
+        "id": "S3.SS2.SSS0.Px1",
+        "heading": "Problem formulation.",
+        "level": 4,
+        "text": "We frame generative game simulation as next-chunk video prediction conditioned on the history of generated frames and player inputs. Let V = { x 1 , x 2 , … , x T } V=\\{x_{1},x_{2},\\dots,x_{T}\\} denote a sequence of video frames with x t ∈ ℝ H × W × C x_{t}\\in\\mathbb{R}^{H\\times W\\times C} , and let A = { a 1 , a 2 , … , a T } A=\\{a_{1},a_{2},\\dots,a_{T}\\} denote the corresponding sequence of keyboard inputs. The model estimates p θ ( x t : t + L ∣ x < t , a t : t + L ) , p_{\\theta}\\!\\left(x_{t:t+L}\\mid x_{<t},\\ a_{t:t+L}\\right), (1) where L L is the chunk length. We use L = 8 L=8 frames throughout, corresponding to approximately 0.27 0.27 s at 30 30 FPS."
+      },
+      {
+        "id": "S3.SS2.SSS0.Px2",
+        "heading": "Backbone.",
+        "level": 4,
+        "text": "WanToFight builds upon the Wan-1.3B video diffusion transformer ( Wan et al., 2025 ; Peebles and Xie, 2023 ; Ho et al., 2020 ) , which provides strong pretrained visual priors. We adapt this backbone into a streaming, control-conditioned game engine through three components: (i) a chunk-wise autoregressive generator with block-causal attention and KV caching (Sec. 3.2.1 ); (ii) a keyboard control module with layer-wise injection, window attention, and gated fusion (Sec. 3.2.2 ); and (iii) a Player Association module that grounds each player’s input to the corresponding character through a reference image (Sec. 3.2.3 ). The overall architecture is illustrated in Fig. 2 ."
+      },
+      {
+        "id": "S3.SS2.SSS1",
+        "heading": "3.2.1 Streaming Autoregressive Generation",
+        "level": 3,
+        "text": "WanToFight generates gameplay chunk by chunk, where each chunk consists of L = 8 L=8 video frames. At inference time, the model takes an initial game frame as the starting state; from then on, each newly generated chunk becomes the conditioning context for the next, while real-time keyboard inputs are continuously injected. We adapt the bidirectional Wan-1.3B backbone to this streaming setting through three sequential training stages."
+      },
+      {
+        "id": "S3.SS2.SSS1.Px1",
+        "heading": "Stage 1: Bidirectional pretraining.",
+        "level": 4,
+        "text": "We first fine-tune Wan-1.3B on game data while preserving its original bidirectional attention. Each training sample contains 161 161 video frames—roughly 20 20 chunks of length 8 8 —and the keyboard control module described in Sec. 3.2.2 is jointly trained. The relatively long training horizon is intentional: gameplay involves multi-chunk dynamics such as jump arcs, post-hit knockback trajectories, and combo recovery animations, and a model trained on shorter windows tends to lose temporal coherence across these events. This stage equips the backbone with the basic mapping between key presses and character actions while preserving its long-range visual modeling capability."
+      },
+      {
+        "id": "S3.SS2.SSS1.Px2",
+        "heading": "Stage 2: Causal adaptation.",
+        "level": 4,
+        "text": "We then convert the bidirectional model into a block-causal one to support streaming inference. Following the spirit of Diffusion Forcing ( Chen et al., 2024 ) , CausVid ( Yin et al., 2025 ) , and SelfForcing ( Huang et al., 2025 ) , the dense attention mask is replaced with a block-causal mask: tokens within a chunk attend to each other bidirectionally, while tokens across chunks attend only to the current and the two preceding chunks. Different chunks within a sample are assigned independent diffusion timesteps, which prevents the model from collapsing to a single noise level and improves robustness during streaming rollout. At inference time, generation proceeds one chunk at a time. After producing chunk C t C_{t} , we cache its keys and values from the penultimate denoising step (e.g., step 3 3 of the 4 4 -step distilled model in Stage 3) and use them as the conditioning context for chunk C t + 1 C_{t+1} . We retain the cached keys and values of the two most recent chunks— 16 16 frames in total—and discard older history. This rolling window length was determined empirically: it provides sufficient temporal context for smooth chunk-to-chunk transitions while keeping memory bounded regardless of session length."
+      },
+      {
+        "id": "S3.SS2.SSS1.Px3",
+        "heading": "Stage 3: Efficiency optimization.",
+        "level": 4,
+        "text": "To reach interactive frame rates, we apply two complementary optimizations. First, we distill the causal model with Distribution Matching Distillation ( Yin et al., 2024 ) , compressing the denoising trajectory to 4 4 steps via full-parameter optimization of the student. Second, we replace Wan’s native VAE decoder with a pruned variant obtained by structurally reducing the decoder’s parameter count and fine-tuning the result on game-domain frames, which reduces per-frame decoding cost without measurably affecting reconstruction quality. Together, these optimizations enable WanToFight to sustain 30 30 FPS at 512 × 384 512\\times 384 resolution on a single NVIDIA RTX 5090 5090 ."
+      },
+      {
+        "id": "S3.SS2.SSS2",
+        "heading": "3.2.2 Keyboard Control Module",
+        "level": 3,
+        "text": "In two-player mode, WanToFight exposes 16 16 keys—four directional (Jump, Left, Crouch, Right) and four action (Light Punch, Light Kick, Heavy Punch, Heavy Kick) per player. The control module specifies how these inputs are encoded, where they enter the DiT, and how their effect on generation is constrained to be temporally local and noise-tolerant."
+      },
+      {
+        "id": "S3.SS2.SSS2.Px1",
+        "heading": "Input encoding.",
+        "level": 4,
+        "text": "The keyboard state at each video frame is encoded as a 16 16 -dimensional binary vector indicating which keys are pressed. The resulting per-frame sequence is temporally compressed by a 1 1 D convolution whose stride matches the temporal compression of the video VAE, so that each keyboard latent aligns with one video latent along the time axis. The compressed sequence is then linearly projected to the cross-attention key/value dimension."
+      },
+      {
+        "id": "S3.SS2.SSS2.Px2",
+        "heading": "Layer-wise injection schedule.",
+        "level": 4,
+        "text": "Wan-1.3B comprises 30 30 transformer blocks. Rather than injecting keyboard features at every block, we insert a cross-attention injection point every three blocks, yielding 10 10 injection sites distributed evenly through the network depth. This periodic schedule lets the model integrate keyboard conditioning at multiple representational scales while keeping the per-step compute manageable."
+      },
+      {
+        "id": "S3.SS2.SSS2.Px3",
+        "heading": "Window attention.",
+        "level": 4,
+        "text": "Game actions are sensitive to the local timing of inputs: an attack frame must respond to the key pressed at that latent step, not to keys pressed seconds earlier. We therefore restrict each video latent’s attention to a temporal window of size 3 3 over the keyboard latents—its own latent step and the two preceding ones. This local-causal masking (i) prevents future keys from leaking into past frames and (ii) discourages the model from averaging over input history that is unrelated to the current frame."
+      },
+      {
+        "id": "S3.SS2.SSS2.Px4",
+        "heading": "Gated fusion.",
+        "level": 4,
+        "text": "Player input is bursty: long stretches of idleness are punctuated by rapid key sequences, and not every key press has an immediate visual consequence—for example, presses that fall during an unbreakable animation phase. To let the model selectively attenuate weakly informative inputs, we apply a learnable, data-dependent gate to the cross-attention output after the keyboard features have attended to the video latents and before the result is fused back into the DiT backbone. Concretely, let h ∈ ℝ d h\\in\\mathbb{R}^{d} denote the cross-attention output at each time step; we compute g = σ ⁡ ( W ​ h + b ) , h ~ = g ⊙ h , g=\\sigma(Wh+b),\\qquad\\tilde{h}=g\\odot h, (2) where σ \\sigma is the sigmoid function, W ∈ ℝ d × d W\\in\\mathbb{R}^{d\\times d} and b ∈ ℝ d b\\in\\mathbb{R}^{d} are learned parameters, ⊙ \\odot denotes element-wise multiplication, and h ~ \\tilde{h} replaces h h as the contribution added to the DiT hidden state. Because h h already encodes the interaction between keyboard input and the current visual state, the gate can suppress inputs that are irrelevant given the on-screen context (e.g., key presses during an unbreakable animation) while preserving the contribution of decisive inputs. Figure 3: Player Association. For each player, a reference image is encoded by a frozen CLIP encoder to produce an identity embedding. The video latents attend to this embedding through cross-attention (with player feature as keys and values), after which the player’s 8 8 keys are injected through the keyboard cross-attention pathway. The two players are processed in series within the same forward pass, producing one identity-to-key binding per player."
+      },
+      {
+        "id": "S3.SS2.SSS3",
+        "heading": "3.2.3 Player Association for Multi-Player Control",
+        "level": 3,
+        "text": "The 16 16 keys of two-player mode pose an identity-binding problem: when the two characters cross sides or visually occlude each other, the model can lose track of which set of 8 8 keys controls which character. We refer to this failure mode as ID crosstalk , and observe it consistently when all 16 16 keys are injected through a single cross-attention pathway. The Player Association module resolves crosstalk by grounding each player’s input to a reference image of their character."
+      },
+      {
+        "id": "S3.SS2.SSS3.Px1",
+        "heading": "Reference-image grounding.",
+        "level": 4,
+        "text": "For each player, we provide a pre-set reference image of their character—a clean portrait that captures the character’s appearance independent of in-game pose. Each reference is encoded with the frozen CLIP ( Radford et al., 2021 ) vision encoder, yielding a fixed identity embedding per player. Because the references are configured ahead of the session, the encoding cost is incurred once and is amortized across the entire match."
+      },
+      {
+        "id": "S3.SS2.SSS3.Px2",
+        "heading": "Sequential identity binding.",
+        "level": 4,
+        "text": "For each player, we apply a cross-attention block in which the video latents serve as queries and the player’s CLIP feature serves as keys and values, fusing character identity into the video representation. Immediately after this binding step, we inject the 8 8 keys belonging to that player through the keyboard cross-attention pathway described in Sec. 3.2.2 . The two players are processed in series within the same forward pass: the first player’s identity-binding-then-key-injection sub-block precedes the second’s, so that each cross-attention round explicitly couples one identity to one key set. This serial design generalizes to any number of players by chaining N N identity-binding-and-injection sub-blocks; we show in our experiments that the binding remains stable when characters swap positions or visually overlap."
+      },
+      {
+        "id": "S3.SS3",
+        "heading": "3.3 Curriculum Training",
+        "level": 2,
+        "text": "Training directly on full two-player gameplay is unstable: the keyboard signal is sparse relative to the visual complexity, and the model struggles to disentangle character-specific control from background dynamics. We therefore adopt a three-stage curriculum during bidirectional pretraining (Stage 1, Sec. 3.2.1 ) that progressively introduces difficulty. • Single-player actions. The model first learns the mapping from individual key presses to character animations, using sequences in which only one player is active. • Multi-player actions. The model is then trained on sequences in which both players issue inputs simultaneously, encouraging the Player Association module to establish stable identity-to-key bindings. • Full gameplay. Finally, the model is trained on full-pace match data, learning long-horizon game logic—combos, position swaps, knockback recovery, and the rhythm of attack-and-defense exchanges. This curriculum consistently accelerates convergence and yields more reliable multi-player control under high-frequency inputs than direct training on full gameplay data."
+      },
+      {
+        "id": "S4",
+        "heading": "4 Results",
+        "level": 1,
+        "text": "We evaluate WanToFight on the task of real-time, two-player KOF ’97 generation, focusing on three properties that follow directly from the challenges identified in Sec. 1 : (i) the accuracy of keyboard-driven character control, (ii) the consistency of multi-player identity binding under fast inputs and frequent position swaps, and (iii) the stability of generation over long-duration matches."
+      },
+      {
+        "id": "S4.SS1",
+        "heading": "4.1 Experimental Setup",
+        "level": 2,
+        "text": "WanToFight is built on Wan-1.3B and runs at 512 × 384 512\\times 384 resolution at 30 30 FPS on a single NVIDIA RTX 5090. Generation proceeds chunk by chunk, with each chunk consisting of 8 8 frames and corresponding to approximately 0.27 0.27 s of gameplay. Within a chunk, per-frame keyboard inputs are aligned with the corresponding video latents through the temporal compression described in Sec. 3.2.2 , so multi-key combinations and rapid press sequences are preserved through the compression. Inputs are captured from a standard PC keyboard. In two-player mode, character-movement keys (Jump, Left, Crouch, Right) are mapped to WASD for Player 1 and to the arrow keys for Player 2; the four action keys (Light Punch, Light Kick, Heavy Punch, Heavy Kick) are mapped to UIJK for Player 1 and to 7 , 8 , 4 , 5 on the numeric keypad for Player 2."
+      },
+      {
+        "id": "S4.SS2",
+        "heading": "4.2 Single-Player Keyboard Control",
+        "level": 2,
+        "text": "As shown in Fig. 4 , we evaluate WanToFight’s response to single-player keyboard input across a range of basic actions, including movement, jumping, crouching, basic attacks, and hitting the opponent. The system responds to player input at chunk-level granularity, and we did not observe input frames being dropped or reordered within a chunk under our default configuration. Composite inputs such as jumping diagonally to the right or attacking while crouching produce the expected on-screen actions, indicating that the keyboard-control module captures combinations of direction and action keys rather than only individual key presses. Character animations remain continuous across chunk boundaries, and rapid input sequences do not produce obvious frame skips or motion artifacts. Figure 4: Keyboard-control validation in single-player mode. Each row shows a sequence of generated frames in response to the indicated keyboard input."
+      },
+      {
+        "id": "S4.SS3",
+        "heading": "4.3 Multi-Player Identity Binding",
+        "level": 2,
+        "text": "In two-player mode, the model must consistently route the 16 16 -key joint input space to the correct character even as the two characters swap sides, occlude each other, or change pose. Fig. 5 illustrates this binding under standard gameplay. Each player’s inputs drive only their own character throughout the match: when the two characters cross sides on the screen, the keyboard-to-character binding follows the visual identity established at the start of the match rather than the on-screen position. We did not observe identity crosstalk—the failure mode in which, after a position swap, one player’s keys begin to drive the wrong character—in any of the matches generated under our default Player Association configuration. Figure 5: Gameplay validation in two-player mode. The keyboard inputs of the two players consistently drive the correct character even when the two characters cross sides or visually overlap. Beyond identity binding, the multi-player generations also exhibit the basic combat physics expected of KOF ’97 : contact between characters produces appropriate knockback, hit-stun, and downed-state animations, and the relative position of the two characters changes in response to the cumulative effect of sustained pressure. Under high-frequency, simultaneous inputs from both players, the generated motion remains continuous, without obvious frame skips or visual breakdowns."
+      },
+      {
+        "id": "S4.SS4",
+        "heading": "4.4 Long-Duration Generation",
+        "level": 2,
+        "text": "By reducing character contact to delay an early KO, we generate continuous gameplay from match start to KO over approximately two minutes without significant visual degradation—substantially exceeding the 161 161 -frame ( ∼ \\sim 5.4 5.4 s) training horizon and validating the rolling KV cache (Sec. 3.2.1 ) for streaming inference well beyond training lengths."
+      },
+      {
+        "id": "S4.SS5",
+        "heading": "4.5 Quantitative Evaluation",
+        "level": 2,
+        "text": "The qualitative observations above are corroborated by two quantitative protocols, each designed to probe one of the core properties identified at the start of this section. Because no prior generative game engine targets the same combination of capabilities (Tab. 1 ), we rely on a controlled test set and protocol-internal metrics rather than direct comparison to existing systems."
+      },
+      {
+        "id": "S4.SS5.SSS0.Px1",
+        "heading": "Action accuracy and design ablation.",
+        "level": 4,
+        "text": "The data-collection pipeline (Stage 3, automated playback) lets us re-render any keyboard trace in the original KOF ’97 engine, producing a pixel-aligned ground-truth video for that input. We assemble a controlled test set of 500 500 input sequences spanning four categories of comparable difficulty: 150 150 basic single-player actions, 100 100 composite single-player inputs, 100 100 two-player sequences without contact, and 150 150 two-player sequences with contact. For each sequence we render a ground-truth video in KOF ’97 and a corresponding generation, and we report perceptual (LPIPS), structural (SSIM), and high-level visual (DINOv2 cosine similarity) similarity averaged over the full test set. To assess the contribution of each major design choice, we compare WanToFight against a floor baseline that replaces the generated video with the static first frame, an upper-bound multi-step teacher that omits DMD distillation, and three ablations that each remove one design choice at a time (Player Association, gated keyboard injection, or curriculum training). Tab. 2 reports the results. The 4 4 -step student matches the multi-step teacher to within 0.02 0.02 LPIPS, 0.03 0.03 SSIM, and 0.03 0.03 DINOv2 similarity, indicating that DMD distillation preserves visual fidelity while delivering the budget required for 30 30 FPS inference. Removing Player Association degrades performance noticeably, primarily on the two-player categories, where keyboard inputs occasionally drive the wrong character; removing the gate makes the model more sensitive to noisy inputs; and skipping the three-stage curriculum yields quality drop, reflecting the difficulty of training directly on full multi-player gameplay. Table 2: Action accuracy and design ablation. We compare WanToFight against a floor baseline (repeat first frame), an upper-bound reference (multi-step teacher without DMD distillation), and three ablations that each remove one design choice at a time. Metrics are LPIPS, SSIM, and DINOv2 cosine similarity averaged over 500 500 input sequences in our controlled test set. Lower LPIPS and higher SSIM and DINOv2 indicate closer correspondence to the ground-truth KOF ’97 render driven by the same input. Method LPIPS ↓ \\downarrow SSIM ↑ \\uparrow DINOv2 ↑ \\uparrow Repeat first frame (floor) 0.49 0.49 0.52 0.52 0.71 0.71 Multi-step teacher (no DMD, upper bound) 0.15 0.15 0.74 0.74 0.85 0.85 WanToFight (Ours) 0.17 \\mathbf{0.17} 0.71 \\mathbf{0.71} 0.82 \\mathbf{0.82} w/o Player Association 0.29 0.29 0.57 0.57 0.69 0.69 w/o Gated keyboard injection 0.19 0.19 0.69 0.69 0.80 0.80 w/o Curriculum training 0.22 0.22 0.66 0.66 0.78 0.78"
+      },
+      {
+        "id": "S4.SS5.SSS0.Px2",
+        "heading": "Multi-player identity-binding consistency.",
+        "level": 4,
+        "text": "We evaluate Player Association by checking, in each generated session, whether the character bound to Player 1 by reference image continues to execute the actions requested by Player 1’s keyboard, regardless of position swaps or visual occlusion. To make this checkable from video alone, every test sequence uses an input-asymmetric protocol: Player 1 and Player 2 are assigned distinct KOF ’97 characters and are scripted to issue visually distinguishable actions (e.g., one player jumps while the other crouches, or one attacks while the other remains idle). For each generated video, a vision-language judge is then asked a coarse, factual question of the form “which character is performing ⟨ \\langle action ⟩ \\rangle : ⟨ \\langle P1’s character ⟩ \\rangle or ⟨ \\langle P2’s character ⟩ \\rangle ?”, and the binding is counted as preserved when the answer matches Player 1’s assignment. This reduces the judging task to character recognition plus coarse action recognition, two regimes in which vision-language judges are reliable, and avoids the fine-grained action labelling regime in which they are not. We construct 500 500 test sequences across five scenarios that progressively stress identity binding: 100 100 with both characters in static positions, 100 100 in which one character jumps over the other, 100 100 in which the two characters chase each other across the screen, 100 100 with visual overlap or partial occlusion, and 100 100 long sessions exceeding 60 60 seconds with periodic input-asymmetric probes throughout. To isolate the contribution of Player Association, we additionally evaluate a baseline that retains the gated keyboard injection module but removes the reference-image identity grounding, concatenating all 16 16 keys into a single cross-attention stream so that the model must infer character-to-key correspondence from context alone. We report the percentage of test sequences in which the binding is preserved for each scenario in Tab. 3 . The baseline performs reasonably only on the static-positions scenario (84%), where spatial position alone provides a weak identity cue, and drops sharply on every scenario involving a position swap, visual overlap, or long-horizon drift; WanToFight maintains stable binding ( ≥ 91 % \\geq 91\\% ) across all four challenging scenarios. The 79–94 percentage-point gap on swap and overlap scenarios directly quantifies the value of grounding identity in a frozen visual reference rather than letting the model learn it implicitly from input concatenation. Table 3: Multi-player identity-binding consistency, with ablation of Player Association. Percentage of test sequences in which Player 1’s reference-bound character consistently executes Player 1’s scripted actions, as judged by a vision-language model under our input-asymmetric protocol (see text). The w/o Player Association column is a baseline that concatenates all 16 16 keys into a single cross-attention stream with no explicit identity grounding. Scenario # Tests WanToFight (%) ↑ \\uparrow w/o Player Association (%) ↑ \\uparrow Static positions 100 𝟏𝟎𝟎 \\mathbf{100} 84 84 Position swap via jump-over 100 𝟏𝟎𝟎 \\mathbf{100} 21 21 Position swap via chase/cross 100 𝟗𝟗 \\mathbf{99} 9 9 Visual overlap / occlusion 100 𝟗𝟕 \\mathbf{97} 3 3 Long session ( > 60 >60 s) 100 𝟗𝟏 \\mathbf{91} 0 0 Overall 500 𝟗𝟕 \\mathbf{97} 23 23"
+      },
+      {
+        "id": "S5",
+        "heading": "5 Limitations",
+        "level": 1,
+        "text": "WanToFight pushes generative engines into the multi-player, real-time, adversarial regime, but several limitations remain."
+      },
+      {
+        "id": "S5.SS0.SSS0.Px1",
+        "heading": "Visual fidelity of complex animations.",
+        "level": 4,
+        "text": "KOF ’97 contains intricate animations such as somersaults, special moves, and complex collision reactions. WanToFight occasionally produces coarse poses or local artefacts in these high-frequency motion regimes. Two factors contribute: the limited visual capacity of the Wan-1.3B backbone, and the modest 512 × 384 512\\times 384 output resolution, which discards fine-grained sprite detail. Stronger backbones and higher target resolutions would directly address this limitation, at proportionally greater inference cost."
+      },
+      {
+        "id": "S5.SS0.SSS0.Px2",
+        "heading": "Cumulative drift in long sessions.",
+        "level": 4,
+        "text": "A full KOF ’97 match can extend beyond two minutes, and a complete training session or series can run for considerably longer. Streaming generation with a two-chunk rolling KV cache is sufficient for the approximately two-minute matches we report, but small errors accumulate across chunks and gradually degrade visual fidelity over longer horizons."
+      },
+      {
+        "id": "S5.SS0.SSS0.Px3",
+        "heading": "Single-game scope.",
+        "level": 4,
+        "text": "WanToFight is trained on KOF ’97 alone. Although the architecture and Player Association mechanism do not depend on KOF -specific assumptions, transferring the engine to other fighting titles, or to a single engine that supports many titles, requires both expanded training data and additional work on unified character and action representations across games."
+      },
+      {
+        "id": "S5.SS0.SSS0.Px4",
+        "heading": "Multi-character scalability beyond two players.",
+        "level": 4,
+        "text": "Our evaluation covers two-player gameplay. The Player Association block extends to N N players by chaining N N identity-binding-and-injection sub-blocks, but the resulting attention complexity, training-data requirements, and visual capacity for N ≥ 3 N\\geq 3 players have not been characterized. Validating these scaling properties is a concrete next step."
+      },
+      {
+        "id": "S6",
+        "heading": "6 Conclusion",
+        "level": 1,
+        "text": "We presented WanToFight , a generative game engine that simulates real-time, two-player KOF ’97 gameplay from keyboard input. Built on Wan-1.3B, the engine combines streaming autoregressive generation with block-causal attention and a rolling KV cache, a visually grounded Player Association module that binds each player’s keyboard signal to a character identity through a frozen CLIP encoder, and a gated, locally causal keyboard injection that filters bursty inputs. A four-step DMD-distilled student paired with a pruned VAE decoder sustains 30 30 FPS at 512 × 384 512\\times 384 on a single NVIDIA RTX 5090 over the duration of a complete match. WanToFight is the first generative game engine to combine multi-player control, real-time inference, complex physical interaction, and adversarial gameplay in one system (Tab. 1 ). The same recipe—reference-image identity grounding paired with streaming, block-causal autoregression and few-step distillation—should extend to other interactive genres requiring real-time per-agent control. Pushing this approach beyond a single title, scaling Player Association beyond two players, and closing the train–test gap with Self-Forcing-style training remain natural directions for future work."
+      },
+      {
+        "id": "bib",
+        "heading": "References",
+        "level": 1,
+        "text": "Brooks et al. (2024) T. Brooks, B. Peebles, C. Holmes, W. DePue, Y. Guo, L. Jing, D. Schnurr, J. Taylor, T. Luhman, E. Luhman, et al. Video generation models as world simulators . OpenAI Blog 1 ( 8 ), pp. 1 . Cited by: §1 . Chen et al. (2024) B. Chen, D. Martí Monsó, Y. Du, M. Simchowitz, R. Tedrake, and V. Sitzmann Diffusion forcing: next-token prediction meets full-sequence diffusion . In Adv. Neural Inform. Process. Syst. , Cited by: §2.2 , §3.2.1 . Decart et al. (2024) Decart, J. Quevedo, Q. McIntyre, S. Campbell, X. Chen, and R. Wachen Oasis: a universe in a transformer . External Links: Link Cited by: Table 1 , §1 , §2.1 . Feng et al. (2024) R. Feng, H. Zhang, Z. Yang, J. Xiao, Z. Shu, Z. Liu, A. Zheng, Y. Huang, Y. Liu, and H. Zhang The matrix: infinite-horizon world generation with real-time moving control . CoRR abs/2412.03568 . External Links: Link , Document , 2412.03568 Cited by: §1 . Gao et al. (2026) Z. Gao, Q. Wang, Y. Zeng, J. Zhu, K. L. Cheng, Y. Li, H. Wang, Y. Xu, S. Ma, Y. Chen, J. Liu, Y. Cheng, Y. Yao, J. Zhu, Y. Meng, K. Zheng, Q. Bai, J. Chen, Z. Shen, Y. Yu, X. Zhu, Y. Shen, and H. Ouyang Advancing open-source world models . CoRR abs/2601.20540 . External Links: Link , Document , 2601.20540 Cited by: §1 . He et al. (2025) X. He, C. Peng, Z. Liu, B. Wang, Y. Zhang, Q. Cui, F. Kang, B. Jiang, M. An, Y. Ren, B. Xu, H. Guo, K. Gong, S. Wu, W. Li, X. Song, Y. Liu, Y. Li, and Y. Zhou Matrix-game 2.0: an open-source real-time and streaming interactive world model . arXiv preprint arXiv:2508.13009 . Cited by: §1 , §2.1 . Ho et al. (2020) J. Ho, A. Jain, and P. Abbeel Denoising diffusion probabilistic models . Advances in neural information processing systems 33 , pp. 6840–6851 . Cited by: §3.2 . Huang et al. (2025) X. Huang, Z. Li, G. He, M. Zhou, and E. Shechtman Self forcing: bridging the train-test gap in autoregressive video diffusion . arXiv preprint arXiv:2506.08009 . Cited by: §2.2 , §3.2.1 . Kong et al. (2025) W. Kong, Q. Tian, Z. Zhang, R. Min, Z. Dai, J. Zhou, J. Xiong, X. Li, B. Wu, J. Zhang, K. Wu, Q. Lin, J. Yuan, Y. Long, A. Wang, A. Wang, C. Li, D. Huang, F. Yang, H. Tan, H. Wang, J. Song, J. Bai, J. Wu, J. Xue, J. Wang, K. Wang, M. Liu, P. Li, S. Li, W. Wang, W. Yu, X. Deng, Y. Li, Y. Chen, Y. Cui, Y. Peng, Z. Yu, Z. He, Z. Xu, Z. Zhou, Z. Xu, Y. Tao, Q. Lu, S. Liu, D. Zhou, H. Wang, Y. Yang, D. Wang, Y. Liu, J. Jiang, and C. Zhong HunyuanVideo: a systematic framework for large video generative models . External Links: 2412.03603 , Link Cited by: §1 . Mao et al. (2025) X. Mao, Z. Li, C. Li, X. Xu, K. Ying, T. He, J. Pang, Y. Qiao, and K. Zhang Yume-1.5: a text-controlled interactive world generation model . arXiv preprint arXiv:2512.22096 . Cited by: §1 , §2.1 . Parker-Holder and Fruchter (2025) J. Parker-Holder and S. Fruchter Genie 3: a new frontier for world models . External Links: Link Cited by: §1 . Peebles and Xie (2023) W. Peebles and S. Xie Scalable diffusion models with transformers . In Proceedings of the IEEE/CVF international conference on computer vision , pp. 4195–4205 . Cited by: §3.2 . Radford et al. (2021) A. Radford, J. W. Kim, C. Hallacy, A. Ramesh, G. Goh, S. Agarwal, G. Sastry, A. Askell, P. Mishkin, J. Clark, et al. Learning transferable visual models from natural language supervision . In International conference on machine learning , pp. 8748–8763 . Cited by: §3.2.3 . Savva et al. (2026) G. Savva, O. Michel, D. Lu, S. Waiwitlikhit, T. Meehan, D. Mishra, S. Poddar, J. Lu, and S. Xie Solaris: building a multiplayer video world model in minecraft . External Links: 2602.22208 , Link Cited by: Table 1 , §1 , §2.1 . Seed (2025) B. Seed Seedance 1.0: exploring the boundaries of video generation models . arXiv preprint arXiv:2506.09113 . Cited by: §1 . Tang et al. (2025) J. Tang, J. Liu, J. Li, L. Wu, H. Yang, P. Zhao, S. Gong, X. Yuan, S. Shao, and Q. Lu Hunyuan-gamecraft-2: instruction-following interactive game world model . arXiv preprint arXiv:2511.23429 . Cited by: §1 , §2.1 . team (2025) E. team Introducing multiverse: the first ai multiplayer world model . External Links: Link Cited by: Table 1 , §1 , §2.1 . Team et al. (2025) H. Team, Z. Wang, Y. Liu, J. Wu, Z. Gu, H. Wang, X. Zuo, T. Huang, W. Li, S. Zhang, Y. Lian, Y. Tsai, L. Wang, S. Liu, P. Jiang, X. Yang, D. Guo, Y. Tang, X. Mao, J. Yu, J. Yu, J. Zhang, M. Chen, L. Dong, Y. Jia, C. Zhang, Y. Tan, H. Zhang, Z. Ye, P. He, R. Wu, M. Chen, Z. Li, W. Qin, L. Wang, Y. Sun, L. Niu, X. Yuan, X. Yang, Y. He, J. Xiao, Y. Tao, J. Zhu, J. Xue, K. Liu, C. Zhao, X. Wu, T. Liu, P. Chen, D. Wang, Y. Liu, Linus, J. Jiang, T. Wang, and C. Guo HunyuanWorld 1.0: generating immersive, explorable, and interactive 3d worlds from words or pixels . External Links: 2507.21809 , Link Cited by: §1 . Valevski et al. (2024) D. Valevski, Y. Leviathan, M. Arar, and S. Fruchter Diffusion models are real-time game engines . arXiv preprint arXiv:2408.14837 . Cited by: Table 1 , §1 , §2.1 . Wan et al. (2025) T. Wan, A. Wang, B. Ai, B. Wen, C. Mao, C. Xie, D. Chen, F. Yu, H. Zhao, J. Yang, J. Zeng, J. Wang, J. Zhang, J. Zhou, J. Wang, J. Chen, K. Zhu, K. Zhao, K. Yan, L. Huang, M. Feng, N. Zhang, P. Li, P. Wu, R. Chu, R. Feng, S. Zhang, S. Sun, T. Fang, T. Wang, T. Gui, T. Weng, T. Shen, W. Lin, W. Wang, W. Wang, W. Zhou, W. Wang, W. Shen, W. Yu, X. Shi, X. Huang, X. Xu, Y. Kou, Y. Lv, Y. Li, Y. Liu, Y. Wang, Y. Zhang, Y. Huang, Y. Li, Y. Wu, Y. Liu, Y. Pan, Y. Zheng, Y. Hong, Y. Shi, Y. Feng, Z. Jiang, Z. Han, Z. Wu, and Z. Liu Wan: open and advanced large-scale video generative models . arXiv preprint arXiv:2503.20314 . Cited by: §1 , §3.2 . Wu et al. (2026) H. Wu, J. Yu, Y. Zou, and X. Liu MultiWorld: scalable multi-agent multi-view video world models . External Links: 2604.18564 , Link Cited by: Table 1 , §1 , §2.1 . Xiao et al. (2025) Z. Xiao, Y. Lan, Y. Zhou, W. Ouyang, S. Yang, Y. Zeng, and X. Pan WORLDMEM: long-term consistent world simulation with memory . CoRR abs/2504.12369 . External Links: Link , Document , 2504.12369 Cited by: Table 1 , §1 , §2.1 . Xu et al. (2026) T. Xu, Z. Wang, G. Wang, L. Hu, Z. Zhang, P. Zhang, B. Zhang, and S. Zhang UCM: unifying camera control and memory with time-aware positional encoding warping for world models . External Links: 2602.22960 , Link Cited by: §1 . Ye et al. (2025) D. Ye, F. Zhou, J. Lv, J. Ma, J. Zhang, J. Lv, J. Li, M. Deng, M. Yang, Q. Fu, W. Yang, W. Lv, Y. Yu, Y. Wang, Y. Guan, Z. Hu, Z. Fang, and Z. Sun Yan: foundational interactive video generation . CoRR abs/2508.08601 . External Links: Link , Document , 2508.08601 Cited by: §1 , §2.1 . Yin et al. (2024) T. Yin, M. Gharbi, R. Zhang, E. Shechtman, F. Durand, W. T. Freeman, and T. Park One-step diffusion with distribution matching distillation . External Links: 2311.18828 , Link Cited by: §2.3 , §3.2.1 . Yin et al. (2025) T. Yin, Q. Zhang, R. Zhang, W. T. Freeman, F. Durand, E. Shechtman, and X. Huang From slow bidirectional to fast autoregressive video diffusion models . In IEEE Conf. Comput. Vis. Pattern Recog. , Cited by: §2.2 , §3.2.1 . Yu et al. (2025a) J. Yu, Y. Qin, H. Che, Q. Liu, X. Wang, P. Wan, D. Zhang, and X. Liu Position: interactive generative video as next-generation game engine . External Links: 2503.17359 , Link Cited by: §1 . Yu et al. (2025b) J. Yu, Y. Qin, X. Wang, P. Wan, D. Zhang, and X. Liu GameFactory: creating new games with generative interactive videos . CoRR abs/2501.08325 . External Links: Link , Document , 2501.08325 Cited by: §1 , §2.1 . Zhang et al. (2025) Y. Zhang, C. Peng, B. Wang, P. Wang, Q. Zhu, F. Kang, B. Jiang, Z. Gao, E. Li, Y. Liu, and Y. Zhou Matrix-game: interactive world foundation model . arXiv preprint arXiv:2506.18701 . Cited by: §2.1 ."
+      }
+    ]
+  },
+  "text": "WanToFight: Real-Time Generative Game Engine for Multi-Player Combat Interaction Skip to main content Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: Why HTML? Report Issue Back to Abstract Download PDF Contents Reading mode Colour theme License: arXiv.org perpetual non-exclusive license arXiv:2607.12592v1 [cs.CV] 14 Jul 2026 WanToFight: Real-Time Generative Game Engine for Multi-Player Combat Interaction Li Hu Guangyuan Wang Peng Zhang Bang Zhang Affiliation: Tongyi Lab, Alibaba Abstract We present WanToFight , a generative game engine that simulates real-time, two-player The King of Fighters ’97 (KOF ’97) gameplay from keyboard input. Prior generative game engines target either single-player first-person settings or non-real-time cooperative scenarios; multi-player control, real-time inference, complex physical interaction, and adversarial gameplay have not been jointly addressed. WanToFight closes this gap with three components built on the Wan-1.3B video diffusion transformer: a streaming autoregressive generator with block-causal attention and a rolling KV cache; a visually grounded Player Association module that binds each player’s keyboard signal to a character identity; and a gated, locally causal keyboard injection module trained with a single-player-to-full-gameplay curriculum. A four-step DMD-distilled student paired with a pruned VAE decoder sustains 30 30 FPS at 512 × 384 512\\times 384 on a single NVIDIA RTX 5090 over the duration of a complete match. To our knowledge, WanToFight is the first generative game engine to combine multi-player control, real-time inference, complex physical interaction, and adversarial gameplay in one system. Project Page: https://humanaigc.github.io/wantofight/ 1 Introduction Traditional game development relies on three independently authored components: hand-crafted assets, hard-coded game logic, and a rendering engine that composes them into video frames in real time. This pipeline is labor-intensive, and the resulting player experience is bounded by the rules and assets the developers anticipate in advance. Recent advances in video diffusion models ( Kong et al., 2025 ; Brooks et al., 2024 ; Seed, 2025 ; Wan et al., 2025 ) have produced high-fidelity, controllable video synthesis, and a growing body of work has begun to shift from text-to-video generation toward interactive world simulation ( Gao et al., 2026 ; Parker-Holder and Fruchter, 2025 ; Mao et al., 2025 ; Team et al., 2025 ; Xu et al., 2026 ) , in which real-time control signals such as keyboard inputs condition the generated frames. These developments make a single-model alternative to the traditional pipeline—a generative game engine ( Yu et al., 2025a ) that synthesizes game logic and visuals jointly from player input—technically plausible for the first time. Most existing works focus on first-person game videos controlled by arrow keys ( Yu et al., 2025b ; Feng et al., 2024 ; He et al., 2025 ; Tang et al., 2025 ; Xiao et al., 2025 ) . These studies emphasize camera movement and scene consistency, but often lack the ability to generate complex game logic. More recent efforts have demonstrated richer interactive capabilities: GameNGen ( Valevski et al., 2024 ) simulates DOOM with shooting actions, Oasis ( Decart et al., 2024 ) simulates Minecraft with object movement and construction, and Yan ( Ye et al., 2025 ) reproduces collisions during character movement and jumping. A small but rapidly growing line of work explores genuine multi-player settings: Multiverse ( team, 2025 ) implements a dual-perspective racing game where players’ actions influence each other’s screens, while two concurrent works, Solaris ( Savva et al., 2026 ) and MultiWorld ( Wu et al., 2026 ) , build cooperative multi-agent video world models in Minecraft and It Takes Two , respectively. However, these efforts remain confined to either non-real-time generation, cooperative or non-combat scenarios, or single-player physical interactions, and none simultaneously support multi-player control , real-time inference , complex physical interaction , and adversarial gameplay —the four properties required for a true interactive fighting-game engine. Tab. 1 summarizes a capability comparison of representative methods. Figure 1: WanToFight generates game visuals based on real-time keyboard inputs, enabling accurate two-player control and complex character interactions. Table 1: Capability comparison of representative generative game engines and multi-agent video world models. ✓ \\checkmark indicates the capability is explicitly supported and demonstrated; partial indicates limited or domain-specific support; × \\times indicates the capability is not supported; “–” indicates the column does not apply (e.g., adversarial gameplay is undefined for single-player models). Real-Time refers to interactive inference at ≥ 30 \\geq 30 FPS on a single consumer GPU. Complex Physics refers to gameplay in which fast-time-scale physical interactions (e.g., collision, knockback, momentum, vehicle dynamics) materially affect the game outcome, as opposed to incidental physics in voxel or open-world settings. Adversarial refers to direct combat between players involving damage and KO mechanics, distinct from competitive racing or cooperative collaboration. To our knowledge, WanToFight is the first generative game engine that simultaneously satisfies all four capabilities. Method Domain Multi-Player Real-Time Complex Physics Adversarial GameNGen ( Valevski et al., 2024 ) DOOM × \\times ✓ \\checkmark partial – Oasis ( Decart et al., 2024 ) Minecraft × \\times ✓ \\checkmark partial – WorldMem ( Xiao et al., 2025 ) Minecraft × \\times × \\times partial – Multiverse ( team, 2025 ) Gran Turismo 4 ✓ \\checkmark × \\times ✓ \\checkmark competitive Solaris ( Savva et al., 2026 ) Minecraft ✓ \\checkmark × \\times partial partial MultiWorld ( Wu et al., 2026 ) It Takes Two ✓ \\checkmark × \\times partial × \\times WanToFight (Ours) KOF ’97 ✓ \\checkmark ✓ \\checkmark ✓ \\checkmark ✓ \\checkmark We present WanToFight , a generative game engine that simulates two-player gameplay over a complete fighting-game session, as illustrated in Fig. 1 . We focus on the classic title The King of Fighters ’97 (KOF ’97) , which exposes three challenges that prior generative game engines do not jointly address: • Frame-precise physical interaction. An attack animation must connect at the exact frame when the opponent is in range, with contact triggering the correct knockback, hit-stun, and KO mechanics. Errors of even a few frames produce visibly wrong gameplay. • High-frequency, combinatorial inputs. Skilled play issues rapid sequences of simultaneous direction-and-action key combinations from both players, requiring the model to fuse fast input streams with the current game state at every step. • Multi-player identity binding. The 16-key joint input space must remain consistently routed to the correct character even as the two characters swap sides, occlude each other, or change pose—a regime in which naive control schemes degrade into systematic identity confusion. To address these challenges, WanToFight contributes three components, each tied to a specific failure mode of prior multi-player video world models: • Streaming autoregressive game engine. We adapt a pretrained Wan-1.3B video diffusion transformer into a chunk-wise autoregressive generator with block-causal attention and a rolling KV cache. A three-stage training pipeline—bidirectional pretraining, causal adaptation, and DMD-based distillation—combined with a pruned VAE decoder enables sustained 30 30 FPS generation at 512 × 384 512\\times 384 on a single NVIDIA RTX 5090. • Visually grounded Player Association. To prevent identity crosstalk under fast inputs and frequent position swaps, each player’s keyboard signal is bound to that player’s character through a reference-image-driven cross-attention block, using the frozen CLIP encoder reused from Wan-I2V. The serial binding generalizes naturally to N N players. • Gated, locally causal keyboard injection. The keyboard input is encoded by a 1D convolution and injected into the DiT through cross-attention every three blocks. A data-dependent sigmoid gate filters uninformative inputs and a size-3 temporal window enforces local causality of control. Combined with a single-player-to-full-gameplay curriculum, this design yields stable two-player control under bursty input streams. Together, these components yield WanToFight, the first generative game engine that combines multi-player control, real-time inference, complex physical interaction, and adversarial gameplay in one system (Tab. 1 ), sustaining 30 30 FPS two-player KOF ’97 matches on a single NVIDIA RTX 5090. 2 Related Work 2.1 Generative Game Engines Single-player generative game engines simulate one agent’s first-person observation conditioned on its action stream. GameNGen ( Valevski et al., 2024 ) adapts a Stable-Diffusion-style model to render DOOM in real time, Oasis ( Decart et al., 2024 ) extends a similar formulation to Minecraft , and Yan ( Ye et al., 2025 ) explores foundational interactive video generation. A subsequent line of work ( Yu et al., 2025b ; Zhang et al., 2025 ; He et al., 2025 ; Tang et al., 2025 ; Xiao et al., 2025 ; Mao et al., 2025 ) further pushes first-person camera control, long-horizon memory, and environmental dynamics. None of these systems address how multiple human controllers should be jointly modeled. Multi-player video world models form a much smaller line of work. Multiverse ( team, 2025 ) channel-concatenates dual-perspective frames from a Gran Turismo racing game. Concurrent work Solaris ( Savva et al., 2026 ) models cooperative two-player Minecraft with an additive learned player-identity embedding injected at each shared self-attention layer, and trains via a four-stage bidirectional-to-causal-to-Self-Forcing pipeline. MultiWorld ( Wu et al., 2026 ) treats multi-agent multi-view world modeling more broadly, using rotary positional encoding along the agent dimension (Agent Identity Embedding) for identity disambiguation and a VGGT-based Global State Encoder for cross-view consistency. WanToFight differs in three respects: (i) it grounds player identity in a frozen visual reference rather than a learned positional or additive embedding, which is robust to the position swaps and visual occlusions characteristic of fighting games; (ii) it targets adversarial gameplay with frame-precise combat rather than cooperative or competitive-racing settings; and (iii) it combines streaming autoregression with few-step distillation to reach interactive frame rates on a single consumer GPU. 2.2 Streaming Autoregressive Video Generation Adapting a bidirectional video diffusion model into a streaming, autoregressive generator is essential for any interactive engine. Diffusion Forcing ( Chen et al., 2024 ) introduces independent per-frame timesteps so that autoregressive rollout emerges naturally from training. CausVid ( Yin et al., 2025 ) converts a bidirectional teacher into a few-step causal student through ODE regression followed by distribution-matching distillation. SelfForcing ( Huang et al., 2025 ) closes the train–test gap further by supervising the student on its own generations rather than ground-truth prefixes, mitigating drift accumulation in long autoregressive rollouts. Our Stage 2 training adopts independent per-chunk diffusion timesteps in the spirit of Diffusion Forcing while replacing dense attention with a block-causal mask that exposes each chunk only to itself and the two preceding chunks. At inference, we maintain a rolling KV cache of the two most recent chunks ( 16 16 frames) cached at the penultimate denoising step, which we find empirically sufficient for stable streaming over the duration of a complete fighting match. 2.3 Few-Step Distillation for Diffusion Models Reducing the number of denoising steps at inference is critical for real-time generation. Distribution Matching Distillation (DMD) ( Yin et al., 2024 ) trains a few-step student by minimizing a divergence between the student’s and the teacher’s distributions at each retained timestep, in contrast to the step-wise teacher–student matching used in earlier consistency-based approaches. We apply DMD in full-parameter form to compress our causal teacher to a four-step student. Combined with a structurally pruned VAE decoder fine-tuned on game-domain frames, this distillation enables WanToFight to sustain 30 30 FPS at 512 × 384 512\\times 384 on a single NVIDIA RTX 5090—a regime that no prior multi-player video world model has demonstrated. 3 Method 3.1 Game Data Collection We aim to collect a large-scale corpus of paired (game video, keyboard input) sequences for training. To keep the problem tractable, we focus on the set of fundamental actions —movement, jumping, crouching, and basic attacks—and exclude advanced combos and character-specific special moves. The pipeline proceeds in three stages. (1) Manual recording. A human player plays KOF ’97 while a background utility logs the rendered frames and the keyboard state in synchronized streams. This stage yields several hours of paired data that bootstrap the subsequent automatic pipeline. (2) Keyboard policy training. On top of the manually collected sequences, we train a small autoregressive model that predicts the next keyboard state from a sliding window of past states. The objective is to produce diverse and plausible input sequences for data augmentation, rather than to maximize in-game performance. The resulting policy generates long keyboard trajectories that approximate the distribution of human play while covering a wider range of input patterns than any single human session. (3) Automated playback and recording. The generated keyboard trajectories are fed back into the actual game through a controller emulator, and a recording program captures the rendered frames in lockstep with the injected keys. The pipeline runs unattended and preserves frame-level alignment between visuals and inputs. Figure 2: Overview of WanToFight. The model is an autoregressive video diffusion engine that generates gameplay one chunk at a time. Given an initial frame and a stream of keyboard inputs, the model produces the next chunk by conditioning on the previously generated chunk through cached attention states. The Player Association module binds each player’s keyboard signal to the corresponding character through reference-image-driven attention, and the Window Attention mechanism restricts each video latent to attend only to nearby keyboard latents, enforcing local causality of control. 3.2 Model Design Problem formulation. We frame generative game simulation as next-chunk video prediction conditioned on the history of generated frames and player inputs. Let V = { x 1 , x 2 , … , x T } V=\\{x_{1},x_{2},\\dots,x_{T}\\} denote a sequence of video frames with x t ∈ ℝ H × W × C x_{t}\\in\\mathbb{R}^{H\\times W\\times C} , and let A = { a 1 , a 2 , … , a T } A=\\{a_{1},a_{2},\\dots,a_{T}\\} denote the corresponding sequence of keyboard inputs. The model estimates p θ ( x t : t + L ∣ x < t , a t : t + L ) , p_{\\theta}\\!\\left(x_{t:t+L}\\mid x_{<t},\\ a_{t:t+L}\\right), (1) where L L is the chunk length. We use L = 8 L=8 frames throughout, corresponding to approximately 0.27 0.27 s at 30 30 FPS. Backbone. WanToFight builds upon the Wan-1.3B video diffusion transformer ( Wan et al., 2025 ; Peebles and Xie, 2023 ; Ho et al., 2020 ) , which provides strong pretrained visual priors. We adapt this backbone into a streaming, control-conditioned game engine through three components: (i) a chunk-wise autoregressive generator with block-causal attention and KV caching (Sec. 3.2.1 ); (ii) a keyboard control module with layer-wise injection, window attention, and gated fusion (Sec. 3.2.2 ); and (iii) a Player Association module that grounds each player’s input to the corresponding character through a reference image (Sec. 3.2.3 ). The overall architecture is illustrated in Fig. 2 . 3.2.1 Streaming Autoregressive Generation WanToFight generates gameplay chunk by chunk, where each chunk consists of L = 8 L=8 video frames. At inference time, the model takes an initial game frame as the starting state; from then on, each newly generated chunk becomes the conditioning context for the next, while real-time keyboard inputs are continuously injected. We adapt the bidirectional Wan-1.3B backbone to this streaming setting through three sequential training stages. Stage 1: Bidirectional pretraining. We first fine-tune Wan-1.3B on game data while preserving its original bidirectional attention. Each training sample contains 161 161 video frames—roughly 20 20 chunks of length 8 8 —and the keyboard control module described in Sec. 3.2.2 is jointly trained. The relatively long training horizon is intentional: gameplay involves multi-chunk dynamics such as jump arcs, post-hit knockback trajectories, and combo recovery animations, and a model trained on shorter windows tends to lose temporal coherence across these events. This stage equips the backbone with the basic mapping between key presses and character actions while preserving its long-range visual modeling capability. Stage 2: Causal adaptation. We then convert the bidirectional model into a block-causal one to support streaming inference. Following the spirit of Diffusion Forcing ( Chen et al., 2024 ) , CausVid ( Yin et al., 2025 ) , and SelfForcing ( Huang et al., 2025 ) , the dense attention mask is replaced with a block-causal mask: tokens within a chunk attend to each other bidirectionally, while tokens across chunks attend only to the current and the two preceding chunks. Different chunks within a sample are assigned independent diffusion timesteps, which prevents the model from collapsing to a single noise level and improves robustness during streaming rollout. At inference time, generation proceeds one chunk at a time. After producing chunk C t C_{t} , we cache its keys and values from the penultimate denoising step (e.g., step 3 3 of the 4 4 -step distilled model in Stage 3) and use them as the conditioning context for chunk C t + 1 C_{t+1} . We retain the cached keys and values of the two most recent chunks— 16 16 frames in total—and discard older history. This rolling window length was determined empirically: it provides sufficient temporal context for smooth chunk-to-chunk transitions while keeping memory bounded regardless of session length. Stage 3: Efficiency optimization. To reach interactive frame rates, we apply two complementary optimizations. First, we distill the causal model with Distribution Matching Distillation ( Yin et al., 2024 ) , compressing the denoising trajectory to 4 4 steps via full-parameter optimization of the student. Second, we replace Wan’s native VAE decoder with a pruned variant obtained by structurally reducing the decoder’s parameter count and fine-tuning the result on game-domain frames, which reduces per-frame decoding cost without measurably affecting reconstruction quality. Together, these optimizations enable WanToFight to sustain 30 30 FPS at 512 × 384 512\\times 384 resolution on a single NVIDIA RTX 5090 5090 . 3.2.2 Keyboard Control Module In two-player mode, WanToFight exposes 16 16 keys—four directional (Jump, Left, Crouch, Right) and four action (Light Punch, Light Kick, Heavy Punch, Heavy Kick) per player. The control module specifies how these inputs are encoded, where they enter the DiT, and how their effect on generation is constrained to be temporally local and noise-tolerant. Input encoding. The keyboard state at each video frame is encoded as a 16 16 -dimensional binary vector indicating which keys are pressed. The resulting per-frame sequence is temporally compressed by a 1 1 D convolution whose stride matches the temporal compression of the video VAE, so that each keyboard latent aligns with one video latent along the time axis. The compressed sequence is then linearly projected to the cross-attention key/value dimension. Layer-wise injection schedule. Wan-1.3B comprises 30 30 transformer blocks. Rather than injecting keyboard features at every block, we insert a cross-attention injection point every three blocks, yielding 10 10 injection sites distributed evenly through the network depth. This periodic schedule lets the model integrate keyboard conditioning at multiple representational scales while keeping the per-step compute manageable. Window attention. Game actions are sensitive to the local timing of inputs: an attack frame must respond to the key pressed at that latent step, not to keys pressed seconds earlier. We therefore restrict each video latent’s attention to a temporal window of size 3 3 over the keyboard latents—its own latent step and the two preceding ones. This local-causal masking (i) prevents future keys from leaking into past frames and (ii) discourages the model from averaging over input history that is unrelated to the current frame. Gated fusion. Player input is bursty: long stretches of idleness are punctuated by rapid key sequences, and not every key press has an immediate visual consequence—for example, presses that fall during an unbreakable animation phase. To let the model selectively attenuate weakly informative inputs, we apply a learnable, data-dependent gate to the cross-attention output after the keyboard features have attended to the video latents and before the result is fused back into the DiT backbone. Concretely, let h ∈ ℝ d h\\in\\mathbb{R}^{d} denote the cross-attention output at each time step; we compute g = σ ⁡ ( W ​ h + b ) , h ~ = g ⊙ h , g=\\sigma(Wh+b),\\qquad\\tilde{h}=g\\odot h, (2) where σ \\sigma is the sigmoid function, W ∈ ℝ d × d W\\in\\mathbb{R}^{d\\times d} and b ∈ ℝ d b\\in\\mathbb{R}^{d} are learned parameters, ⊙ \\odot denotes element-wise multiplication, and h ~ \\tilde{h} replaces h h as the contribution added to the DiT hidden state. Because h h already encodes the interaction between keyboard input and the current visual state, the gate can suppress inputs that are irrelevant given the on-screen context (e.g., key presses during an unbreakable animation) while preserving the contribution of decisive inputs. Figure 3: Player Association. For each player, a reference image is encoded by a frozen CLIP encoder to produce an identity embedding. The video latents attend to this embedding through cross-attention (with player feature as keys and values), after which the player’s 8 8 keys are injected through the keyboard cross-attention pathway. The two players are processed in series within the same forward pass, producing one identity-to-key binding per player. 3.2.3 Player Association for Multi-Player Control The 16 16 keys of two-player mode pose an identity-binding problem: when the two characters cross sides or visually occlude each other, the model can lose track of which set of 8 8 keys controls which character. We refer to this failure mode as ID crosstalk , and observe it consistently when all 16 16 keys are injected through a single cross-attention pathway. The Player Association module resolves crosstalk by grounding each player’s input to a reference image of their character. Reference-image grounding. For each player, we provide a pre-set reference image of their character—a clean portrait that captures the character’s appearance independent of in-game pose. Each reference is encoded with the frozen CLIP ( Radford et al., 2021 ) vision encoder, yielding a fixed identity embedding per player. Because the references are configured ahead of the session, the encoding cost is incurred once and is amortized across the entire match. Sequential identity binding. For each player, we apply a cross-attention block in which the video latents serve as queries and the player’s CLIP feature serves as keys and values, fusing character identity into the video representation. Immediately after this binding step, we inject the 8 8 keys belonging to that player through the keyboard cross-attention pathway described in Sec. 3.2.2 . The two players are processed in series within the same forward pass: the first player’s identity-binding-then-key-injection sub-block precedes the second’s, so that each cross-attention round explicitly couples one identity to one key set. This serial design generalizes to any number of players by chaining N N identity-binding-and-injection sub-blocks; we show in our experiments that the binding remains stable when characters swap positions or visually overlap. 3.3 Curriculum Training Training directly on full two-player gameplay is unstable: the keyboard signal is sparse relative to the visual complexity, and the model struggles to disentangle character-specific control from background dynamics. We therefore adopt a three-stage curriculum during bidirectional pretraining (Stage 1, Sec. 3.2.1 ) that progressively introduces difficulty. • Single-player actions. The model first learns the mapping from individual key presses to character animations, using sequences in which only one player is active. • Multi-player actions. The model is then trained on sequences in which both players issue inputs simultaneously, encouraging the Player Association module to establish stable identity-to-key bindings. • Full gameplay. Finally, the model is trained on full-pace match data, learning long-horizon game logic—combos, position swaps, knockback recovery, and the rhythm of attack-and-defense exchanges. This curriculum consistently accelerates convergence and yields more reliable multi-player control under high-frequency inputs than direct training on full gameplay data. 4 Results We evaluate WanToFight on the task of real-time, two-player KOF ’97 generation, focusing on three properties that follow directly from the challenges identified in Sec. 1 : (i) the accuracy of keyboard-driven character control, (ii) the consistency of multi-player identity binding under fast inputs and frequent position swaps, and (iii) the stability of generation over long-duration matches. 4.1 Experimental Setup WanToFight is built on Wan-1.3B and runs at 512 × 384 512\\times 384 resolution at 30 30 FPS on a single NVIDIA RTX 5090. Generation proceeds chunk by chunk, with each chunk consisting of 8 8 frames and corresponding to approximately 0.27 0.27 s of gameplay. Within a chunk, per-frame keyboard inputs are aligned with the corresponding video latents through the temporal compression described in Sec. 3.2.2 , so multi-key combinations and rapid press sequences are preserved through the compression. Inputs are captured from a standard PC keyboard. In two-player mode, character-movement keys (Jump, Left, Crouch, Right) are mapped to WASD for Player 1 and to the arrow keys for Player 2; the four action keys (Light Punch, Light Kick, Heavy Punch, Heavy Kick) are mapped to UIJK for Player 1 and to 7 , 8 , 4 , 5 on the numeric keypad for Player 2. 4.2 Single-Player Keyboard Control As shown in Fig. 4 , we evaluate WanToFight’s response to single-player keyboard input across a range of basic actions, including movement, jumping, crouching, basic attacks, and hitting the opponent. The system responds to player input at chunk-level granularity, and we did not observe input frames being dropped or reordered within a chunk under our default configuration. Composite inputs such as jumping diagonally to the right or attacking while crouching produce the expected on-screen actions, indicating that the keyboard-control module captures combinations of direction and action keys rather than only individual key presses. Character animations remain continuous across chunk boundaries, and rapid input sequences do not produce obvious frame skips or motion artifacts. Figure 4: Keyboard-control validation in single-player mode. Each row shows a sequence of generated frames in response to the indicated keyboard input. 4.3 Multi-Player Identity Binding In two-player mode, the model must consistently route the 16 16 -key joint input space to the correct character even as the two characters swap sides, occlude each other, or change pose. Fig. 5 illustrates this binding under standard gameplay. Each player’s inputs drive only their own character throughout the match: when the two characters cross sides on the screen, the keyboard-to-character binding follows the visual identity established at the start of the match rather than the on-screen position. We did not observe identity crosstalk—the failure mode in which, after a position swap, one player’s keys begin to drive the wrong character—in any of the matches generated under our default Player Association configuration. Figure 5: Gameplay validation in two-player mode. The keyboard inputs of the two players consistently drive the correct character even when the two characters cross sides or visually overlap. Beyond identity binding, the multi-player generations also exhibit the basic combat physics expected of KOF ’97 : contact between characters produces appropriate knockback, hit-stun, and downed-state animations, and the relative position of the two characters changes in response to the cumulative effect of sustained pressure. Under high-frequency, simultaneous inputs from both players, the generated motion remains continuous, without obvious frame skips or visual breakdowns. 4.4 Long-Duration Generation By reducing character contact to delay an early KO, we generate continuous gameplay from match start to KO over approximately two minutes without significant visual degradation—substantially exceeding the 161 161 -frame ( ∼ \\sim 5.4 5.4 s) training horizon and validating the rolling KV cache (Sec. 3.2.1 ) for streaming inference well beyond training lengths. 4.5 Quantitative Evaluation The qualitative observations above are corroborated by two quantitative protocols, each designed to probe one of the core properties identified at the start of this section. Because no prior generative game engine targets the same combination of capabilities (Tab. 1 ), we rely on a controlled test set and protocol-internal metrics rather than direct comparison to existing systems. Action accuracy and design ablation. The data-collection pipeline (Stage 3, automated playback) lets us re-render any keyboard trace in the original KOF ’97 engine, producing a pixel-aligned ground-truth video for that input. We assemble a controlled test set of 500 500 input sequences spanning four categories of comparable difficulty: 150 150 basic single-player actions, 100 100 composite single-player inputs, 100 100 two-player sequences without contact, and 150 150 two-player sequences with contact. For each sequence we render a ground-truth video in KOF ’97 and a corresponding generation, and we report perceptual (LPIPS), structural (SSIM), and high-level visual (DINOv2 cosine similarity) similarity averaged over the full test set. To assess the contribution of each major design choice, we compare WanToFight against a floor baseline that replaces the generated video with the static first frame, an upper-bound multi-step teacher that omits DMD distillation, and three ablations that each remove one design choice at a time (Player Association, gated keyboard injection, or curriculum training). Tab. 2 reports the results. The 4 4 -step student matches the multi-step teacher to within 0.02 0.02 LPIPS, 0.03 0.03 SSIM, and 0.03 0.03 DINOv2 similarity, indicating that DMD distillation preserves visual fidelity while delivering the budget required for 30 30 FPS inference. Removing Player Association degrades performance noticeably, primarily on the two-player categories, where keyboard inputs occasionally drive the wrong character; removing the gate makes the model more sensitive to noisy inputs; and skipping the three-stage curriculum yields quality drop, reflecting the difficulty of training directly on full multi-player gameplay. Table 2: Action accuracy and design ablation. We compare WanToFight against a floor baseline (repeat first frame), an upper-bound reference (multi-step teacher without DMD distillation), and three ablations that each remove one design choice at a time. Metrics are LPIPS, SSIM, and DINOv2 cosine similarity averaged over 500 500 input sequences in our controlled test set. Lower LPIPS and higher SSIM and DINOv2 indicate closer correspondence to the ground-truth KOF ’97 render driven by the same input. Method LPIPS ↓ \\downarrow SSIM ↑ \\uparrow DINOv2 ↑ \\uparrow Repeat first frame (floor) 0.49 0.49 0.52 0.52 0.71 0.71 Multi-step teacher (no DMD, upper bound) 0.15 0.15 0.74 0.74 0.85 0.85 WanToFight (Ours) 0.17 \\mathbf{0.17} 0.71 \\mathbf{0.71} 0.82 \\mathbf{0.82} w/o Player Association 0.29 0.29 0.57 0.57 0.69 0.69 w/o Gated keyboard injection 0.19 0.19 0.69 0.69 0.80 0.80 w/o Curriculum training 0.22 0.22 0.66 0.66 0.78 0.78 Multi-player identity-binding consistency. We evaluate Player Association by checking, in each generated session, whether the character bound to Player 1 by reference image continues to execute the actions requested by Player 1’s keyboard, regardless of position swaps or visual occlusion. To make this checkable from video alone, every test sequence uses an input-asymmetric protocol: Player 1 and Player 2 are assigned distinct KOF ’97 characters and are scripted to issue visually distinguishable actions (e.g., one player jumps while the other crouches, or one attacks while the other remains idle). For each generated video, a vision-language judge is then asked a coarse, factual question of the form “which character is performing ⟨ \\langle action ⟩ \\rangle : ⟨ \\langle P1’s character ⟩ \\rangle or ⟨ \\langle P2’s character ⟩ \\rangle ?”, and the binding is counted as preserved when the answer matches Player 1’s assignment. This reduces the judging task to character recognition plus coarse action recognition, two regimes in which vision-language judges are reliable, and avoids the fine-grained action labelling regime in which they are not. We construct 500 500 test sequences across five scenarios that progressively stress identity binding: 100 100 with both characters in static positions, 100 100 in which one character jumps over the other, 100 100 in which the two characters chase each other across the screen, 100 100 with visual overlap or partial occlusion, and 100 100 long sessions exceeding 60 60 seconds with periodic input-asymmetric probes throughout. To isolate the contribution of Player Association, we additionally evaluate a baseline that retains the gated keyboard injection module but removes the reference-image identity grounding, concatenating all 16 16 keys into a single cross-attention stream so that the model must infer character-to-key correspondence from context alone. We report the percentage of test sequences in which the binding is preserved for each scenario in Tab. 3 . The baseline performs reasonably only on the static-positions scenario (84%), where spatial position alone provides a weak identity cue, and drops sharply on every scenario involving a position swap, visual overlap, or long-horizon drift; WanToFight maintains stable binding ( ≥ 91 % \\geq 91\\% ) across all four challenging scenarios. The 79–94 percentage-point gap on swap and overlap scenarios directly quantifies the value of grounding identity in a frozen visual reference rather than letting the model learn it implicitly from input concatenation. Table 3: Multi-player identity-binding consistency, with ablation of Player Association. Percentage of test sequences in which Player 1’s reference-bound character consistently executes Player 1’s scripted actions, as judged by a vision-language model under our input-asymmetric protocol (see text). The w/o Player Association column is a baseline that concatenates all 16 16 keys into a single cross-attention stream with no explicit identity grounding. Scenario # Tests WanToFight (%) ↑ \\uparrow w/o Player Association (%) ↑ \\uparrow Static positions 100 𝟏𝟎𝟎 \\mathbf{100} 84 84 Position swap via jump-over 100 𝟏𝟎𝟎 \\mathbf{100} 21 21 Position swap via chase/cross 100 𝟗𝟗 \\mathbf{99} 9 9 Visual overlap / occlusion 100 𝟗𝟕 \\mathbf{97} 3 3 Long session ( > 60 >60 s) 100 𝟗𝟏 \\mathbf{91} 0 0 Overall 500 𝟗𝟕 \\mathbf{97} 23 23 5 Limitations WanToFight pushes generative engines into the multi-player, real-time, adversarial regime, but several limitations remain. Visual fidelity of complex animations. KOF ’97 contains intricate animations such as somersaults, special moves, and complex collision reactions. WanToFight occasionally produces coarse poses or local artefacts in these high-frequency motion regimes. Two factors contribute: the limited visual capacity of the Wan-1.3B backbone, and the modest 512 × 384 512\\times 384 output resolution, which discards fine-grained sprite detail. Stronger backbones and higher target resolutions would directly address this limitation, at proportionally greater inference cost. Cumulative drift in long sessions. A full KOF ’97 match can extend beyond two minutes, and a complete training session or series can run for considerably longer. Streaming generation with a two-chunk rolling KV cache is sufficient for the approximately two-minute matches we report, but small errors accumulate across chunks and gradually degrade visual fidelity over longer horizons. Single-game scope. WanToFight is trained on KOF ’97 alone. Although the architecture and Player Association mechanism do not depend on KOF -specific assumptions, transferring the engine to other fighting titles, or to a single engine that supports many titles, requires both expanded training data and additional work on unified character and action representations across games. Multi-character scalability beyond two players. Our evaluation covers two-player gameplay. The Player Association block extends to N N players by chaining N N identity-binding-and-injection sub-blocks, but the resulting attention complexity, training-data requirements, and visual capacity for N ≥ 3 N\\geq 3 players have not been characterized. Validating these scaling properties is a concrete next step. 6 Conclusion We presented WanToFight , a generative game engine that simulates real-time, two-player KOF ’97 gameplay from keyboard input. Built on Wan-1.3B, the engine combines streaming autoregressive generation with block-causal attention and a rolling KV cache, a visually grounded Player Association module that binds each player’s keyboard signal to a character identity through a frozen CLIP encoder, and a gated, locally causal keyboard injection that filters bursty inputs. A four-step DMD-distilled student paired with a pruned VAE decoder sustains 30 30 FPS at 512 × 384 512\\times 384 on a single NVIDIA RTX 5090 over the duration of a complete match. WanToFight is the first generative game engine to combine multi-player control, real-time inference, complex physical interaction, and adversarial gameplay in one system (Tab. 1 ). The same recipe—reference-image identity grounding paired with streaming, block-causal autoregression and few-step distillation—should extend to other interactive genres requiring real-time per-agent control. Pushing this approach beyond a single title, scaling Player Association beyond two players, and closing the train–test gap with Self-Forcing-style training remain natural directions for future work. References Brooks et al. (2024) T. Brooks, B. Peebles, C. Holmes, W. DePue, Y. Guo, L. Jing, D. Schnurr, J. Taylor, T. Luhman, E. Luhman, et al. Video generation models as world simulators . OpenAI Blog 1 ( 8 ), pp. 1 . Cited by: §1 . Chen et al. (2024) B. Chen, D. Martí Monsó, Y. Du, M. Simchowitz, R. Tedrake, and V. Sitzmann Diffusion forcing: next-token prediction meets full-sequence diffusion . In Adv. Neural Inform. Process. Syst. , Cited by: §2.2 , §3.2.1 . Decart et al. (2024) Decart, J. Quevedo, Q. McIntyre, S. Campbell, X. Chen, and R. Wachen Oasis:",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Skip to main content",
+      "url": "https://arxiv.org/html/2607.12592v1#infobox"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/IgnoreMe"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "Why HTML?",
+      "url": "https://info.arxiv.org/about/accessible_HTML.html"
+    },
+    {
+      "text": "Back to Abstract",
+      "url": "https://arxiv.org/abs/2607.12592v1"
+    },
+    {
+      "text": "Download PDF",
+      "url": "https://arxiv.org/pdf/2607.12592v1"
+    },
+    {
+      "text": "License: arXiv.org perpetual non-exclusive license",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "https://humanaigc.github.io/wantofight/",
+      "url": "https://humanaigc.github.io/wantofight/"
+    },
+    {
+      "text": "Kong et al., 2025",
+      "url": "https://arxiv.org/html/2607.12592v1#bib.bib2"
+    },
+    {
+      "text": "Brooks et al., 2024",
+      "url": "https://arxiv.org/html/2607.12592v1#bib.bib6"
+    },
+    {
+      "text": "Seed, 2025",
+      "url": "https://arxiv.org/html/2607.12592v1#bib.bib9"
+    },
+    {
+      "text": "Wan et al., 2025",
+      "url": "https://arxiv.org/html/2607.12592v1#bib.bib1"
+    },
+    {
+      "text": "Gao et al., 2026",
+      "url": "https://arxiv.org/html/2607.12592v1#bib.bib18"
+    },
+    {
+      "text": "Parker-Holder and Fruchter, 2025",
+      "url": "https://arxiv.org/html/2607.12592v1#bib.bib8"
+    },
+    {
+      "text": "Mao et al., 2025",
+      "url": "https://arxiv.org/html/2607.12592v1#bib.bib14"
+    },
+    {
+      "text": "Team et al., 2025",
+      "url": "https://arxiv.org/html/2607.12592v1#bib.bib29"
+    },
+    {
+      "text": "Xu et al., 2026",
+      "url": "https://arxiv.org/html/2607.12592v1#bib.bib27"
+    },
+    {
+      "text": "Yu et al., 2025a",
+      "url": "https://arxiv.org/html/2607.12592v1#bib.bib28"
+    },
+    {
+      "text": "Yu et al., 2025b",
+      "url": "https://arxiv.org/html/2607.12592v1#bib.bib21"
+    },
+    {
+      "text": "Feng et al., 2024",
+      "url": "https://arxiv.org/html/2607.12592v1#bib.bib19"
+    },
+    {
+      "text": "He et al., 2025",
+      "url": "https://arxiv.org/html/2607.12592v1#bib.bib15"
+    },
+    {
+      "text": "Tang et al., 2025",
+      "url": "https://arxiv.org/html/2607.12592v1#bib.bib11"
+    },
+    {
+      "text": "Xiao et al., 2025",
+      "url": "https://arxiv.org/html/2607.12592v1#bib.bib22"
+    },
+    {
+      "text": "Valevski et al., 2024",
+      "url": "https://arxiv.org/html/2607.12592v1#bib.bib12"
+    },
+    {
+      "text": "Decart et al., 2024",
+      "url": "https://arxiv.org/html/2607.12592v1#bib.bib23"
+    },
+    {
+      "text": "Ye et al., 2025",
+      "url": "https://arxiv.org/html/2607.12592v1#bib.bib20"
+    },
+    {
+      "text": "team, 2025",
+      "url": "https://arxiv.org/html/2607.12592v1#bib.bib24"
+    },
+    {
+      "text": "Savva et al., 2026",
+      "url": "https://arxiv.org/html/2607.12592v1#bib.bib25"
+    },
+    {
+      "text": "Wu et al., 2026",
+      "url": "https://arxiv.org/html/2607.12592v1#bib.bib26"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2607.12592v1#S1.T1"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2607.12592v1#S1.F1"
+    },
+    {
+      "text": "Zhang et al., 2025",
+      "url": "https://arxiv.org/html/2607.12592v1#bib.bib13"
+    },
+    {
+      "text": "Chen et al., 2024",
+      "url": "https://arxiv.org/html/2607.12592v1#bib.bib17"
+    },
+    {
+      "text": "Yin et al., 2025",
+      "url": "https://arxiv.org/html/2607.12592v1#bib.bib16"
+    },
+    {
+      "text": "Huang et al., 2025",
+      "url": "https://arxiv.org/html/2607.12592v1#bib.bib10"
+    },
+    {
+      "text": "Yin et al., 2024",
+      "url": "https://arxiv.org/html/2607.12592v1#bib.bib3"
+    },
+    {
+      "text": "Peebles and Xie, 2023",
+      "url": "https://arxiv.org/html/2607.12592v1#bib.bib7"
+    },
+    {
+      "text": "Ho et al., 2020",
+      "url": "https://arxiv.org/html/2607.12592v1#bib.bib5"
+    },
+    {
+      "text": "3.2.1",
+      "url": "https://arxiv.org/html/2607.12592v1#S3.SS2.SSS1"
+    },
+    {
+      "text": "3.2.2",
+      "url": "https://arxiv.org/html/2607.12592v1#S3.SS2.SSS2"
+    },
+    {
+      "text": "3.2.3",
+      "url": "https://arxiv.org/html/2607.12592v1#S3.SS2.SSS3"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2607.12592v1#S3.F2"
+    },
+    {
+      "text": "Radford et al., 2021",
+      "url": "https://arxiv.org/html/2607.12592v1#bib.bib4"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2607.12592v1#S1"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2607.12592v1#S4.F4"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2607.12592v1#S4.F5"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2607.12592v1#S4.T2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2607.12592v1#S4.T3"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2607.12592v1#S1.p1.1"
+    },
+    {
+      "text": "§2.2",
+      "url": "https://arxiv.org/html/2607.12592v1#S2.SS2.p1.1"
+    },
+    {
+      "text": "§3.2.1",
+      "url": "https://arxiv.org/html/2607.12592v1#S3.SS2.SSS1.Px2.p1.1"
+    },
+    {
+      "text": "Link",
+      "url": "https://oasis-model.github.io/"
+    },
+    {
+      "text": "Table 1",
+      "url": "https://arxiv.org/html/2607.12592v1#S1.T1.14.1.3.1"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2607.12592v1#S1.p2.1"
+    },
+    {
+      "text": "§2.1",
+      "url": "https://arxiv.org/html/2607.12592v1#S2.SS1.p1.1"
+    },
+    {
+      "text": "Link",
+      "url": "https://doi.org/10.48550/arXiv.2412.03568"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.48550/ARXIV.2412.03568"
+    },
+    {
+      "text": "Link",
+      "url": "https://doi.org/10.48550/arXiv.2601.20540"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.48550/ARXIV.2601.20540"
+    },
+    {
+      "text": "§3.2",
+      "url": "https://arxiv.org/html/2607.12592v1#S3.SS2.SSS0.Px2.p1.1"
+    }
+  ],
+  "matching_link_count": 84,
+  "links_truncated": true,
+  "invalid_links": []
+}

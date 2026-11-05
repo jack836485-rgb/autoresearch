@@ -1,0 +1,428 @@
+{
+  "url": "https://arxiv.org/html/2609.28099v1",
+  "final_url": "https://arxiv.org/html/2609.28099v1",
+  "status": 200,
+  "title": "Visual Tripwires: Anticipating Failure in Deep Vision Systems",
+  "metadata": {},
+  "paper": {
+    "title": "Visual Tripwires: Anticipating Failure in Deep Vision Systems",
+    "title_warning": null,
+    "abstract": "Abstract Deep vision systems remain vulnerable to corruption, occlusion, and distribution shift despite strong benchmark performance. Existing reliability methods typically evaluate uncertainty at individual time steps and do not explicitly model how a system progresses toward failure. We introduce Visual Tripwires , a predictive reliability framework that uses temporal instability in model behaviour to anticipate impending failure. Our central hypothesis is that predictive degradation develops progressively through measurable changes in latent representations, prediction trajectories, and attention structure. Visual Tripwires captures these changes using representation drift, prediction oscillation, trajectory curvature, and attention entropy. A lightweight tripwire predictor aggregates these signals over a temporal window to estimate the probability of failure within a future prediction horizon. Experiments across multiple datasets, architectures, and progressive perturbation settings show that the proposed instability signals emerge before predictive degradation and provide earlier and more accurate failure warnings than conventional uncertainty estimation methods. These results demonstrate that temporal instability contains useful information about future model reliability and provides a practical basis for early warning in deep vision systems.",
+    "authors": [
+      {
+        "name": "Anoushka Harit",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Rehan Zuberi",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "William Prew",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Florian Markowetz",
+        "affiliations": [],
+        "notes": []
+      }
+    ],
+    "author_block": "Anoushka Harit Rehan Zuberi William Prew Florian Markowetz",
+    "arxiv_version": "2609.28099v1",
+    "arxiv_version_date": "2026-09-23",
+    "sections": [
+      {
+        "id": "S1",
+        "heading": "1 Introduction",
+        "level": 1,
+        "text": "Deep vision systems have achieved remarkable success across image classification, object detection, segmentation, tracking, and video understanding tasks [ 9 , 2 , 16 ] . Despite strong benchmark performance, they remain highly vulnerable to corruption, occlusion, and distribution shift [ 10 , 7 , 19 ] . In safety relevant settings such as content moderation or driving perception, this vulnerability is consequential: a model that fails silently can propagate an incorrect decision before a human has the chance to intervene. Existing reliability methods, including calibration and out of distribution detection [ 8 , 13 , 11 ] , underlie selective prediction, where a model defers to human review once confidence falls below a threshold. However, these methods assess reliability independently at each time step and typically detect unreliability only after degradation has occurred, leaving little lead time for review before a failure propagates. Complex dynamical systems often exhibit early warning signals prior to critical transitions, with increasing variance and structural disruption preceding failure [ 21 ] . Motivated by this, we treat failure in vision systems as a process rather than an isolated event, one that unfolds through instability in internal representation dynamics before it is visible in model outputs. This is supported by evidence that latent representations encode structural information about model behaviour [ 20 , 18 ] and are sensitive to distribution shift [ 24 , 23 ] , yet existing reliability methods rarely model this temporal evolution. We introduce Visual Tripwires , a framework that models the temporal evolution of latent representations, prediction trajectories, and attention structure to anticipate unreliable operating regimes before predictive collapse, providing lead time for human review. We define a family of instability signals, representation drift, prediction oscillation, latent trajectory curvature, and attention entropy, and aggregate them into a tripwire score that estimates the probability of future failure within a prediction horizon. This reframes reliability estimation as a temporal instability modeling problem, better suited to selective prediction under sustained perturbation. We evaluate our framework across multiple architectures, datasets, and progressive perturbation settings, including a driving scene dataset relevant to deployment. Instability signals consistently rise before predictive degradation, providing substantially longer early warning than conventional uncertainty estimation. While our experiments focus on benign corruption, the same signature, sustained deviation building over time, is also expected under adaptive or adversarial perturbation, motivating temporal instability modeling as a direction for robust, verifiable vision systems."
+      },
+      {
+        "id": "S2",
+        "heading": "2 Related Work",
+        "level": 1,
+        "text": "Reliability in deep vision has primarily been addressed through per instance uncertainty estimation. Maximum softmax probability [ 11 ] and temperature scaling [ 8 ] calibrate confidence for a single prediction; Monte Carlo dropout [ 3 ] and deep ensembles [ 13 ] approximate uncertainty through sampling; ODIN [ 14 ] refines confidence using input perturbations. All condition only on the current prediction, so they detect unreliability only once it is already visible in the output. Selective prediction builds on these scores to decide when a model should abstain or defer to human review [ 5 , 6 ] , but inherits the same limitation: deferral is triggered at the point of failure, not before it. Our framework targets exactly this gap, providing the lead time that selective prediction requires to be preventive rather than reactive. Vision models degrade sharply under corruption and distribution shift [ 10 , 7 ] , and uncertainty estimates are known to remain poorly calibrated under exactly these conditions [ 19 ] . Test time adaptation methods such as Tent [ 24 ] and test time training [ 23 ] respond to this by updating model parameters online, treating representation instability as a fault to correct. We instead treat that instability as the signal itself, exploiting it to anticipate failure rather than to repair the model. This is grounded in evidence that latent representations carry structural information about generalization, typically probed through canonical correlation analysis [ 20 , 18 ] . Such analyses compare static snapshots of a trained network; we instead track the temporal evolution of a single network’s representations along a trajectory, converting a diagnostic tool into an online monitoring signal. Detecting distributional change in streaming data is a long standing problem in statistics, addressed by methods such as the Page-Hinkley test, CUSUM, and adaptive windowing [ 4 ] . These operate on scalar output statistics and are agnostic to model internals. Our instability signals are model internal analogues of the same principle, computed over latent representations and attention structure rather than output metrics, and combined through a learned aggregation rather than a fixed statistical test. The underlying hypothesis, that systems display measurable irregularity before a critical transition, is established in complex systems research, where rising variance and oscillation are known to precede collapse in ecological, climate, and biological systems [ 21 ] . This principle has so far been applied to physical and biological dynamical systems; we apply it to the latent trajectory of a vision model under perturbation, treating predictive failure as the critical transition to be anticipated. Video anomaly detection identifies frames or segments that deviate from normal appearance or motion [ 15 , 22 ] , but targets anomalies in the scene, not instability in the model perceiving it. Our framework asks a different question: not whether the input is anomalous, but whether the model’s own response to it is becoming unstable, which we argue is the more direct signal of impending failure."
+      },
+      {
+        "id": "S3",
+        "heading": "3 Problem Formulation",
+        "level": 1,
+        "text": "Consider a temporally ordered sequence of visual inputs: X = { x t } t = 1 T , x t ∈ ℝ H × W × C , X=\\{x_{t}\\}_{t=1}^{T},\\qquad x_{t}\\in\\mathbb{R}^{H\\times W\\times C}, (1) where x t x_{t} denotes an image or video frame observed at time step t t . Given an input x t x_{t} , a vision model f θ f_{\\theta} produces a predictive distribution over K K task outcomes: p t = f θ ​ ( x t ) ∈ Δ K − 1 , p_{t}=f_{\\theta}(x_{t})\\in\\Delta^{K-1}, (2) where Δ K − 1 \\Delta^{K-1} denotes the K K -class probability simplex. We additionally extract an intermediate latent representation: z t = ϕ θ ​ ( x t ) ∈ ℝ d . z_{t}=\\phi_{\\theta}(x_{t})\\in\\mathbb{R}^{d}. (3) At time t t , the recent behaviour of the model is represented by a temporal window of length w w : ℋ t = { ( z τ , p τ ) } τ = t − w + 1 t . \\mathcal{H}_{t}=\\left\\{(z_{\\tau},p_{\\tau})\\right\\}_{\\tau=t-w+1}^{t}. (4) This history captures temporal changes in both the internal representations and model predictions. Let r t r_{t} denote a task-specific reliability score, and let γ \\gamma be the minimum acceptable reliability threshold. We define a persistent failure state as: F t = 𝕀 [ r τ < γ , ∀ τ ∈ { t − m + 1 , … , t } ] , F_{t}=\\mathbb{I}\\left[r_{\\tau}<\\gamma,\\quad\\forall\\tau\\in\\{t-m+1,\\ldots,t\\}\\right], (5) where m m is the number of consecutive time steps required to distinguish persistent degradation from an isolated prediction error. Given a future prediction horizon Δ \\Delta , the early warning target is defined as: Y t ( Δ ) = 𝕀 [ max τ ∈ { t + 1 , … , t + Δ } F τ = 1 ] . Y_{t}^{(\\Delta)}=\\mathbb{I}\\left[\\max_{\\tau\\in\\{t+1,\\ldots,t+\\Delta\\}}F_{\\tau}=1\\right]. (6) Thus, Y t ( Δ ) = 1 Y_{t}^{(\\Delta)}=1 when the model enters a failure state at any point within the next Δ \\Delta time steps. The objective is to learn a tripwire function g ψ g_{\\psi} that estimates the probability of future failure from the recent model trajectory: q t = g ψ ​ ( ℋ t ) ≈ P ⁡ ( Y t ( Δ ) = 1 ∣ ℋ t ) . q_{t}=g_{\\psi}(\\mathcal{H}_{t})\\approx P\\left(Y_{t}^{(\\Delta)}=1\\mid\\mathcal{H}_{t}\\right). (7) A warning is activated when the estimated failure probability exceeds a decision threshold η \\eta : A t = 𝕀 [ q t ≥ η ] , A_{t}=\\mathbb{I}\\left[q_{t}\\geq\\eta\\right], (8) where A t = 1 A_{t}=1 indicates an early warning. The threshold η \\eta is selected using validation data. Figure 1: Predictive failure formulation. Given the observed model history ℋ t \\mathcal{H}_{t} , the objective is to estimate the probability that the model enters a persistent failure state within the future horizon Δ \\Delta . We hypothesize that impending failure is preceded by measurable temporal instability. Stable operation produces smooth representation trajectories and consistent predictions, whereas emerging failure produces increasing representation drift, prediction oscillation, trajectory curvature, and attention uncertainty. Visual Tripwires uses these temporal signals to identify an emerging unreliable regime before the model crosses the predefined failure threshold."
+      },
+      {
+        "id": "S4",
+        "heading": "4 Method",
+        "level": 1,
+        "text": "We introduce Visual Tripwires , a framework that predicts impending model failure from the temporal evolution of internal representations and predictions. Given the model history ℋ t \\mathcal{H}_{t} defined in Section 3 , we compute a set of instability signals, aggregate their recent values using a lightweight prediction network, and estimate the probability that the model will enter an unreliable state within the next Δ \\Delta time steps. Figure 2 presents an overview of the framework. Figure 2: Overview of Visual Tripwires. Instability signals derived from latent representations, predictions, and attention maps are aggregated over a temporal window to estimate the probability of future model failure."
+      },
+      {
+        "id": "S4.SS1",
+        "heading": "4.1 Temporal Instability Signals",
+        "level": 2,
+        "text": "Let z t ∈ ℝ d z_{t}\\in\\mathbb{R}^{d} and p t ∈ Δ K − 1 p_{t}\\in\\Delta^{K-1} denote the latent representation and predictive distribution produced at time t t . We compute four complementary instability signals. All signals are defined for t ≥ 3 t\\geq 3 , allowing the first and second temporal differences to be evaluated."
+      },
+      {
+        "id": "S4.SS1.SSS0.Px1",
+        "heading": "Representation Drift.",
+        "level": 3,
+        "text": "Representation drift measures the displacement between consecutive latent states: D t = ‖ z t − z t − 1 ‖ 2 . D_{t}=\\left\\|z_{t}-z_{t-1}\\right\\|_{2}. (9) Large values indicate rapid changes in the internal representation of temporally adjacent inputs."
+      },
+      {
+        "id": "S4.SS1.SSS0.Px2",
+        "heading": "Prediction Oscillation.",
+        "level": 3,
+        "text": "Prediction oscillation measures the change in the model’s predictive distribution: O t = ‖ p t − p t − 1 ‖ 2 . O_{t}=\\left\\|p_{t}-p_{t-1}\\right\\|_{2}. (10) This signal increases when the model produces inconsistent predictions across consecutive observations."
+      },
+      {
+        "id": "S4.SS1.SSS0.Px3",
+        "heading": "Trajectory Curvature.",
+        "level": 3,
+        "text": "We approximate the local curvature of the latent trajectory using its discrete second difference: C t = ‖ z t − 2 ​ z t − 1 + z t − 2 ‖ 2 . C_{t}=\\left\\|z_{t}-2z_{t-1}+z_{t-2}\\right\\|_{2}. (11) Unlike representation drift, which measures displacement, curvature captures changes in the direction and rate of movement through the representation space."
+      },
+      {
+        "id": "S4.SS1.SSS0.Px4",
+        "heading": "Attention Entropy.",
+        "level": 3,
+        "text": "For transformer architectures, let A t h ​ ( i , j ) A_{t}^{h}(i,j) denote the attention assigned by query token i i to key token j j in head h h , where ∑ j = 1 n A t h ​ ( i , j ) = 1 . \\sum_{j=1}^{n}A_{t}^{h}(i,j)=1. (12) Attention entropy is defined as: E t = − 1 H ​ n ∑ h = 1 H ∑ i = 1 n ∑ j = 1 n A t h ( i , j ) log ( A t h ( i , j ) + ϵ ) , E_{t}=-\\frac{1}{Hn}\\sum_{h=1}^{H}\\sum_{i=1}^{n}\\sum_{j=1}^{n}A_{t}^{h}(i,j)\\log\\left(A_{t}^{h}(i,j)+\\epsilon\\right), (13) where H H is the number of attention heads, n n is the number of tokens, and ϵ > 0 \\epsilon>0 ensures numerical stability. Higher entropy indicates more diffuse attention. For convolutional architectures, the attention signal is omitted and the tripwire predictor operates on the remaining three signals."
+      },
+      {
+        "id": "S4.SS2",
+        "heading": "4.2 Signal Normalization",
+        "level": 2,
+        "text": "Because the instability signals have different numerical scales, each signal is standardized using statistics estimated from clean reference sequences. For a signal S t ∈ { D t , O t , C t , E t } S_{t}\\in\\{D_{t},O_{t},C_{t},E_{t}\\} , we compute: S ~ t = S t − μ S σ S + ϵ , \\widetilde{S}_{t}=\\frac{S_{t}-\\mu_{S}}{\\sigma_{S}+\\epsilon}, (14) where μ S \\mu_{S} and σ S \\sigma_{S} are the mean and standard deviation of S S on the clean reference split. These statistics remain fixed during validation and testing. The normalized instability vector is: s t = [ D ~ t O ~ t C ~ t E ~ t ] ⊤ . s_{t}=\\begin{bmatrix}\\widetilde{D}_{t}&\\widetilde{O}_{t}&\\widetilde{C}_{t}&\\widetilde{E}_{t}\\end{bmatrix}^{\\top}. (15) For convolutional architectures, s t s_{t} contains only D ~ t \\widetilde{D}_{t} , O ~ t \\widetilde{O}_{t} , and C ~ t \\widetilde{C}_{t} ."
+      },
+      {
+        "id": "S4.SS3",
+        "heading": "4.3 Visual Tripwire Predictor",
+        "level": 2,
+        "text": "To distinguish sustained instability from isolated fluctuations, we concatenate the instability vectors from a trailing window of length w w : S t ( w ) = vec ⁡ ( s t − w + 1 , … , s t ) . S_{t}^{(w)}=\\operatorname{vec}\\left(s_{t-w+1},\\ldots,s_{t}\\right). (16) A lightweight multilayer perceptron g ψ g_{\\psi} maps the windowed signals to a scalar logit: a t = g ψ ​ ( S t ( w ) ) . a_{t}=g_{\\psi}\\left(S_{t}^{(w)}\\right). (17) The Visual Tripwire score is the corresponding probability of failure within the future horizon: q t = σ ⁡ ( a t ) ≈ P ⁡ ( Y t ( Δ ) = 1 ∣ S t ( w ) ) , q_{t}=\\sigma(a_{t})\\approx P\\left(Y_{t}^{(\\Delta)}=1\\mid S_{t}^{(w)}\\right), (18) where σ ⁡ ( ⋅ ) \\sigma(\\cdot) is the sigmoid function and Y t ( Δ ) Y_{t}^{(\\Delta)} is the future failure label defined in Equation 6 . A warning is issued when: q t ≥ η , q_{t}\\geq\\eta, (19) where η \\eta is selected on the validation set. The base vision model f θ f_{\\theta} remains fixed, and only the parameters ψ \\psi of the tripwire predictor are optimized."
+      },
+      {
+        "id": "S4.SS4",
+        "heading": "4.4 Training Objective",
+        "level": 2,
+        "text": "The tripwire predictor is trained using binary cross entropy over all valid temporal windows: ℒ BCE = − 1 N ∑ t ∈ ℐ [ Y t ( Δ ) log q t + ( 1 − Y t ( Δ ) ) log ( 1 − q t ) ] , \\mathcal{L}_{\\mathrm{BCE}}=-\\frac{1}{N}\\sum_{t\\in\\mathcal{I}}\\left[Y_{t}^{(\\Delta)}\\log q_{t}+\\left(1-Y_{t}^{(\\Delta)}\\right)\\log\\left(1-q_{t}\\right)\\right], (20) where ℐ \\mathcal{I} is the set of valid training indices and N = | ℐ | N=|\\mathcal{I}| . We additionally introduce a temporal regularization term to discourage unstable changes in consecutive tripwire scores: ℒ temp = 1 N − 1 ​ ∑ t ∈ ℐ ( q t − q t − 1 ) 2 . \\mathcal{L}_{\\mathrm{temp}}=\\frac{1}{N-1}\\sum_{t\\in\\mathcal{I}}\\left(q_{t}-q_{t-1}\\right)^{2}. (21) The complete training objective is: ℒ = ℒ BCE + λ temp ​ ℒ temp , \\mathcal{L}=\\mathcal{L}_{\\mathrm{BCE}}+\\lambda_{\\mathrm{temp}}\\mathcal{L}_{\\mathrm{temp}}, (22) where λ temp \\lambda_{\\mathrm{temp}} controls the strength of temporal regularization. The binary cross entropy term trains the model to predict future failure, while the temporal term reduces isolated fluctuations in the warning score."
+      },
+      {
+        "id": "S5",
+        "heading": "5 Experimental Setup",
+        "level": 1,
+        "text": "We evaluate Visual Tripwires for predictive failure estimation under progressive corruption and distribution shift. Given a temporally perturbed input sequence, the objective is to predict whether the model will enter an unreliable regime before degradation becomes observable in its outputs."
+      },
+      {
+        "id": "S5.SS1",
+        "heading": "5.1 Datasets",
+        "level": 2,
+        "text": "We evaluate on CIFAR-10-C and ImageNet-C [ 10 ] , which extend CIFAR-10 [ 12 ] and ImageNet [ 1 ] with 15 corruption types at five severity levels. Because these benchmarks do not provide dense temporal sequences, we construct a trajectory for each clean image by interpolating corruption intensity across and beyond the benchmark severity levels. This produces a sequence X = { x 1 , … , x T } X=\\{x_{1},\\ldots,x_{T}\\} with monotonically increasing severity. For discrete corruptions, such as JPEG compression, each severity level is held for T / 5 T/5 consecutive steps. Trajectories are generated independently for each corruption type, and results are averaged across corruptions unless stated otherwise. We additionally evaluate on BDD100K [ 25 ] , which provides native temporal structure with variation in illumination, motion, and weather. Perturbations are applied along the existing temporal axis, providing a complementary evaluation under realistic changes in visual content. Training, validation, and test partitions are separated at the source-image or video-clip level to prevent correlated frames from appearing across splits. A subset of corruption types is excluded from training and evaluated separately to measure generalization to unseen distribution shifts."
+      },
+      {
+        "id": "S5.SS2",
+        "heading": "5.2 Architectures",
+        "level": 2,
+        "text": "We evaluate ResNet-50 [ 9 ] , ViT-B/16 [ 2 ] , and Swin-T [ 16 ] . Latent representations are extracted from the penultimate feature layer of ResNet-50 and the final CLS token embeddings of ViT-B/16 and Swin-T. For the transformer models, attention entropy is computed across all heads in the final layer. For ResNet-50, attention entropy is omitted and g ⁡ ( ⋅ ) g(\\cdot) is trained using the remaining three instability signals."
+      },
+      {
+        "id": "S5.SS3",
+        "heading": "5.3 Progressive Failure Protocol",
+        "level": 2,
+        "text": "We evaluate Gaussian noise, motion blur, defocus blur, brightness variation, contrast degradation, JPEG compression, and structured occlusion. Perturbation severity increases monotonically with time, producing gradual degradation in visual quality and representation stability. For classification tasks, failure is triggered when accuracy remains below 50 % 50\\% for five consecutive time steps. For BDD100K, failure is triggered when the predicted class changes more than three times within a five-step window or when maximum softmax confidence falls below 0.4 0.4 . All thresholds are selected on the validation split and fixed during testing."
+      },
+      {
+        "id": "S5.SS4",
+        "heading": "5.4 Baselines",
+        "level": 2,
+        "text": "We compare Visual Tripwires with Maximum Softmax Probability [ 11 ] , Predictive Entropy [ 17 ] , Temperature Scaling [ 8 ] , Monte Carlo Dropout [ 3 ] , Deep Ensembles [ 13 ] , and ODIN [ 14 ] . These baselines evaluate reliability independently at each time step, whereas Visual Tripwires models instability over a trailing temporal window."
+      },
+      {
+        "id": "S5.SS5",
+        "heading": "5.5 Evaluation Metrics",
+        "level": 2,
+        "text": "We report AUROC, AUPRC, warning lead time, and false alarm rate on held-out test sequences. Lead time measures the number of steps between tripwire activation and failure and is reported only for sequences that contain a failure event. False alarm rate is the proportion of non-failing sequences in which the tripwire activates. Each experiment is repeated over five runs with different random seeds and a fixed data split. Where available, results are reported as mean ± \\pm standard deviation; otherwise, the mean across the five runs is reported. We use inverse-frequency class weighting in the binary cross-entropy loss to account for the imbalance between stable and future-failure windows."
+      },
+      {
+        "id": "S5.SS6",
+        "heading": "5.6 Implementation Details",
+        "level": 2,
+        "text": "All experiments are implemented in PyTorch using publicly available pretrained checkpoints without finetuning on corrupted data. We use a sliding window of w = 5 w=5 , a prediction horizon of Δ = 10 \\Delta=10 , and a sequence length of T = 100 T=100 , unless stated otherwise. The values of w w and Δ \\Delta are selected through grid search on the validation split. The aggregation function g ⁡ ( ⋅ ) g(\\cdot) is trained using Adam with a learning rate of 10 − 4 10^{-4} and a batch size of 32 32 . The loss weights λ pred \\lambda_{\\mathrm{pred}} and λ temp \\lambda_{\\mathrm{temp}} , together with the decision threshold τ \\tau , are selected on the validation split and fixed during testing. Experiments are conducted on NVIDIA 2080 Ti GPUs."
+      },
+      {
+        "id": "S6",
+        "heading": "6 Results",
+        "level": 1,
+        "text": "We evaluated visual tripwires across multiple architectures, datasets, and perturbation settings to assess whether temporal instability dynamics provides reliable early warning signals prior to predictive collapse. We compare our framework against standard uncertainty estimation and reliability baselines under progressive corruption and distribution shift."
+      },
+      {
+        "id": "S6.SS1",
+        "heading": "6.1 Failure Prediction Across Datasets",
+        "level": 2,
+        "text": "We first evaluate failure prediction performance across multiple datasets and vision architectures. Table 1 reports AUROC and lead time under progressive perturbations. Visual Tripwires consistently outperform conventional uncertainty estimation methods across all datasets and architectures. In addition to achieving the highest AUROC, the proposed framework provides substantially larger lead time prior to failure events, demonstrating that instability in latent dynamics emerges before predictive degradation becomes observable. Table 1: Failure prediction performance across datasets and architectures. Dataset Method ResNet50 ViT-B Swin-T Lead Time CIFAR-10-C MSP 0.71 ± \\pm 0.01 0.69 ± \\pm 0.02 0.72 ± \\pm 0.01 2.1 Predictive Entropy 0.73 ± \\pm 0.01 0.72 ± \\pm 0.01 0.74 ± \\pm 0.01 2.5 MC Dropout 0.76 ± \\pm 0.01 0.75 ± \\pm 0.01 0.77 ± \\pm 0.01 3.0 Deep Ensembles 0.79 ± \\pm 0.01 0.78 ± \\pm 0.01 0.80 ± \\pm 0.01 3.4 ODIN 0.81 ± \\pm 0.01 0.80 ± \\pm 0.01 0.82 ± \\pm 0.01 3.6 Visual Tripwires (Ours) 0.88 ± \\pm 0.01 0.89 ± \\pm 0.01 0.90 ± \\pm 0.01 6.7 ImageNet-C MSP 0.68 ± \\pm 0.02 0.66 ± \\pm 0.02 0.69 ± \\pm 0.01 1.9 Predictive Entropy 0.71 ± \\pm 0.01 0.70 ± \\pm 0.01 0.72 ± \\pm 0.01 2.3 MC Dropout 0.74 ± \\pm 0.01 0.73 ± \\pm 0.01 0.75 ± \\pm 0.01 2.9 Deep Ensembles 0.78 ± \\pm 0.01 0.77 ± \\pm 0.01 0.79 ± \\pm 0.01 3.2 ODIN 0.80 ± \\pm 0.01 0.79 ± \\pm 0.01 0.81 ± \\pm 0.01 3.5 Visual Tripwires (Ours) 0.87 ± \\pm 0.01 0.88 ± \\pm 0.01 0.89 ± \\pm 0.01 6.4 BDD100K MSP 0.69 ± \\pm 0.01 0.68 ± \\pm 0.01 0.70 ± \\pm 0.01 2.0 Predictive Entropy 0.72 ± \\pm 0.01 0.71 ± \\pm 0.01 0.73 ± \\pm 0.01 2.4 MC Dropout 0.75 ± \\pm 0.01 0.74 ± \\pm 0.01 0.76 ± \\pm 0.01 3.1 Deep Ensembles 0.79 ± \\pm 0.01 0.78 ± \\pm 0.01 0.80 ± \\pm 0.01 3.5 ODIN 0.81 ± \\pm 0.01 0.80 ± \\pm 0.01 0.82 ± \\pm 0.01 3.7 Visual Tripwires (Ours) 0.89 ± \\pm 0.01 0.90 ± \\pm 0.01 0.91 ± \\pm 0.01 7.1"
+      },
+      {
+        "id": "S6.SS2",
+        "heading": "6.2 Temporal Instability Emerges Before Failure",
+        "level": 2,
+        "text": "We next analyze the temporal evolution of instability signals under progressive perturbations. Figure 3 visualizes representation drift, prediction oscillation, and tripwire scores together with model accuracy. Figure 3: Temporal evolution of instability signals under progressive corruption. Instability dynamics and tripwire scores rise consistently before predictive degradation, providing early warning signals of impending failure. Across all datasets, the instability signals increase before predictive degradation. In particular, prediction confidence often remains high while latent instability increases substantially, indicating that representation dynamics contain predictive information that is not captured by conventional uncertainty measures. We also observe increasing trajectory fragmentation as the severity of the perturbation increases, suggesting that predictive degradation is preceded by structural instability in the latent feature space."
+      },
+      {
+        "id": "S6.SS3",
+        "heading": "6.3 Case Study: Early Detection of Failure Under Progressive Occlusion",
+        "level": 2,
+        "text": "To better understand the behaviour of Visual Tripwires in realistic settings, we analyze a representative failure trajectory from BDD100K under progressive visual occlusion. Figure 4 illustrates the evolution of prediction confidence, tripwire score, and model accuracy as occlusion severity increases over time. Figure 4: Case study under progressive visual occlusion. Prediction confidence remains high during the early stages of degradation, whereas tripwire scores increase substantially before predictive failure becomes observable. As occlusion severity increases, the model initially maintains high prediction confidence despite progressive degradation in latent representation stability. In contrast, the tripwire score rises steadily and activates approximately six time steps before the failure event. Notably, confidence based reliability measures remain largely unchanged until shortly before prediction accuracy deteriorates, whereas instability signals provide a substantially earlier indication of degradation. This behaviour suggests that latent representation dynamics contain predictive information about future failure that is not captured by conventional confidence estimates. These observations provide qualitative evidence for our central hypothesis that predictive failure emerges progressively through instability in representation geometry rather than as an instantaneous prediction error."
+      },
+      {
+        "id": "S6.SS4",
+        "heading": "6.4 Robustness Under Distribution Shift",
+        "level": 2,
+        "text": "We further evaluate Visual Tripwires under unseen corruption types and out of distribution settings. Table 2 reports failure prediction performance under unseen perturbations. Table 2: Failure prediction under unseen distribution shifts. Method AUROC ↑ \\uparrow False Alarm Rate ↓ \\downarrow MSP 0.65 0.31 Entropy 0.69 0.28 MC Dropout 0.73 0.24 Ensemble 0.76 0.21 ODIN 0.79 0.18 Ours 0.86 0.12 Visual Tripwires consistently outperform uncertainty based baselines under unseen perturbations, achieving higher AUROC and lower false alarm rates. While conventional confidence measures often become unreliable under strong corruption, instability signals extracted from latent trajectories remain sensitive to structural degradation, enabling earlier and more robust failure detection."
+      },
+      {
+        "id": "S6.SS5",
+        "heading": "6.5 Ablation Study",
+        "level": 2,
+        "text": "We evaluate the contribution of each instability signal using a leave-one-component-out ablation. Each configuration is evaluated over five independent runs, and Table 3 reports the mean failure prediction AUROC and mean warning lead time across these runs. Table 3: Ablation of individual instability signals. Results are averaged over five independent runs. Configuration Mean AUROC ↑ \\uparrow Mean Lead Time (steps) ↑ \\uparrow Without Representation Drift 0.82 5.0 Without Prediction Oscillation 0.84 5.3 Without Trajectory Curvature 0.85 5.6 Without Attention Entropy 0.86 5.8 Full Model 0.90 7.1 The full model achieves the highest mean AUROC and the longest mean warning lead time. Removing representation drift causes the largest performance reduction, decreasing AUROC by 0.08 and lead time by 2.1 steps. Removing prediction oscillation produces the second-largest reduction, followed by trajectory curvature and attention entropy. Performance declines whenever a component is removed, indicating that the four instability signals provide complementary information for anticipating predictive failure. Representation drift and prediction oscillation make the largest observed contributions under this evaluation."
+      },
+      {
+        "id": "S6.SS6",
+        "heading": "6.6 Qualitative Analysis",
+        "level": 2,
+        "text": "Figure 5 provides a qualitative visualization of representation dynamics under progressive perturbations. Figure 5: Qualitative analysis of Visual Tripwires under progressive perturbations. Stable operating regimes exhibit smooth latent trajectories and low tripwire scores, while impending failure is characterized by trajectory fragmentation and increasing instability signals. Stable operating regimes are associated with smooth and coherent latent trajectories. As perturbation severity increases, representation trajectories become increasingly fragmented, accompanied by rising tripwire scores. These qualitative observations are consistent with the quantitative results and support the hypothesis that predictive degradation is preceded by structural changes in latent representation geometry."
+      },
+      {
+        "id": "S7",
+        "heading": "7 Conclusion",
+        "level": 1,
+        "text": "We introduced Visual Tripwires , a predictive reliability framework that uses temporal changes in model behaviour to identify impending failures in deep vision systems. The framework combines representation drift, prediction oscillation, trajectory curvature, and attention entropy to detect emerging instability before a predefined failure event. Experiments across CIFAR-10-C, ImageNet-C, and BDD100K demonstrate that Visual Tripwires consistently outperform confidence and uncertainty based baselines in failure prediction AUROC while providing longer warning lead times. The framework also remains effective under unseen distribution shifts, achieving higher detection performance and fewer false alarms. The ablation results show that each instability signal contributes to performance, with representation drift and prediction oscillation producing the largest observed gains. Together, these findings indicate that temporal changes in latent representations and predictions provide information about impending failure that is not fully captured by individual confidence estimates. Future work will evaluate Visual Tripwires on dense prediction tasks, multimodal models, and naturally occurring distribution shifts. A further direction is to connect tripwire activation to adaptive responses, such as abstention, human review, input restoration, or dynamic model selection, enabling systems to act on early warnings before reliability deteriorates."
+      },
+      {
+        "id": "S7.SS1",
+        "heading": "7.1 Limitations",
+        "level": 2,
+        "text": "Visual Tripwires require a temporally ordered sequence of inputs and may therefore be less suitable for isolated predictions without meaningful temporal or perturbation structure. Warning reliability may also decrease under abrupt domain transitions, where failure occurs before a sufficiently long instability trajectory can be observed, or in highly stochastic environments, where normal variation may resemble failure related instability. The framework requires access to intermediate representations and, for attention based signals, internal attention maps. This limits direct application to closed source systems that expose only output probabilities or predicted labels. The current instability measures are manually specified and may not capture all forms of model degradation. Their thresholds may also require calibration when transferring the framework across architectures, datasets, or deployment conditions. Finally, the evaluation primarily uses controlled corruptions and progressive perturbations. Although these settings enable precise measurement of failure onset and warning lead time, they do not represent the full complexity of deployment environments, where multiple shifts may occur simultaneously and failure boundaries may be ambiguous. Evaluation on naturally occurring temporal shifts and prospective deployment data is therefore required to establish practical generalization."
+      },
+      {
+        "id": "bib",
+        "heading": "References",
+        "level": 1,
+        "text": "[1] J. Deng, W. Dong, R. Socher, L. Li, K. Li, and L. Fei-Fei (2009) Imagenet: a large-scale hierarchical image database . In 2009 IEEE conference on computer vision and pattern recognition , pp. 248–255 . Cited by: §5.1 . [2] A. Dosovitskiy, L. Beyer, A. Kolesnikov, D. Weissenborn, X. Zhai, T. Unterthiner, M. Dehghani, M. Minderer, G. Heigold, S. Gelly, et al. (2020) An image is worth 16x16 words: transformers for image recognition at scale . arXiv preprint arXiv:2010.11929 . Cited by: §1 , §5.2 . [3] Y. Gal and Z. Ghahramani (2016) Dropout as a bayesian approximation: representing model uncertainty in deep learning . In international conference on machine learning , pp. 1050–1059 . Cited by: §2 , §5.4 . [4] J. Gama, I. Žliobaitė, A. Bifet, M. Pechenizkiy, and A. Bouchachia (2014) A survey on concept drift adaptation . ACM computing surveys (CSUR) 46 ( 4 ), pp. 1–37 . Cited by: §2 . [5] Y. Geifman and R. El-Yaniv (2017) Selective classification for deep neural networks . Advances in neural information processing systems 30 . Cited by: §2 . [6] Y. Geifman and R. El-Yaniv (2019) Selectivenet: a deep neural network with an integrated reject option . In International conference on machine learning , pp. 2151–2159 . Cited by: §2 . [7] R. Geirhos, J. Jacobsen, C. Michaelis, R. Zemel, W. Brendel, M. Bethge, and F. A. Wichmann (2020) Shortcut learning in deep neural networks . Nature Machine Intelligence 2 ( 11 ), pp. 665–673 . Cited by: §1 , §2 . [8] C. Guo, G. Pleiss, Y. Sun, and K. Q. Weinberger (2017) On calibration of modern neural networks . In International conference on machine learning , pp. 1321–1330 . Cited by: §1 , §2 , §5.4 . [9] K. He, X. Zhang, S. Ren, and J. Sun (2016) Deep residual learning for image recognition . In Proceedings of the IEEE conference on computer vision and pattern recognition , pp. 770–778 . Cited by: §1 , §5.2 . [10] D. Hendrycks and T. Dietterich (2019) Benchmarking neural network robustness to common corruptions and perturbations . arXiv preprint arXiv:1903.12261 . Cited by: §1 , §2 , §5.1 . [11] D. Hendrycks and K. Gimpel (2016) A baseline for detecting misclassified and out-of-distribution examples in neural networks . arXiv preprint arXiv:1610.02136 . Cited by: §1 , §2 , §5.4 . [12] A. Krizhevsky G. Hinton et al. (2009) Learning multiple layers of features from tiny images . Cited by: §5.1 . [13] B. Lakshminarayanan, A. Pritzel, and C. Blundell (2017) Simple and scalable predictive uncertainty estimation using deep ensembles . Advances in neural information processing systems 30 . Cited by: §1 , §2 , §5.4 . [14] S. Liang, Y. Li, and R. Srikant (2017) Enhancing the reliability of out-of-distribution image detection in neural networks . arXiv preprint arXiv:1706.02690 . Cited by: §2 , §5.4 . [15] W. Liu, W. Luo, D. Lian, and S. Gao (2018) Future frame prediction for anomaly detection-a new baseline . In 2018 IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 6536–6545 . Cited by: §2 . [16] Z. Liu, Y. Lin, Y. Cao, H. Hu, Y. Wei, Z. Zhang, S. Lin, and B. Guo (2021) Swin transformer: hierarchical vision transformer using shifted windows . In Proceedings of the IEEE/CVF international conference on computer vision , pp. 10012–10022 . Cited by: §1 , §5.2 . [17] A. Malinin and M. Gales (2018) Predictive uncertainty estimation via prior networks . Advances in neural information processing systems 31 . Cited by: §5.4 . [18] A. Morcos, M. Raghu, and S. Bengio (2018) Insights on representational similarity in neural networks with canonical correlation . Advances in neural information processing systems 31 . Cited by: §1 , §2 . [19] Y. Ovadia, E. Fertig, J. Ren, Z. Nado, D. Sculley, S. Nowozin, J. Dillon, B. Lakshminarayanan, and J. Snoek (2019) Can you trust your model’s uncertainty? evaluating predictive uncertainty under dataset shift . Advances in neural information processing systems 32 . Cited by: §1 , §2 . [20] M. Raghu, J. Gilmer, J. Yosinski, and J. Sohl-Dickstein (2017) Svcca: singular vector canonical correlation analysis for deep learning dynamics and interpretability . Advances in neural information processing systems 30 . Cited by: §1 , §2 . [21] M. Scheffer, J. Bascompte, W. A. Brock, V. Brovkin, S. R. Carpenter, V. Dakos, H. Held, E. H. Van Nes, M. Rietkerk, and G. Sugihara (2009) Early-warning signals for critical transitions . Nature 461 ( 7260 ), pp. 53–59 . Cited by: §1 , §2 . [22] W. Sultani, C. Chen, and M. Shah (2018) Real-world anomaly detection in surveillance videos . In 2018 IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 6479–6488 . Cited by: §2 . [23] Y. Sun, X. Wang, Z. Liu, J. Miller, A. Efros, and M. Hardt (2020) Test-time training with self-supervision for generalization under distribution shifts . In International conference on machine learning , pp. 9229–9248 . Cited by: §1 , §2 . [24] D. Wang, E. Shelhamer, S. Liu, B. Olshausen, and T. Darrell (2020) Tent: fully test-time adaptation by entropy minimization . arXiv preprint arXiv:2006.10726 . Cited by: §1 , §2 . [25] F. Yu, H. Chen, X. Wang, W. Xian, Y. Chen, F. Liu, V. Madhavan, and T. Darrell (2020) Bdd100k: a diverse driving dataset for heterogeneous multitask learning . In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pp. 2636–2645 . Cited by: §5.1 ."
+      }
+    ]
+  },
+  "text": "Visual Tripwires: Anticipating Failure in Deep Vision Systems Skip to main content Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: Why HTML? Report Issue Back to Abstract Download PDF Contents Reading mode Colour theme License: CC BY-NC-ND 4.0 arXiv:2609.28099v1 [cs.CV] 23 Sep 2026 BMVC Author Guidelines Visual Tripwires: Anticipating Failure in Deep Vision Systems Anoushka Harit Rehan Zuberi William Prew Florian Markowetz Abstract Deep vision systems remain vulnerable to corruption, occlusion, and distribution shift despite strong benchmark performance. Existing reliability methods typically evaluate uncertainty at individual time steps and do not explicitly model how a system progresses toward failure. We introduce Visual Tripwires , a predictive reliability framework that uses temporal instability in model behaviour to anticipate impending failure. Our central hypothesis is that predictive degradation develops progressively through measurable changes in latent representations, prediction trajectories, and attention structure. Visual Tripwires captures these changes using representation drift, prediction oscillation, trajectory curvature, and attention entropy. A lightweight tripwire predictor aggregates these signals over a temporal window to estimate the probability of failure within a future prediction horizon. Experiments across multiple datasets, architectures, and progressive perturbation settings show that the proposed instability signals emerge before predictive degradation and provide earlier and more accurate failure warnings than conventional uncertainty estimation methods. These results demonstrate that temporal instability contains useful information about future model reliability and provides a practical basis for early warning in deep vision systems. † † affiliation: Cancer Research UK Cambridge Institute University of Cambridge Cambridge, UK 1 Introduction Deep vision systems have achieved remarkable success across image classification, object detection, segmentation, tracking, and video understanding tasks [ 9 , 2 , 16 ] . Despite strong benchmark performance, they remain highly vulnerable to corruption, occlusion, and distribution shift [ 10 , 7 , 19 ] . In safety relevant settings such as content moderation or driving perception, this vulnerability is consequential: a model that fails silently can propagate an incorrect decision before a human has the chance to intervene. Existing reliability methods, including calibration and out of distribution detection [ 8 , 13 , 11 ] , underlie selective prediction, where a model defers to human review once confidence falls below a threshold. However, these methods assess reliability independently at each time step and typically detect unreliability only after degradation has occurred, leaving little lead time for review before a failure propagates. Complex dynamical systems often exhibit early warning signals prior to critical transitions, with increasing variance and structural disruption preceding failure [ 21 ] . Motivated by this, we treat failure in vision systems as a process rather than an isolated event, one that unfolds through instability in internal representation dynamics before it is visible in model outputs. This is supported by evidence that latent representations encode structural information about model behaviour [ 20 , 18 ] and are sensitive to distribution shift [ 24 , 23 ] , yet existing reliability methods rarely model this temporal evolution. We introduce Visual Tripwires , a framework that models the temporal evolution of latent representations, prediction trajectories, and attention structure to anticipate unreliable operating regimes before predictive collapse, providing lead time for human review. We define a family of instability signals, representation drift, prediction oscillation, latent trajectory curvature, and attention entropy, and aggregate them into a tripwire score that estimates the probability of future failure within a prediction horizon. This reframes reliability estimation as a temporal instability modeling problem, better suited to selective prediction under sustained perturbation. We evaluate our framework across multiple architectures, datasets, and progressive perturbation settings, including a driving scene dataset relevant to deployment. Instability signals consistently rise before predictive degradation, providing substantially longer early warning than conventional uncertainty estimation. While our experiments focus on benign corruption, the same signature, sustained deviation building over time, is also expected under adaptive or adversarial perturbation, motivating temporal instability modeling as a direction for robust, verifiable vision systems. 2 Related Work Reliability in deep vision has primarily been addressed through per instance uncertainty estimation. Maximum softmax probability [ 11 ] and temperature scaling [ 8 ] calibrate confidence for a single prediction; Monte Carlo dropout [ 3 ] and deep ensembles [ 13 ] approximate uncertainty through sampling; ODIN [ 14 ] refines confidence using input perturbations. All condition only on the current prediction, so they detect unreliability only once it is already visible in the output. Selective prediction builds on these scores to decide when a model should abstain or defer to human review [ 5 , 6 ] , but inherits the same limitation: deferral is triggered at the point of failure, not before it. Our framework targets exactly this gap, providing the lead time that selective prediction requires to be preventive rather than reactive. Vision models degrade sharply under corruption and distribution shift [ 10 , 7 ] , and uncertainty estimates are known to remain poorly calibrated under exactly these conditions [ 19 ] . Test time adaptation methods such as Tent [ 24 ] and test time training [ 23 ] respond to this by updating model parameters online, treating representation instability as a fault to correct. We instead treat that instability as the signal itself, exploiting it to anticipate failure rather than to repair the model. This is grounded in evidence that latent representations carry structural information about generalization, typically probed through canonical correlation analysis [ 20 , 18 ] . Such analyses compare static snapshots of a trained network; we instead track the temporal evolution of a single network’s representations along a trajectory, converting a diagnostic tool into an online monitoring signal. Detecting distributional change in streaming data is a long standing problem in statistics, addressed by methods such as the Page-Hinkley test, CUSUM, and adaptive windowing [ 4 ] . These operate on scalar output statistics and are agnostic to model internals. Our instability signals are model internal analogues of the same principle, computed over latent representations and attention structure rather than output metrics, and combined through a learned aggregation rather than a fixed statistical test. The underlying hypothesis, that systems display measurable irregularity before a critical transition, is established in complex systems research, where rising variance and oscillation are known to precede collapse in ecological, climate, and biological systems [ 21 ] . This principle has so far been applied to physical and biological dynamical systems; we apply it to the latent trajectory of a vision model under perturbation, treating predictive failure as the critical transition to be anticipated. Video anomaly detection identifies frames or segments that deviate from normal appearance or motion [ 15 , 22 ] , but targets anomalies in the scene, not instability in the model perceiving it. Our framework asks a different question: not whether the input is anomalous, but whether the model’s own response to it is becoming unstable, which we argue is the more direct signal of impending failure. 3 Problem Formulation Consider a temporally ordered sequence of visual inputs: X = { x t } t = 1 T , x t ∈ ℝ H × W × C , X=\\{x_{t}\\}_{t=1}^{T},\\qquad x_{t}\\in\\mathbb{R}^{H\\times W\\times C}, (1) where x t x_{t} denotes an image or video frame observed at time step t t . Given an input x t x_{t} , a vision model f θ f_{\\theta} produces a predictive distribution over K K task outcomes: p t = f θ ​ ( x t ) ∈ Δ K − 1 , p_{t}=f_{\\theta}(x_{t})\\in\\Delta^{K-1}, (2) where Δ K − 1 \\Delta^{K-1} denotes the K K -class probability simplex. We additionally extract an intermediate latent representation: z t = ϕ θ ​ ( x t ) ∈ ℝ d . z_{t}=\\phi_{\\theta}(x_{t})\\in\\mathbb{R}^{d}. (3) At time t t , the recent behaviour of the model is represented by a temporal window of length w w : ℋ t = { ( z τ , p τ ) } τ = t − w + 1 t . \\mathcal{H}_{t}=\\left\\{(z_{\\tau},p_{\\tau})\\right\\}_{\\tau=t-w+1}^{t}. (4) This history captures temporal changes in both the internal representations and model predictions. Let r t r_{t} denote a task-specific reliability score, and let γ \\gamma be the minimum acceptable reliability threshold. We define a persistent failure state as: F t = 𝕀 [ r τ < γ , ∀ τ ∈ { t − m + 1 , … , t } ] , F_{t}=\\mathbb{I}\\left[r_{\\tau}<\\gamma,\\quad\\forall\\tau\\in\\{t-m+1,\\ldots,t\\}\\right], (5) where m m is the number of consecutive time steps required to distinguish persistent degradation from an isolated prediction error. Given a future prediction horizon Δ \\Delta , the early warning target is defined as: Y t ( Δ ) = 𝕀 [ max τ ∈ { t + 1 , … , t + Δ } F τ = 1 ] . Y_{t}^{(\\Delta)}=\\mathbb{I}\\left[\\max_{\\tau\\in\\{t+1,\\ldots,t+\\Delta\\}}F_{\\tau}=1\\right]. (6) Thus, Y t ( Δ ) = 1 Y_{t}^{(\\Delta)}=1 when the model enters a failure state at any point within the next Δ \\Delta time steps. The objective is to learn a tripwire function g ψ g_{\\psi} that estimates the probability of future failure from the recent model trajectory: q t = g ψ ​ ( ℋ t ) ≈ P ⁡ ( Y t ( Δ ) = 1 ∣ ℋ t ) . q_{t}=g_{\\psi}(\\mathcal{H}_{t})\\approx P\\left(Y_{t}^{(\\Delta)}=1\\mid\\mathcal{H}_{t}\\right). (7) A warning is activated when the estimated failure probability exceeds a decision threshold η \\eta : A t = 𝕀 [ q t ≥ η ] , A_{t}=\\mathbb{I}\\left[q_{t}\\geq\\eta\\right], (8) where A t = 1 A_{t}=1 indicates an early warning. The threshold η \\eta is selected using validation data. Figure 1: Predictive failure formulation. Given the observed model history ℋ t \\mathcal{H}_{t} , the objective is to estimate the probability that the model enters a persistent failure state within the future horizon Δ \\Delta . We hypothesize that impending failure is preceded by measurable temporal instability. Stable operation produces smooth representation trajectories and consistent predictions, whereas emerging failure produces increasing representation drift, prediction oscillation, trajectory curvature, and attention uncertainty. Visual Tripwires uses these temporal signals to identify an emerging unreliable regime before the model crosses the predefined failure threshold. 4 Method We introduce Visual Tripwires , a framework that predicts impending model failure from the temporal evolution of internal representations and predictions. Given the model history ℋ t \\mathcal{H}_{t} defined in Section 3 , we compute a set of instability signals, aggregate their recent values using a lightweight prediction network, and estimate the probability that the model will enter an unreliable state within the next Δ \\Delta time steps. Figure 2 presents an overview of the framework. Figure 2: Overview of Visual Tripwires. Instability signals derived from latent representations, predictions, and attention maps are aggregated over a temporal window to estimate the probability of future model failure. 4.1 Temporal Instability Signals Let z t ∈ ℝ d z_{t}\\in\\mathbb{R}^{d} and p t ∈ Δ K − 1 p_{t}\\in\\Delta^{K-1} denote the latent representation and predictive distribution produced at time t t . We compute four complementary instability signals. All signals are defined for t ≥ 3 t\\geq 3 , allowing the first and second temporal differences to be evaluated. Representation Drift. Representation drift measures the displacement between consecutive latent states: D t = ‖ z t − z t − 1 ‖ 2 . D_{t}=\\left\\|z_{t}-z_{t-1}\\right\\|_{2}. (9) Large values indicate rapid changes in the internal representation of temporally adjacent inputs. Prediction Oscillation. Prediction oscillation measures the change in the model’s predictive distribution: O t = ‖ p t − p t − 1 ‖ 2 . O_{t}=\\left\\|p_{t}-p_{t-1}\\right\\|_{2}. (10) This signal increases when the model produces inconsistent predictions across consecutive observations. Trajectory Curvature. We approximate the local curvature of the latent trajectory using its discrete second difference: C t = ‖ z t − 2 ​ z t − 1 + z t − 2 ‖ 2 . C_{t}=\\left\\|z_{t}-2z_{t-1}+z_{t-2}\\right\\|_{2}. (11) Unlike representation drift, which measures displacement, curvature captures changes in the direction and rate of movement through the representation space. Attention Entropy. For transformer architectures, let A t h ​ ( i , j ) A_{t}^{h}(i,j) denote the attention assigned by query token i i to key token j j in head h h , where ∑ j = 1 n A t h ​ ( i , j ) = 1 . \\sum_{j=1}^{n}A_{t}^{h}(i,j)=1. (12) Attention entropy is defined as: E t = − 1 H ​ n ∑ h = 1 H ∑ i = 1 n ∑ j = 1 n A t h ( i , j ) log ( A t h ( i , j ) + ϵ ) , E_{t}=-\\frac{1}{Hn}\\sum_{h=1}^{H}\\sum_{i=1}^{n}\\sum_{j=1}^{n}A_{t}^{h}(i,j)\\log\\left(A_{t}^{h}(i,j)+\\epsilon\\right), (13) where H H is the number of attention heads, n n is the number of tokens, and ϵ > 0 \\epsilon>0 ensures numerical stability. Higher entropy indicates more diffuse attention. For convolutional architectures, the attention signal is omitted and the tripwire predictor operates on the remaining three signals. 4.2 Signal Normalization Because the instability signals have different numerical scales, each signal is standardized using statistics estimated from clean reference sequences. For a signal S t ∈ { D t , O t , C t , E t } S_{t}\\in\\{D_{t},O_{t},C_{t},E_{t}\\} , we compute: S ~ t = S t − μ S σ S + ϵ , \\widetilde{S}_{t}=\\frac{S_{t}-\\mu_{S}}{\\sigma_{S}+\\epsilon}, (14) where μ S \\mu_{S} and σ S \\sigma_{S} are the mean and standard deviation of S S on the clean reference split. These statistics remain fixed during validation and testing. The normalized instability vector is: s t = [ D ~ t O ~ t C ~ t E ~ t ] ⊤ . s_{t}=\\begin{bmatrix}\\widetilde{D}_{t}&\\widetilde{O}_{t}&\\widetilde{C}_{t}&\\widetilde{E}_{t}\\end{bmatrix}^{\\top}. (15) For convolutional architectures, s t s_{t} contains only D ~ t \\widetilde{D}_{t} , O ~ t \\widetilde{O}_{t} , and C ~ t \\widetilde{C}_{t} . 4.3 Visual Tripwire Predictor To distinguish sustained instability from isolated fluctuations, we concatenate the instability vectors from a trailing window of length w w : S t ( w ) = vec ⁡ ( s t − w + 1 , … , s t ) . S_{t}^{(w)}=\\operatorname{vec}\\left(s_{t-w+1},\\ldots,s_{t}\\right). (16) A lightweight multilayer perceptron g ψ g_{\\psi} maps the windowed signals to a scalar logit: a t = g ψ ​ ( S t ( w ) ) . a_{t}=g_{\\psi}\\left(S_{t}^{(w)}\\right). (17) The Visual Tripwire score is the corresponding probability of failure within the future horizon: q t = σ ⁡ ( a t ) ≈ P ⁡ ( Y t ( Δ ) = 1 ∣ S t ( w ) ) , q_{t}=\\sigma(a_{t})\\approx P\\left(Y_{t}^{(\\Delta)}=1\\mid S_{t}^{(w)}\\right), (18) where σ ⁡ ( ⋅ ) \\sigma(\\cdot) is the sigmoid function and Y t ( Δ ) Y_{t}^{(\\Delta)} is the future failure label defined in Equation 6 . A warning is issued when: q t ≥ η , q_{t}\\geq\\eta, (19) where η \\eta is selected on the validation set. The base vision model f θ f_{\\theta} remains fixed, and only the parameters ψ \\psi of the tripwire predictor are optimized. 4.4 Training Objective The tripwire predictor is trained using binary cross entropy over all valid temporal windows: ℒ BCE = − 1 N ∑ t ∈ ℐ [ Y t ( Δ ) log q t + ( 1 − Y t ( Δ ) ) log ( 1 − q t ) ] , \\mathcal{L}_{\\mathrm{BCE}}=-\\frac{1}{N}\\sum_{t\\in\\mathcal{I}}\\left[Y_{t}^{(\\Delta)}\\log q_{t}+\\left(1-Y_{t}^{(\\Delta)}\\right)\\log\\left(1-q_{t}\\right)\\right], (20) where ℐ \\mathcal{I} is the set of valid training indices and N = | ℐ | N=|\\mathcal{I}| . We additionally introduce a temporal regularization term to discourage unstable changes in consecutive tripwire scores: ℒ temp = 1 N − 1 ​ ∑ t ∈ ℐ ( q t − q t − 1 ) 2 . \\mathcal{L}_{\\mathrm{temp}}=\\frac{1}{N-1}\\sum_{t\\in\\mathcal{I}}\\left(q_{t}-q_{t-1}\\right)^{2}. (21) The complete training objective is: ℒ = ℒ BCE + λ temp ​ ℒ temp , \\mathcal{L}=\\mathcal{L}_{\\mathrm{BCE}}+\\lambda_{\\mathrm{temp}}\\mathcal{L}_{\\mathrm{temp}}, (22) where λ temp \\lambda_{\\mathrm{temp}} controls the strength of temporal regularization. The binary cross entropy term trains the model to predict future failure, while the temporal term reduces isolated fluctuations in the warning score. 5 Experimental Setup We evaluate Visual Tripwires for predictive failure estimation under progressive corruption and distribution shift. Given a temporally perturbed input sequence, the objective is to predict whether the model will enter an unreliable regime before degradation becomes observable in its outputs. 5.1 Datasets We evaluate on CIFAR-10-C and ImageNet-C [ 10 ] , which extend CIFAR-10 [ 12 ] and ImageNet [ 1 ] with 15 corruption types at five severity levels. Because these benchmarks do not provide dense temporal sequences, we construct a trajectory for each clean image by interpolating corruption intensity across and beyond the benchmark severity levels. This produces a sequence X = { x 1 , … , x T } X=\\{x_{1},\\ldots,x_{T}\\} with monotonically increasing severity. For discrete corruptions, such as JPEG compression, each severity level is held for T / 5 T/5 consecutive steps. Trajectories are generated independently for each corruption type, and results are averaged across corruptions unless stated otherwise. We additionally evaluate on BDD100K [ 25 ] , which provides native temporal structure with variation in illumination, motion, and weather. Perturbations are applied along the existing temporal axis, providing a complementary evaluation under realistic changes in visual content. Training, validation, and test partitions are separated at the source-image or video-clip level to prevent correlated frames from appearing across splits. A subset of corruption types is excluded from training and evaluated separately to measure generalization to unseen distribution shifts. 5.2 Architectures We evaluate ResNet-50 [ 9 ] , ViT-B/16 [ 2 ] , and Swin-T [ 16 ] . Latent representations are extracted from the penultimate feature layer of ResNet-50 and the final CLS token embeddings of ViT-B/16 and Swin-T. For the transformer models, attention entropy is computed across all heads in the final layer. For ResNet-50, attention entropy is omitted and g ⁡ ( ⋅ ) g(\\cdot) is trained using the remaining three instability signals. 5.3 Progressive Failure Protocol We evaluate Gaussian noise, motion blur, defocus blur, brightness variation, contrast degradation, JPEG compression, and structured occlusion. Perturbation severity increases monotonically with time, producing gradual degradation in visual quality and representation stability. For classification tasks, failure is triggered when accuracy remains below 50 % 50\\% for five consecutive time steps. For BDD100K, failure is triggered when the predicted class changes more than three times within a five-step window or when maximum softmax confidence falls below 0.4 0.4 . All thresholds are selected on the validation split and fixed during testing. 5.4 Baselines We compare Visual Tripwires with Maximum Softmax Probability [ 11 ] , Predictive Entropy [ 17 ] , Temperature Scaling [ 8 ] , Monte Carlo Dropout [ 3 ] , Deep Ensembles [ 13 ] , and ODIN [ 14 ] . These baselines evaluate reliability independently at each time step, whereas Visual Tripwires models instability over a trailing temporal window. 5.5 Evaluation Metrics We report AUROC, AUPRC, warning lead time, and false alarm rate on held-out test sequences. Lead time measures the number of steps between tripwire activation and failure and is reported only for sequences that contain a failure event. False alarm rate is the proportion of non-failing sequences in which the tripwire activates. Each experiment is repeated over five runs with different random seeds and a fixed data split. Where available, results are reported as mean ± \\pm standard deviation; otherwise, the mean across the five runs is reported. We use inverse-frequency class weighting in the binary cross-entropy loss to account for the imbalance between stable and future-failure windows. 5.6 Implementation Details All experiments are implemented in PyTorch using publicly available pretrained checkpoints without finetuning on corrupted data. We use a sliding window of w = 5 w=5 , a prediction horizon of Δ = 10 \\Delta=10 , and a sequence length of T = 100 T=100 , unless stated otherwise. The values of w w and Δ \\Delta are selected through grid search on the validation split. The aggregation function g ⁡ ( ⋅ ) g(\\cdot) is trained using Adam with a learning rate of 10 − 4 10^{-4} and a batch size of 32 32 . The loss weights λ pred \\lambda_{\\mathrm{pred}} and λ temp \\lambda_{\\mathrm{temp}} , together with the decision threshold τ \\tau , are selected on the validation split and fixed during testing. Experiments are conducted on NVIDIA 2080 Ti GPUs. 6 Results We evaluated visual tripwires across multiple architectures, datasets, and perturbation settings to assess whether temporal instability dynamics provides reliable early warning signals prior to predictive collapse. We compare our framework against standard uncertainty estimation and reliability baselines under progressive corruption and distribution shift. 6.1 Failure Prediction Across Datasets We first evaluate failure prediction performance across multiple datasets and vision architectures. Table 1 reports AUROC and lead time under progressive perturbations. Visual Tripwires consistently outperform conventional uncertainty estimation methods across all datasets and architectures. In addition to achieving the highest AUROC, the proposed framework provides substantially larger lead time prior to failure events, demonstrating that instability in latent dynamics emerges before predictive degradation becomes observable. Table 1: Failure prediction performance across datasets and architectures. Dataset Method ResNet50 ViT-B Swin-T Lead Time CIFAR-10-C MSP 0.71 ± \\pm 0.01 0.69 ± \\pm 0.02 0.72 ± \\pm 0.01 2.1 Predictive Entropy 0.73 ± \\pm 0.01 0.72 ± \\pm 0.01 0.74 ± \\pm 0.01 2.5 MC Dropout 0.76 ± \\pm 0.01 0.75 ± \\pm 0.01 0.77 ± \\pm 0.01 3.0 Deep Ensembles 0.79 ± \\pm 0.01 0.78 ± \\pm 0.01 0.80 ± \\pm 0.01 3.4 ODIN 0.81 ± \\pm 0.01 0.80 ± \\pm 0.01 0.82 ± \\pm 0.01 3.6 Visual Tripwires (Ours) 0.88 ± \\pm 0.01 0.89 ± \\pm 0.01 0.90 ± \\pm 0.01 6.7 ImageNet-C MSP 0.68 ± \\pm 0.02 0.66 ± \\pm 0.02 0.69 ± \\pm 0.01 1.9 Predictive Entropy 0.71 ± \\pm 0.01 0.70 ± \\pm 0.01 0.72 ± \\pm 0.01 2.3 MC Dropout 0.74 ± \\pm 0.01 0.73 ± \\pm 0.01 0.75 ± \\pm 0.01 2.9 Deep Ensembles 0.78 ± \\pm 0.01 0.77 ± \\pm 0.01 0.79 ± \\pm 0.01 3.2 ODIN 0.80 ± \\pm 0.01 0.79 ± \\pm 0.01 0.81 ± \\pm 0.01 3.5 Visual Tripwires (Ours) 0.87 ± \\pm 0.01 0.88 ± \\pm 0.01 0.89 ± \\pm 0.01 6.4 BDD100K MSP 0.69 ± \\pm 0.01 0.68 ± \\pm 0.01 0.70 ± \\pm 0.01 2.0 Predictive Entropy 0.72 ± \\pm 0.01 0.71 ± \\pm 0.01 0.73 ± \\pm 0.01 2.4 MC Dropout 0.75 ± \\pm 0.01 0.74 ± \\pm 0.01 0.76 ± \\pm 0.01 3.1 Deep Ensembles 0.79 ± \\pm 0.01 0.78 ± \\pm 0.01 0.80 ± \\pm 0.01 3.5 ODIN 0.81 ± \\pm 0.01 0.80 ± \\pm 0.01 0.82 ± \\pm 0.01 3.7 Visual Tripwires (Ours) 0.89 ± \\pm 0.01 0.90 ± \\pm 0.01 0.91 ± \\pm 0.01 7.1 6.2 Temporal Instability Emerges Before Failure We next analyze the temporal evolution of instability signals under progressive perturbations. Figure 3 visualizes representation drift, prediction oscillation, and tripwire scores together with model accuracy. Figure 3: Temporal evolution of instability signals under progressive corruption. Instability dynamics and tripwire scores rise consistently before predictive degradation, providing early warning signals of impending failure. Across all datasets, the instability signals increase before predictive degradation. In particular, prediction confidence often remains high while latent instability increases substantially, indicating that representation dynamics contain predictive information that is not captured by conventional uncertainty measures. We also observe increasing trajectory fragmentation as the severity of the perturbation increases, suggesting that predictive degradation is preceded by structural instability in the latent feature space. 6.3 Case Study: Early Detection of Failure Under Progressive Occlusion To better understand the behaviour of Visual Tripwires in realistic settings, we analyze a representative failure trajectory from BDD100K under progressive visual occlusion. Figure 4 illustrates the evolution of prediction confidence, tripwire score, and model accuracy as occlusion severity increases over time. Figure 4: Case study under progressive visual occlusion. Prediction confidence remains high during the early stages of degradation, whereas tripwire scores increase substantially before predictive failure becomes observable. As occlusion severity increases, the model initially maintains high prediction confidence despite progressive degradation in latent representation stability. In contrast, the tripwire score rises steadily and activates approximately six time steps before the failure event. Notably, confidence based reliability measures remain largely unchanged until shortly before prediction accuracy deteriorates, whereas instability signals provide a substantially earlier indication of degradation. This behaviour suggests that latent representation dynamics contain predictive information about future failure that is not captured by conventional confidence estimates. These observations provide qualitative evidence for our central hypothesis that predictive failure emerges progressively through instability in representation geometry rather than as an instantaneous prediction error. 6.4 Robustness Under Distribution Shift We further evaluate Visual Tripwires under unseen corruption types and out of distribution settings. Table 2 reports failure prediction performance under unseen perturbations. Table 2: Failure prediction under unseen distribution shifts. Method AUROC ↑ \\uparrow False Alarm Rate ↓ \\downarrow MSP 0.65 0.31 Entropy 0.69 0.28 MC Dropout 0.73 0.24 Ensemble 0.76 0.21 ODIN 0.79 0.18 Ours 0.86 0.12 Visual Tripwires consistently outperform uncertainty based baselines under unseen perturbations, achieving higher AUROC and lower false alarm rates. While conventional confidence measures often become unreliable under strong corruption, instability signals extracted from latent trajectories remain sensitive to structural degradation, enabling earlier and more robust failure detection. 6.5 Ablation Study We evaluate the contribution of each instability signal using a leave-one-component-out ablation. Each configuration is evaluated over five independent runs, and Table 3 reports the mean failure prediction AUROC and mean warning lead time across these runs. Table 3: Ablation of individual instability signals. Results are averaged over five independent runs. Configuration Mean AUROC ↑ \\uparrow Mean Lead Time (steps) ↑ \\uparrow Without Representation Drift 0.82 5.0 Without Prediction Oscillation 0.84 5.3 Without Trajectory Curvature 0.85 5.6 Without Attention Entropy 0.86 5.8 Full Model 0.90 7.1 The full model achieves the highest mean AUROC and the longest mean warning lead time. Removing representation drift causes the largest performance reduction, decreasing AUROC by 0.08 and lead time by 2.1 steps. Removing prediction oscillation produces the second-largest reduction, followed by trajectory curvature and attention entropy. Performance declines whenever a component is removed, indicating that the four instability signals provide complementary information for anticipating predictive failure. Representation drift and prediction oscillation make the largest observed contributions under this evaluation. 6.6 Qualitative Analysis Figure 5 provides a qualitative visualization of representation dynamics under progressive perturbations. Figure 5: Qualitative analysis of Visual Tripwires under progressive perturbations. Stable operating regimes exhibit smooth latent trajectories and low tripwire scores, while impending failure is characterized by trajectory fragmentation and increasing instability signals. Stable operating regimes are associated with smooth and coherent latent trajectories. As perturbation severity increases, representation trajectories become increasingly fragmented, accompanied by rising tripwire scores. These qualitative observations are consistent with the quantitative results and support the hypothesis that predictive degradation is preceded by structural changes in latent representation geometry. 7 Conclusion We introduced Visual Tripwires , a predictive reliability framework that uses temporal changes in model behaviour to identify impending failures in deep vision systems. The framework combines representation drift, prediction oscillation, trajectory curvature, and attention entropy to detect emerging instability before a predefined failure event. Experiments across CIFAR-10-C, ImageNet-C, and BDD100K demonstrate that Visual Tripwires consistently outperform confidence and uncertainty based baselines in failure prediction AUROC while providing longer warning lead times. The framework also remains effective under unseen distribution shifts, achieving higher detection performance and fewer false alarms. The ablation results show that each instability signal contributes to performance, with representation drift and prediction oscillation producing the largest observed gains. Together, these findings indicate that temporal changes in latent representations and predictions provide information about impending failure that is not fully captured by individual confidence estimates. Future work will evaluate Visual Tripwires on dense prediction tasks, multimodal models, and naturally occurring distribution shifts. A further direction is to connect tripwire activation to adaptive responses, such as abstention, human review, input restoration, or dynamic model selection, enabling systems to act on early warnings before reliability deteriorates. 7.1 Limitations Visual Tripwires require a temporally ordered sequence of inputs and may therefore be less suitable for isolated predictions without meaningful temporal or perturbation structure. Warning reliability may also decrease under abrupt domain transitions, where failure occurs before a sufficiently long instability trajectory can be observed, or in highly stochastic environments, where normal variation may resemble failure related instability. The framework requires access to intermediate representations and, for attention based signals, internal attention maps. This limits direct application to closed source systems that expose only output probabilities or predicted labels. The current instability measures are manually specified and may not capture all forms of model degradation. Their thresholds may also require calibration when transferring the framework across architectures, datasets, or deployment conditions. Finally, the evaluation primarily uses controlled corruptions and progressive perturbations. Although these settings enable precise measurement of failure onset and warning lead time, they do not represent the full complexity of deployment environments, where multiple shifts may occur simultaneously and failure boundaries may be ambiguous. Evaluation on naturally occurring temporal shifts and prospective deployment data is therefore required to establish practical generalization. References [1] J. Deng, W. Dong, R. Socher, L. Li, K. Li, and L. Fei-Fei (2009) Imagenet: a large-scale hierarchical image database . In 2009 IEEE conference on computer vision and pattern recognition , pp. 248–255 . Cited by: §5.1 . [2] A. Dosovitskiy, L. Beyer, A. Kolesnikov, D. Weissenborn, X. Zhai, T. Unterthiner, M. Dehghani, M. Minderer, G. Heigold, S. Gelly, et al. (2020) An image is worth 16x16 words: transformers for image recognition at scale . arXiv preprint arXiv:2010.11929 . Cited by: §1 , §5.2 . [3] Y. Gal and Z. Ghahramani (2016) Dropout as a bayesian approximation: representing model uncertainty in deep learning . In international conference on machine learning , pp. 1050–1059 . Cited by: §2 , §5.4 . [4] J. Gama, I. Žliobaitė, A. Bifet, M. Pechenizkiy, and A. Bouchachia (2014) A survey on concept drift adaptation . ACM computing surveys (CSUR) 46 ( 4 ), pp. 1–37 . Cited by: §2 . [5] Y. Geifman and R. El-Yaniv (2017) Selective classification for deep neural networks . Advances in neural information processing systems 30 . Cited by: §2 . [6] Y. Geifman and R. El-Yaniv (2019) Selectivenet: a deep neural network with an integrated reject option . In International conference on machine learning , pp. 2151–2159 . Cited by: §2 . [7] R. Geirhos, J. Jacobsen, C. Michaelis, R. Zemel, W. Brendel, M. Bethge, and F. A. Wichmann (2020) Shortcut learning in deep neural networks . Nature Machine Intelligence 2 ( 11 ), pp. 665–673 . Cited by: §1 , §2 . [8] C. Guo, G. Pleiss, Y. Sun, and K. Q. Weinberger (2017) On calibration of modern neural networks . In International conference on machine learning , pp. 1321–1330 . Cited by: §1 , §2 , §5.4 . [9] K. He, X. Zhang, S. Ren, and J. Sun (2016) Deep residual learning for image recognition . In Proceedings of the IEEE conference on computer vision and pattern recognition , pp. 770–778 . Cited by: §1 , §5.2 . [10] D. Hendrycks and T. Dietterich (2019) Benchmarking neural network robustness to common corruptions and perturbations . arXiv preprint arXiv:1903.12261 . Cited by: §1 , §2 , §5.1 . [11] D. Hendrycks and K. Gimpel (2016) A baseline for detecting misclassified and out-of-distribution examples in neural networks . arXiv preprint arXiv:1610.02136 . Cited by: §1 , §2 , §5.4 . [12] A. Krizhevsky G. Hinton et al. (2009) Learning multiple layers of features from tiny images . Cited by: §5.1 . [13] B. Lakshminarayanan, A. Pritzel, and C. Blundell (2017) Simple and scalable predictive uncertainty estimation using deep ensembles . Advances in neural information processing systems 30 . Cited by: §1 , §2 , §5.4 . [14] S. Liang, Y. Li, and R. Srikant (2017) Enhancing the reliability of out-of-distribution image detection in neural networks . arXiv preprint arXiv:1706.02690 . Cited by: §2 , §5.4 . [15] W. Liu, W. Luo, D. Lian, and S. Gao (2018) Future frame prediction for anomaly detection-a new baseline . In 2018 IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 6536–6545 . Cited by: §2 . [16] Z. Liu, Y. Lin, Y. Cao, H. Hu, Y. Wei, Z. Zhang, S. Lin, and B. Guo (2021) Swin transformer: hierarchical vision transformer using shifted windows . In Proceedings of the IEEE/CVF international conference on computer vision , pp. 10012–10022 . Cited by: §1 , §5.2 . [17] A. Malinin and M. Gales (2018) Predictive uncertainty estimation via prior networks . Advances in neural information processing systems 31 . Cited by: §5.4 . [18] A. Morcos, M. Raghu, and S. Bengio (2018) Insights on representational similarity in neural networks with canonical correlation . Advances in neural information processing systems 31 . Cited by: §1 , §2 . [19] Y. Ovadia, E. Fertig, J. Ren, Z. Nado, D. Sculley, S. Nowozin, J. Dillon, B. Lakshminarayanan, and J. Snoek (2019) Can you trust your model’s uncertainty? evaluating predictive uncertainty under dataset shift . Advances in neural information processing systems 32 . Cited by: §1 , §2 . [20] M. Raghu, J. Gilmer, J. Yosinski, and J. Sohl-Dickstein (2017) Svcca: singular vector canonical correlation analysis for deep learning dynamics and interpretability . Advances in neural information processing systems 30 . Cited by: §1 , §2 . [21] M. Scheffer, J. Bascompte, W. A. Brock, V. Brovkin, S. R. Carpenter, V. Dakos, H. Held, E. H. Van Nes, M. Rietkerk, and G. Sugihara (2009) Early-warning signals for critical transitions . Nature 461 ( 7260 ), pp. 53–59 . Cited by: §1 , §2 . [22] W. Sultani, C. Chen, and M. Shah (2018) Real-world anomaly detection in surveillance videos . In 2018 IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 6479–6488 . Cited by: §2 . [23] Y. Sun, X. Wang, Z. Liu, J. Miller, A. Efros, and M. Hardt (2020) Test-time training with self-supervision for generalization under distribution shifts . In International conference on machine learning , pp. 9229–9248 . Cited by: §1 , §2 . [24] D. Wang, E. Shelhamer, S. Liu, B. Olshausen, and T. Darrell (2020) Tent: fully test-time adaptation by entropy minimization . arXiv preprint arXiv:2006.10726 . Cited by: §1 , §2 . [25] F. Yu, H. Chen, X. Wang, W. Xian, Y. Chen, F. Liu, V. Madhavan, and T. Darrell (2020) Bdd100k: a diverse driving dataset for heterogeneous multitask learning . In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pp. 2636–2645 . Cited by: §5.1 .",
+  "text_truncated": false,
+  "links": [
+    {
+      "text": "Skip to main content",
+      "url": "https://arxiv.org/html/2609.28099v1#infobox"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/IgnoreMe"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "Why HTML?",
+      "url": "https://info.arxiv.org/about/accessible_HTML.html"
+    },
+    {
+      "text": "Back to Abstract",
+      "url": "https://arxiv.org/abs/2609.28099v1"
+    },
+    {
+      "text": "Download PDF",
+      "url": "https://arxiv.org/pdf/2609.28099v1"
+    },
+    {
+      "text": "License: CC BY-NC-ND 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2609.28099v1#bib.bib1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2609.28099v1#bib.bib2"
+    },
+    {
+      "text": "16",
+      "url": "https://arxiv.org/html/2609.28099v1#bib.bib3"
+    },
+    {
+      "text": "10",
+      "url": "https://arxiv.org/html/2609.28099v1#bib.bib4"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2609.28099v1#bib.bib5"
+    },
+    {
+      "text": "19",
+      "url": "https://arxiv.org/html/2609.28099v1#bib.bib6"
+    },
+    {
+      "text": "8",
+      "url": "https://arxiv.org/html/2609.28099v1#bib.bib7"
+    },
+    {
+      "text": "13",
+      "url": "https://arxiv.org/html/2609.28099v1#bib.bib8"
+    },
+    {
+      "text": "11",
+      "url": "https://arxiv.org/html/2609.28099v1#bib.bib9"
+    },
+    {
+      "text": "21",
+      "url": "https://arxiv.org/html/2609.28099v1#bib.bib10"
+    },
+    {
+      "text": "20",
+      "url": "https://arxiv.org/html/2609.28099v1#bib.bib11"
+    },
+    {
+      "text": "18",
+      "url": "https://arxiv.org/html/2609.28099v1#bib.bib12"
+    },
+    {
+      "text": "24",
+      "url": "https://arxiv.org/html/2609.28099v1#bib.bib13"
+    },
+    {
+      "text": "23",
+      "url": "https://arxiv.org/html/2609.28099v1#bib.bib14"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2609.28099v1#bib.bib18"
+    },
+    {
+      "text": "14",
+      "url": "https://arxiv.org/html/2609.28099v1#bib.bib19"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2609.28099v1#bib.bib20"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2609.28099v1#bib.bib21"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2609.28099v1#bib.bib22"
+    },
+    {
+      "text": "15",
+      "url": "https://arxiv.org/html/2609.28099v1#bib.bib23"
+    },
+    {
+      "text": "22",
+      "url": "https://arxiv.org/html/2609.28099v1#bib.bib24"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2609.28099v1#S3"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2609.28099v1#S4.F2"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2609.28099v1#S3.E6"
+    },
+    {
+      "text": "12",
+      "url": "https://arxiv.org/html/2609.28099v1#bib.bib15"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.28099v1#bib.bib16"
+    },
+    {
+      "text": "25",
+      "url": "https://arxiv.org/html/2609.28099v1#bib.bib17"
+    },
+    {
+      "text": "17",
+      "url": "https://arxiv.org/html/2609.28099v1#bib.bib25"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.28099v1#S6.T1"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2609.28099v1#S6.F3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2609.28099v1#S6.F4"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2609.28099v1#S6.T2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2609.28099v1#S6.T3"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2609.28099v1#S6.F5"
+    },
+    {
+      "text": "§5.1",
+      "url": "https://arxiv.org/html/2609.28099v1#S5.SS1.p1.1"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2609.28099v1#S1.p1.1"
+    },
+    {
+      "text": "§5.2",
+      "url": "https://arxiv.org/html/2609.28099v1#S5.SS2.p1.1"
+    },
+    {
+      "text": "§2",
+      "url": "https://arxiv.org/html/2609.28099v1#S2.p1.1"
+    },
+    {
+      "text": "§5.4",
+      "url": "https://arxiv.org/html/2609.28099v1#S5.SS4.p1.1"
+    },
+    {
+      "text": "§2",
+      "url": "https://arxiv.org/html/2609.28099v1#S2.p3.1"
+    },
+    {
+      "text": "§2",
+      "url": "https://arxiv.org/html/2609.28099v1#S2.p2.1"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2609.28099v1#S1.p2.1"
+    },
+    {
+      "text": "§2",
+      "url": "https://arxiv.org/html/2609.28099v1#S2.p4.1"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2609.28099v1#S1.p3.1"
+    },
+    {
+      "text": "§5.1",
+      "url": "https://arxiv.org/html/2609.28099v1#S5.SS1.p2.1"
+    }
+  ],
+  "matching_link_count": 52,
+  "links_truncated": false,
+  "invalid_links": []
+}

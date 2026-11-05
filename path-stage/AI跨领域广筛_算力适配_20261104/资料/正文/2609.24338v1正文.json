@@ -1,0 +1,419 @@
+{
+  "url": "https://arxiv.org/html/2609.24338v1",
+  "final_url": "https://arxiv.org/html/2609.24338v1",
+  "status": 200,
+  "title": "Pharmacokinetic State Space Models for Unbiased Prediction of Haemodynamic Collapse",
+  "metadata": {},
+  "paper": {
+    "title": "Pharmacokinetic State Space Models for Unbiased Prediction of Haemodynamic Collapse",
+    "title_warning": null,
+    "abstract": "Abstract An Intraoperative Hypotension (IOH) event is a frequent complication during administration of general anaesthesia with serious downstream consequences, yet clinical management remains reactive and not predictive. Existing predictive models, however, ignore drug infusion history as a valuable signal for prediction despite its direct pharmacological relevance. Our model achieves an Area Under the Receiver Operating Characteristic curve (AUROC) of 0.7360 and an Area Under the Precision-Recall Curve (AUPRC) of 0.1794, representing a 2.73-fold lift over the random guessing AUPRC baseline (0.0657), with the removal of propofol and remifentanil effect-site concentrations resulting in a 13.9% AUPRC drop compared to the full model. This is consistent with the hypothesis that pharmacokinetic trajectories encode impending haemodynamic changes before they manifest in the Mean Arterial Pressure (MAP). Additionally, this paper shows that training without lead-gap filtering degraded AUROC by 16.7%, empirically confirming that unfiltered models learn to detect ongoing hypotension rather than predict future events. Finally, a Mamba-based architecture achieves the aforementioned high prediction performance while maintaining a constant memory footprint across a range of sequence lengths, unlike the quadratic VRAM overhead typical of vanilla Transformers, making it the more practical choice for continuous intraoperative deployment.",
+    "authors": [
+      {
+        "name": "Rithin Nagaraj",
+        "affiliations": [
+          "Affiliation: Department of Computer Science and Engineering, PES University, Bengaluru, 560085, India"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Sudiksha Chindula",
+        "affiliations": [
+          "Affiliation: Department of Computer Science and Engineering, PES University, Bengaluru, 560085, India"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Bhaskarjyoti Das",
+        "affiliations": [
+          "Affiliation: Department of Computer Science and Engineering (AIML), PES University, Bengaluru, 560085, India"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Rithin Nagaraj Affiliation: Department of Computer Science and Engineering, PES University, Bengaluru, 560085, India E-mail rithin.nagaraj@gmail.com, sudiksha.chindula7@gmail.com Sudiksha Chindula Affiliation: Department of Computer Science and Engineering, PES University, Bengaluru, 560085, India E-mail rithin.nagaraj@gmail.com, sudiksha.chindula7@gmail.com Bhaskarjyoti Das Affiliation: Department of Computer Science and Engineering (AIML), PES University, Bengaluru, 560085, India E-mail bhaskarjyoti01@gmail.com",
+    "arxiv_version": "2609.24338v1",
+    "arxiv_version_date": "2026-09-21",
+    "sections": [
+      {
+        "id": "S1",
+        "heading": "1 Introduction",
+        "level": 1,
+        "text": "General anaesthesia for surgical interventions routinely involves administrating hypnotics and opioid analgesics to induce the loss of consciousness and tolerance to surgery. [ 11 ] Commonly used anaesthetics interfere with the cardiovascular system by reducing cardiac inotropy and systemic vascular resistance, ultimately leading to hypotension. [ 25 ] Intraoperative hypotension (IOH), conventionally defined as a mean arterial pressure below 65 mmHg, [ 27 ] sustained for one or more consecutive minutes, is among the most clinically consequential adverse events encountered during general anaesthesia. An IOH event is potentially harmful, being linked to conditions such as myocardial injury [ 1 ] , kidney injury [ 1 , 19 ] , delirium [ 15 ] and post-operative nausea and vomiting. [ 16 ] The standard clinical response is reactive wherein anaesthesiologists administer vasopressors or fluids after a hypotensive event has already been detected. However, the actual prevention of the episode entirely would require accurate prediction of hypotension in advance. This imperative has motivated a sustained effort to develop predictive models for IOH. However, these approaches share three critical limitations: first, they overlook drug infusion history as a pharmacologically informative precursor to an IOH event; second, they predominantly employ transformer architectures whose self-attention mechanism scales with O ⁡ ( N 2 ) O(N^{2}) complexity, rendering them impractical for real-time intraoperative deployment on edge devices; and third, they suffer from lead gap contamination i.e., training on windows containing the onset of an IOH event, thereby conflating genuine forecasting with retrospective detection of deterioration already underway. The contributions in this paper are as follows: • The central claim is that incorporating remifentanil and propofol effect-site concentration (CE) trajectories as explicit model inputs produces a measurable, independent predictive contribution beyond haemodynamic signals alone. • A secondary but practically significant contribution of this work concerns the architectural choice. We propose replacing the transformer backbone with a Mamba selective state space model [ 8 ] whose recurrent inference mode operates in O ⁡ ( 1 ) O(1) per-timestep VRAM and enables streaming computation. • Lastly, we experimentally show how training on datasets with lead gap contamination produces models with inflated internal performance and near-zero clinical specificity when evaluated on filtered held-out data. We are also able to quantify the impact of this contamination on reported Area Under Receiver Operating Characteristic Curve (AUROC)."
+      },
+      {
+        "id": "S2.SS1",
+        "heading": "2.1 IOH Prediction with Deep Learning",
+        "level": 2,
+        "text": "The prediction of intraoperative hypotension has progressed from classical feature-engineering to end-to-end deep learning on raw biosignals. The Hypotension Prediction Index (HPI) by Hatib et al. [ 9 ] established the paradigm, using arterial waveform features as inputs to a logistic regression model and achieving an AUROC of 0.92 for binary prediction up to 15 minutes in advance. Lee et al. [ 13 ] demonstrated that deep learning on raw arterial pressure waveforms from VitalDB outperforms classical regression, establishing VitalDB as the standard benchmark for this task. The current state of the art is represented by Shim et al. [ 23 ] , who combine four biosignal waveforms (ABP, ECG, PPG, ETCO2) with preoperative covariates in a hybrid CNN-RNN architecture, achieving an AUROC of 0.94 on 2611 VitalDB patients which is the primary academic benchmark against which we position our work. Kapral et al. [ 11 ] are notable for incorporating intraoperative medication data (including propofol) as time-stamped inputs to a Temporal Fusion Transformer forecasting continuous MAP trajectories. However, they did not compute effect-site concentrations and thus captured only the dosing event rather than the pharmacokinetic trajectory."
+      },
+      {
+        "id": "S2.SS2",
+        "heading": "2.2 Drug Pharmacokinetics and Haemodynamic Consequence",
+        "level": 2,
+        "text": "Propofol exerts cardiovascular effects through peripheral vasodilation and myocardial depression, reducing MAP in a manner governed by blood-to-effect-site equilibration kinetics. [ 7 , 18 ] In the Schnider PK model, the k e ​ 0 k_{e0} for propofol implies a blood-to-effect-site half-life of roughly 1.5 minutes, [ 21 , 22 ] meaning peak haemodynamic consequence follows peak plasma concentration by a clinically meaningful interval. A similar lag exists for remifentanil under the Minto model. [ 17 ] Critically, a model with access to the current effect-site concentration trajectory can estimate committed cardiovascular perturbation before it manifests haemodynamically. Despite this well-established basis, no prior work has utilized CE trajectories from intraoperative dosing records as explicit predictive features. Our work is the first, to our knowledge, to do so for both propofol and remifentanil using the VitalDB dosing record."
+      },
+      {
+        "id": "S2.SS3",
+        "heading": "2.3 Sequence Modelling Architectures for Clinical Time Series",
+        "level": 2,
+        "text": "LSTMs and GRUs remain competitive for clinical time series prediction, [ 14 ] while Transformer architectures have demonstrated strong results including continuous MAP forecasting. [ 11 ] However, the quadratic scaling of self-attention with sequence length constrains real-time deployment: continuous streaming inference requires recomputing the full attention matrix at each timestep, incompatible with low-latency operation without dedicated GPU hardware. State space models (SSMs) address this with O ⁡ ( 1 ) O(1) per-timestep recurrence. The Mamba architecture [ 8 ] extends classical SSMs with an input-dependent selection mechanism that recovers much of the Transformer’s selective attention while retaining linear scaling."
+      },
+      {
+        "id": "S2.SS4",
+        "heading": "2.4 Dataset Methodology in IOH Prediction",
+        "level": 2,
+        "text": "While recent predictive models report high discrimination capabilities, their underlying dataset extraction methodologies have come under increasing scrutiny. Enevoldsen and Vistisen [ 6 ] demonstrated that HPI [ 9 ] and subsequent validation studies [ 2 ] evaluated performance using observation windows not strictly separated from hypotensive events by a designated blind spot interval (lead-gap), leading to performance overestimation due to selection bias. Specifically, when a model observes a window where haemodynamic decline toward 65 mmHg has already begun, the task shifts from forecasting de novo hypotension to detecting an ongoing deterioration, a continuation bias theoretically identified as inflating reported performance. Prior to this work, the quantitative impact of lead-gap contamination on reported AUROC metrics across large-scale IOH datasets remained unresolved."
+      },
+      {
+        "id": "S3",
+        "heading": "3 Methodology",
+        "level": 1,
+        "text": "The data preprocessing pipeline consisted of five sequential stages: signal extraction and resampling, gap handling and imputation, sliding-window generation with lead-gap filtering, class balancing, and normalization (Figure 1 )."
+      },
+      {
+        "id": "S3.SS1",
+        "heading": "3.1 Dataset and Patient Population",
+        "level": 2,
+        "text": "The VitalDB [ 12 ] open dataset contains high-fidelity, intraoperative biosignals and clinical metadata from 6,388 surgical cases collected at the Seoul National University Hospital between June 2016 and August 2017. Cases were included if all four required sequential signal tracks—ART_MBP (MAP), HR (Heart Rate), PPF20_CE (Propofol Effect-Site Concentration) and RFTN20_CE (Remifentanil Effect-Site Concentration)—were recorded continuously throughout the procedure. After applying inclusion criteria and lead-gap filtering, 3,419 patients were retained (2,721 training, 698 test). Lead-gap filtering is where any window in which MAP fell below 65 mmHg at any point during the lead-gap interval was discarded. Patients were randomly assigned to training and test sets at an 80:20 ratio at the patient level (random seed 42), prior to any windowing or normalization, to prevent data leakage. Figure 1: The data pre-processing pipeline, comprising five sequential stages: signal extraction and resampling, gap handling and imputation, sliding-window generation with lead-gap filtering, class balancing, and normalization."
+      },
+      {
+        "id": "S3.SS2",
+        "heading": "3.2 Signal Extraction and Preprocessing",
+        "level": 2,
+        "text": "The extracted data was resampled to 0.5Hz and drug concentration values with missing entries were imputed to zero, reflecting the absence of active drug infusion. For haemodynamic signals, a three-tier gap-handling strategy was applied: gaps under one minute were filled via linear interpolation; gaps between one and five minutes were filled via forward-fill method; gaps exceeding five minutes were flagged and all overlapping observation windows were discarded. Static demographic features were extracted from the VitalDB clinical metadata table for each case, comprising age, sex, height, weight, and BMI. Missing demographic values were imputed using the median of each feature computed exclusively from the training cohort."
+      },
+      {
+        "id": "S3.SS3",
+        "heading": "3.3 Window Generation and Labelling",
+        "level": 2,
+        "text": "The windows generated consisted of three sub-windows: a 30-minute observation window (900 samples), a 5-minute lead gap window (150 samples), and a 10-minute prediction window (300 samples) at 0.5 Hz sampling frequency. Windows were extracted using a sliding step of 30 samples (1 min). A window was assigned a target label of 1 if MAP fell strictly below 65 mmHg for at least 30 consecutive samples (1 min) within the prediction window [ 27 ] and windows not meeting this criterion were assigned 0 as the label."
+      },
+      {
+        "id": "S3.SS4",
+        "heading": "3.4 Dataset Variants",
+        "level": 2,
+        "text": "Multiple Dataset Variants, where D1 is the full dataset and D2–D5 are ablations, were used to isolate the contribution of individual signal groups. Table 1: Dataset summary and ablation configurations. Dataset Signals Notes D1 ART_MBP, HR, PPF20_CE, RFTN20_CE + patient demographics Full Dataset D2 ART_MBP, HR + patient demographics Drug Ablation D3 Same as D1 with no lead-gap filtering Lead-gap filter disabled; all previously discarded windows due to lead-gap filter retained. D4 Same as D1 with no patient demographics Demographic Ablation D5 PPF20_CE, RFTN20_CE + patient demographics Vitals Ablation"
+      },
+      {
+        "id": "S3.SS5",
+        "heading": "3.5 Normalization and Class Balancing",
+        "level": 2,
+        "text": "The sequential data was normalized by z-score normalization and the static demographic data were normalized by min-max normalization, both fitted exclusively on the training data and applied to the test data without refitting. The training set was undersampled to a 1:3 positive-to-negative split to mitigate the effect of class imbalance during training. The test set was intentionally kept unbalanced to preserve the natural prevalence of 6.6% positive instances for unbiased evaluation."
+      },
+      {
+        "id": "S3.SS6",
+        "heading": "3.6 Model Architecture",
+        "level": 2,
+        "text": "We used a Mamba State Space Model which is a Selective State Space Model. These models show O ⁡ ( N ) O(N) [ 8 ] time complexity with respect to N sequence length during training, in contrast to the O ⁡ ( N 2 ) O(N^{2}) attention mechanism of Transformers, making them substantially more memory-efficient for long physiological sequences. Figure 2: The Mamba-based model architecture. The d_model varies per block. The Mamba blocks have the same configuration (d_state=16, d_conv=4, expand=2) with changes in d_model as shown in Figure 2 . The output projection is a two-layer MLP with ELU activation to produce a scalar logit. Total trainable parameters: 47,297. We also trained a Transformer model with the same two-block configuration and d_model with a 1D-Convolutional layer (in_channels=32, out_channels=64, kernel_size=5, stride=2) in-between the transformer blocks which reduced the sequence length from 900 to 448 timesteps, exploiting the fact that haemodynamic signals at 0.5 Hz evolve over minutes rather than seconds. Total trainable parameters: 75,425. The 1D-Convolutional layer was not applied to the Mamba model, which does not exhibit quadratic scaling with sequence length and therefore does not require it. The Transformer was trained exclusively on Dataset D1 for architecture comparison purposes. All ablation experiments were conducted using the Mamba architecture due to its linear computational scaling, making it practical to train across multiple dataset variants."
+      },
+      {
+        "id": "S3.SS7",
+        "heading": "3.7 Training Procedure",
+        "level": 2,
+        "text": "All models were trained using AdamW optimizer with a learning rate of 1 × 10 − 4 1\\times 10^{-4} and a weight decay of 1 × 10 − 4 1\\times 10^{-4} . Binary cross-entropy with logits (BCEWithLogitsLoss) was used as the training objective. A ReduceLROnPlateau scheduler with patience 3 and early stopping with patience 5 were applied on validation Area Under Precision-Recall Curve (AUPRC), restoring the best validation weights. Gradient clipping was applied with a maximum norm of 1.0 to stabilize the training. The batch size was 32 and the training ran for a maximum of 50 epochs. A 20% split at the patient level of the training set was reserved as a validation set for scheduler monitoring, early stopping; this validation set is entirely separate from the held-out test set. Each model was trained independently on 3 random seeds (42, 123, 7). All experiments were conducted on an NVIDIA L4 GPU."
+      },
+      {
+        "id": "S3.SS8",
+        "heading": "3.8 Evaluation Metrics",
+        "level": 2,
+        "text": "AUPRC was selected as the primary metric given the class imbalance (6.6% positive prevalence), with a random guessing baseline of 0.0657. AUROC was used as a secondary metric. AUPRC and AUROC were reported with a 95% Confidence Interval via stratified bootstrap (1000 iterations). For statistical testing and Confidence Interval generation, the predicted probabilities from the three seeds were ensembled via an unweighted arithmetic mean prior to bootstrapping. A single operating threshold was selected by maximising Youden’s J statistic ( s ​ e ​ n ​ s ​ i ​ t ​ i ​ v ​ i ​ t ​ y + s ​ p ​ e ​ c ​ i ​ f ​ i ​ c ​ i ​ t ​ y − 1 ) (sensitivity+specificity-1) from the Mamba model trained on Dataset D1, on its validation set using seed 42, and applied uniformly across all models to enable consistent comparison of threshold-dependent metrics. At the specified threshold—Sensitivity, Specificity, Positive Predictive Value (PPV), Negative Predictive Value (NPV) and F1-score were calculated for each model. Two clinical utility metrics were additionally computed: mean lead time in minutes, defined as the time from the end of the observation window to the onset of the corresponding IOH event within the prediction window, and false alarm rate expressed as the number of false positive predictions per hour of surgery. DeLong test for AUROC differences between model pairs [ 4 ] was performed with Bonferroni correction for five simultaneous comparisons (corrected threshold p < 0.01 p<0.01 )."
+      },
+      {
+        "id": "S4.SS1",
+        "heading": "4.1 Dataset Characteristics",
+        "level": 2,
+        "text": "Table 2: Dataset characteristics for train and test splits. Dataset Split Patients Positive windows Negative windows Total windows Filtered (with lead gap filtering) train 2,721 24,004 72,012 96,016 test 698 6,096 86,655 92,751 Contaminated (without lead gap filtering) train 2,747 78,602 235,806 314,408 test 701 19,394 103,963 123,357 Table 3: Patient demographics for train and test splits after lead-gap filtering and balancing. Values are mean ± \\pm standard deviation unless otherwise noted. Split Age Sex (% Female) Mean BMI Train 58.5 ± \\pm 15.2 44.4% 23.0 ± \\pm 3.6 Test 58.3 ± \\pm 15.2 43.7% 23.1 ± \\pm 3.5 Total surgical duration of the test cohort was 1545.8 hours (698 patients); per-patient procedure duration was not separately recorded. The two splits are well-matched on all demographic covariates (Table 3 )."
+      },
+      {
+        "id": "S4.SS2",
+        "heading": "4.2 Primary Model Performance",
+        "level": 2,
+        "text": "We define M1–M5 as Mamba models trained on Datasets D1–D5 respectively, and T1 as the Transformer trained on D1. All results are evaluated on a fixed held-out test set of 698 patients and 92,751 windows at a natural positive prevalence of 6.6%. ROC and precision-recall curves for all models are shown in Figure 3 . Table 4: Model classification performance across different dataset configurations. Model AUROC AUPRC Sens Spec PPV NPV F1 M1 0.7360 (0.730–0.742) 0.1794 (0.172–0.189) 0.724 0.619 0.118 0.970 0.203 M2 0.7069 (0.700–0.713) 0.1545 (0.147–0.162) 0.747 0.553 0.105 0.969 0.184 M3 0.6126 (0.605–0.620) 0.1005 (0.096–0.105) 0.986 0.044 0.068 0.978 0.127 M4 0.7396 (0.734–0.746) 0.1794 (0.172–0.188) 0.720 0.637 0.123 0.970 0.209 M5 0.6306 (0.624–0.638) 0.1200 (0.114–0.127) 0.795 0.371 0.082 0.963 0.148 T1 0.7430 (0.737–0.749) 0.1824 (0.175–0.191) 0.797 0.549 0.111 0.975 0.194 The operating threshold of 0.2082 was fixed across all models using Youden’s J on the M1 validation set. False alarm rates at the operating threshold were 21.38, 25.03, 53.61, 20.33, and 35.28 alarms/hour for M1 through M5 respectively, and 25.30 alarms/hour for T1. The mean lead time in minutes was 9.926 ± 2.473 9.926\\pm 2.473 across all datasets. Figure 3: AUROC and AUPRC curves for all model variants. Figure 4: Distribution of mean lead time for true positive predictions (M1). Figure 5: Peak VRAM (MB) vs. sequence length for Mamba and Transformer."
+      },
+      {
+        "id": "S4.SS3",
+        "heading": "4.3 Signal Ablation",
+        "level": 2,
+        "text": "A DeLong test with Bonferroni-corrected threshold of p < 0.01 p<0.01 ( α = 0.05 \\alpha=0.05 ) was performed for five comparisons: M1 vs M2, M1 vs M3, M1 vs M4, M1 vs M5, and M1 vs T1. Table 5: Pairwise DeLong test for AUROC comparisons between models. Models tested (A vs B) AUROC A AUROC B z z p p p bonferroni p_{\\mathrm{bonferroni}} M1 vs M2 0.7360 0.7069 13.197 < 0.0001 <0.0001 < 0.0001 <0.0001 M1 vs M3 0.7360 0.6126 32.160 < 0.0001 <0.0001 < 0.0001 <0.0001 M1 vs M4 0.7360 0.7396 − 5.534 -5.534 < 0.0001 <0.0001 < 0.0001 <0.0001 M1 vs M5 0.7360 0.6306 28.332 < 0.0001 <0.0001 < 0.0001 <0.0001 M1 vs T1 0.7360 0.7430 − 4.958 -4.958 < 0.0001 <0.0001 < 0.0001 <0.0001 Haemodynamic vitals carry the most valuable learning signal for the Mamba model. This is evident from the drop in AUROC when comparing M1 and M5 (Table 5 , M1 vs M5). Drug history (PPF20_CE and RFTN20_CE) also carries a significant learning signal: removing it reduced AUROC by 3.95% (Table 5 , M1 vs M2). Static patient-specific demographics had minimal independent contribution, as shown by the negligible AUROC change between M1 and M4 (Table 5 , M1 vs M4)."
+      },
+      {
+        "id": "S4.SS4",
+        "heading": "4.4 Lead-Gap Contamination",
+        "level": 2,
+        "text": "Training on the contaminated dataset (D3, 314,408 training windows) without lead-gap filtering reduced AUROC from 0.7360 to 0.6126 relative to the filtered model (D1, 96,016 training windows), a 16.7% relative degradation despite the contaminated set containing 3.3 × 3.3\\times more training data. The DeLong test confirms this difference is statistically significant after Bonferroni correction (Table 5 , M1 vs M3, p < 0.01 p<0.01 )."
+      },
+      {
+        "id": "S4.SS5",
+        "heading": "4.5 Architecture Comparison",
+        "level": 2,
+        "text": "Table 6: Performance and resource usage of Mamba vs. Transformer on Dataset D1. Metric Mamba Transformer Parameters 47,297 75,425 Inference latency 1.726 ms 1.511 ms Peak VRAM at 900 timesteps 9.34 MB 36.42 MB Peak VRAM at 3000 timesteps 9.54 MB 195.70 MB Training time per epoch 23.95 s 117.08 s AUROC 0.7360 0.7430 AUPRC 0.1794 0.1824 Both models exhibit latency well within the 2000 ms real-time budget (Table 6 ). However, Mamba’s peak VRAM usage remains essentially stable—increasing by only 0.20 MB when the sequence length scales from 900 to 3000 timesteps—whereas the Transformer’s VRAM grows from 36.42 MB to 195.70 MB over the same range (Figure 5 ). Against a marginal AUROC difference of 0.007 in favour of the Transformer, Mamba’s constant memory footprint supports deployment on memory-constrained clinical hardware independently of recording duration."
+      },
+      {
+        "id": "S5",
+        "heading": "5 Discussions",
+        "level": 1,
+        "text": "The results of the Mamba model (M1 in Table 4 ) are contextualised against the commercial Hypotension Prediction Index (HPI), which reports AUROC of 0.95–0.97 at prediction horizons of 5 to 15 minutes, [ 24 ] and against a deep learning approach achieving AUROC of 0.9145 (internal) and 0.9035 (external validation) using 90-second arterial pressure waveforms sampled at 100 Hz for 10-minute IOH prediction without hand-engineered features. [ 10 ] The gap between our results and these benchmarks reflects three deliberate constraints rather than architectural limitations: our signals are downsampled to 0.5 Hz, discarding waveform morphology that high-frequency models exploit; our dataset is restricted to Total Intravenous Anaesthesia (TIVA) cases from a single-centre; and our lead-gap filter removes windows that contaminated prior work, producing a strictly harder prediction task. The PPV of 0.118 reflects the 6.6% positive prevalence mathematically suppressing precision regardless of model quality; the commercially deployed HPI reports a comparable 0.126 PPV, [ 20 ] confirming this as a structural feature of low-prevalence IOH prediction rather than a deficiency of either system. Operating threshold can be adjusted to reduce false alarms at the cost of sensitivity depending on clinical deployment requirements. The most clinically notable finding of this work is the independent predictive contribution of pharmacokinetic effect-site concentrations, reducing AUPRC by 13.9% (0.1794 to 0.1545) and AUROC by 3.95% on removing drug history from the full D1 signal set (Table 5 , M1 vs M2). This is not a trivial finding: haemodynamic signals are concurrent correlates of cardiovascular state, whereas effect-site concentrations encode the pharmacokinetic trajectory of drugs already administered, providing information about impending haemodynamic changes before those changes are reflected in the MAP signal, a temporal advantage not available to models relying on haemodynamic signals alone. This finding is consistent with prior work demonstrating that visualising real-time drug effect-site concentrations improved clinical decision-making and haemodynamic control, [ 26 , 5 ] and extends that observation into the domain of automated early warning, suggesting that pharmacokinetic awareness should be a design requirement, not an optional feature, for IOH prediction systems deployed in TIVA cases. Training without lead-gap filtering reduced AUROC despite the contaminated dataset containing substantially more training windows (314,408 vs 96,016; Table 2 ). The 16.7% AUROC degradation observed here provides empirical quantification of this effect. This finding is consistent with Enevoldsen & Vistisen, [ 6 ] who demonstrated that the Hypotension Prediction Index’s reported performance is likely overestimated due to an equivalent selection bias in its training methodology, and with the subsequent retraction of the primary conclusion of a major HPI validation study. [ 3 ] We therefore argue that lead-gap filtering should be adopted as a methodological standard for IOH prediction evaluation, and that published AUROC figures from work without equivalent filtering should be interpreted with caution. While both architectures comfortably satisfy the real-time latency budget for 0.5 Hz physiological sampling, the critical deployment distinction lies in memory scaling. As shown in Table 6 and Figure 5 , Mamba maintains a constant VRAM footprint across extending sequence lengths, whereas the Transformer’s memory cost grows quadratically. For continuous intraoperative monitoring that may span several hours, this scaling behavior is practically significant. Despite a marginal AUROC deficit, Mamba’s ability to operate strictly within the memory envelope of standard clinical edge hardware justifies it as the superior architecture for real-time IOH warning systems. Several limitations constrain this work. First, our model was evaluated on a single-centre cohort restricted to TIVA, as pharmacokinetic trajectories for volatile anaesthetics differ fundamentally and are rarely recorded. Second, our deliberate downsampling to 0.5 Hz discards arterial waveform morphology, which high-frequency commercial systems exploit for superior discrimination, and restricts the input space to four core signals, leaving the predictive value of high-frequency ECG or capnography unexplored. Architecturally, Mamba’s recurrent inference requires a \"warm-up\" period; unlike window-based models that withhold outputs until the buffer is full, early streaming predictions may suffer from poor calibration before the hidden state accumulates sufficient temporal context. The duration and prediction impact of this warm-up remain unquantified. Finally, the false alarm rate of 21.38 per hour poses a significant alert fatigue risk; prospective trials should evaluate threshold optimisation and clinical integration before deployment."
+      },
+      {
+        "id": "S6",
+        "heading": "6 Conclusion",
+        "level": 1,
+        "text": "This work demonstrates that intraoperative hypotension can be predicted between 5 and 15 minutes in advance using a Mamba state space model trained on routinely available haemodynamic and pharmacokinetic signals, achieving an AUROC of 0.7360 and a 2.73-fold AUPRC lift over random guessing. We show empirically that the absence of lead-gap filtering degrades AUROC by 16.7%, providing direct quantification of a contamination effect that likely affects published performance figures across prior IOH prediction literature. The independent predictive contribution of Propofol and Remifentanil effect-site concentrations suggests that pharmacokinetic awareness should be a design requirement for IOH prediction systems deployed in TIVA cases. Additionally, Mamba’s constant memory footprint of ∼ \\sim 9.34 MB across all tested sequence lengths supports real-time deployment on standard clinical hardware without dedicated GPU infrastructure. Prospective multi-centre validation across anaesthetic regimens and operating room trials remain the critical next steps toward clinical translation."
+      },
+      {
+        "id": "bib",
+        "heading": "References",
+        "level": 1,
+        "text": "[1] S. Aronson et al. (2019) Perioperative quality initiative consensus statement on intraoperative blood pressure, risk and outcomes for elective surgery . Br J Anaesth 122 , pp. 563–574 . External Links: Document Cited by: §1 . [2] S. Davies, S. Vistisen, Z. Jian, F. Hatib, and T. Scheeren (2020) Ability of an arterial waveform analysis-derived hypotension prediction index to predict future hypotensive events in surgical patients . Anesth Analg 130 , pp. 352–361 . External Links: Document Cited by: §2.4 . [3] S. Davies, S. Vistisen, Z. Jian, F. Hatib, and T. Scheeren (2023) Erratum in: ability of an arterial waveform analysis-derived hypotension prediction index to predict future hypotensive events in surgical patients . Anesth Analg 137 , pp. e20 . External Links: Document Cited by: §5 . [4] E. DeLong, D. DeLong, and D. Clarke-Pearson (1988) Comparing the areas under two or more correlated receiver operating characteristic curves: a nonparametric approach . Biometrics 44 ( 3 ), pp. 837–845 . Cited by: §3.8 . [5] F. Drews and D. Westenskow (2006) The right picture is worth a thousand numbers: data displays in anesthesia . Hum Factors 48 , pp. 59–71 . External Links: Document Cited by: §5 . [6] J. Enevoldsen and S. Vistisen (2022) Performance of the hypotension prediction index may be overestimated due to selection bias . Anesthesiology 137 , pp. 283–289 . External Links: Document Cited by: §2.4 , §5 . [7] C. Goodchild and J. Serrao (1989) Cardiovascular effects of propofol in the conscious dog . Br J Anaesth 62 , pp. 114–115 . Cited by: §2.2 . [8] A. Gu and T. Dao (2023) Mamba: linear-time sequence modeling with selective state spaces . arXiv preprint arXiv:2312.00752 . External Links: Document Cited by: 2nd item , §2.3 , §3.6 . [9] F. Hatib, Z. Jian, S. Buddi, et al. (2018) Machine-learning algorithm to predict hypotension based on high-fidelity arterial pressure waveform analysis . Anesthesiology 129 , pp. 663–674 . External Links: Document Cited by: §2.1 , §2.4 . [10] E. Hwang, Y. Park, J. Kim, S. Park, J. Kim, and S. Kim (2023) Intraoperative hypotension prediction based on features automatically generated within an interpretable deep learning model . IEEE Trans Neural Netw Learn Syst 35 , pp. 10857–10870 . External Links: Document Cited by: §5 . [11] L. Kapral, C. Dibiasi, N. Jeremic, et al. (2024) Development and external validation of temporal fusion transformer models for continuous intraoperative blood pressure forecasting . eClinicalMedicine 75 , pp. 102797 . External Links: Document Cited by: §1 , §2.1 , §2.3 . [12] H. Lee, Y. Park, S. Yoon, et al. (2022) VitalDB, a high-fidelity multi-parameter vital signs database in surgical patients . Sci Data 9 , pp. 279 . External Links: Document Cited by: §3.1 . [13] S. Lee, H. Lee, Y. Chu, S. Song, G. Ahn, H. Lee, S. Yang, and S. Koh (2021) Deep learning models for the prediction of intraoperative hypotension . Br J Anaesth 126 ( 4 ), pp. 808–817 . External Links: Document Cited by: §2.1 . [14] Z. Lipton, D. Kale, C. Elkan, and R. Wetzel (2015) Learning to diagnose with lstm recurrent neural networks . arXiv preprint arXiv:1511.03677 . External Links: Document Cited by: §2.3 . [15] K. Maheshwari et al. (2022) Association between intraoperative arterial hypotension and postoperative delirium after noncardiac surgery: a retrospective multicenter cohort study . Anesth Analg 134 , pp. 226–235 . External Links: Document Cited by: §1 . [16] M. Maleczek, D. Laxar, A. Geroldinger, and O. Kimberger (2023) Intraoperative hypotension is associated with postoperative nausea and vomiting in the pacu: a retrospective database analysis . J Clin Med 12 , pp. 2009 . External Links: Document Cited by: §1 . [17] C. Minto, T. Schnider, T. Egan, et al. (1997) Influence of age and gender on the pharmacokinetics and pharmacodynamics of remifentanil. i. model development . Anesthesiology 86 , pp. 10–23 . Cited by: §2.2 . [18] M. Muzi, R. Berens, J. Kampine, and T. Ebert (1992) Venodilation contributes to propofol-mediated hypotension in humans . Anesth Analg 74 , pp. 877–883 . Cited by: §2.2 . [19] M. Nadim et al. (2018) Cardiac and vascular surgery-associated acute kidney injury: the 20th international consensus conference of the adqi (acute disease quality initiative) group . J Am Heart Assoc 7 , pp. e008834 . External Links: Document Cited by: §1 . [20] M. Ranucci, L. Barile, F. Ambrogi, and V. Pistuddi (2020) Hypotension prediction index: from proof-of-concept to proof-of-feasibility . J Clin Monit Comput 34 , pp. 1–3 . External Links: Document Cited by: §5 . [21] T. Schnider, C. Minto, P. Gambus, et al. (1998) The influence of method of administration and covariates on the pharmacokinetics of propofol in adult volunteers . Anesthesiology 88 , pp. 1170–1182 . Cited by: §2.2 . [22] T. Schnider, C. Minto, S. Shafer, et al. (1999) The influence of age on propofol pharmacodynamics . Anesthesiology 90 , pp. 1502–1516 . Cited by: §2.2 . [23] J. Shim, W. Yoon, S. Lee, S. Chang, S. Jung, and J. Chung (2025) Machine learning methods for the prediction of intraoperative hypotension with biosignal waveforms . Medicina 61 ( 11 ), pp. 2039 . External Links: Document Cited by: §2.1 . [24] T. Sidiropoulou, M. Tsoumpa, P. Griva, V. Galarioti, and P. Matsota (2022) Prediction and prevention of intraoperative hypotension with the hypotension prediction index: a narrative review . J Clin Med 11 , pp. 5551 . External Links: Document Cited by: §5 . [25] S. Südfeld et al. (2018) Hypotension after induction of general anesthesia: occurrence, risk factors, and therapy. a prospective multicentre observational study . J Anesth 32 , pp. 1125–1132 . External Links: Document Cited by: §1 . [26] N. Syroid, J. Agutter, F. Drews, et al. (2002) Development and evaluation of a graphical anesthesia drug display . Anesthesiology 96 , pp. 565–575 . External Links: Document Cited by: §5 . [27] E. Wesselink, T. Kappen, H. Torn, A. Slooter, and W. van Klei (2018) Intraoperative hypotension and the risk of postoperative adverse outcomes: a systematic review . Br J Anaesth 121 , pp. 706–721 . External Links: Document Cited by: §1 , §3.3 ."
+      }
+    ]
+  },
+  "text": "Pharmacokinetic State Space Models for Unbiased Prediction of Haemodynamic Collapse Skip to main content Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: Why HTML? Report Issue Back to Abstract Download PDF Contents Reading mode Colour theme License: arXiv.org perpetual non-exclusive license arXiv:2609.24338v1 [cs.LG] 21 Sep 2026 Pharmacokinetic State Space Models for Unbiased Prediction of Haemodynamic Collapse Rithin Nagaraj Affiliation: Department of Computer Science and Engineering, PES University, Bengaluru, 560085, India E-mail rithin.nagaraj@gmail.com, sudiksha.chindula7@gmail.com Sudiksha Chindula Affiliation: Department of Computer Science and Engineering, PES University, Bengaluru, 560085, India E-mail rithin.nagaraj@gmail.com, sudiksha.chindula7@gmail.com Bhaskarjyoti Das Affiliation: Department of Computer Science and Engineering (AIML), PES University, Bengaluru, 560085, India E-mail bhaskarjyoti01@gmail.com Abstract An Intraoperative Hypotension (IOH) event is a frequent complication during administration of general anaesthesia with serious downstream consequences, yet clinical management remains reactive and not predictive. Existing predictive models, however, ignore drug infusion history as a valuable signal for prediction despite its direct pharmacological relevance. Our model achieves an Area Under the Receiver Operating Characteristic curve (AUROC) of 0.7360 and an Area Under the Precision-Recall Curve (AUPRC) of 0.1794, representing a 2.73-fold lift over the random guessing AUPRC baseline (0.0657), with the removal of propofol and remifentanil effect-site concentrations resulting in a 13.9% AUPRC drop compared to the full model. This is consistent with the hypothesis that pharmacokinetic trajectories encode impending haemodynamic changes before they manifest in the Mean Arterial Pressure (MAP). Additionally, this paper shows that training without lead-gap filtering degraded AUROC by 16.7%, empirically confirming that unfiltered models learn to detect ongoing hypotension rather than predict future events. Finally, a Mamba-based architecture achieves the aforementioned high prediction performance while maintaining a constant memory footprint across a range of sequence lengths, unlike the quadratic VRAM overhead typical of vanilla Transformers, making it the more practical choice for continuous intraoperative deployment. Keywords: Intraoperative Hypotension Pharmacokinetics State Space Models Selection Bias Time-Series Forecasting Clinical Machine Learning 1 Introduction General anaesthesia for surgical interventions routinely involves administrating hypnotics and opioid analgesics to induce the loss of consciousness and tolerance to surgery. [ 11 ] Commonly used anaesthetics interfere with the cardiovascular system by reducing cardiac inotropy and systemic vascular resistance, ultimately leading to hypotension. [ 25 ] Intraoperative hypotension (IOH), conventionally defined as a mean arterial pressure below 65 mmHg, [ 27 ] sustained for one or more consecutive minutes, is among the most clinically consequential adverse events encountered during general anaesthesia. An IOH event is potentially harmful, being linked to conditions such as myocardial injury [ 1 ] , kidney injury [ 1 , 19 ] , delirium [ 15 ] and post-operative nausea and vomiting. [ 16 ] The standard clinical response is reactive wherein anaesthesiologists administer vasopressors or fluids after a hypotensive event has already been detected. However, the actual prevention of the episode entirely would require accurate prediction of hypotension in advance. This imperative has motivated a sustained effort to develop predictive models for IOH. However, these approaches share three critical limitations: first, they overlook drug infusion history as a pharmacologically informative precursor to an IOH event; second, they predominantly employ transformer architectures whose self-attention mechanism scales with O ⁡ ( N 2 ) O(N^{2}) complexity, rendering them impractical for real-time intraoperative deployment on edge devices; and third, they suffer from lead gap contamination i.e., training on windows containing the onset of an IOH event, thereby conflating genuine forecasting with retrospective detection of deterioration already underway. The contributions in this paper are as follows: • The central claim is that incorporating remifentanil and propofol effect-site concentration (CE) trajectories as explicit model inputs produces a measurable, independent predictive contribution beyond haemodynamic signals alone. • A secondary but practically significant contribution of this work concerns the architectural choice. We propose replacing the transformer backbone with a Mamba selective state space model [ 8 ] whose recurrent inference mode operates in O ⁡ ( 1 ) O(1) per-timestep VRAM and enables streaming computation. • Lastly, we experimentally show how training on datasets with lead gap contamination produces models with inflated internal performance and near-zero clinical specificity when evaluated on filtered held-out data. We are also able to quantify the impact of this contamination on reported Area Under Receiver Operating Characteristic Curve (AUROC). 2 Related Work 2.1 IOH Prediction with Deep Learning The prediction of intraoperative hypotension has progressed from classical feature-engineering to end-to-end deep learning on raw biosignals. The Hypotension Prediction Index (HPI) by Hatib et al. [ 9 ] established the paradigm, using arterial waveform features as inputs to a logistic regression model and achieving an AUROC of 0.92 for binary prediction up to 15 minutes in advance. Lee et al. [ 13 ] demonstrated that deep learning on raw arterial pressure waveforms from VitalDB outperforms classical regression, establishing VitalDB as the standard benchmark for this task. The current state of the art is represented by Shim et al. [ 23 ] , who combine four biosignal waveforms (ABP, ECG, PPG, ETCO2) with preoperative covariates in a hybrid CNN-RNN architecture, achieving an AUROC of 0.94 on 2611 VitalDB patients which is the primary academic benchmark against which we position our work. Kapral et al. [ 11 ] are notable for incorporating intraoperative medication data (including propofol) as time-stamped inputs to a Temporal Fusion Transformer forecasting continuous MAP trajectories. However, they did not compute effect-site concentrations and thus captured only the dosing event rather than the pharmacokinetic trajectory. 2.2 Drug Pharmacokinetics and Haemodynamic Consequence Propofol exerts cardiovascular effects through peripheral vasodilation and myocardial depression, reducing MAP in a manner governed by blood-to-effect-site equilibration kinetics. [ 7 , 18 ] In the Schnider PK model, the k e ​ 0 k_{e0} for propofol implies a blood-to-effect-site half-life of roughly 1.5 minutes, [ 21 , 22 ] meaning peak haemodynamic consequence follows peak plasma concentration by a clinically meaningful interval. A similar lag exists for remifentanil under the Minto model. [ 17 ] Critically, a model with access to the current effect-site concentration trajectory can estimate committed cardiovascular perturbation before it manifests haemodynamically. Despite this well-established basis, no prior work has utilized CE trajectories from intraoperative dosing records as explicit predictive features. Our work is the first, to our knowledge, to do so for both propofol and remifentanil using the VitalDB dosing record. 2.3 Sequence Modelling Architectures for Clinical Time Series LSTMs and GRUs remain competitive for clinical time series prediction, [ 14 ] while Transformer architectures have demonstrated strong results including continuous MAP forecasting. [ 11 ] However, the quadratic scaling of self-attention with sequence length constrains real-time deployment: continuous streaming inference requires recomputing the full attention matrix at each timestep, incompatible with low-latency operation without dedicated GPU hardware. State space models (SSMs) address this with O ⁡ ( 1 ) O(1) per-timestep recurrence. The Mamba architecture [ 8 ] extends classical SSMs with an input-dependent selection mechanism that recovers much of the Transformer’s selective attention while retaining linear scaling. 2.4 Dataset Methodology in IOH Prediction While recent predictive models report high discrimination capabilities, their underlying dataset extraction methodologies have come under increasing scrutiny. Enevoldsen and Vistisen [ 6 ] demonstrated that HPI [ 9 ] and subsequent validation studies [ 2 ] evaluated performance using observation windows not strictly separated from hypotensive events by a designated blind spot interval (lead-gap), leading to performance overestimation due to selection bias. Specifically, when a model observes a window where haemodynamic decline toward 65 mmHg has already begun, the task shifts from forecasting de novo hypotension to detecting an ongoing deterioration, a continuation bias theoretically identified as inflating reported performance. Prior to this work, the quantitative impact of lead-gap contamination on reported AUROC metrics across large-scale IOH datasets remained unresolved. 3 Methodology The data preprocessing pipeline consisted of five sequential stages: signal extraction and resampling, gap handling and imputation, sliding-window generation with lead-gap filtering, class balancing, and normalization (Figure 1 ). 3.1 Dataset and Patient Population The VitalDB [ 12 ] open dataset contains high-fidelity, intraoperative biosignals and clinical metadata from 6,388 surgical cases collected at the Seoul National University Hospital between June 2016 and August 2017. Cases were included if all four required sequential signal tracks—ART_MBP (MAP), HR (Heart Rate), PPF20_CE (Propofol Effect-Site Concentration) and RFTN20_CE (Remifentanil Effect-Site Concentration)—were recorded continuously throughout the procedure. After applying inclusion criteria and lead-gap filtering, 3,419 patients were retained (2,721 training, 698 test). Lead-gap filtering is where any window in which MAP fell below 65 mmHg at any point during the lead-gap interval was discarded. Patients were randomly assigned to training and test sets at an 80:20 ratio at the patient level (random seed 42), prior to any windowing or normalization, to prevent data leakage. Figure 1: The data pre-processing pipeline, comprising five sequential stages: signal extraction and resampling, gap handling and imputation, sliding-window generation with lead-gap filtering, class balancing, and normalization. 3.2 Signal Extraction and Preprocessing The extracted data was resampled to 0.5Hz and drug concentration values with missing entries were imputed to zero, reflecting the absence of active drug infusion. For haemodynamic signals, a three-tier gap-handling strategy was applied: gaps under one minute were filled via linear interpolation; gaps between one and five minutes were filled via forward-fill method; gaps exceeding five minutes were flagged and all overlapping observation windows were discarded. Static demographic features were extracted from the VitalDB clinical metadata table for each case, comprising age, sex, height, weight, and BMI. Missing demographic values were imputed using the median of each feature computed exclusively from the training cohort. 3.3 Window Generation and Labelling The windows generated consisted of three sub-windows: a 30-minute observation window (900 samples), a 5-minute lead gap window (150 samples), and a 10-minute prediction window (300 samples) at 0.5 Hz sampling frequency. Windows were extracted using a sliding step of 30 samples (1 min). A window was assigned a target label of 1 if MAP fell strictly below 65 mmHg for at least 30 consecutive samples (1 min) within the prediction window [ 27 ] and windows not meeting this criterion were assigned 0 as the label. 3.4 Dataset Variants Multiple Dataset Variants, where D1 is the full dataset and D2–D5 are ablations, were used to isolate the contribution of individual signal groups. Table 1: Dataset summary and ablation configurations. Dataset Signals Notes D1 ART_MBP, HR, PPF20_CE, RFTN20_CE + patient demographics Full Dataset D2 ART_MBP, HR + patient demographics Drug Ablation D3 Same as D1 with no lead-gap filtering Lead-gap filter disabled; all previously discarded windows due to lead-gap filter retained. D4 Same as D1 with no patient demographics Demographic Ablation D5 PPF20_CE, RFTN20_CE + patient demographics Vitals Ablation 3.5 Normalization and Class Balancing The sequential data was normalized by z-score normalization and the static demographic data were normalized by min-max normalization, both fitted exclusively on the training data and applied to the test data without refitting. The training set was undersampled to a 1:3 positive-to-negative split to mitigate the effect of class imbalance during training. The test set was intentionally kept unbalanced to preserve the natural prevalence of 6.6% positive instances for unbiased evaluation. 3.6 Model Architecture We used a Mamba State Space Model which is a Selective State Space Model. These models show O ⁡ ( N ) O(N) [ 8 ] time complexity with respect to N sequence length during training, in contrast to the O ⁡ ( N 2 ) O(N^{2}) attention mechanism of Transformers, making them substantially more memory-efficient for long physiological sequences. Figure 2: The Mamba-based model architecture. The d_model varies per block. The Mamba blocks have the same configuration (d_state=16, d_conv=4, expand=2) with changes in d_model as shown in Figure 2 . The output projection is a two-layer MLP with ELU activation to produce a scalar logit. Total trainable parameters: 47,297. We also trained a Transformer model with the same two-block configuration and d_model with a 1D-Convolutional layer (in_channels=32, out_channels=64, kernel_size=5, stride=2) in-between the transformer blocks which reduced the sequence length from 900 to 448 timesteps, exploiting the fact that haemodynamic signals at 0.5 Hz evolve over minutes rather than seconds. Total trainable parameters: 75,425. The 1D-Convolutional layer was not applied to the Mamba model, which does not exhibit quadratic scaling with sequence length and therefore does not require it. The Transformer was trained exclusively on Dataset D1 for architecture comparison purposes. All ablation experiments were conducted using the Mamba architecture due to its linear computational scaling, making it practical to train across multiple dataset variants. 3.7 Training Procedure All models were trained using AdamW optimizer with a learning rate of 1 × 10 − 4 1\\times 10^{-4} and a weight decay of 1 × 10 − 4 1\\times 10^{-4} . Binary cross-entropy with logits (BCEWithLogitsLoss) was used as the training objective. A ReduceLROnPlateau scheduler with patience 3 and early stopping with patience 5 were applied on validation Area Under Precision-Recall Curve (AUPRC), restoring the best validation weights. Gradient clipping was applied with a maximum norm of 1.0 to stabilize the training. The batch size was 32 and the training ran for a maximum of 50 epochs. A 20% split at the patient level of the training set was reserved as a validation set for scheduler monitoring, early stopping; this validation set is entirely separate from the held-out test set. Each model was trained independently on 3 random seeds (42, 123, 7). All experiments were conducted on an NVIDIA L4 GPU. 3.8 Evaluation Metrics AUPRC was selected as the primary metric given the class imbalance (6.6% positive prevalence), with a random guessing baseline of 0.0657. AUROC was used as a secondary metric. AUPRC and AUROC were reported with a 95% Confidence Interval via stratified bootstrap (1000 iterations). For statistical testing and Confidence Interval generation, the predicted probabilities from the three seeds were ensembled via an unweighted arithmetic mean prior to bootstrapping. A single operating threshold was selected by maximising Youden’s J statistic ( s ​ e ​ n ​ s ​ i ​ t ​ i ​ v ​ i ​ t ​ y + s ​ p ​ e ​ c ​ i ​ f ​ i ​ c ​ i ​ t ​ y − 1 ) (sensitivity+specificity-1) from the Mamba model trained on Dataset D1, on its validation set using seed 42, and applied uniformly across all models to enable consistent comparison of threshold-dependent metrics. At the specified threshold—Sensitivity, Specificity, Positive Predictive Value (PPV), Negative Predictive Value (NPV) and F1-score were calculated for each model. Two clinical utility metrics were additionally computed: mean lead time in minutes, defined as the time from the end of the observation window to the onset of the corresponding IOH event within the prediction window, and false alarm rate expressed as the number of false positive predictions per hour of surgery. DeLong test for AUROC differences between model pairs [ 4 ] was performed with Bonferroni correction for five simultaneous comparisons (corrected threshold p < 0.01 p<0.01 ). 4 Results 4.1 Dataset Characteristics Table 2: Dataset characteristics for train and test splits. Dataset Split Patients Positive windows Negative windows Total windows Filtered (with lead gap filtering) train 2,721 24,004 72,012 96,016 test 698 6,096 86,655 92,751 Contaminated (without lead gap filtering) train 2,747 78,602 235,806 314,408 test 701 19,394 103,963 123,357 Table 3: Patient demographics for train and test splits after lead-gap filtering and balancing. Values are mean ± \\pm standard deviation unless otherwise noted. Split Age Sex (% Female) Mean BMI Train 58.5 ± \\pm 15.2 44.4% 23.0 ± \\pm 3.6 Test 58.3 ± \\pm 15.2 43.7% 23.1 ± \\pm 3.5 Total surgical duration of the test cohort was 1545.8 hours (698 patients); per-patient procedure duration was not separately recorded. The two splits are well-matched on all demographic covariates (Table 3 ). 4.2 Primary Model Performance We define M1–M5 as Mamba models trained on Datasets D1–D5 respectively, and T1 as the Transformer trained on D1. All results are evaluated on a fixed held-out test set of 698 patients and 92,751 windows at a natural positive prevalence of 6.6%. ROC and precision-recall curves for all models are shown in Figure 3 . Table 4: Model classification performance across different dataset configurations. Model AUROC AUPRC Sens Spec PPV NPV F1 M1 0.7360 (0.730–0.742) 0.1794 (0.172–0.189) 0.724 0.619 0.118 0.970 0.203 M2 0.7069 (0.700–0.713) 0.1545 (0.147–0.162) 0.747 0.553 0.105 0.969 0.184 M3 0.6126 (0.605–0.620) 0.1005 (0.096–0.105) 0.986 0.044 0.068 0.978 0.127 M4 0.7396 (0.734–0.746) 0.1794 (0.172–0.188) 0.720 0.637 0.123 0.970 0.209 M5 0.6306 (0.624–0.638) 0.1200 (0.114–0.127) 0.795 0.371 0.082 0.963 0.148 T1 0.7430 (0.737–0.749) 0.1824 (0.175–0.191) 0.797 0.549 0.111 0.975 0.194 The operating threshold of 0.2082 was fixed across all models using Youden’s J on the M1 validation set. False alarm rates at the operating threshold were 21.38, 25.03, 53.61, 20.33, and 35.28 alarms/hour for M1 through M5 respectively, and 25.30 alarms/hour for T1. The mean lead time in minutes was 9.926 ± 2.473 9.926\\pm 2.473 across all datasets. Figure 3: AUROC and AUPRC curves for all model variants. Figure 4: Distribution of mean lead time for true positive predictions (M1). Figure 5: Peak VRAM (MB) vs. sequence length for Mamba and Transformer. 4.3 Signal Ablation A DeLong test with Bonferroni-corrected threshold of p < 0.01 p<0.01 ( α = 0.05 \\alpha=0.05 ) was performed for five comparisons: M1 vs M2, M1 vs M3, M1 vs M4, M1 vs M5, and M1 vs T1. Table 5: Pairwise DeLong test for AUROC comparisons between models. Models tested (A vs B) AUROC A AUROC B z z p p p bonferroni p_{\\mathrm{bonferroni}} M1 vs M2 0.7360 0.7069 13.197 < 0.0001 <0.0001 < 0.0001 <0.0001 M1 vs M3 0.7360 0.6126 32.160 < 0.0001 <0.0001 < 0.0001 <0.0001 M1 vs M4 0.7360 0.7396 − 5.534 -5.534 < 0.0001 <0.0001 < 0.0001 <0.0001 M1 vs M5 0.7360 0.6306 28.332 < 0.0001 <0.0001 < 0.0001 <0.0001 M1 vs T1 0.7360 0.7430 − 4.958 -4.958 < 0.0001 <0.0001 < 0.0001 <0.0001 Haemodynamic vitals carry the most valuable learning signal for the Mamba model. This is evident from the drop in AUROC when comparing M1 and M5 (Table 5 , M1 vs M5). Drug history (PPF20_CE and RFTN20_CE) also carries a significant learning signal: removing it reduced AUROC by 3.95% (Table 5 , M1 vs M2). Static patient-specific demographics had minimal independent contribution, as shown by the negligible AUROC change between M1 and M4 (Table 5 , M1 vs M4). 4.4 Lead-Gap Contamination Training on the contaminated dataset (D3, 314,408 training windows) without lead-gap filtering reduced AUROC from 0.7360 to 0.6126 relative to the filtered model (D1, 96,016 training windows), a 16.7% relative degradation despite the contaminated set containing 3.3 × 3.3\\times more training data. The DeLong test confirms this difference is statistically significant after Bonferroni correction (Table 5 , M1 vs M3, p < 0.01 p<0.01 ). 4.5 Architecture Comparison Table 6: Performance and resource usage of Mamba vs. Transformer on Dataset D1. Metric Mamba Transformer Parameters 47,297 75,425 Inference latency 1.726 ms 1.511 ms Peak VRAM at 900 timesteps 9.34 MB 36.42 MB Peak VRAM at 3000 timesteps 9.54 MB 195.70 MB Training time per epoch 23.95 s 117.08 s AUROC 0.7360 0.7430 AUPRC 0.1794 0.1824 Both models exhibit latency well within the 2000 ms real-time budget (Table 6 ). However, Mamba’s peak VRAM usage remains essentially stable—increasing by only 0.20 MB when the sequence length scales from 900 to 3000 timesteps—whereas the Transformer’s VRAM grows from 36.42 MB to 195.70 MB over the same range (Figure 5 ). Against a marginal AUROC difference of 0.007 in favour of the Transformer, Mamba’s constant memory footprint supports deployment on memory-constrained clinical hardware independently of recording duration. 5 Discussions The results of the Mamba model (M1 in Table 4 ) are contextualised against the commercial Hypotension Prediction Index (HPI), which reports AUROC of 0.95–0.97 at prediction horizons of 5 to 15 minutes, [ 24 ] and against a deep learning approach achieving AUROC of 0.9145 (internal) and 0.9035 (external validation) using 90-second arterial pressure waveforms sampled at 100 Hz for 10-minute IOH prediction without hand-engineered features. [ 10 ] The gap between our results and these benchmarks reflects three deliberate constraints rather than architectural limitations: our signals are downsampled to 0.5 Hz, discarding waveform morphology that high-frequency models exploit; our dataset is restricted to Total Intravenous Anaesthesia (TIVA) cases from a single-centre; and our lead-gap filter removes windows that contaminated prior work, producing a strictly harder prediction task. The PPV of 0.118 reflects the 6.6% positive prevalence mathematically suppressing precision regardless of model quality; the commercially deployed HPI reports a comparable 0.126 PPV, [ 20 ] confirming this as a structural feature of low-prevalence IOH prediction rather than a deficiency of either system. Operating threshold can be adjusted to reduce false alarms at the cost of sensitivity depending on clinical deployment requirements. The most clinically notable finding of this work is the independent predictive contribution of pharmacokinetic effect-site concentrations, reducing AUPRC by 13.9% (0.1794 to 0.1545) and AUROC by 3.95% on removing drug history from the full D1 signal set (Table 5 , M1 vs M2). This is not a trivial finding: haemodynamic signals are concurrent correlates of cardiovascular state, whereas effect-site concentrations encode the pharmacokinetic trajectory of drugs already administered, providing information about impending haemodynamic changes before those changes are reflected in the MAP signal, a temporal advantage not available to models relying on haemodynamic signals alone. This finding is consistent with prior work demonstrating that visualising real-time drug effect-site concentrations improved clinical decision-making and haemodynamic control, [ 26 , 5 ] and extends that observation into the domain of automated early warning, suggesting that pharmacokinetic awareness should be a design requirement, not an optional feature, for IOH prediction systems deployed in TIVA cases. Training without lead-gap filtering reduced AUROC despite the contaminated dataset containing substantially more training windows (314,408 vs 96,016; Table 2 ). The 16.7% AUROC degradation observed here provides empirical quantification of this effect. This finding is consistent with Enevoldsen & Vistisen, [ 6 ] who demonstrated that the Hypotension Prediction Index’s reported performance is likely overestimated due to an equivalent selection bias in its training methodology, and with the subsequent retraction of the primary conclusion of a major HPI validation study. [ 3 ] We therefore argue that lead-gap filtering should be adopted as a methodological standard for IOH prediction evaluation, and that published AUROC figures from work without equivalent filtering should be interpreted with caution. While both architectures comfortably satisfy the real-time latency budget for 0.5 Hz physiological sampling, the critical deployment distinction lies in memory scaling. As shown in Table 6 and Figure 5 , Mamba maintains a constant VRAM footprint across extending sequence lengths, whereas the Transformer’s memory cost grows quadratically. For continuous intraoperative monitoring that may span several hours, this scaling behavior is practically significant. Despite a marginal AUROC deficit, Mamba’s ability to operate strictly within the memory envelope of standard clinical edge hardware justifies it as the superior architecture for real-time IOH warning systems. Several limitations constrain this work. First, our model was evaluated on a single-centre cohort restricted to TIVA, as pharmacokinetic trajectories for volatile anaesthetics differ fundamentally and are rarely recorded. Second, our deliberate downsampling to 0.5 Hz discards arterial waveform morphology, which high-frequency commercial systems exploit for superior discrimination, and restricts the input space to four core signals, leaving the predictive value of high-frequency ECG or capnography unexplored. Architecturally, Mamba’s recurrent inference requires a \"warm-up\" period; unlike window-based models that withhold outputs until the buffer is full, early streaming predictions may suffer from poor calibration before the hidden state accumulates sufficient temporal context. The duration and prediction impact of this warm-up remain unquantified. Finally, the false alarm rate of 21.38 per hour poses a significant alert fatigue risk; prospective trials should evaluate threshold optimisation and clinical integration before deployment. 6 Conclusion This work demonstrates that intraoperative hypotension can be predicted between 5 and 15 minutes in advance using a Mamba state space model trained on routinely available haemodynamic and pharmacokinetic signals, achieving an AUROC of 0.7360 and a 2.73-fold AUPRC lift over random guessing. We show empirically that the absence of lead-gap filtering degrades AUROC by 16.7%, providing direct quantification of a contamination effect that likely affects published performance figures across prior IOH prediction literature. The independent predictive contribution of Propofol and Remifentanil effect-site concentrations suggests that pharmacokinetic awareness should be a design requirement for IOH prediction systems deployed in TIVA cases. Additionally, Mamba’s constant memory footprint of ∼ \\sim 9.34 MB across all tested sequence lengths supports real-time deployment on standard clinical hardware without dedicated GPU infrastructure. Prospective multi-centre validation across anaesthetic regimens and operating room trials remain the critical next steps toward clinical translation. References [1] S. Aronson et al. (2019) Perioperative quality initiative consensus statement on intraoperative blood pressure, risk and outcomes for elective surgery . Br J Anaesth 122 , pp. 563–574 . External Links: Document Cited by: §1 . [2] S. Davies, S. Vistisen, Z. Jian, F. Hatib, and T. Scheeren (2020) Ability of an arterial waveform analysis-derived hypotension prediction index to predict future hypotensive events in surgical patients . Anesth Analg 130 , pp. 352–361 . External Links: Document Cited by: §2.4 . [3] S. Davies, S. Vistisen, Z. Jian, F. Hatib, and T. Scheeren (2023) Erratum in: ability of an arterial waveform analysis-derived hypotension prediction index to predict future hypotensive events in surgical patients . Anesth Analg 137 , pp. e20 . External Links: Document Cited by: §5 . [4] E. DeLong, D. DeLong, and D. Clarke-Pearson (1988) Comparing the areas under two or more correlated receiver operating characteristic curves: a nonparametric approach . Biometrics 44 ( 3 ), pp. 837–845 . Cited by: §3.8 . [5] F. Drews and D. Westenskow (2006) The right picture is worth a thousand numbers: data displays in anesthesia . Hum Factors 48 , pp. 59–71 . External Links: Document Cited by: §5 . [6] J. Enevoldsen and S. Vistisen (2022) Performance of the hypotension prediction index may be overestimated due to selection bias . Anesthesiology 137 , pp. 283–289 . External Links: Document Cited by: §2.4 , §5 . [7] C. Goodchild and J. Serrao (1989) Cardiovascular effects of propofol in the conscious dog . Br J Anaesth 62 , pp. 114–115 . Cited by: §2.2 . [8] A. Gu and T. Dao (2023) Mamba: linear-time sequence modeling with selective state spaces . arXiv preprint arXiv:2312.00752 . External Links: Document Cited by: 2nd item , §2.3 , §3.6 . [9] F. Hatib, Z. Jian, S. Buddi, et al. (2018) Machine-learning algorithm to predict hypotension based on high-fidelity arterial pressure waveform analysis . Anesthesiology 129 , pp. 663–674 . External Links: Document Cited by: §2.1 , §2.4 . [10] E. Hwang, Y. Park, J. Kim, S. Park, J. Kim, and S. Kim (2023) Intraoperative hypotension prediction based on features automatically generated within an interpretable deep learning model . IEEE Trans Neural Netw Learn Syst 35 , pp. 10857–10870 . External Links: Document Cited by: §5 . [11] L. Kapral, C. Dibiasi, N. Jeremic, et al. (2024) Development and external validation of temporal fusion transformer models for continuous intraoperative blood pressure forecasting . eClinicalMedicine 75 , pp. 102797 . External Links: Document Cited by: §1 , §2.1 , §2.3 . [12] H. Lee, Y. Park, S. Yoon, et al. (2022) VitalDB, a high-fidelity multi-parameter vital signs database in surgical patients . Sci Data 9 , pp. 279 . External Links: Document Cited by: §3.1 . [13] S. Lee, H. Lee, Y. Chu, S. Song, G. Ahn, H. Lee, S. Yang, and S. Koh (2021) Deep learning models for the prediction of intraoperative hypotension . Br J Anaesth 126 ( 4 ), pp. 808–817 . External Links: Document Cited by: §2.1 . [14] Z. Lipton, D. Kale, C. Elkan, and R. Wetzel (2015) Learning to diagnose with lstm recurrent neural networks . arXiv preprint arXiv:1511.03677 . External Links: Document Cited by: §2.3 . [15] K. Maheshwari et al. (2022) Association between intraoperative arterial hypotension and postoperative delirium after noncardiac surgery: a retrospective multicenter cohort study . Anesth Analg 134 , pp. 226–235 . External Links: Document Cited by: §1 . [16] M. Maleczek, D. Laxar, A. Geroldinger, and O. Kimberger (2023) Intraoperative hypotension is associated with postoperative nausea and vomiting in the pacu: a retrospective database analysis . J Clin Med 12 , pp. 2009 . External Links: Document Cited by: §1 . [17] C. Minto, T. Schnider, T. Egan, et al. (1997) Influence of age and gender on the pharmacokinetics and pharmacodynamics of remifentanil. i. model development . Anesthesiology 86 , pp. 10–23 . Cited by: §2.2 . [18] M. Muzi, R. Berens, J. Kampine, and T. Ebert (1992) Venodilation contributes to propofol-mediated hypotension in humans . Anesth Analg 74 , pp. 877–883 . Cited by: §2.2 . [19] M. Nadim et al. (2018) Cardiac and vascular surgery-associated acute kidney injury: the 20th international consensus conference of the adqi (acute disease quality initiative) group . J Am Heart Assoc 7 , pp. e008834 . External Links: Document Cited by: §1 . [20] M. Ranucci, L. Barile, F. Ambrogi, and V. Pistuddi (2020) Hypotension prediction index: from proof-of-concept to proof-of-feasibility . J Clin Monit Comput 34 , pp. 1–3 . External Links: Document Cited by: §5 . [21] T. Schnider, C. Minto, P. Gambus, et al. (1998) The influence of method of administration and covariates on the pharmacokinetics of propofol in adult volunteers . Anesthesiology 88 , pp. 1170–1182 . Cited by: §2.2 . [22] T. Schnider, C. Minto, S. Shafer, et al. (1999) The influence of age on propofol pharmacodynamics . Anesthesiology 90 , pp. 1502–1516 . Cited by: §2.2 . [23] J. Shim, W. Yoon, S. Lee, S. Chang, S. Jung, and J. Chung (2025) Machine learning methods for the prediction of intraoperative hypotension with biosignal waveforms . Medicina 61 ( 11 ), pp. 2039 . External Links: Document Cited by: §2.1 . [24] T. Sidiropoulou, M. Tsoumpa, P. Griva, V. Galarioti, and P. Matsota (2022) Prediction and prevention of intraoperative hypotension with the hypotension prediction index: a narrative review . J Clin Med 11 , pp. 5551 . External Links: Document Cited by: §5 . [25] S. Südfeld et al. (2018) Hypotension after induction of general anesthesia: occurrence, risk factors, and therapy. a prospective multicentre observational study . J Anesth 32 , pp. 1125–1132 . External Links: Document Cited by: §1 . [26] N. Syroid, J. Agutter, F. Drews, et al. (2002) Development and evaluation of a graphical anesthesia drug display . Anesthesiology 96 , pp. 565–575 . External Links: Document Cited by: §5 . [27] E. Wesselink, T. Kappen, H. Torn, A. Slooter, and W. van Klei (2018) Intraoperative hypotension and the risk of postoperative adverse outcomes: a systematic review . Br J Anaesth 121 , pp. 706–721 . External Links: Document Cited by: §1 , §3.3 .",
+  "text_truncated": false,
+  "links": [
+    {
+      "text": "Skip to main content",
+      "url": "https://arxiv.org/html/2609.24338v1#infobox"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/IgnoreMe"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "Why HTML?",
+      "url": "https://info.arxiv.org/about/accessible_HTML.html"
+    },
+    {
+      "text": "Back to Abstract",
+      "url": "https://arxiv.org/abs/2609.24338v1"
+    },
+    {
+      "text": "Download PDF",
+      "url": "https://arxiv.org/pdf/2609.24338v1"
+    },
+    {
+      "text": "License: arXiv.org perpetual non-exclusive license",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "",
+      "url": "https://orcid.org/0009-0008-9919-2466"
+    },
+    {
+      "text": "",
+      "url": "https://orcid.org/0009-0000-6396-4585"
+    },
+    {
+      "text": "",
+      "url": "https://orcid.org/0000-0003-1225-9354"
+    },
+    {
+      "text": "11",
+      "url": "https://arxiv.org/html/2609.24338v1#bib.bib1"
+    },
+    {
+      "text": "25",
+      "url": "https://arxiv.org/html/2609.24338v1#bib.bib2"
+    },
+    {
+      "text": "27",
+      "url": "https://arxiv.org/html/2609.24338v1#bib.bib3"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.24338v1#bib.bib4"
+    },
+    {
+      "text": "19",
+      "url": "https://arxiv.org/html/2609.24338v1#bib.bib5"
+    },
+    {
+      "text": "15",
+      "url": "https://arxiv.org/html/2609.24338v1#bib.bib6"
+    },
+    {
+      "text": "16",
+      "url": "https://arxiv.org/html/2609.24338v1#bib.bib7"
+    },
+    {
+      "text": "8",
+      "url": "https://arxiv.org/html/2609.24338v1#bib.bib8"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2609.24338v1#bib.bib9"
+    },
+    {
+      "text": "13",
+      "url": "https://arxiv.org/html/2609.24338v1#bib.bib11"
+    },
+    {
+      "text": "23",
+      "url": "https://arxiv.org/html/2609.24338v1#bib.bib12"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2609.24338v1#bib.bib13"
+    },
+    {
+      "text": "18",
+      "url": "https://arxiv.org/html/2609.24338v1#bib.bib14"
+    },
+    {
+      "text": "21",
+      "url": "https://arxiv.org/html/2609.24338v1#bib.bib15"
+    },
+    {
+      "text": "22",
+      "url": "https://arxiv.org/html/2609.24338v1#bib.bib16"
+    },
+    {
+      "text": "17",
+      "url": "https://arxiv.org/html/2609.24338v1#bib.bib17"
+    },
+    {
+      "text": "14",
+      "url": "https://arxiv.org/html/2609.24338v1#bib.bib18"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2609.24338v1#bib.bib10"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2609.24338v1#bib.bib19"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.24338v1#S3.F1"
+    },
+    {
+      "text": "12",
+      "url": "https://arxiv.org/html/2609.24338v1#bib.bib20"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2609.24338v1#S3.F2"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2609.24338v1#bib.bib27"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2609.24338v1#S4.T3"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2609.24338v1#S4.F3"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2609.24338v1#S4.T5"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2609.24338v1#S4.T6"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2609.24338v1#S4.F5"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2609.24338v1#S4.T4"
+    },
+    {
+      "text": "24",
+      "url": "https://arxiv.org/html/2609.24338v1#bib.bib21"
+    },
+    {
+      "text": "10",
+      "url": "https://arxiv.org/html/2609.24338v1#bib.bib22"
+    },
+    {
+      "text": "20",
+      "url": "https://arxiv.org/html/2609.24338v1#bib.bib26"
+    },
+    {
+      "text": "26",
+      "url": "https://arxiv.org/html/2609.24338v1#bib.bib23"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2609.24338v1#bib.bib24"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2609.24338v1#S4.T2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2609.24338v1#bib.bib25"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.1016/j.bja.2019.01.013"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2609.24338v1#S1.p2.1"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.1213/ANE.0000000000004121"
+    },
+    {
+      "text": "§2.4",
+      "url": "https://arxiv.org/html/2609.24338v1#S2.SS4.p1.1"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.1213/ANE.0000000000006575"
+    },
+    {
+      "text": "§5",
+      "url": "https://arxiv.org/html/2609.24338v1#S5.p3.1"
+    },
+    {
+      "text": "§3.8",
+      "url": "https://arxiv.org/html/2609.24338v1#S3.SS8.p1.1"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.1518/001872006776412270"
+    },
+    {
+      "text": "§5",
+      "url": "https://arxiv.org/html/2609.24338v1#S5.p2.1"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.1097/ALN.0000000000004320"
+    },
+    {
+      "text": "§2.2",
+      "url": "https://arxiv.org/html/2609.24338v1#S2.SS2.p1.1"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.48550/arXiv.2312.00752"
+    },
+    {
+      "text": "2nd item",
+      "url": "https://arxiv.org/html/2609.24338v1#S1.I1.i2.p1.1"
+    },
+    {
+      "text": "§2.3",
+      "url": "https://arxiv.org/html/2609.24338v1#S2.SS3.p1.1"
+    }
+  ],
+  "matching_link_count": 81,
+  "links_truncated": true,
+  "invalid_links": []
+}

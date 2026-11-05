@@ -1,0 +1,322 @@
+{
+  "url": "https://arxiv.org/html/2610.05833v1",
+  "final_url": "https://arxiv.org/html/2610.05833v1",
+  "status": 200,
+  "title": "Request Order Matters: Cache-History Sensitivity in Selective KV-Cache Reuse for Rolling Agents",
+  "metadata": {},
+  "paper": {
+    "title": "Request Order Matters: Cache-History Sensitivity in Selective KV-Cache Reuse for Rolling Agents",
+    "title_warning": null,
+    "abstract": "Abstract Long-running agents repeatedly call an LLM while retaining most of their document window, evicting old documents, and appending new ones. These rolling updates break exact prefix caching and motivate non-prefix KV-cache reuse with selective recomputation. We show that persistent KV-cache reuse with selective recomputation can be history-dependent: in our rolling-agent workload, an unchanged prompt can produce different answers depending on the requests processed before it. At a matched 5% recomputation budget, document-aligned recomputation reduces answer variation across request orders from 69.0% with CacheBlend’s token top- k k policy to 26.1%. When each prompt is evaluated after a different sequence of preceding requests, document-aligned recomputation improves fidelity to full prefill by 34.5–52.5 percentage points over token top- k k , while both policies achieve approximately 5.7 × \\times median TTFT speedup. Our ablation study shows that, in our rolling-agent workload, contiguity is the main factor associated with robust selective recomputation.",
+    "authors": [
+      {
+        "name": "Tiffany Gu",
+        "affiliations": [
+          "Affiliation: Carnegie Mellon University"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Annie Guan 1 1 footnotemark: 1",
+        "affiliations": [
+          "Affiliation: Capital One"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Manshu Huang",
+        "affiliations": [
+          "Affiliation: University of Chicago"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Nitin Rao",
+        "affiliations": [
+          "Affiliation: University of California, Berkeley"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Siddhant Shah",
+        "affiliations": [
+          "Affiliation: University of Southern California"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Margaret Capetz",
+        "affiliations": [
+          "Affiliation: University of Washington"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Tiffany Gu † † thanks: Equal contribution. Affiliation: Carnegie Mellon University Email: tg2@andrew.cmu.edu Annie Guan 1 1 footnotemark: 1 Affiliation: Capital One Email: xin.guan2@capitalone.com Manshu Huang Affiliation: University of Chicago Email: huangms@uchicago.edu Nitin Rao Affiliation: University of California, Berkeley Email: nitinrao@berkeley.edu Siddhant Shah Affiliation: University of Southern California Email: shahsd@usc.edu Margaret Capetz Affiliation: University of Washington Email: mcapetz@uw.edu",
+    "arxiv_version": "2610.05833v1",
+    "arxiv_version_date": "2026-10-05",
+    "sections": [
+      {
+        "id": "S1",
+        "heading": "1 Introduction",
+        "level": 1,
+        "text": "Long-running agents repeatedly call an LLM while retaining information from previous steps. A research agent may keep most papers while replacing outdated evidence; a financial monitoring agent may discard one stale quote or filing and append a new headline, price update, or 8-K title. Recomputing the entire prompt after every small update wastes prefill computation and increases time to first token. Exact prefix caching avoids repeated prefill only when a new request begins with the same token sequence as a cached request. A rolling update breaks this condition. Once the oldest document is removed, the retained documents move to earlier positions and acquire different preceding context. Their text is unchanged, but their previously computed KV states are no longer the exact states produced by a full prefill of the new prompt. CacheBlend addresses this problem by loading cached KV states for reusable chunks and selectively recomputing tokens whose current keys deviate most from their cached keys [ 1 ] . LMCache implements this idea with token top- k k : for a fixed recomputation budget, it selects the individual tokens with the largest deviations [ 2 ] . Because tokens are ranked independently, the resulting repair can be scattered across hundreds of disjoint regions. We study two questions. First, when the number of recomputed tokens is fixed, does selecting a few contiguous spans work better than selecting scattered tokens with the largest KV deviations? Second, when KV cache state persists across requests, can different sequences of earlier requests cause the same current prompt to produce different answers? This is important for agents because each LLM call inherits cache state created by previous calls. We compare token top- k k with document-aligned recomputation at the same 5% budget. An ablation additionally tests a single contiguous window, fixed chunks crossing document boundaries, and randomly ranked document spans. This design separates contiguity from document boundaries and deviation-based ranking. Figure 1 summarizes the rolling workload, persistent cache histories, and five equal-budget recomputation policies. Figure 1: Overview of the rolling workload, persistent cache history, and equal-budget recomputation policies. Different request orders expose the same prompt to different cached chunk KV states; every policy recomputes 5% of reusable tokens. Several systems have shown that non-prefix KV-cache reuse can reduce prefill latency [ 1 , 3 , 4 , 5 , 6 , 2 ] . We keep both policies at the same recomputation count and measure time to first token on the same rolling requests, so the comparison holds the prefill budget fixed rather than trading extra recomputation for higher fidelity. We make two contributions: 1. We show that selective KV-cache reuse depends on request history. The same prompts produce substantially more answer variation with token top- k k than with document-aligned recomputation when request order changes. 2. We show that recomputing a few contiguous regions is more robust than recomputing scattered high-deviation tokens under the tested persistent cache history."
+      },
+      {
+        "id": "S2.SS1",
+        "heading": "2.1 Prefill latency in rolling document workloads",
+        "level": 2,
+        "text": "LLM inference begins with a prefill stage that processes the input prompt and creates per-layer key and value states for its tokens. Longer prompts increase prefill work and time to first token. Prefix caching reduces this cost by reusing KV states for the longest identical token prefix shared with an earlier request [ 7 , 8 ] . Reusing an exact prefix preserves the exact model computation for the reused tokens, but deleting or inserting content near the beginning prevents reuse for all unchanged text that follows. Rolling document workloads expose this limitation directly. Request t t contains a fixed instruction, documents D 1 , … , D 84 D_{1},\\ldots,D_{84} , and a final query. Request t + 1 t+1 evicts D 1 D_{1} , retains D 2 , … , D 84 D_{2},\\ldots,D_{84} , and appends D 85 D_{85} . Although 83 of the 84 documents persist, every retained document shifts to an earlier position and acquires different preceding context, as illustrated in Figure 1 . The longest shared prefix is therefore little more than the fixed instruction, and standard prefix caching cannot reuse any of the retained documents’ prior KV states. A non-prefix reuse system instead stores the KV states of individual chunks and loads them when those chunks appear in later prompts. Simply combining independently computed chunk caches is fast but approximate: each chunk was processed without the preceding chunks in the current prompt and therefore lacks the cross-chunk attention that a full prefill would create. CacheBlend mitigates this inconsistency by selectively recomputing a subset of tokens under the current prompt [ 1 ] . The retrieved chunks determine which cached KV states are loaded, while the recomputation selector determines which tokens within those chunks are recomputed. Related approaches modify the selection signal, linking mechanism, position handling, attention structure, or model training [ 3 , 4 , 9 , 5 , 6 , 10 ] ."
+      },
+      {
+        "id": "S2.SS2",
+        "heading": "2.2 CacheBlend’s token-level selective recomputation",
+        "level": 2,
+        "text": "After reusable KV states are loaded, LMCache’s CacheBlend implementation processes the prompt layer by layer. At a configured selection layer, it compares each reusable token’s current key K i current K_{i}^{\\mathrm{current}} with its loaded key K i cached K_{i}^{\\mathrm{cached}} : d i = ∥ K i current − K i cached ∥ 2 2 . d_{i}=\\lVert K_{i}^{\\mathrm{current}}-K_{i}^{\\mathrm{cached}}\\rVert_{2}^{2}. (1) Here, d i d_{i} is token i i ’s deviation score. A larger value means that the token’s loaded key differs more from the key computed under the current prompt, so CacheBlend treats that token as a higher priority for recomputation. For N N reusable tokens and recomputation ratio r r , LMCache selects k = max ⁡ ( 1 , ⌊ r ​ N ⌋ ) k=\\max(1,\\lfloor rN\\rfloor) (2) tokens. Its default policy selects the k k tokens with the largest d i d_{i} values. The selector runs once at the selection layer, and the same selected token positions are recomputed at every subsequent layer without being reranked. Selected positions use KV states computed under the current prompt, while unselected positions retain their loaded KV states. This policy captures the largest individual deviations but can scatter recomputation across many regions."
+      },
+      {
+        "id": "S2.SS3",
+        "heading": "2.3 Span-level selective recomputation",
+        "level": 2,
+        "text": "Span-level selective recomputation allocates the recomputation budget to contiguous ranges of reusable tokens rather than isolated token positions. We consider four span-based policies that use the same reusable tokens and recompute exactly k k tokens. For a candidate span S j S_{j} , we define its average KV-deviation score as ρ j = 1 | S j | ​ ∑ i ∈ S j d i , \\rho_{j}=\\frac{1}{|S_{j}|}\\sum_{i\\in S_{j}}d_{i}, (3) where d i d_{i} is the per-token deviation from ( 1 ). This score measures how much the tokens in a span differ from their cached states on average. Normalizing by span length prevents longer spans from receiving a higher score merely because they contain more tokens. The four policies differ in how they define and rank their candidate spans: • Single-window selects the contiguous k k -token window with the greatest total deviation, ∑ i d i \\sum_{i}d_{i} . Because every candidate window contains k k tokens, ranking by total or average KV deviation gives the same result. • Fixed-chunk divides the reusable prompt into equal-size spans that cross document boundaries and prioritizes the spans with the highest average KV-deviation scores ρ j \\rho_{j} . • Random-document uses document spans but ranks them in a deterministic random order, ignoring the deviation scores. • Document-aligned uses the same document spans and ranks them by average KV-deviation score ρ j \\rho_{j} . We use document-aligned recomputation as the span-based policy in the cache-history sensitivity experiment and TTFT benchmark. The other three span policies serve as ablation controls that isolate the effects of contiguity, document boundaries, and deviation-based ranking. Only random-document and document-aligned use document boundaries; single-window and fixed-chunk define contiguous regions independently of those boundaries. Our document-aligned policy divides the reusable prompt into the instruction span, individual document spans, and the final query when it is reusable. It ranks spans by ρ j \\rho_{j} and selects complete spans while they fit within the k k -token budget. If tokens remain, it selects the contiguous window with the greatest total deviation from the highest-ranked remaining span. The final selection contains exactly k k tokens. Document boundaries provide a practical way to define contiguous regions because they are already available in document-oriented prompts and require neither a learned segmenter nor a manually chosen chunk size. Figure 1 summarizes how the five policies place the same recomputation budget."
+      },
+      {
+        "id": "S3.SS0.SSS0.Px1",
+        "heading": "Selective recomputation for non-prefix reuse.",
+        "level": 3,
+        "text": "CacheBlend introduces selective recomputation of high-deviation tokens to repair cross-document interactions after loading independently cached KV states [ 1 ] . ProphetKV makes selection query-driven and combines signals across layers [ 9 ] . CacheClip uses an auxiliary model to identify important tokens and groups nearby selections to preserve local coherence [ 5 ] . Unlike CacheClip, which incorporates grouping as one component of a complete method, we compare scattered and span-based selection at the same realized recomputation count and isolate the effect of selection pattern. A recent experimental study compares recomputation and attention-reshaping strategies for chunk-level caching and similarly emphasizes that no single repair mechanism is sufficient across settings [ 10 ] . These methods study repair quality for assembled prompts; we instead ask whether a repair policy remains reliable as persistent cache state accumulates across rolling requests."
+      },
+      {
+        "id": "S3.SS0.SSS0.Px2",
+        "heading": "Position-independent and document-level reuse.",
+        "level": 3,
+        "text": "EPIC formalizes position-independent caching and introduces LegoLink, which recomputes a small fixed set of initial tokens from each reusable chunk to suppress spurious attention sinks [ 3 ] . This is contiguous rather than scattered selection, though it spreads many small spans across all chunks rather than concentrating the budget as our policies do. KVLink adjusts positional encodings and inserts trainable link tokens between independently encoded documents [ 4 ] . MiniPIC exposes position-free KV storage and span-oriented reuse primitives inside vLLM [ 6 ] . These systems expand reuse beyond exact prefixes; our results identify persistent request history as an additional evaluation dimension."
+      },
+      {
+        "id": "S3.SS0.SSS0.Px3",
+        "heading": "Prefix caching and KV-cache management.",
+        "level": 3,
+        "text": "vLLM introduces PagedAttention, which manages KV-cache memory in noncontiguous blocks to reduce fragmentation and enable efficient sharing [ 7 ] . SGLang’s RadixAttention organizes reusable prefixes in an LRU-managed radix tree and combines prefix matching, eviction, and cache-aware scheduling [ 8 ] . LMCache externalizes KV storage and movement across engines and memory tiers and provides the CacheBlend implementation used in our experiments [ 2 ] . Together, these systems make KV state a persistent serving resource. Our work studies selective repair when rolling prompts reuse content beyond a stable prefix and persistent history changes the cached state."
+      },
+      {
+        "id": "S4",
+        "heading": "4 Evaluation and Results",
+        "level": 1,
+        "text": "Our experiments ask four questions: Does request order affect the outputs of selective KV reuse? Is document-aligned recomputation less sensitive to request order than token top- k k ? How much does selective reuse reduce TTFT? Which properties of span selection explain the observed difference?"
+      },
+      {
+        "id": "S4.SS1.SSS0.Px1",
+        "heading": "System configuration.",
+        "level": 3,
+        "text": "We use Qwen3-8B with greedy decoding (temperature 0) and a fixed random seed, LMCache 0.5.1 [ 2 ] , and vLLM 0.23.0 [ 7 ] . The vLLM prefix cache is disabled so that the experiment measures LMCache’s non-prefix reuse path. Token top- k k and document-aligned recomputation use the same model, prompts, reusable-token interface, deviation metric, and 5% recomputation rule."
+      },
+      {
+        "id": "S4.SS1.SSS0.Px2",
+        "heading": "Dataset and rolling agent workload.",
+        "level": 3,
+        "text": "The full event dataset contains 8,995 real records for 15 U.S. equities: 7,515 Yahoo Finance daily price records [ 11 ] , 792 FNSPID news headlines [ 12 ] , and 688 SEC EDGAR filing titles [ 13 ] . News and filing dates are mapped onto each equity’s price calendar to interleave the three channels while preserving order within each channel. The workload models an agent with a bounded document window. Before each LLM call, the agent evicts one old document, retains 83 documents, and appends one new document. For example, the window [ D 1 , … , D 84 ] [D_{1},\\ldots,D_{84}] becomes [ D 2 , … , D 85 ] [D_{2},\\ldots,D_{85}] at the next call. The event stream produces 7,735 rolling updates with a fixed window of 84 documents and stride 1. The final query identifies one observation in the current window and asks the model to copy the requested fields from that observation verbatim. This deterministic extraction task supports exact answer comparison. Prompts contain approximately 7.2K–7.7K tokens."
+      },
+      {
+        "id": "S4.SS1.SSS0.Px3",
+        "heading": "Evaluation protocol.",
+        "level": 3,
+        "text": "We process the same requests in five orders. The prompt for each request remains unchanged; only the order in which complete requests enter the serving system changes. This varies the persistent cache state created by earlier requests and allows us to test whether the same prompt remains stable under different cache histories: • Chronological: models a rolling stream processed normally in source order. • Fixed-random: uses three predetermined shuffled orders to represent request interleavings when a shared cache serves multiple agents. • Reversed: processes the source stream in the opposite direction as a deterministic stress test. Each combination of recomputation policy and request order starts with empty LMCache state, retains cache state across requests, and shares no state with other runs. For each rolling update, we first populate the previous window’s document KV caches and then evaluate the updated window. We report two cache-history sensitivity metrics. For each request, we compare the answers produced under all ten pairs of the five request orders. Answer variation is the percentage of these comparisons in which the answers differ. Fidelity is exact agreement with the full-prefill answer. We also compare request-level TTFT for full prefill, token top- k k , and document-aligned recomputation."
+      },
+      {
+        "id": "S4.SS2",
+        "heading": "4.2 Cache History Sensitivity",
+        "level": 2,
+        "text": "Request order changes the answer. Answer variation is 69.0% for token top- k k and 26.1% for document-aligned recomputation. Requests are issued one at a time to rule out batch-composition effects, and an independent repeat of the chronological order reproduces every answer exactly, ruling out run-to-run variation. Request order also affects fidelity. Under chronological order, we detect no statistically significant difference: 86.8% for token top- k k and 85.4% for document-aligned recomputation ( p = 0.12 p=0.12 ). Under the other four orders, fidelity ranges from 19.8–41.5% for token top- k k and 54.3–91.7% for document-aligned recomputation (all p < 0.0001 p<0.0001 ). Document-aligned recomputation is more robust but not immune: its fidelity falls to 54.3% under the reversed-order stress test (Figure 2 ). Figure 2: (A) Answer variation, measured as mean pairwise exact-answer disagreement across the five request orders; error bars show 95% confidence intervals. (B) Fidelity to full prefill in each request order. Both recomputation policies use a 5% recomputation ratio. In a 500-request control that resets the cache before each request, we detect no statistically significant difference in fidelity between token top- k k and document-aligned recomputation (94.0% vs. 92.6%, p = 0.23 p=0.23 ). This control suggests that the advantage of document-aligned recomputation depends on cache state accumulated across requests: when that history is removed, the two policies perform similarly."
+      },
+      {
+        "id": "S4.SS3",
+        "heading": "4.3 Time to First Token",
+        "level": 2,
+        "text": "Table 1 reports request-level median and P95 TTFT and median speedup over full prefill on an NVIDIA L4. Both selective-reuse policies achieve approximately 5.7 × \\times median speedup and have similar latency. Table 1: Request-level time to first token. Policy Median TTFT P95 TTFT Median speedup vs. full prefill Full prefill 2,408 ms 2,524 ms 1.00 × \\times Token top- k k , 5% 426 ms 459 ms 5.68 × \\times Document-aligned, 5% 415 ms 477 ms 5.74 × \\times"
+      },
+      {
+        "id": "S4.SS4",
+        "heading": "4.4 Selection-pattern ablation",
+        "level": 2,
+        "text": "To identify which property of document-aligned recomputation drives its behavior, we compare it with three span-based controls and token top- k k . The ablation evaluates all five policies on the same 500-request cohort under chronological and fixed-random request orders, using a 5% recomputation ratio and matching the exact number of recomputed tokens. Token top- k k selects scattered high-deviation tokens. Single-window selects one continuous region. Fixed-chunk partitions the reusable prompt into 92-token spans, matching the cohort’s median document-span length, offsets them so they cross document boundaries, and prioritizes the spans with the highest average KV-deviation scores. Random-document uses document spans but ignores deviation ranking. Document-aligned ranks document spans by the same average KV-deviation score (see Figure 1 ). All five policies recompute exactly the same total number of tokens within each order: 188,562 in chronological execution and 188,721 in the fixed-random order. The median per-request count is 386 and 387 tokens, respectively. Because every policy recomputes the same number of tokens, the fidelity differences come from where those tokens are selected, not from doing more recomputation (Figure 3 ). Figure 3: Fidelity of five equal-budget selection policies on the same prompts under chronological and one fixed-random order. Every policy uses a 5% recomputation ratio and matches the realized token count within each order. Error bars show 95% Wilson score intervals. Three fidelity patterns emerge: • Similar fidelity in chronological order. All five policies achieve 86.2–89.2% fidelity, and no comparison supports a clear advantage for any policy. • Span policies retain high fidelity under the fixed-random order. Token top- k k falls to 38.6% fidelity, while the four span policies achieve 89.4–92.8%. Each span policy improves fidelity over token top- k k by 50.8–54.2 percentage points (all p < 0.0001 p<0.0001 ). • Document boundaries and deviation-based span ranking show no statistically significant additional advantage. Single-window achieves the highest fixed-random fidelity at 92.8%. Document-aligned does not differ significantly from single-window ( p = 0.076 p=0.076 ), fixed-chunk ( p = 0.85 p=0.85 ), or random-document selection ( p = 0.37 p=0.37 ). Token top- k k is designed to capture the largest individual KV deviations, yet it performs worst under the fixed-random order. Table 2 reports two properties of each selection: how many separate contiguous regions receive the budget (segments), and what share of the total selection-layer KV-deviation score those tokens carry (captured deviation). Table 2: Selection fragmentation and captured deviation. Each cell reports chronological / fixed-random results. Policy Median segments Median captured deviation Token top- k k 199 / 180.5 98.8% / 99.7% Single-window 1 / 1 7.2% / 6.1% Fixed-chunk 3 / 5 6.9% / 7.1% Random-document 6 / 6 4.8% / 4.8% Document-aligned 3 / 6 7.2% / 6.9% Under the fixed-random order, token top- k k spreads the budget across a median of 180.5 regions and captures 99.7% of the deviation, but achieves only 38.6% fidelity. Random-document ignores the deviation signal entirely, selects six whole-document spans, captures 4.8% of the deviation, and still improves fidelity by 50.8 percentage points over token top- k k ( p < 0.0001 p<0.0001 ). Capturing more KV deviation therefore does not guarantee higher fidelity under the evaluated fixed-random cache history: contiguous policies retain high fidelity, whereas scattered token top- k k does not. Neither aligning spans to document boundaries nor ranking them by KV deviation provides a statistically significant additional advantage. Document boundaries remain a convenient way to define contiguous spans."
+      },
+      {
+        "id": "S5",
+        "heading": "5 Discussion",
+        "level": 1,
+        "text": "The same prompt can produce different answers because earlier requests change the persistent cache state that prompt encounters. This is a closed-loop serving problem: each LLM call both consumes and updates cache state, so later requests are conditioned on earlier ones. Retries, branching trajectories, concurrent sessions, and scheduler interleavings can therefore present the same prompt to a different cache state. Because all ablation policies recompute the same number of tokens, their fidelity differences reflect which tokens they select rather than how many. Under the evaluated fixed-random order, the four contiguous policies achieve 89.4–92.8% fidelity, compared with 38.6% for scattered token top- k k , even though top- k k captures nearly all measured KV deviation. Document-aligned recomputation and token top- k k also have comparable median TTFT. These results suggest that, at the same recomputation cost, recomputing contiguous regions is more effective than recomputing scattered high-deviation tokens under the evaluated fixed-random cache history. The ablation identifies contiguity as the main factor associated with robustness under the evaluated fixed-random history. Neither aligning spans to document boundaries nor ranking them by KV deviation provides a statistically significant additional advantage. When prompts already expose document boundaries, document-aligned selection requires no learned segmenter or manually chosen chunk size, making it a convenient way to define contiguous recomputation regions. Efficient agentic serving therefore requires co-design of the recomputation policy with the persistent cache lifecycle, rather than optimizing prefill cost on isolated prompts."
+      },
+      {
+        "id": "S6",
+        "heading": "6 Conclusion and Future Work",
+        "level": 1,
+        "text": "We show that selective KV-cache reuse in a rolling document workload depends on persistent cache history. At a matched 5% recomputation budget, document-aligned recomputation reduces answer variation across request orders from 69.0% to 26.1% relative to CacheBlend’s token top- k k . We detect no statistically significant difference under chronological order; under the other four, fidelity to full prefill improves by 34.5–52.5 percentage points at approximately the same median TTFT. A cache-reset control detects no statistically significant difference between the methods, showing that this behavior can be missed by evaluations that run requests from a clean cache. In practice, this means that a cache-reuse method that appears reliable on isolated requests may behave differently as cache state accumulates across requests. The ablation suggests that selecting contiguous spans is the common feature associated with robustness; we detect no additional benefit from document boundaries or deviation-based span ranking. These findings suggest that selective KV-cache reuse should be evaluated over realistic request sequences in which cache state persists, rather than only on isolated requests from a clean cache. Future work will isolate the effects of retained versus recreated cache entries and develop policies that preserve latency benefits and output fidelity as cache state accumulates."
+      },
+      {
+        "id": "bib",
+        "heading": "References",
+        "level": 1,
+        "text": "[1] J. Yao, H. Li, Y. Liu, S. Ray, Y. Cheng, Q. Zhang, K. Du, S. Lu, and J. Jiang (2025) CacheBlend: fast large language model serving for RAG with cached knowledge fusion . In Proceedings of the Twentieth European Conference on Computer Systems , External Links: Document , 2405.16444 Cited by: §1 , §1 , §2.1 , §3 . [2] Y. Cheng, Y. Liu, J. Yao, Y. An, X. Chen, S. Feng, Y. Huang, S. Shen, R. Zhang, K. Du, and J. Jiang (2025) LMCache: an efficient KV cache layer for enterprise-scale LLM inference . External Links: 2510.09665 Cited by: §1 , §1 , §3 , §4.1 . [3] J. Hu, W. Huang, H. Wang, W. Wang, T. Hu, Q. Zhang, H. Feng, X. Chen, Y. Shan, and T. Xie (2025) EPIC: efficient position-independent caching for serving large language models . In International Conference on Machine Learning , External Links: 2410.15332 Cited by: §1 , §2.1 , §3 . [4] J. Yang, B. Hou, W. Wei, Y. Bao, and S. Chang (2025) KVLink: accelerating large language models via efficient KV cache reuse . In Advances in Neural Information Processing Systems , External Links: 2502.16002 Cited by: §1 , §2.1 , §3 . [5] B. Yang, Q. Leng, J. Zeng, and Z. Wu (2025) CacheClip: accelerating RAG with effective KV cache reuse . External Links: 2510.10129 Cited by: §1 , §2.1 , §3 . [6] N. Ordonez and T. Parnell (2026) MiniPIC: flexible position-independent caching in under 100 LOC . External Links: 2606.13126 Cited by: §1 , §2.1 , §3 . [7] W. Kwon, Z. Li, S. Zhuang, Y. Sheng, L. Zheng, C. H. Yu, J. E. Gonzalez, H. Zhang, and I. Stoica (2023) Efficient memory management for large language model serving with PagedAttention . In Proceedings of the 29th Symposium on Operating Systems Principles , External Links: 2309.06180 Cited by: §2.1 , §3 , §4.1 . [8] L. Zheng, L. Yin, Z. Xie, C. Sun, J. Huang, C. H. Yu, S. Cao, C. Kozyrakis, I. Stoica, J. E. Gonzalez, C. Barrett, and Y. Sheng (2024) SGLang: efficient execution of structured language model programs . In Advances in Neural Information Processing Systems , External Links: 2312.07104 Cited by: §2.1 , §3 . [9] S. Wang, J. Chen, Y. Pan, H. Huang, Y. Hao, X. Zou, W. Xia, W. Zhang, C. Qiu, and P. Wang (2026) ProphetKV: user-query-driven selective recomputation for efficient KV cache reuse in retrieval-augmented generation . In International Conference on Machine Learning , External Links: 2602.02579 Cited by: §2.1 , §3 . [10] S. Cestola, T. Xia, Z. Weiyan, Z. Pengfei, and D. Didona (2026) An experimental study of KV cache reuse strategies in chunk-level caching systems . External Links: 2603.20218 Cited by: §2.1 , §3 . [11] Yahoo Finance Historical market data . Note: https://finance.yahoo.com/ Accessed 2026 Cited by: §4.1 . [12] Z. Dong, X. Fan, and Z. Peng (2024) FNSPID: a comprehensive financial news dataset in time series . External Links: 2402.06698 Cited by: §4.1 . [13] U.S. Securities and Exchange Commission EDGAR: search filings . Note: https://www.sec.gov/search-filings Accessed 2026 Cited by: §4.1 ."
+      }
+    ]
+  },
+  "text": "Request Order Matters: Cache-History Sensitivity in Selective KV-Cache Reuse for Rolling Agents Skip to main content Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: Why HTML? Report Issue Back to Abstract Download PDF Contents Reading mode Colour theme License: CC BY 4.0 arXiv:2610.05833v1 [cs.AI] 05 Oct 2026 Request Order Matters: Cache-History Sensitivity in Selective KV-Cache Reuse for Rolling Agents Tiffany Gu † † thanks: Equal contribution. Affiliation: Carnegie Mellon University Email: tg2@andrew.cmu.edu Annie Guan 1 1 footnotemark: 1 Affiliation: Capital One Email: xin.guan2@capitalone.com Manshu Huang Affiliation: University of Chicago Email: huangms@uchicago.edu Nitin Rao Affiliation: University of California, Berkeley Email: nitinrao@berkeley.edu Siddhant Shah Affiliation: University of Southern California Email: shahsd@usc.edu Margaret Capetz Affiliation: University of Washington Email: mcapetz@uw.edu Abstract Long-running agents repeatedly call an LLM while retaining most of their document window, evicting old documents, and appending new ones. These rolling updates break exact prefix caching and motivate non-prefix KV-cache reuse with selective recomputation. We show that persistent KV-cache reuse with selective recomputation can be history-dependent: in our rolling-agent workload, an unchanged prompt can produce different answers depending on the requests processed before it. At a matched 5% recomputation budget, document-aligned recomputation reduces answer variation across request orders from 69.0% with CacheBlend’s token top- k k policy to 26.1%. When each prompt is evaluated after a different sequence of preceding requests, document-aligned recomputation improves fidelity to full prefill by 34.5–52.5 percentage points over token top- k k , while both policies achieve approximately 5.7 × \\times median TTFT speedup. Our ablation study shows that, in our rolling-agent workload, contiguity is the main factor associated with robust selective recomputation. 1 Introduction Long-running agents repeatedly call an LLM while retaining information from previous steps. A research agent may keep most papers while replacing outdated evidence; a financial monitoring agent may discard one stale quote or filing and append a new headline, price update, or 8-K title. Recomputing the entire prompt after every small update wastes prefill computation and increases time to first token. Exact prefix caching avoids repeated prefill only when a new request begins with the same token sequence as a cached request. A rolling update breaks this condition. Once the oldest document is removed, the retained documents move to earlier positions and acquire different preceding context. Their text is unchanged, but their previously computed KV states are no longer the exact states produced by a full prefill of the new prompt. CacheBlend addresses this problem by loading cached KV states for reusable chunks and selectively recomputing tokens whose current keys deviate most from their cached keys [ 1 ] . LMCache implements this idea with token top- k k : for a fixed recomputation budget, it selects the individual tokens with the largest deviations [ 2 ] . Because tokens are ranked independently, the resulting repair can be scattered across hundreds of disjoint regions. We study two questions. First, when the number of recomputed tokens is fixed, does selecting a few contiguous spans work better than selecting scattered tokens with the largest KV deviations? Second, when KV cache state persists across requests, can different sequences of earlier requests cause the same current prompt to produce different answers? This is important for agents because each LLM call inherits cache state created by previous calls. We compare token top- k k with document-aligned recomputation at the same 5% budget. An ablation additionally tests a single contiguous window, fixed chunks crossing document boundaries, and randomly ranked document spans. This design separates contiguity from document boundaries and deviation-based ranking. Figure 1 summarizes the rolling workload, persistent cache histories, and five equal-budget recomputation policies. Figure 1: Overview of the rolling workload, persistent cache history, and equal-budget recomputation policies. Different request orders expose the same prompt to different cached chunk KV states; every policy recomputes 5% of reusable tokens. Several systems have shown that non-prefix KV-cache reuse can reduce prefill latency [ 1 , 3 , 4 , 5 , 6 , 2 ] . We keep both policies at the same recomputation count and measure time to first token on the same rolling requests, so the comparison holds the prefill budget fixed rather than trading extra recomputation for higher fidelity. We make two contributions: 1. We show that selective KV-cache reuse depends on request history. The same prompts produce substantially more answer variation with token top- k k than with document-aligned recomputation when request order changes. 2. We show that recomputing a few contiguous regions is more robust than recomputing scattered high-deviation tokens under the tested persistent cache history. 2 Background 2.1 Prefill latency in rolling document workloads LLM inference begins with a prefill stage that processes the input prompt and creates per-layer key and value states for its tokens. Longer prompts increase prefill work and time to first token. Prefix caching reduces this cost by reusing KV states for the longest identical token prefix shared with an earlier request [ 7 , 8 ] . Reusing an exact prefix preserves the exact model computation for the reused tokens, but deleting or inserting content near the beginning prevents reuse for all unchanged text that follows. Rolling document workloads expose this limitation directly. Request t t contains a fixed instruction, documents D 1 , … , D 84 D_{1},\\ldots,D_{84} , and a final query. Request t + 1 t+1 evicts D 1 D_{1} , retains D 2 , … , D 84 D_{2},\\ldots,D_{84} , and appends D 85 D_{85} . Although 83 of the 84 documents persist, every retained document shifts to an earlier position and acquires different preceding context, as illustrated in Figure 1 . The longest shared prefix is therefore little more than the fixed instruction, and standard prefix caching cannot reuse any of the retained documents’ prior KV states. A non-prefix reuse system instead stores the KV states of individual chunks and loads them when those chunks appear in later prompts. Simply combining independently computed chunk caches is fast but approximate: each chunk was processed without the preceding chunks in the current prompt and therefore lacks the cross-chunk attention that a full prefill would create. CacheBlend mitigates this inconsistency by selectively recomputing a subset of tokens under the current prompt [ 1 ] . The retrieved chunks determine which cached KV states are loaded, while the recomputation selector determines which tokens within those chunks are recomputed. Related approaches modify the selection signal, linking mechanism, position handling, attention structure, or model training [ 3 , 4 , 9 , 5 , 6 , 10 ] . 2.2 CacheBlend’s token-level selective recomputation After reusable KV states are loaded, LMCache’s CacheBlend implementation processes the prompt layer by layer. At a configured selection layer, it compares each reusable token’s current key K i current K_{i}^{\\mathrm{current}} with its loaded key K i cached K_{i}^{\\mathrm{cached}} : d i = ∥ K i current − K i cached ∥ 2 2 . d_{i}=\\lVert K_{i}^{\\mathrm{current}}-K_{i}^{\\mathrm{cached}}\\rVert_{2}^{2}. (1) Here, d i d_{i} is token i i ’s deviation score. A larger value means that the token’s loaded key differs more from the key computed under the current prompt, so CacheBlend treats that token as a higher priority for recomputation. For N N reusable tokens and recomputation ratio r r , LMCache selects k = max ⁡ ( 1 , ⌊ r ​ N ⌋ ) k=\\max(1,\\lfloor rN\\rfloor) (2) tokens. Its default policy selects the k k tokens with the largest d i d_{i} values. The selector runs once at the selection layer, and the same selected token positions are recomputed at every subsequent layer without being reranked. Selected positions use KV states computed under the current prompt, while unselected positions retain their loaded KV states. This policy captures the largest individual deviations but can scatter recomputation across many regions. 2.3 Span-level selective recomputation Span-level selective recomputation allocates the recomputation budget to contiguous ranges of reusable tokens rather than isolated token positions. We consider four span-based policies that use the same reusable tokens and recompute exactly k k tokens. For a candidate span S j S_{j} , we define its average KV-deviation score as ρ j = 1 | S j | ​ ∑ i ∈ S j d i , \\rho_{j}=\\frac{1}{|S_{j}|}\\sum_{i\\in S_{j}}d_{i}, (3) where d i d_{i} is the per-token deviation from ( 1 ). This score measures how much the tokens in a span differ from their cached states on average. Normalizing by span length prevents longer spans from receiving a higher score merely because they contain more tokens. The four policies differ in how they define and rank their candidate spans: • Single-window selects the contiguous k k -token window with the greatest total deviation, ∑ i d i \\sum_{i}d_{i} . Because every candidate window contains k k tokens, ranking by total or average KV deviation gives the same result. • Fixed-chunk divides the reusable prompt into equal-size spans that cross document boundaries and prioritizes the spans with the highest average KV-deviation scores ρ j \\rho_{j} . • Random-document uses document spans but ranks them in a deterministic random order, ignoring the deviation scores. • Document-aligned uses the same document spans and ranks them by average KV-deviation score ρ j \\rho_{j} . We use document-aligned recomputation as the span-based policy in the cache-history sensitivity experiment and TTFT benchmark. The other three span policies serve as ablation controls that isolate the effects of contiguity, document boundaries, and deviation-based ranking. Only random-document and document-aligned use document boundaries; single-window and fixed-chunk define contiguous regions independently of those boundaries. Our document-aligned policy divides the reusable prompt into the instruction span, individual document spans, and the final query when it is reusable. It ranks spans by ρ j \\rho_{j} and selects complete spans while they fit within the k k -token budget. If tokens remain, it selects the contiguous window with the greatest total deviation from the highest-ranked remaining span. The final selection contains exactly k k tokens. Document boundaries provide a practical way to define contiguous regions because they are already available in document-oriented prompts and require neither a learned segmenter nor a manually chosen chunk size. Figure 1 summarizes how the five policies place the same recomputation budget. 3 Related Work Selective recomputation for non-prefix reuse. CacheBlend introduces selective recomputation of high-deviation tokens to repair cross-document interactions after loading independently cached KV states [ 1 ] . ProphetKV makes selection query-driven and combines signals across layers [ 9 ] . CacheClip uses an auxiliary model to identify important tokens and groups nearby selections to preserve local coherence [ 5 ] . Unlike CacheClip, which incorporates grouping as one component of a complete method, we compare scattered and span-based selection at the same realized recomputation count and isolate the effect of selection pattern. A recent experimental study compares recomputation and attention-reshaping strategies for chunk-level caching and similarly emphasizes that no single repair mechanism is sufficient across settings [ 10 ] . These methods study repair quality for assembled prompts; we instead ask whether a repair policy remains reliable as persistent cache state accumulates across rolling requests. Position-independent and document-level reuse. EPIC formalizes position-independent caching and introduces LegoLink, which recomputes a small fixed set of initial tokens from each reusable chunk to suppress spurious attention sinks [ 3 ] . This is contiguous rather than scattered selection, though it spreads many small spans across all chunks rather than concentrating the budget as our policies do. KVLink adjusts positional encodings and inserts trainable link tokens between independently encoded documents [ 4 ] . MiniPIC exposes position-free KV storage and span-oriented reuse primitives inside vLLM [ 6 ] . These systems expand reuse beyond exact prefixes; our results identify persistent request history as an additional evaluation dimension. Prefix caching and KV-cache management. vLLM introduces PagedAttention, which manages KV-cache memory in noncontiguous blocks to reduce fragmentation and enable efficient sharing [ 7 ] . SGLang’s RadixAttention organizes reusable prefixes in an LRU-managed radix tree and combines prefix matching, eviction, and cache-aware scheduling [ 8 ] . LMCache externalizes KV storage and movement across engines and memory tiers and provides the CacheBlend implementation used in our experiments [ 2 ] . Together, these systems make KV state a persistent serving resource. Our work studies selective repair when rolling prompts reuse content beyond a stable prefix and persistent history changes the cached state. 4 Evaluation and Results Our experiments ask four questions: Does request order affect the outputs of selective KV reuse? Is document-aligned recomputation less sensitive to request order than token top- k k ? How much does selective reuse reduce TTFT? Which properties of span selection explain the observed difference? 4.1 Experimental Setup System configuration. We use Qwen3-8B with greedy decoding (temperature 0) and a fixed random seed, LMCache 0.5.1 [ 2 ] , and vLLM 0.23.0 [ 7 ] . The vLLM prefix cache is disabled so that the experiment measures LMCache’s non-prefix reuse path. Token top- k k and document-aligned recomputation use the same model, prompts, reusable-token interface, deviation metric, and 5% recomputation rule. Dataset and rolling agent workload. The full event dataset contains 8,995 real records for 15 U.S. equities: 7,515 Yahoo Finance daily price records [ 11 ] , 792 FNSPID news headlines [ 12 ] , and 688 SEC EDGAR filing titles [ 13 ] . News and filing dates are mapped onto each equity’s price calendar to interleave the three channels while preserving order within each channel. The workload models an agent with a bounded document window. Before each LLM call, the agent evicts one old document, retains 83 documents, and appends one new document. For example, the window [ D 1 , … , D 84 ] [D_{1},\\ldots,D_{84}] becomes [ D 2 , … , D 85 ] [D_{2},\\ldots,D_{85}] at the next call. The event stream produces 7,735 rolling updates with a fixed window of 84 documents and stride 1. The final query identifies one observation in the current window and asks the model to copy the requested fields from that observation verbatim. This deterministic extraction task supports exact answer comparison. Prompts contain approximately 7.2K–7.7K tokens. Evaluation protocol. We process the same requests in five orders. The prompt for each request remains unchanged; only the order in which complete requests enter the serving system changes. This varies the persistent cache state created by earlier requests and allows us to test whether the same prompt remains stable under different cache histories: • Chronological: models a rolling stream processed normally in source order. • Fixed-random: uses three predetermined shuffled orders to represent request interleavings when a shared cache serves multiple agents. • Reversed: processes the source stream in the opposite direction as a deterministic stress test. Each combination of recomputation policy and request order starts with empty LMCache state, retains cache state across requests, and shares no state with other runs. For each rolling update, we first populate the previous window’s document KV caches and then evaluate the updated window. We report two cache-history sensitivity metrics. For each request, we compare the answers produced under all ten pairs of the five request orders. Answer variation is the percentage of these comparisons in which the answers differ. Fidelity is exact agreement with the full-prefill answer. We also compare request-level TTFT for full prefill, token top- k k , and document-aligned recomputation. 4.2 Cache History Sensitivity Request order changes the answer. Answer variation is 69.0% for token top- k k and 26.1% for document-aligned recomputation. Requests are issued one at a time to rule out batch-composition effects, and an independent repeat of the chronological order reproduces every answer exactly, ruling out run-to-run variation. Request order also affects fidelity. Under chronological order, we detect no statistically significant difference: 86.8% for token top- k k and 85.4% for document-aligned recomputation ( p = 0.12 p=0.12 ). Under the other four orders, fidelity ranges from 19.8–41.5% for token top- k k and 54.3–91.7% for document-aligned recomputation (all p < 0.0001 p<0.0001 ). Document-aligned recomputation is more robust but not immune: its fidelity falls to 54.3% under the reversed-order stress test (Figure 2 ). Figure 2: (A) Answer variation, measured as mean pairwise exact-answer disagreement across the five request orders; error bars show 95% confidence intervals. (B) Fidelity to full prefill in each request order. Both recomputation policies use a 5% recomputation ratio. In a 500-request control that resets the cache before each request, we detect no statistically significant difference in fidelity between token top- k k and document-aligned recomputation (94.0% vs. 92.6%, p = 0.23 p=0.23 ). This control suggests that the advantage of document-aligned recomputation depends on cache state accumulated across requests: when that history is removed, the two policies perform similarly. 4.3 Time to First Token Table 1 reports request-level median and P95 TTFT and median speedup over full prefill on an NVIDIA L4. Both selective-reuse policies achieve approximately 5.7 × \\times median speedup and have similar latency. Table 1: Request-level time to first token. Policy Median TTFT P95 TTFT Median speedup vs. full prefill Full prefill 2,408 ms 2,524 ms 1.00 × \\times Token top- k k , 5% 426 ms 459 ms 5.68 × \\times Document-aligned, 5% 415 ms 477 ms 5.74 × \\times 4.4 Selection-pattern ablation To identify which property of document-aligned recomputation drives its behavior, we compare it with three span-based controls and token top- k k . The ablation evaluates all five policies on the same 500-request cohort under chronological and fixed-random request orders, using a 5% recomputation ratio and matching the exact number of recomputed tokens. Token top- k k selects scattered high-deviation tokens. Single-window selects one continuous region. Fixed-chunk partitions the reusable prompt into 92-token spans, matching the cohort’s median document-span length, offsets them so they cross document boundaries, and prioritizes the spans with the highest average KV-deviation scores. Random-document uses document spans but ignores deviation ranking. Document-aligned ranks document spans by the same average KV-deviation score (see Figure 1 ). All five policies recompute exactly the same total number of tokens within each order: 188,562 in chronological execution and 188,721 in the fixed-random order. The median per-request count is 386 and 387 tokens, respectively. Because every policy recomputes the same number of tokens, the fidelity differences come from where those tokens are selected, not from doing more recomputation (Figure 3 ). Figure 3: Fidelity of five equal-budget selection policies on the same prompts under chronological and one fixed-random order. Every policy uses a 5% recomputation ratio and matches the realized token count within each order. Error bars show 95% Wilson score intervals. Three fidelity patterns emerge: • Similar fidelity in chronological order. All five policies achieve 86.2–89.2% fidelity, and no comparison supports a clear advantage for any policy. • Span policies retain high fidelity under the fixed-random order. Token top- k k falls to 38.6% fidelity, while the four span policies achieve 89.4–92.8%. Each span policy improves fidelity over token top- k k by 50.8–54.2 percentage points (all p < 0.0001 p<0.0001 ). • Document boundaries and deviation-based span ranking show no statistically significant additional advantage. Single-window achieves the highest fixed-random fidelity at 92.8%. Document-aligned does not differ significantly from single-window ( p = 0.076 p=0.076 ), fixed-chunk ( p = 0.85 p=0.85 ), or random-document selection ( p = 0.37 p=0.37 ). Token top- k k is designed to capture the largest individual KV deviations, yet it performs worst under the fixed-random order. Table 2 reports two properties of each selection: how many separate contiguous regions receive the budget (segments), and what share of the total selection-layer KV-deviation score those tokens carry (captured deviation). Table 2: Selection fragmentation and captured deviation. Each cell reports chronological / fixed-random results. Policy Median segments Median captured deviation Token top- k k 199 / 180.5 98.8% / 99.7% Single-window 1 / 1 7.2% / 6.1% Fixed-chunk 3 / 5 6.9% / 7.1% Random-document 6 / 6 4.8% / 4.8% Document-aligned 3 / 6 7.2% / 6.9% Under the fixed-random order, token top- k k spreads the budget across a median of 180.5 regions and captures 99.7% of the deviation, but achieves only 38.6% fidelity. Random-document ignores the deviation signal entirely, selects six whole-document spans, captures 4.8% of the deviation, and still improves fidelity by 50.8 percentage points over token top- k k ( p < 0.0001 p<0.0001 ). Capturing more KV deviation therefore does not guarantee higher fidelity under the evaluated fixed-random cache history: contiguous policies retain high fidelity, whereas scattered token top- k k does not. Neither aligning spans to document boundaries nor ranking them by KV deviation provides a statistically significant additional advantage. Document boundaries remain a convenient way to define contiguous spans. 5 Discussion The same prompt can produce different answers because earlier requests change the persistent cache state that prompt encounters. This is a closed-loop serving problem: each LLM call both consumes and updates cache state, so later requests are conditioned on earlier ones. Retries, branching trajectories, concurrent sessions, and scheduler interleavings can therefore present the same prompt to a different cache state. Because all ablation policies recompute the same number of tokens, their fidelity differences reflect which tokens they select rather than how many. Under the evaluated fixed-random order, the four contiguous policies achieve 89.4–92.8% fidelity, compared with 38.6% for scattered token top- k k , even though top- k k captures nearly all measured KV deviation. Document-aligned recomputation and token top- k k also have comparable median TTFT. These results suggest that, at the same recomputation cost, recomputing contiguous regions is more effective than recomputing scattered high-deviation tokens under the evaluated fixed-random cache history. The ablation identifies contiguity as the main factor associated with robustness under the evaluated fixed-random history. Neither aligning spans to document boundaries nor ranking them by KV deviation provides a statistically significant additional advantage. When prompts already expose document boundaries, document-aligned selection requires no learned segmenter or manually chosen chunk size, making it a convenient way to define contiguous recomputation regions. Efficient agentic serving therefore requires co-design of the recomputation policy with the persistent cache lifecycle, rather than optimizing prefill cost on isolated prompts. 6 Conclusion and Future Work We show that selective KV-cache reuse in a rolling document workload depends on persistent cache history. At a matched 5% recomputation budget, document-aligned recomputation reduces answer variation across request orders from 69.0% to 26.1% relative to CacheBlend’s token top- k k . We detect no statistically significant difference under chronological order; under the other four, fidelity to full prefill improves by 34.5–52.5 percentage points at approximately the same median TTFT. A cache-reset control detects no statistically significant difference between the methods, showing that this behavior can be missed by evaluations that run requests from a clean cache. In practice, this means that a cache-reuse method that appears reliable on isolated requests may behave differently as cache state accumulates across requests. The ablation suggests that selecting contiguous spans is the common feature associated with robustness; we detect no additional benefit from document boundaries or deviation-based span ranking. These findings suggest that selective KV-cache reuse should be evaluated over realistic request sequences in which cache state persists, rather than only on isolated requests from a clean cache. Future work will isolate the effects of retained versus recreated cache entries and develop policies that preserve latency benefits and output fidelity as cache state accumulates. References [1] J. Yao, H. Li, Y. Liu, S. Ray, Y. Cheng, Q. Zhang, K. Du, S. Lu, and J. Jiang (2025) CacheBlend: fast large language model serving for RAG with cached knowledge fusion . In Proceedings of the Twentieth European Conference on Computer Systems , External Links: Document , 2405.16444 Cited by: §1 , §1 , §2.1 , §3 . [2] Y. Cheng, Y. Liu, J. Yao, Y. An, X. Chen, S. Feng, Y. Huang, S. Shen, R. Zhang, K. Du, and J. Jiang (2025) LMCache: an efficient KV cache layer for enterprise-scale LLM inference . External Links: 2510.09665 Cited by: §1 , §1 , §3 , §4.1 . [3] J. Hu, W. Huang, H. Wang, W. Wang, T. Hu, Q. Zhang, H. Feng, X. Chen, Y. Shan, and T. Xie (2025) EPIC: efficient position-independent caching for serving large language models . In International Conference on Machine Learning , External Links: 2410.15332 Cited by: §1 , §2.1 , §3 . [4] J. Yang, B. Hou, W. Wei, Y. Bao, and S. Chang (2025) KVLink: accelerating large language models via efficient KV cache reuse . In Advances in Neural Information Processing Systems , External Links: 2502.16002 Cited by: §1 , §2.1 , §3 . [5] B. Yang, Q. Leng, J. Zeng, and Z. Wu (2025) CacheClip: accelerating RAG with effective KV cache reuse . External Links: 2510.10129 Cited by: §1 , §2.1 , §3 . [6] N. Ordonez and T. Parnell (2026) MiniPIC: flexible position-independent caching in under 100 LOC . External Links: 2606.13126 Cited by: §1 , §2.1 , §3 . [7] W. Kwon, Z. Li, S. Zhuang, Y. Sheng, L. Zheng, C. H. Yu, J. E. Gonzalez, H. Zhang, and I. Stoica (2023) Efficient memory management for large language model serving with PagedAttention . In Proceedings of the 29th Symposium on Operating Systems Principles , External Links: 2309.06180 Cited by: §2.1 , §3 , §4.1 . [8] L. Zheng, L. Yin, Z. Xie, C. Sun, J. Huang, C. H. Yu, S. Cao, C. Kozyrakis, I. Stoica, J. E. Gonzalez, C. Barrett, and Y. Sheng (2024) SGLang: efficient execution of structured language model programs . In Advances in Neural Information Processing Systems , External Links: 2312.07104 Cited by: §2.1 , §3 . [9] S. Wang, J. Chen, Y. Pan, H. Huang, Y. Hao, X. Zou, W. Xia, W. Zhang, C. Qiu, and P. Wang (2026) ProphetKV: user-query-driven selective recomputation for efficient KV cache reuse in retrieval-augmented generation . In International Conference on Machine Learning , External Links: 2602.02579 Cited by: §2.1 , §3 . [10] S. Cestola, T. Xia, Z. Weiyan, Z. Pengfei, and D. Didona (2026) An experimental study of KV cache reuse strategies in chunk-level caching systems . External Links: 2603.20218 Cited by: §2.1 , §3 . [11] Yahoo Finance Historical market data . Note: https://finance.yahoo.com/ Accessed 2026 Cited by: §4.1 . [12] Z. Dong, X. Fan, and Z. Peng (2024) FNSPID: a comprehensive financial news dataset in time series . External Links: 2402.06698 Cited by: §4.1 . [13] U.S. Securities and Exchange Commission EDGAR: search filings . Note: https://www.sec.gov/search-filings Accessed 2026 Cited by: §4.1 .",
+  "text_truncated": false,
+  "links": [
+    {
+      "text": "Skip to main content",
+      "url": "https://arxiv.org/html/2610.05833v1#infobox"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/IgnoreMe"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "Why HTML?",
+      "url": "https://info.arxiv.org/about/accessible_HTML.html"
+    },
+    {
+      "text": "Back to Abstract",
+      "url": "https://arxiv.org/abs/2610.05833v1"
+    },
+    {
+      "text": "Download PDF",
+      "url": "https://arxiv.org/pdf/2610.05833v1"
+    },
+    {
+      "text": "License: CC BY 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2610.05833v1#bib.bib1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2610.05833v1#bib.bib8"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2610.05833v1#S1.F1"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2610.05833v1#bib.bib2"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2610.05833v1#bib.bib3"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2610.05833v1#bib.bib5"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2610.05833v1#bib.bib6"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2610.05833v1#bib.bib7"
+    },
+    {
+      "text": "8",
+      "url": "https://arxiv.org/html/2610.05833v1#bib.bib13"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2610.05833v1#bib.bib4"
+    },
+    {
+      "text": "10",
+      "url": "https://arxiv.org/html/2610.05833v1#bib.bib12"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2610.05833v1#S2.E1"
+    },
+    {
+      "text": "11",
+      "url": "https://arxiv.org/html/2610.05833v1#bib.bib9"
+    },
+    {
+      "text": "12",
+      "url": "https://arxiv.org/html/2610.05833v1#bib.bib10"
+    },
+    {
+      "text": "13",
+      "url": "https://arxiv.org/html/2610.05833v1#bib.bib11"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2610.05833v1#S4.F2"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2610.05833v1#S4.T1"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2610.05833v1#S4.F3"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2610.05833v1#S4.T2"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.1145/3689031.3696098"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2610.05833v1#S1.p3.1"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2610.05833v1#S1.p6.1"
+    },
+    {
+      "text": "§2.1",
+      "url": "https://arxiv.org/html/2610.05833v1#S2.SS1.p3.1"
+    },
+    {
+      "text": "§3",
+      "url": "https://arxiv.org/html/2610.05833v1#S3.SS0.SSS0.Px1.p1.1"
+    },
+    {
+      "text": "§3",
+      "url": "https://arxiv.org/html/2610.05833v1#S3.SS0.SSS0.Px3.p1.1"
+    },
+    {
+      "text": "§4.1",
+      "url": "https://arxiv.org/html/2610.05833v1#S4.SS1.SSS0.Px1.p1.1"
+    },
+    {
+      "text": "§3",
+      "url": "https://arxiv.org/html/2610.05833v1#S3.SS0.SSS0.Px2.p1.1"
+    },
+    {
+      "text": "§2.1",
+      "url": "https://arxiv.org/html/2610.05833v1#S2.SS1.p1.1"
+    },
+    {
+      "text": "https://finance.yahoo.com/",
+      "url": "https://finance.yahoo.com/"
+    },
+    {
+      "text": "§4.1",
+      "url": "https://arxiv.org/html/2610.05833v1#S4.SS1.SSS0.Px2.p1.1"
+    },
+    {
+      "text": "https://www.sec.gov/search-filings",
+      "url": "https://www.sec.gov/search-filings"
+    }
+  ],
+  "matching_link_count": 38,
+  "links_truncated": false,
+  "invalid_links": []
+}

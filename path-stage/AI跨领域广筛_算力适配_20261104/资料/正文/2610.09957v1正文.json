@@ -1,0 +1,722 @@
+{
+  "url": "https://arxiv.org/html/2610.09957v1",
+  "final_url": "https://arxiv.org/html/2610.09957v1",
+  "status": 200,
+  "title": "Diagnosing Diversity Collapse and Validating Mask-Conditioned Diffusion for Labeled Microtubule Microscopy",
+  "metadata": {},
+  "paper": {
+    "title": "Diagnosing Diversity Collapse and Validating Mask-Conditioned Diffusion for Labeled Microtubule Microscopy",
+    "title_warning": null,
+    "abstract": "Abstract Mask-conditioned diffusion models have become standard for generating labeled training data in biomedical imaging. But the tools used to evaluate them were built for a different problem. Standard metrics like Fréchet inception distance (FID) and kernel inception distance (KID) score images through ImageNet-trained features. Those features do not transfer to microscopy, leaving the metrics poorly calibrated for specialized domains. Even with a domain-appropriate feature space, a single blended number can still hide a real failure: a model can produce visually plausible images that still transfer poorly to downstream tasks.\nWe identify a specific failure mode: Late in training, realism keeps improving while texture diversity collapses. The model settles onto a fixed color palette, converging to a high-similarity, low-diversity state that standard metrics do not penalize.\nTherefore, we propose a diversity-aware diagnostic in a domain-validated feature space. It combines a realism axis based on inter-similarity to real images with a diversity axis based on intra-similarity among generated samples.\nThis diagnostic selects a checkpoint that domain experts cannot reliably distinguish from real recordings in a forced-choice study.\nIt also yields useful downstream segmentation: a segmenter trained only on synthetically labeled data reaches a median skeletonised intersection-over-union (SKIoU) comparable to one trained on real data, at lower cross-fold variance, and clearly ahead of the best available public alternative in this domain, a parametric renderer.\nWe also reproduce a data-efficient hyperparameter-transfer experiment from prior work, tuning several foundation segmenters on a small labeled subset and evaluating on real images: transfer is stronger with our data.\nWe release DiffuMT on HuggingFace, including the triplet dataset, code to reproduce the downstream-utility validation, and a standalone diagnostic tool for evaluating mask-conditioned diffusion models.",
+    "authors": [
+      {
+        "name": "Mario Koddenbrock",
+        "affiliations": [
+          "Affiliation: HTW Berlin"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Frederic Rapp",
+        "affiliations": [
+          "Affiliation: HTW Berlin"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Simone Reber",
+        "affiliations": [
+          "Affiliation: Berliner Hochschule für Technik (BHT), Berlin, Germany",
+          "Affiliation: Max Planck Institute for Infection Biology, Berlin, Germany"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Erik Rodner",
+        "affiliations": [
+          "Affiliation: {mario.koddenbrock, erik.rodner}@htw-berlin.de",
+          "Affiliation: HTW Berlin"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Mario Koddenbrock Affiliation: HTW Berlin Frederic Rapp Affiliation: HTW Berlin Simone Reber Affiliation: Berliner Hochschule für Technik (BHT), Berlin, Germany Affiliation: Max Planck Institute for Infection Biology, Berlin, Germany Erik Rodner Affiliation: {mario.koddenbrock, erik.rodner}@htw-berlin.de Affiliation: HTW Berlin",
+    "arxiv_version": "2610.09957v1",
+    "arxiv_version_date": "2026-10-07",
+    "sections": [
+      {
+        "id": "S1",
+        "heading": "1 Introduction",
+        "level": 1,
+        "text": "Microtubules (MTs) are cytoskeletal filaments that drive chromosome segregation, intracellular transport, and cell motility [ 9 ] . Their dynamic instability is the target of widely used chemotherapeutics, including taxanes such as paclitaxel [ 29 ] , as well as emerging neuroprotective therapies for neurodegeneration [ 36 ] . To quantify how candidate drugs perturb microtubule dynamics, MTs are reconstituted in vitro from stabilized nucleation seeds and imaged using interference reflection microscopy (IRM) or total internal reflection fluorescence (TIRF) microscopy [ 16 ] . Extracting quantitative measurements such as filament counts, lengths, and curvature distributions requires accurate instance segmentation. However, pixel-precise tracing of overlapping thin filaments remains a labor-intensive task, with expert annotation taking minutes per image. Recorded microscopy data therefore quickly exceeds available labeling capacity. This challenge is not unique to microtubule microscopy. Across biomedical imaging, including colonoscopy [ 6 ] , anatomical computed tomography (CT) and magnetic resonance imaging (MRI) [ 17 , 24 ] , pixel-level expert annotations remain a major bottleneck. A common solution is to generate additional labeled data using mask-conditioned diffusion models [ 17 , 6 , 24 , 22 , 41 ] . A binary annotation specifies where a structure should appear, while the diffusion model generates a corresponding realistic image. Pixel-space mask conditioning [ 17 , 6 ] preserves fine spatial details that latent-space approaches such as ControlNet [ 42 ] may attenuate. However, training these models on small domain-specific datasets can still result in severe mode collapse ( Section 4 ). The difficulty has therefore shifted from generating synthetic biomedical images to evaluating them. The standard metrics for generative image quality evaluation, including FID [ 11 ] and KID [ 1 ] , were developed for natural-image benchmarks with large and diverse datasets. Recent studies have shown that these metrics are poorly calibrated when transferred to small biomedical domains [ 40 , 30 ] . Furthermore, mask conditioning introduces an additional challenge: when the mask provides most of the spatial information, generated textures may collapse while image-level similarity remains high. A model can therefore appear realistic according to standard metrics while producing synthetic data that is insufficiently diverse or ineffective for downstream analysis. Figure 1 : The diagnostic-selected checkpoint is both perceptually indistinguishable from real and useful for downstream segmentation. (a) Generation: a binary mask m m and Gaussian noise x T x_{T} are denoised by a mask-conditioned DDPM (DDIM sampling) into a synthetic image x 0 x_{0} , selected by our diagnostic rather than FID; the denoising chain is illustrative. (b) Expert validation: shown a real and a generated image of the same mask, experts pick the real one only at chance: they cannot reliably tell synthetic from real. (c) Downstream utility: a segmenter trained only on synthetic data and tested on real (train-synthetic/test-real) matches a real-trained model and far exceeds the parametric baseline; the dashed line is the inter-annotator agreement on real images (the achievable segmentation ceiling). Exact values, uncertainties and protocols are reported in Sections 5 and 6.1 . We address this problem by evaluating mask-conditioned diffusion models through both realism and downstream utility ( Fig. 1 ). We train a pixel-space mask-conditioned diffusion model (DM) on IRM microtubule recordings and evaluate generated images using a two-alternative-forced-choice (2AFC) study with domain experts. Experts cannot reliably distinguish generated images from real recordings, demonstrating high perceptual realism. Realism alone, however, is not sufficient. Synthetic data must also support accurate analysis of real microscopy images. We therefore evaluate synthetic-data-only training for microtubule instance segmentation and reproduce a data-efficient hyperparameter-transfer experiment from prior work. A segmenter trained only on our synthetic data approaches the performance of one trained on real data, substantially outperforming the strongest available public parametric baseline. Furthermore, repeating a prior hyperparameter-transfer study shows that our synthetic data improves foundation-segmenter adaptation to real IRM images. Figure 2 highlights the failure mode motivating our diagnostic. Across checkpoints of the same mask-conditioned diffusion model, realism measured against real images remains nearly unchanged, while diversity varies substantially. A checkpoint selected by realism alone can therefore correspond to a collapsed generation regime. We propose a diversity-aware diagnostic in a domain-validated feature space (DINOv2), which jointly measures a realism axis (inter-similarity to real images) and a diversity axis (intra-similarity within the generated set). The diagnostic identifies checkpoints that balance realism and diversity and selects the model that passes the expert 2AFC evaluation."
+      },
+      {
+        "id": "S1.SS0.SSS0.Px1",
+        "heading": "What this paper contributes.",
+        "level": 3,
+        "text": "• DiffuMT , validated by 2AFC. We release an open triplet dataset consisting of binary masks, real MT images, and their mask-conditioned synthetic counterparts. Domain experts cannot reliably distinguish our generated images from real recordings in a 2AFC study ( Section 5 ). 1 1 1 Live 2AFC challenge: [URL withheld for double-blind review.] • A diversity-aware diagnostic for mask-conditioned diffusion. We show that realism metrics alone fail to detect late-stage diversity collapse and introduce a diagnostic that jointly evaluates realism and diversity in a domain-validated feature space ( Sections 3 and 4.2 ). • Proof of downstream utility. A segmenter trained only on DiffuMT achieves performance on real microtubule images comparable to real-data training while substantially outperforming the strongest public synthetic baseline. We further show improved adaptation of foundation segmenters using synthetic data in a reproduced low-data tuning experiment ( Sections 6.1 and 6.2 )."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px1",
+        "heading": "Diffusion models.",
+        "level": 3,
+        "text": "Denoising diffusion models [ 35 , 12 ] and the related score-based formulation [ 39 ] are the de-facto generators for high-resolution image synthesis [ 5 , 26 ] . Sampling is accelerated by denoising diffusion implicit model (DDIM) [ 38 ] . It is made tractable at high resolution by latent diffusion [ 31 ] . It is most commonly conditioned via classifier-free guidance [ 13 ] ."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px2",
+        "heading": "Fidelity and diversity in generative evaluation.",
+        "level": 3,
+        "text": "Distributional metrics such as FID [ 11 ] and KID [ 1 ] combine sample quality and diversity into a single score. Even within their original natural-image setting, Inception-based scores do not consistently track human judgments of image quality [ 25 ] . This has motivated metrics that explicitly separate these factors, including precision and recall [ 19 ] , density and coverage [ 23 ] , and the reference-free Vendi score [ 8 ] . Our diagnostic follows this decomposition: inter-similarity to real images captures realism, while intra-similarity within generated samples captures diversity. Unlike previous metrics, we study their behavior in mask-conditioned biomedical diffusion, where realism often saturates while diversity collapses. The two axes must therefore be interpreted jointly and calibrated against a domain-specific reference distribution rather than ImageNet-based defaults [ 18 , 40 ] ."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px3",
+        "heading": "Conditioned diffusion in biomedical imaging.",
+        "level": 3,
+        "text": "Diffusion models have recently been adopted for biomedical image synthesis and analysis [ 15 ] . Conditioning can be performed in latent feature spaces, as in ControlNet [ 42 ] and spatially-adaptive denormalization (SPADE) [ 28 ] , or directly through spatial mask concatenation. The latter preserves pixel-level control and has been applied to synthetic medical images, including breast MRI , abdominal CT , and colonoscopy [ 17 , 6 ] . For microtubule microscopy, previous diffusion approaches focused on unconditional super-resolution [ 34 ] , whereas our goal is mask-conditioned generation of labeled IRM data. However, mask-conditioned diffusion can still collapse when conditioning provides most of the spatial information. Recent methods such as Diffusion Prism [ 41 ] and CADS [ 33 ] address this through training or sampling modifications; we instead focus on diagnosing and selecting against this failure mode."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px4",
+        "heading": "Offset noise and zero-terminal- signal-to-noise ratio (SNR) .",
+        "level": 3,
+        "text": "Standard diffusion schedules leave residual signal at the final timestep, creating a train–inference mismatch that can bias samples toward the dataset mean. Offset noise [ 10 ] and related zero-terminal- SNR formulations [ 20 ] address this issue by enabling broader luminance variation. We adopt offset noise ( Section 3 ) to avoid low-contrast attractors in IRM microscopy."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px5",
+        "heading": "2AFC validation in biomedical generators.",
+        "level": 3,
+        "text": "Two-alternative forced choice (2AFC) is a standard psychophysical protocol for measuring whether observers can distinguish generated from real images. It has been used to evaluate biomedical generators, including medical diffusion models [ 14 ] and synthetic oncology imaging [ 7 ] . We use 2AFC as a domain-level validation of perceptual realism, complementing metric-based evaluation with downstream utility."
+      },
+      {
+        "id": "S3",
+        "heading": "3 Method",
+        "level": 1,
+        "text": "We evaluate a mask-conditioned diffusion model ( Section 3.1 ) using a diversity-aware diagnostic ( Section 3.2 ). The diffusion model itself follows [ 17 ] ; our contribution is the evaluation framework."
+      },
+      {
+        "id": "S3.SS1",
+        "heading": "3.1 The model under study",
+        "level": 2,
+        "text": "We use a denoising diffusion probabilistic model (DDPM) [ 12 , 35 ] sampled with DDIM [ 38 ] and conditioned on binary segmentation masks in pixel space following [ 17 ] . The denoiser ϵ θ \\epsilon_{\\theta} is a 2D U-Net [ 32 ] that receives the channel-wise concatenation of the noisy image x t ∈ ℝ 3 × h × w x_{t}\\in\\mathbb{R}^{3\\times h\\times w} and mask m ∈ { 0 , 1 } h × w m\\in\\{0,1\\}^{h\\times w} : ℒ m = 𝔼 x 0 , m , t , ϵ ​ [ ‖ ϵ − ϵ θ ​ ( x t , t | m ) ‖ 2 ] , \\mathcal{L}_{m}=\\mathbb{E}_{x_{0},m,t,\\epsilon}\\left[\\|\\epsilon-\\epsilon_{\\theta}(x_{t},t|m)\\|^{2}\\right], (1) where x t = α ¯ t ​ x 0 + 1 − α ¯ t ​ ϵ x_{t}=\\sqrt{\\bar{\\alpha}_{t}}x_{0}+\\sqrt{1-\\bar{\\alpha}_{t}}\\epsilon . Although DDIM sampling is deterministic for a fixed initial noise, different noise realizations produce different valid images, defining a conditional distribution p ⁡ ( x | m ) p(x|m) . Therefore, each released triplet represents only one possible synthetic realization of a mask. The only practical modifications to [ 17 ] ( Appendix C ) is offset noise [ 10 ] ."
+      },
+      {
+        "id": "S3.SS2",
+        "heading": "3.2 A three-axis diagnostic",
+        "level": 2,
+        "text": "The diagnostic evaluates three complementary properties: realism, diversity, and appearance statistics. No individual axis reliably detects collapse; their joint behavior distinguishes healthy and degenerate regimes."
+      },
+      {
+        "id": "S3.SS2.SSS0.Px1",
+        "heading": "Plausibility and diversity (DINOv2).",
+        "level": 3,
+        "text": "We embed images using the fifth block of DINOv2 [ 27 ] , following the domain validation of [ 16 ] and consistent with evidence that intermediate-layer features can be more transferable than network outputs [ 2 ] , and normalize embeddings with L 2 L_{2} normalization. Realism is measured by inter-similarity , the average cosine similarity between generated images and their k = 10 k=10 nearest real neighbors. Diversity is measured by intra-similarity : S intra \\displaystyle S_{\\mathrm{intra}} = 1 n ⁡ ( n − 1 ) ​ ∑ i ≠ j y ^ i ⊤ ​ y ^ j , \\displaystyle=\\frac{1}{n(n-1)}\\sum_{i\\neq j}\\hat{y}_{i}^{\\top}\\hat{y}_{j}, (2) where lower values indicate higher diversity. This formulation places realism and diversity on the same feature scale. It correlates with the Vendi score [ 8 ] across all ablations ( | r | = 0.98 |r|=0.98 , Appendix E ). We check this dependence on DINOv2 by substituting four other embedding models ( Appendix I ) and by varying the DINOv2 layer ( Appendix J ). We additionally report DINOv2-based Fréchet and kernel distances ( Fréchet inception distance computed in DINOv2 feature space (DINO-FID) , kernel inception distance computed in DINOv2 feature space (DINO-KID) ) and a memorization delta [ 4 , 37 ] . These metrics are reported for completeness but are not used for checkpoint selection."
+      },
+      {
+        "id": "S3.SS2.SSS0.Px2",
+        "heading": "Mask fidelity.",
+        "level": 3,
+        "text": "Because generated images have no ground-truth segmentation, we evaluate mask consistency by re-segmenting generated images with SAM 3 [ 3 ] . We compare the recovered masks to the conditioning masks using SKIoU [ 21 ] and F1 at thresholds 0.5 0.5 and 0.75 0.75 . Scores are interpreted relative to human agreement ( SKIoU = 0.80 =0.80 )."
+      },
+      {
+        "id": "S3.SS2.SSS0.Px3",
+        "heading": "Color and brightness.",
+        "level": 3,
+        "text": "Images are converted to CIE L ∗ ​ a ∗ ​ b ∗ L^{*}a^{*}b^{*} colour space (CIELAB) space and separated into foreground and background regions using the conditioning mask. For each region, we measure the Earth Mover’s distance (EMD) between generated and reference distributions. This captures appearance collapse that may not be visible from structural metrics alone."
+      },
+      {
+        "id": "S3.SS2.SSS0.Px4",
+        "heading": "Aggregation.",
+        "level": 3,
+        "text": "For checkpoint selection, we combine the three perceptual axes (Inter, Intra, Color) using a geometric mean: S global = ( ∏ a ∈ 𝒜 s ^ a ) 1 / | 𝒜 | , S_{\\text{global}}=\\left(\\prod_{a\\in\\mathcal{A}}\\hat{s}_{a}\\right)^{1/|\\mathcal{A}|}, (3) where all axes are min-max normalized with higher values indicating better quality. The geometric mean prevents one strong axis from compensating for a collapsed one. But the diagnostic is robust to the aggregation choice; arithmetic and geometric means select the same checkpoint ( Appendix G )."
+      },
+      {
+        "id": "S4",
+        "heading": "4 Experiments",
+        "level": 1,
+        "text": "This section first establishes the failure mode motivating our diagnostic ( Section 4.2 ) before validating the selected checkpoint through expert 2AFC evaluation ( Section 5 ). Experimental details are given in Section 4.1 ."
+      },
+      {
+        "id": "S4.SS1.SSS0.Px1",
+        "heading": "Data.",
+        "level": 3,
+        "text": "The dataset was originally curated by [ 16 ] and comes from IRM recordings acquired in two laboratories with different microscope systems and tubulin sources. MTs are thin, low-contrast filaments visible against a tightly controlled in vitro background. We extract random 512 × 512 512\\times 512 crops, 309 of which are manually annotated across 75 distinct source recordings. These are re-tiled into 256 × 256 256\\times 256 patches with 128-pixel overlap for training (no overlap for testing), yielding 2961 training tiles, 200 annotated test tiles, and 1336 unlabeled reference patches used for similarity scoring."
+      },
+      {
+        "id": "S4.SS1.SSS0.Px2",
+        "heading": "Training.",
+        "level": 3,
+        "text": "All runs share the same 113M-parameter 2D U-Net backbone, optimizer, batch size, and DDIM sampler; full implementation details are given in Appendix C . We use offset noise with scale σ = 0.2 \\sigma=0.2 , and vary only the β \\beta schedule (linear vs. scaled cosine) and regression loss (MSE, L 1 L_{1} , Huber) in the ablation study. The selected checkpoint is robust to the offset-noise scale ( Appendix F ); additional implementation details and ablations are deferred to the appendix."
+      },
+      {
+        "id": "S4.SS2",
+        "heading": "4.2 Inter-similarity alone is insufficient",
+        "level": 2,
+        "text": "Inter 0.98 0.98 Intra 0.99 0.99 Inter 0.97 0.97 Intra 0.87 0.87 Inter 0.98 0.98 Intra 0.97 0.97 Figure 2 : Inter-similarity gives only a weak, small-magnitude signal that does not reliably separate collapsed from healthy ( 0.98 / 0.97 / 0.98 0.98/0.97/0.98 ). Three checkpoints of one run, conditioned on the same binary mask, shown left to right: an early checkpoint (collapsed, blurry; no valid MTs are visible), a middle one (realistic and diverse), and a late one (collapsed to a near-uniform texture). Intra-similarity flags the two collapsed checkpoints (red), and only the middle checkpoint matches the real diversity baseline (green). Table 1 : Comparison of our diagnostic-selected model ( DiffuMT ), the parametric baseline ( SynthMT ), and the naïve final checkpoint. Although the naïve checkpoint achieves the best DINO-FID , it exhibits substantially lower diversity and worse color fidelity, illustrating why DINO-FID alone is insufficient for checkpoint selection. The real column reports inter-annotator agreement for mask fidelity and reference statistics for all other metrics. Metric Real SynthMT DiffuMT Naive (ground truth) (parametric, prior work) (ours) (no selection) SKIoU ( ↑ \\uparrow ) 0.80 ± 0.14 0.80\\pm 0.14 0.96 ± 0.15 0.96\\pm 0.15 0.86 ± 0.23 0.86\\pm 0.23 0.86 ± 0.10 0.86\\pm 0.10 F1@50 ( ↑ \\uparrow ) 0.89 ± 0.10 0.89\\pm 0.10 0.98 ± 0.15 0.98\\pm 0.15 0.93 ± 0.26 0.93\\pm 0.26 0.99 ± 0.10 0.99\\pm 0.10 F1@75 ( ↑ \\uparrow ) 0.87 ± 0.11 0.87\\pm 0.11 0.97 ± 0.16 0.97\\pm 0.16 0.88 ± 0.33 0.88\\pm 0.33 0.90 ± 0.30 0.90\\pm 0.30 DINO-FID ( ↓ \\downarrow ) – 0.27 0.27 0.14 0.14 0.07 \\mathbf{0.07} Color, global ( ↓ \\downarrow ) – 8.93 8.93 3.56 \\mathbf{3.56} 3.86 3.86 Color, foreground ( ↓ \\downarrow ) – 12.87 12.87 4.92 \\mathbf{4.92} 6.62 6.62 Color, background ( ↓ \\downarrow ) – 9.19 9.19 2.70 2.70 2.45 \\mathbf{2.45} Inter-Sim. ( ↑ \\uparrow ) – 0.86 ± 0.01 0.86\\pm 0.01 0.97 ± 0.01 \\mathbf{0.97\\pm 0.01} 0.96 ± 0.01 0.96\\pm 0.01 Intra-Sim. ( ≈ 0.88 \\approx 0.88 ) 0.88 ± 0.02 0.88\\pm 0.02 0.94 ± 0.03 0.94\\pm 0.03 0.89 ± 0.03 \\mathbf{0.89\\pm 0.03} 0.93 0.93 Δ \\Delta Intra-Sim. ( ↓ \\downarrow ) – 0.06 0.06 0.01 \\mathbf{0.01} 0.05 0.05"
+      },
+      {
+        "id": "S4.SS2.SSS0.Px1",
+        "heading": "Inter-similarity saturates while diversity collapses.",
+        "level": 3,
+        "text": "Figure 2 illustrates the central failure mode. Across three representative checkpoints, inter-similarity changes little despite clear visual differences, whereas intra-similarity correctly identifies the healthy checkpoint. The same pattern persists throughout training ( Fig. 10 ): inter-similarity rises rapidly before plateauing, while intra-similarity first improves and then collapses. Late in training, the two measures become positively correlated ( r = + 0.58 r=+0.58 ), indicating increasing realism at the expense of diversity. Color statistics corroborate the same trend ( r = − 0.71 r=-0.71 , p < 0.001 p<0.001 ), whereas DINO-FID and DINO-KID remain largely insensitive, demonstrating that distributional realism alone does not reveal late-stage diversity collapse. The selected checkpoint does not minimize intra-similarity alone, but achieves the best balance across all diagnostic axes. This behavior is consistent across all eight hyperparameter ablations and directly motivates our diversity-aware checkpoint selection. A qualitative counterpart is shown in Fig. 13 , where repeated sampling from the same conditioning mask produces diverse yet plausible textures at the selected checkpoint."
+      },
+      {
+        "id": "S4.SS2.SSS0.Px2",
+        "heading": "Numerical signature.",
+        "level": 3,
+        "text": "Figure 7 makes this precise by binning checkpoints into three training stages and correlating metrics within each bin. Inter- and intra-similarity are decoupled early and in the middle of training ( r ≈ + 0.09 r\\approx+0.09 ), so neither is a proxy for the other; they only re-couple in the late bin, which is the collapse itself rather than a mere correlate of it. The Vendi score [ 8 ] tracks intra-similarity almost perfectly in every bin ( | r | ≥ 0.97 |r|\\geq 0.97 ), confirming that our diversity axis is not an idiosyncratic choice ( Appendix E ). The full per-bin correlation structure, including the color and DINO-FID axes, is given in Appendix D ."
+      },
+      {
+        "id": "S4.SS2.SSS0.Px3",
+        "heading": "Comparison with existing approaches.",
+        "level": 3,
+        "text": "Table 1 compares our diagnostic-selected model ( DiffuMT ), the parametric baseline SynthMT [ 16 ] , and a naïve last-epoch checkpoint. The naïve model highlights the limitation of conventional checkpoint selection: despite matching DiffuMT ’s mask fidelity and achieving the best DINO-FID , it exhibits substantially lower diversity and poorer color fidelity. Conversely, DiffuMT achieves the best balance across realism, diversity, and color fidelity, demonstrating that our diagnostic avoids selecting visually collapsed checkpoints. The parametric baseline reproduces conditioning masks almost perfectly but deviates substantially in appearance statistics, illustrating why mask fidelity alone is insufficient for evaluating generative models. Additional comparisons across hyperparameter configurations are provided in Appendix B ."
+      },
+      {
+        "id": "S5",
+        "heading": "5 Expert validation (2AFC)",
+        "level": 1,
+        "text": "The diagnostic of Section 3.2 selects a single best checkpoint across all hyperparameter configurations and training epochs (offset 0.2 0.2 , linear β \\beta -schedule, MSE loss, epoch 315). We thank a reviewer for pointing out that our checkpoint-selection reference pool included training images; recomputing the selection with a corrected, held-out reference pool ranks epoch 315 second of 200 checkpoints (score 0.7433 0.7433 , vs. 0.7855 0.7855 for the new top-ranked epoch). this gap may reflect sampling noise rather than a genuine quality difference ( Appendix H ). We retain epoch 315 as the model validated below. To quantify the realism of the resulting model independently of any metric used to select it, we run a two-alternative-forced-choice (2AFC) study with 11 domain experts on 33 real and 33 generated × 256 256\\!\\times\\!256 images drawn from the held-out test set. The participant pool combines two groups of domain experts: cell-biology and microscopy researchers who routinely work with IRM recordings of MT dynamics, and machine-learning researchers who routinely inspect generative-model outputs. None of them was involved in selecting, training, or curating the model. Figure 3 : Experts cannot distinguish generated from real images: pool aggregate p = 0.92 p=0.92{} . One bar per expert; 95 % 95\\% Wilson CIs; dashed line = = chance, dotted line = = pool mean (50.9%)."
+      },
+      {
+        "id": "S5.SS0.SSS0.Px1",
+        "heading": "Protocol.",
+        "level": 3,
+        "text": "Each trial presents two images side by side, one real and one generated, drawn at random from the pool and randomly swapped left/right, and asks the expert to identify the real one. The generated images are conditioned on the masks of the corresponding real images, so a real/generated pair shares the same underlying filament geometry ( Fig. 1 ). The trials are administered through the public HuggingFace Space that also serves as an open community challenge. 2 2 2 Live 2AFC challenge: [URL withheld for double-blind review.] The full protocol is given in Appendix L ."
+      },
+      {
+        "id": "S5.SS0.SSS0.Px2",
+        "heading": "Result.",
+        "level": 3,
+        "text": "Experts could not reliably distinguish synthetic from real images: aggregate accuracy was 50.9% (56/110 trials; 95 % 95\\% Wilson CI [ 41.7 % , 60.1 % ] [41.7\\%{},60.1\\%{}] ), statistically consistent with chance ( p = 0.92 p=0.92{} , exact binomial test). A two-one-sided equivalence test further confirms that performance is within ± 8.6 \\pm 8.6{} percentage points of chance ( p = 0.033 p=0.033{} ), supporting perceptual indistinguishability rather than simply failing to detect a difference. Per-expert results are consistent with the binomial null ( Fig. 3 ); however, inference is performed at the pool level since each expert contributed only 10 10 trials. The equivalence-margin choice, two protocol controls (positional bias and engagement), and a robustness check on the anonymous trials are detailed in Appendix L ."
+      },
+      {
+        "id": "S5.SS0.SSS0.Px3",
+        "heading": "Comparison to the prior expert study on SynthMT .",
+        "level": 3,
+        "text": "The parametric predecessor SynthMT [ 16 ] was perceptually evaluated through a 7 7 -point Likert protocol on five aspects (structural fidelity, background, lighting, noise, overall) with n = 6 n=6 experts; the authors chose Likert ratings over pairwise forced-choice to obtain aspect-specific judgments. Their reported outcome is a “measurable gap to real images [that] persists across all dimensions”. Our chance-level 2AFC on DiffuMT closes that gap on the strictest test available."
+      },
+      {
+        "id": "S6",
+        "heading": "6 Downstream utility and transfer",
+        "level": 1,
+        "text": "Perceptual realism alone does not guarantee useful synthetic data. We therefore evaluate whether DiffuMT improves downstream segmentation of real MT images in two settings: training a segmenter on synthetic data ( Section 6.1 ) and transferring tuned inference parameters from synthetic to real ( Section 6.2 ). Both use SKIoU as the evaluation metric and are interpreted relative to human agreement on real images (0.80 ± \\pm 0.14) reported in [ 16 ] ."
+      },
+      {
+        "id": "S6.SS1",
+        "heading": "6.1 Train on synthetic, test on real",
+        "level": 2,
+        "text": "Figure 4 : The diagnostic-selected synthetic data is useful downstream. Train-synthetic, test-real segmentation with a compact U-Net (skeleton- SKIoU over 4 recording-grouped folds): DiffuMT (Ours) matches the real-data upper bound and helps as augmentation, while the parametric SynthMT transfers less of the real appearance. Boxes: interquartile range, line: median, computed over 4 recording-grouped folds. Dashed line and grey band: the inter-annotator agreement on real images ( SKIoU 0.80 ± \\pm 0.14)."
+      },
+      {
+        "id": "S6.SS1.SSS0.Px1",
+        "heading": "Protocol.",
+        "level": 3,
+        "text": "We train an MT U-Net segmentation model on five data sources: (i) real images, (ii) the parametric baseline SynthMT , (iii) DiffuMT , (iv) real + + DiffuMT , and (v) Naive , samples from the raw last-epoch checkpoint of the same diffusion run without diagnostic-based selection. The Naive arm isolates the effect of checkpoint selection from the effect of synthetic data quality. All models are evaluated on held-out real images using recording-level splits to prevent leakage and share the same architecture, augmentation, and training budget."
+      },
+      {
+        "id": "S6.SS1.SSS0.Px2",
+        "heading": "Results.",
+        "level": 3,
+        "text": "Figure 4 shows that synthetic data quality directly affects downstream utility. Training on DiffuMT reaches SKIoU 0.67 on real images, approaching the real-data model (0.66) and outperforming the parametric baseline (0.43); combining real and DiffuMT further improves performance to 0.69 , ahead of real-only training in two of the four recording-grouped folds and behind it in the other two, a modest but consistent split-wise pattern given the small number of folds. The DiffuMT -trained model is also more stable across recording-grouped folds than the real-only model. The Naive comparison directly tests the diagnostic: although generated from the same training run, the unselected final checkpoint reaches only SKIoU 0.52, substantially below the diagnostic-selected model. This demonstrates that checkpoint selection, rather than training duration alone, determines downstream utility."
+      },
+      {
+        "id": "S6.SS2.SSS0.Px1",
+        "heading": "Protocol.",
+        "level": 3,
+        "text": "Foundation segmenters can be adapted to a new modality by tuning a few inference hyperparameters. We reproduce the hyperparameter-transfer experiment of [ 16 ] , who tuned the three segmenters strongest on synthetic-to-real transfer in that study (SAM3Text, MicroSAM and CellSAM; of these, only SAM3Text reached “human-grade” analysis there) on a single 10 10 -image subset of SynthMT and transferred the result to real, reporting SKIoU 0.93 0.93 on synthetic data but 0.74 ± 0.18 0.74\\pm 0.18 on real images. A single 10 10 -image draw is a fragile basis for that estimate, so we repeat the tuning over 10 independent random subsets (200 optimization trials each) and report the distribution over subsets. We run the identical protocol with both SynthMT and DiffuMT as the tuning source, and evaluate on the same held-out real images, computing the same per-image mean SKIoU they report for each of our 10 subsets before summarizing the resulting distribution by its median."
+      },
+      {
+        "id": "S6.SS2.SSS0.Px2",
+        "heading": "Results.",
+        "level": 3,
+        "text": "The reproduction yields two findings. First, results are better with our data: the median transfer per segmenter is 0.51–0.71 SKIoU for DiffuMT versus 0.45–0.66 for SynthMT ( DiffuMT is level or slightly ahead for all three segmenters; for example SAM3Text 0.71 vs 0.66). Second, the original single-subset result was a bit lucky: across 10 random subsets on SynthMT , SAM3Text’s real SKIoU ranges from 0.47 to 0.76 (median 0.66), and the study’s reported 0.74 0.74 sits near the top of that range. These results show that DiffuMT provides a more reliable tuning source, reducing the sensitivity of synthetic-to-real transfer to the choice of a small labeled subset. SAM3Text reaches SKIoU 0.71 when tuned on only 10 10 images, comparable to the 0.66 that a compact U-Net reaches only with ∼ 150 \\sim\\!150 real tiles, so the remaining gap to full training is a matter of budget rather than method."
+      },
+      {
+        "id": "S6.SS2.SSS0.Px3",
+        "heading": "Comparison to real-data tuning.",
+        "level": 3,
+        "text": "[ 16 ] also compared tuning SAM3Text on 10 10 real or 10 10 SynthMT images, reporting SKIoU 0.73 0.73 and 0.71 0.71 respectively, in a single-seed experiment. In our evaluation across 10 tuning seeds, SAM3Text achieves median SKIoU 0.71 with DiffuMT and 0.66 with SynthMT . The published real-data result is therefore numerically close to our DiffuMT median, although a single-seed result does not establish equivalence with our repeated evaluation, and the two protocols are not directly comparable. Figure 5 shows the per-seed transfer distributions for each source and segmenter. Figure 5 : Repeated synthetic-to-real transfer of tuned segmenter hyperparameters. Each box summarizes 10 independent tuning seeds (random 10 10 -image subsets, 200 trials each) for one source and segmenter (SAM3Text, MicroSAM and CellSAM, the three models selected as the best synthetic-to-real transfer segmenters in the SynthMT study, [ 16 ] ); the spread exposes single-subset fragility, and the DiffuMT -vs- SynthMT offset measures the benefit of a more realistic tuning source. The black star marks the single-subset SAM3Text result originally reported in [ 16 ] ( SKIoU 0.74 0.74 ): it sits near the top of our repeated-seed distribution for the same (source, model) combination, not at its median. Boxes: interquartile range, line: median, computed over 10 tuning seeds. Dashed line and grey band: the inter-annotator agreement on real images ( SKIoU 0.80 ± \\pm 0.14)."
+      },
+      {
+        "id": "S7",
+        "heading": "7 Discussion",
+        "level": 1,
+        "text": "The failure mode identified in this work has a simple mechanistic explanation. When conditioning carries most of the spatial information, as in mask-conditioned diffusion, the remaining appearance degrees of freedom (texture, background, brightness) can collapse onto low-risk attractors while preserving the mask-defined structure. Late in training, we observe this as convergence toward a narrow color palette: the anti-correlation between color distance and inter-similarity ( r = − 0.71 r=-0.71 , Fig. 7 ) indicates that increasing similarity is achieved at the expense of appearance diversity. A related mechanism explains early collapse, where samples remain close to the dataset mean while still occupying the reference distribution in DINOv2 space. We expect this failure mode to extend beyond microtubule microscopy to other spatially conditioned generators, including pixel-space diffusion and small-domain conditional generative adversarial networks (cGANs) such as SPADE [ 28 ] . The aggregation strategy in Eq. 3 reflects this observation. A geometric mean prevents a strong score on one axis from compensating for collapse on another. The baseline-aware interpretation of mask fidelity highlights a broader issue in evaluating synthetic biomedical images. For thin filaments, segmentation itself is ambiguous: experts agree only to SKIoU 0.80 on real images. Therefore, geometric fidelity must be interpreted relative to this achievable ceiling. The comparison in Appendix A shows that a synthetic system can exceed this ceiling without necessarily producing more realistic images."
+      },
+      {
+        "id": "S7.SS0.SSS0.Px1",
+        "heading": "Limitations.",
+        "level": 3,
+        "text": "Our evaluation is based on a relatively small dataset ( 309 309 labeled 512 × 512 512\\times 512 crops) from a single biomedical domain. Although DiffuMT shows downstream utility, the train-on-synthetic experiment uses real expert masks as conditioning, whereas the parametric baseline relies on procedural masks; thus, differences in mask distribution may contribute alongside appearance realism. Separating these two effects would require a controlled comparison on matched conditioning masks, which we leave to future work; likewise, generating synthetic masks that capture realistic microtubule geometry, so that the pipeline no longer depends on real expert masks at inference time, is nontrivial and is itself a direction for future work. The hyperparameter-transfer experiment demonstrates improved adaptation over the parametric synthetic baseline, but does not establish superiority over tuning directly on an equally sized real subset, since DiffuMT itself is generated from a model trained on real microscopy. Finally, while the mechanism likely extends to other spatially conditioned generators, demonstrating the same failure mode across additional biomedical domains such as CT and MRI remains future work."
+      },
+      {
+        "id": "S8",
+        "heading": "8 Conclusion",
+        "level": 1,
+        "text": "We introduce DiffuMT , an openly available triplet dataset of pixel-precise masks, real IRM microscopy images, and mask-conditioned synthetic counterparts. Unlike standard generative metrics, our diversity-aware diagnostic identifies the collapse of unconstrained appearance features that can occur while realism scores remain high. The selected model produces synthetic images that domain experts cannot reliably distinguish from real recordings in a 2AFC study and generates training data that transfers to real segmentation: a model trained only on DiffuMT reaches segmentation performance comparable to a real-trained model and substantially exceeds the parametric baseline. Beyond this dataset, our diagnostic provides a general evaluation tool for mask-conditioned diffusion models, where realism and diversity must be assessed jointly rather than through a single distributional score."
+      },
+      {
+        "id": "S8.SS0.SSS0.Px1",
+        "heading": "Data and code.",
+        "level": 3,
+        "text": "The dataset, trained checkpoint, 2AFC challenge, and interactive browser demo will be released publicly upon acceptance. The diagnostic implementation will be released as a standalone tool applicable to other mask-conditioned diffusion models. Repository URLs are withheld here to preserve double-blind review."
+      },
+      {
+        "id": "bib",
+        "heading": "References",
+        "level": 1,
+        "text": "[1] M. Bińkowski, D. J. Sutherland, M. Arbel, and A. Gretton (2018) Demystifying MMD GANs . In International Conference on Learning Representations (ICLR) , Cited by: §1 , §2 . [2] D. Bolya, P. Huang, P. Sun, J. H. Cho, A. Madotto, C. Wei, T. Ma, J. Zhi, J. Rajasegaran, H. Bangalath, et al. (2026) Perception encoder: the best visual embeddings are not at the output of the network . Advances in Neural Information Processing Systems 38 , pp. 60884–60937 . Cited by: §3.2 . [3] N. Carion, L. Gustafson, Y. Hu, N. Ravi, C. Rolland, et al. (2025) SAM 3: segment anything with concepts . arXiv preprint arXiv:2511.16719 . Cited by: Appendix C , §3.2 . [4] N. Carlini, J. Hayes, M. Nasr, M. Jagielski, V. Sehwag, F. Tramèr, B. Balle, D. Ippolito, and E. Wallace (2023) Extracting training data from diffusion models . In USENIX Security Symposium , Cited by: Figure 12 , Figure 12 , Appendix M , Appendix M , §3.2 . [5] P. Dhariwal and A. Nichol (2021) Diffusion models beat gans on image synthesis . Advances in neural information processing systems 34 , pp. 8780–8794 . Cited by: §2 . [6] Z. Dorjsembe, H. Pao, and F. Xiao (2024) Polyp-DDPM: diffusion-based semantic polyp synthesis for enhanced segmentation . In 2024 46th Annual International Conference of the IEEE Engineering in Medicine and Biology Society (EMBC) , Cited by: §1 , §2 . [7] R. Fedrigo, F. Yousefirizi, Z. Liu, A. K. Jha, R. V. Bergen, J. Rajotte, R. T. Ng, I. Bloise, S. Harsini, D. J. Kadrmas, C. Uribe, and A. Rahmim (2023) Observer study-based evaluation of TGAN architecture used to generate oncological PET images . In SPIE Medical Imaging , Note: arXiv:2311.16047 Cited by: §2 . [8] D. Friedman and A. B. Dieng (2023) The vendi score: a diversity evaluation metric for machine learning . Transactions on Machine Learning Research . Cited by: Appendix D , Appendix E , §2 , §3.2 , §4.2 . [9] C. Garcin and A. Straube (2019) Microtubules in cell migration . Essays in biochemistry 63 ( 5 ), pp. 509–520 . Cited by: §1 . [10] N. Guttenberg (2023) Diffusion with offset noise . Note: https://www.crosslabs.org/blog/diffusion-with-offset-noise Crosslabs blog post Cited by: §2 , §3.1 . [11] M. Heusel, H. Ramsauer, T. Unterthiner, B. Nessler, and S. Hochreiter (2017) GANs trained by a two time-scale update rule converge to a local nash equilibrium . In Advances in Neural Information Processing Systems (NeurIPS) , Cited by: §1 , §2 . [12] J. Ho, A. Jain, and P. Abbeel (2020) Denoising diffusion probabilistic models . In Advances in Neural Information Processing Systems , Cited by: §2 , §3.1 . [13] J. Ho and T. Salimans Classifier-free diffusion guidance . In NeurIPS 2021 Workshop on Deep Generative Models and Downstream Applications , Cited by: §2 . [14] A. L. Y. Hung, K. Zhao, H. Zheng, R. Yan, S. S. Raman, D. Terzopoulos, and K. Sung (2023) Med-cDiff: conditional medical image generation with diffusion models . Bioengineering 10 ( 11 ), pp. 1258 . Cited by: Appendix L , §2 . [15] A. Kazerouni, E. K. Aghdam, M. Heidari, R. Azad, M. Fayyaz, I. Hacihaliloglu, and D. Merhof (2023) Diffusion models in medical imaging: a comprehensive survey . Medical Image Analysis 88 , pp. 102846 . External Links: Document Cited by: §2 . [16] M. Koddenbrock, J. Westerhoff, D. Fachet, S. Reber, F. A. Gers, and E. Rodner (2026) Synthetic data enables human-grade microtubule analysis with foundation models for segmentation . PLOS Computational Biology 22 ( 5 ), pp. 1–25 . External Links: Document , Link Cited by: Appendix A , Appendix A , Appendix C , §1 , §3.2 , §4.1 , §4.2 , §5 , Figure 5 , Figure 5 , §6.2 , §6.2 , §6 . [17] N. Konz, Y. Chen, H. Dong, and M. A. Mazurowski (2024) Anatomically-controllable medical image generation with segmentation-guided diffusion models . arXiv preprint arXiv:2402.05210 . Cited by: Appendix C , §1 , §2 , §3.1 , §3.1 , §3 . [18] T. Kynkäänniemi, T. Karras, M. Aittala, T. Aila, and J. Lehtinen (2022) The role of ImageNet classes in Fréchet inception distance . arXiv preprint arXiv:2203.06026 . Cited by: §2 . [19] T. Kynkäänniemi, T. Karras, S. Laine, J. Lehtinen, and T. Aila (2019) Improved precision and recall metric for assessing generative models . Advances in neural information processing systems 32 . Cited by: §2 . [20] S. Lin, B. Liu, J. Li, and X. Yang (2024) Common diffusion noise schedules and sample steps are flawed . In Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision (WACV) , pp. 5404–5411 . Note: arXiv:2305.08891 Cited by: §2 . [21] Y. Liu, W. Treible, A. Kolagunda, A. Nedo, P. Saponaro, J. Caplan, and C. Kambhamettu (2018) Densely connected stacked u-network for filament segmentation in microscopy images . In Advances in Visual Computing – 13th International Symposium (ISVC) , Cited by: §3.2 . [22] Y. Liu and Y. Zhang (2025) A conditional generative framework for synthetic data augmentation in segmenting thin and elongated structures in biological images . arXiv preprint arXiv:2512.10334 . Cited by: §1 . [23] M. F. Naeem, S. J. Oh, Y. Uh, Y. Choi, and J. Yoo (2020) Reliable fidelity and diversity metrics for generative models . In International conference on machine learning , pp. 7176–7185 . Cited by: §2 . [24] M. Nazir, M. Aqeel, and F. Setti (2025) Diffusion-based data augmentation for medical image segmentation . arXiv preprint arXiv:2508.17844 . Cited by: §1 . [25] T. V. Nguyen, J. Hoster, A. Glaser, K. Hildebrand, and F. Biessmann (2024) Generating synthetic satellite imagery for rare objects: an empirical comparison of models and metrics . External Links: arXiv:2409.01138 Cited by: §2 . [26] A. Q. Nichol and P. Dhariwal (2021) Improved denoising diffusion probabilistic models . In International conference on machine learning , pp. 8162–8171 . Cited by: §2 . [27] M. Oquab, T. Darcet, T. Moutakanni, H. Vo, M. Szafraniec, V. Khalidov, et al. (2024) DINOv2: learning robust visual features without supervision . Transactions on Machine Learning Research . Cited by: §3.2 . [28] T. Park, M. Liu, T. Wang, and J. Zhu (2019) Semantic image synthesis with spatially-adaptive normalization . In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , Cited by: §2 , §7 . [29] A. E. Prota, D. Lucena-Agell, Y. Ma, J. Estevez-Gallego, S. Li, K. Bargsten, F. Josa-Prado, K. Altmann, N. Gaillard, S. Kamimura, et al. (2023) Structural insight into the stabilization of microtubules by taxanes . Elife 12 , pp. e84791 . Cited by: §1 . [30] S. Ravuri, M. Rey, S. Mohamed, and M. Deisenroth (2023) Understanding deep generative models with generalized empirical likelihoods . arXiv preprint arXiv:2306.09780 . Cited by: §1 . [31] R. Rombach, A. Blattmann, D. Lorenz, P. Esser, and B. Ommer (2022) High-resolution image synthesis with latent diffusion models . In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , Cited by: §2 . [32] O. Ronneberger, P. Fischer, and T. Brox (2015) U-net: convolutional networks for biomedical image segmentation . In Medical Image Computing and Computer-Assisted Intervention (MICCAI) , Cited by: §3.1 . [33] S. Sadat, J. Buhmann, D. Bradley, O. Hilliges, and R. M. Weber (2024) CADS: unleashing the diversity of diffusion models through condition-annealed sampling . In International Conference on Learning Representations (ICLR) , Cited by: §2 . [34] A. Saguy, T. Nahimov, M. Lehrman, O. Alalouf, and Y. Shechtman (2023) This microtubule does not exist: super-resolution microscopy image generation by a diffusion model . bioRxiv . External Links: Document Cited by: §2 . [35] J. Sohl-Dickstein, E. A. Weiss, N. Maheswaranathan, and S. Ganguli (2015) Deep unsupervised learning using nonequilibrium thermodynamics . In International Conference on Machine Learning (ICML) , Cited by: §2 , §3.1 . [36] A. Soliman, L. Bakota, and R. Brandt (2022) Microtubule-modulating agents in the fight against neurodegeneration: will it ever work? . Current neuropharmacology 20 ( 4 ), pp. 782–798 . Cited by: §1 . [37] G. Somepalli, V. Singla, M. Goldblum, J. Geiping, and T. Goldstein (2022) Diffusion art or digital forgery? Investigating data replication in diffusion models . arXiv preprint arXiv:2212.03860 . Cited by: §3.2 . [38] J. Song, C. Meng, and S. Ermon (2021) Denoising diffusion implicit models . In International Conference on Learning Representations , Cited by: Appendix C , §2 , §3.1 . [39] Y. Song and S. Ermon (2019) Generative modeling by estimating gradients of the data distribution . Advances in neural information processing systems 32 . Cited by: §2 . [40] G. Stein, J. C. Cresswell, R. Hosseinzadeh, Y. Sui, B. L. Ross, V. Villecroze, Z. Liu, A. L. Caterini, J. E. T. Taylor, and G. Loaiza-Ganem (2023) Exposing flaws of generative model evaluation metrics and their unfair treatment of diffusion models . In Advances in Neural Information Processing Systems (NeurIPS) , Cited by: Appendix I , §1 , §2 . [41] H. Wang et al. (2025) Diffusion Prism: enhancing diversity and morphology consistency in mask-to-image diffusion . In IEEE/CVF Winter Conference on Applications of Computer Vision Workshops (WACVW) , Cited by: §1 , §2 . [42] L. Zhang, A. Rao, and M. Agrawala (2023) Adding conditional control to text-to-image diffusion models . In Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) , Cited by: §1 , §2 ."
+      },
+      {
+        "id": "A1",
+        "heading": "Appendix A Parametric vs. generative baseline comparison",
+        "level": 1,
+        "text": "The diagnostic of Section 3 is most useful when it changes the conclusion of a comparison that a single metric would settle incorrectly. We illustrate this with a head-to-head comparison of the segmentation-guided DM against the parametric baseline SynthMT [ 16 ] on identical synthetic masks."
+      },
+      {
+        "id": "A1.SS0.SSS0.Px1",
+        "heading": "Setup.",
+        "level": 3,
+        "text": "We sample 1000 1000 images from each model, conditioned on the same synthetic mask set (the one released with [ 16 ] ), and evaluate all with the diagnostic of Section 3.2 . We additionally sample the Naive arm ( Section 6.1 : the raw last-epoch checkpoint, bypassing the checkpoint-selection procedure) on the same masks, so all four systems are directly comparable. The reference for the similarity and color metrics is the held-out real test set used to tune the DM ; the reference for the geometric metrics is the conditioning mask itself."
+      },
+      {
+        "id": "A1.SS0.SSS0.Px2",
+        "heading": "Results.",
+        "level": 3,
+        "text": "Table 1 ( Section 4 ) reports the head-to-head comparison. On the geometric mask-fidelity rows, SynthMT scores higher in absolute terms ( SKIoU 0.96 0.96 vs. 0.86 0.86 , F1@75 0.97 0.97 vs. 0.88 0.88 ), but this is by construction, since it paints filaments directly along the polylines used to build the mask. The two SKIoU readings for DiffuMT , 0.86 0.86 here and 0.67 0.67 in Table 2 , come from the same model on different mask sets: 0.86 0.86 on the 1000 1000 synthetic masks of this comparison and 0.67 0.67 on the 200 200 held-out real masks. Both sit at the inter-annotator band, whereas SynthMT ’s 0.96 0.96 exceeds it on either set. Read relative to the inter-annotator agreement on real images ( SKIoU 0.80), DiffuMT is the closer match on either mask set (a gap of 0.06 0.06 on the synthetic masks here, 0.13 0.13 on the real masks of Table 2 ), whereas the parametric model sits 0.16 0.16 above the human ceiling and is thus easier to segment than reality. On every axis where the comparison is informative, DiffuMT is the more realistic system: inter-similarity 0.97 0.97 vs. 0.86 0.86 , diversity ( Δ \\Delta Intra-Sim. 0.01 0.01 vs. 0.06 0.06 ), distribution match ( DINO-FID 0.14 0.14 vs. 0.27 0.27 ), and color (global EMD 3.56 3.56 vs. 8.93 8.93 ). The Naive arm, evaluated on the same masks, makes the diagnostic’s point directly: its mask fidelity is indistinguishable from DiffuMT ’s ( SKIoU 0.86 0.86 for both) and it scores the best DINO-FID of the three DM/parametric systems ( 0.07 0.07 ), yet its diversity gap is five times wider than DiffuMT ’s ( Δ \\Delta Intra-Sim. 0.05 0.05 vs. 0.01 0.01 ) and its color fidelity is worse overall and in the foreground, though marginally better in the background. DINO-FID improves exactly where the diagnostic predicts it would — at the expense of diversity."
+      },
+      {
+        "id": "A1.SS0.SSS0.Px3",
+        "heading": "Implication for downstream use.",
+        "level": 3,
+        "text": "Because SynthMT ’s SKIoU lies above the inter-annotator ceiling, it has not reproduced the segmentation difficulty that downstream models encounter on real microscopy. Whether this is desirable depends on the task, but the diagnostic surfaces it, whereas an absolute reading would not. Figure 6 : Our DM matches the real distribution on both axes; SynthMT is shifted left on realism (left) and collapsed onto a narrow high-similarity band on diversity (right). Density estimates of inter- and intra-similarity against the real reference. The naive arm (raw last-epoch checkpoint, no diagnostic selection, Section 6 ) is shown for reference: it matches DiffuMT on realism (inter-similarity) but collapses toward SynthMT ’s narrow, high-similarity footprint on diversity (intra-similarity) – individually realistic yet selectively losing diversity."
+      },
+      {
+        "id": "A1.SS0.SSS0.Px4",
+        "heading": "Distributional and qualitative evidence.",
+        "level": 3,
+        "text": "Figure 6 shows the same conclusions distributionally. The DM ’s intra-similarity overlaps the real distribution, matching the natural diversity, while SynthMT ’s sits high and narrow, the expected footprint of a parametric pipeline that re-samples from a small parameter family. The naive arm, plotted alongside for reference, stays on the realistic side on inter-similarity but drifts back toward SynthMT ’s collapsed footprint on intra-similarity, consistent with the downstream utility drop quantified in Section 6 : realism alone does not guarantee diversity survives past the diagnostic-selected checkpoint. The CIELAB comparison ( Appendix M , Fig. 14 ) adds a color-based view of the same three systems. Sixteen qualitative triplets (synthetic mask, SynthMT , DM , nearest real neighbor) are shown in Appendix M , Fig. 15 ."
+      },
+      {
+        "id": "A2",
+        "heading": "Appendix B Ablation comparison across configurations",
+        "level": 1,
+        "text": "Table 2 lists absolute metric values for a few representative runs, each at its own diagnostic-selected checkpoint ( Section 3.2 , applied uniformly across all runs rather than fixing an epoch), all evaluated on the same 200 200 held-out real masks (for the mask-fidelity and similarity axes). The Low-data run, trained on only 50 labeled images, attains the highest inter-similarity ( 0.98 ) of any run in the paper, yet its intra-similarity ( 0.97 ) reveals a sharp mode collapse that inter-similarity hides. The Aug run (MSE replaced by Huber, with Gaussian input noise) shows the opposite pattern: it scores best on mask fidelity but loses foreground color fidelity by a factor of about 3 3 relative to the DiffuMT configuration. The DiffuMT run is the only one of the three that does not have a severe outlier on any single axis in the table, and its samples form the released dataset. Table 2 : DiffuMT does not collapse on any axis, whereas the contrastive runs each collapse on diversity (Low-data) or overfit the segmenter (Aug). Real : inter-annotator agreement (0.80) for mask fidelity, real-test statistics otherwise; not a candidate model. “–” = no real-vs-real value; bold = best of the three DM columns per row. Real Our mask-conditioned DM Metric (baseline) DiffuMT Low-data Aug Mask fidelity SKIoU ( ↑ \\uparrow ) 0.80 0.80 0.67 0.67 0.62 0.62 0.70 \\mathbf{0.70} F1@50 ( ↑ \\uparrow ) 0.89 0.89 0.74 \\mathbf{0.74} 0.70 0.70 0.74 \\mathbf{0.74} F1@75 ( ↑ \\uparrow ) 0.87 0.87 0.66 0.66 0.60 0.60 0.70 \\mathbf{0.70} Distribution match DINO-FID ( ↓ \\downarrow ) – 0.11 0.11 0.17 0.17 0.07 \\mathbf{0.07} Color Color, foreground ( ↓ \\downarrow ) – 1.18 \\mathbf{1.18} 7.01 7.01 4.10 4.10 Color, background ( ↓ \\downarrow ) – 1.88 1.88 0.76 \\mathbf{0.76} 2.32 2.32 Similarity Inter-Sim. ( ↑ \\uparrow ) – 0.97 0.97 0.98 \\mathbf{0.98} 0.97 0.97 Diversity Intra-Sim. ( ↓ \\downarrow ) 0.88 0.88 0.88 \\mathbf{0.88} 0.97 0.97 0.89 0.89"
+      },
+      {
+        "id": "A3.SS0.SSS0.Px1",
+        "heading": "Architecture.",
+        "level": 3,
+        "text": "2D U-Net from the segmentation-guided diffusion implementation of [ 17 ] : four down-/up-sampling stages, residual blocks, channel multipliers ( 1 , 2 , 4 , 8 ) (1,2,4,8) on a base of 128 channels, sinusoidal time embedding, one extra input channel for the binary mask. About 113 113 M parameters total."
+      },
+      {
+        "id": "A3.SS0.SSS0.Px2",
+        "heading": "Training.",
+        "level": 3,
+        "text": "AdamW with β 1 = 0.9 \\beta_{1}\\!=\\!0.9 , β 2 = 0.999 \\beta_{2}\\!=\\!0.999 , weight decay 10 − 2 10^{-2} ; learning rate 10 − 4 10^{-4} with a cosine schedule and 500 500 warm-up steps; mixed precision (fp16); exponential moving average (EMA) on the U-Net weights with decay 0.9999 0.9999 ; batch size 16 16 ; 1000 1000 forward diffusion steps with a linear β \\beta -schedule (one ablation uses scaled cosine). Each run uses 186 186 steps per epoch; the hyperparameter ablations run for 400 400 or 600 600 epochs, and the full diagnostics sweep of Appendices G and K extends to 1000 1000 epochs to characterize late-training behavior. A full 600 600 -epoch run takes about 18 hours on a single NVIDIA A100."
+      },
+      {
+        "id": "A3.SS0.SSS0.Px3",
+        "heading": "Sampling.",
+        "level": 3,
+        "text": "DDIM [ 38 ] with 50 50 inference steps and η = 0 \\eta\\!=\\!0 (deterministic). The binary conditioning mask is fed in the same dynamic range as during training—label values { 0 , 1 } \\{0,1\\} divided by 255 255 by the dataloader, i.e. { 0 , 1 / 255 } \\{0,\\,1/255\\} —since feeding { 0 , 1 } \\{0,1\\} directly is a 255 × 255\\times stronger conditioning signal that pushes the model out of distribution. Generating 1000 1000 patches on a consumer NVIDIA RTX 5070 Ti ( 16 16 GB VRAM) takes about 17 17 minutes."
+      },
+      {
+        "id": "A3.SS0.SSS0.Px4",
+        "heading": "Evaluation hyperparameters.",
+        "level": 3,
+        "text": "DINOv2 ViT-B/14, fifth block, L 2 L_{2} -normalized CLS token. k = 10 k\\!=\\!10 nearest neighbors for inter-similarity. 200 200 samples per evaluated checkpoint; 1000 1000 samples for the parametric comparison. DINO-KID polynomial kernel of degree 3 3 , matching the SynthMT release. Foreground/background re-segmentation with SAM 3 [ 3 ] in its text-prompted mode (prompt \"thin line\" ), following [ 16 ] ."
+      },
+      {
+        "id": "A3.SS0.SSS0.Px5",
+        "heading": "Aggregation.",
+        "level": 3,
+        "text": "The global selection score S global S_{\\text{global}} ( Eq. 3 ) is the geometric mean of three min-max-scaled perceptual axes: inter-similarity, intra-similarity and color distance. For checkpoint selection within a run , each axis is scaled within that run so the best checkpoint scores 1.0 1.0 and the worst 0.0 0.0 ; the gap-style axis (intra-similarity) is scored against the real-test value before scaling. Table 2 reports raw per-axis values rather than a cross-run S global S_{\\text{global}} column, since min-max scaling three runs against each other is only meaningful at the full precision of the underlying measurements, not the values as displayed; the within-run selection of epoch 315 does not depend on this table. Geometric mask-fidelity axes and DINO-FID are reported per-checkpoint but excluded from S global S_{\\text{global}} (see Eq. 3 and the rationale in Section 3.2 )."
+      },
+      {
+        "id": "A4",
+        "heading": "Appendix D Metric correlations: why no single metric suffices",
+        "level": 1,
+        "text": "Figure 7 resolves the numerical signature of Section 4.2 into the full pairwise correlation structure across the three epoch bins, which is the quantitative reason that no single metric suffices. The axes are not interchangeable. In the early and middle bins, realism and diversity are decoupled (inter- vs. intra-similarity r = + 0.09 r\\!=\\!+0.09 mid-training), so neither can serve as a proxy for the other. In the late bin they conflict. The same pair re-couples positively ( r = + 0.58 r\\!=\\!+0.58 ): realism keeps rising while diversity falls, which is the collapse itself, not merely a correlate of it. Color distance corroborates the same picture, becoming strongly anti-correlated with inter-similarity ( r = − 0.71 r\\!=\\!-0.71 ; n = 31 n\\!=\\!31 late-bin checkpoints, 95 % 95\\% Fisher- z z CI [ − 0.85 , − 0.48 ] [-0.85,-0.48] , p < 0.001 p<0.001 ) as the model settles onto a fixed palette; DINO-FID tracks inter-similarity rather than diversity, so it improves through the same window. The Vendi score [ 8 ] , included here for the same reason as Appendix E , tracks intra-similarity almost perfectly in every bin ( | r | ≥ 0.97 |r|\\!\\geq\\!0.97 ), so it moves with the collapse rather than flagging it independently. Each axis therefore has a degenerate optimum of its own: a realism- or DINO-FID -only score is maximized by a low-diversity mode collapse, while a diversity-only score is maximized by incoherent samples that ignore the data. Because color moves with inter-similarity rather than against it in this regime, it does not itself flag the late-training collapse; but S global S_{\\text{global}} is a geometric mean ( Eq. 3 ), so a metric that fails to flag a collapse cannot rescue a score that the diversity axis has already driven toward zero. The diagnostic instead reads a realism/distribution anchor together with a diversity axis, where the anchor keeps the diversity axis from rewarding noise and the diversity axis keeps the anchor from rewarding collapse. The same late-bin collapse also makes the final training epoch the wrong checkpoint ( Appendix K ), which is a corollary of this structure. Figure 7 : Metric correlations reveal the failure mode: in late training, inter- and intra-similarity re-couple positively while color distance becomes strongly anti-correlated with inter-similarity, indicating a texture-diversity collapse the standard toolbox misses. Pearson correlations between evaluation metrics within three epoch bins (early: 0–149 / middle: 150–400 / late: > > 400), pooled over all training runs. The late-regime inter-vs-intra re-coupling (r = +0.58) is the core observation justifying the diagnostic; the color–similarity anti-correlation (r = –0.71) corroborates it. The Vendi score is included alongside intra-similarity and tracks it almost perfectly in every bin, consistent with Appendix E ."
+      },
+      {
+        "id": "A5",
+        "heading": "Appendix E Intra-similarity agrees with the Vendi score",
+        "level": 1,
+        "text": "The diversity axis of our diagnostic is the mean pairwise cosine intra-similarity ( Section 3.2 ). We use it rather than an off-the-shelf diversity score because it lies on the same DINOv2 cosine scale as the inter-similarity (realism) axis, so realism and diversity are read on one comparable scale and against the same real-data band. To confirm that this sacrifices no rigor, we computed the Vendi score [ 8 ] , the standard reference-free diversity metric, on the same embeddings for every checkpoint of the eight hyperparameter-ablation runs ( n = 161 n\\!=\\!161 checkpoints). Two results follow. First, intra-similarity and the Vendi score are almost perfectly (inversely) correlated (Pearson | r | = 0.98 |r|\\!=\\!0.98 , Spearman ρ = − 0.98 \\rho\\!=\\!-0.98 ), and both place the diagnostic-selected checkpoint at peak diversity and the late-training checkpoints in collapse. Second, and more directly, replacing the intra-similarity axis with a Vendi-gap axis in S global S_{\\text{global}} selects the identical checkpoint on every one of the eight hyperparameter runs; on DiffuMT the swap also leaves the selected checkpoint at epoch 315 unchanged. The diagnostic is therefore robust to this choice. We keep intra-similarity because it is cheaper and lies on the same scale as the realism axis, and report the Vendi score only as this cross-check, since including both would merely double-count diversity."
+      },
+      {
+        "id": "A6",
+        "heading": "Appendix F Sensitivity to the offset-noise scale",
+        "level": 1,
+        "text": "The main DiffuMT runs use offset noise with σ = 0.2 \\sigma\\!=\\!0.2 . A companion run at σ = 0.1 \\sigma\\!=\\!0.1 (otherwise identical recipe) produces a visually similar CIELAB distribution ( Fig. 8 ): both variants concentrate the background luminance near the real-data mode, and both spread the foreground luminance across the same range. σ = 0.2 \\sigma\\!=\\!0.2 reproduces the real background variance slightly more faithfully ( std ​ BG_L = 1.21 \\text{std}\\,\\text{BG\\_L}\\!=\\!1.21 vs. 0.77 0.77 for σ = 0.1 \\sigma\\!=\\!0.1 ; real reference 1.35 1.35 ), which is the basis for using it throughout the main paper. The diagnostic-selected epoch does not change between the two settings. Figure 8 : Both offset-noise settings ( σ = 0.1 , 0.2 \\sigma\\!=\\!0.1,0.2 ) reproduce the real CIELAB distribution; σ = 0.2 \\sigma\\!=\\!0.2 matches the real background variance slightly more faithfully. CIELAB background (top) and foreground (bottom) distributions for the real reference and our DM trained at the two offset scales."
+      },
+      {
+        "id": "A7",
+        "heading": "Appendix G Robustness of the selected checkpoint",
+        "level": 1,
+        "text": "A natural question is whether the choice of the geometric mean is critical. Table 3 reports the checkpoint selected (argmax) by the geometric mean used in the main paper ( Eq. 3 ), the arithmetic mean of the same three axes, a diversity-only score (the intra-similarity axis s ^ Intra \\hat{s}_{\\text{Intra}} alone), and every single-axis and pairwise-axis reduction of S global S_{\\text{global}} , all over the full 200 200 -checkpoint training trajectory of DiffuMT (1000 epochs, every-5th-epoch diagnostics sweep). The geometric and arithmetic means agree, both selecting epoch 315; the diversity-only score selects a nearby but distinct epoch 250. This is weaker than full three-way agreement, but the two aggregations that combine both selection axes converge on the same checkpoint, which is the property the diagnostic depends on: the aggregation rule matters less than reading diversity jointly with realism. DINO-FID is still reported but excluded from S global S_{\\text{global}} for the reasons of Section 3 : it conflates quality and diversity into one number, so it cannot be relied upon to flag the collapse of Section 4.2 as reliably as the joint realism/diversity score does ( Appendix K )."
+      },
+      {
+        "id": "A7.SS0.SSS0.Px1",
+        "heading": "Which axis does the work?",
+        "level": 3,
+        "text": "Either axis alone is unreliable: realism-only selects epoch 90 90 , well before the collapse of Section 4.2 even begins, and color-only selects epoch 350 350 , a different point again. Dropping color and keeping realism and diversity jointly (geometric mean of the two) still selects epoch 315, the same checkpoint as the full three-axis score, so color is not what drives the selection. Dropping realism and keeping diversity and color instead selects epoch 250, the same as the diversity-only score, so with realism removed the choice is governed entirely by diversity. Realism and diversity read jointly are therefore what the selection depends on; color is corroborating rather than decisive. Table 3 : Single- and pairwise-axis ablations of the selection score all select an epoch within the same narrow window as the full three-axis score, except for the two single-axis scores. Selected epoch (argmax) for each reduction of S global S_{\\text{global}} on the run15_B16 trajectory. Aggregation scheme Selected epoch Geometric mean (paper) 315 Arithmetic mean 315 Diversity-only (intra-sim) 250 Realism-only (inter-sim) 90 Color-only 350 Realism+diversity (no color) 315 Diversity+color (no realism) 250"
+      },
+      {
+        "id": "A8",
+        "heading": "Appendix H Corrected reference pool for checkpoint selection",
+        "level": 1,
+        "text": "The main text ( Section 5 ) reports that our original checkpoint-selection reference pool for the Inter-similarity and Colour axes of Eq. 3 was not fully held out from training: approximately 58 % 58\\% of the similarity-pool images, and nearly all of the Colour-pool images, were also training images. We thank the reviewer who identified this. We rebuilt both pools from a disjoint, held-out set of 200 200 images and recomputed the selection score for all 200 200 saved checkpoints; under this correction, epoch 315 ranks second (score 0.7433 0.7433 ) instead of first, behind epoch 350 350 (score 0.7855 0.7855 ), a gap small enough to plausibly reflect sampling noise from the rerun’s freshly generated samples. The two robustness checks below use this corrected pool."
+      },
+      {
+        "id": "A9",
+        "heading": "Appendix I Robustness to the choice of embedding model",
+        "level": 1,
+        "text": "Holding the aggregation rule fixed, we repeated the corrected-pool selection ( Appendix H ) with four other embedding models substituted for DINOv2 in the Inter and Intra axes: ResNet-50, CLIP, MorphEm, and Cell-DINO. Table 4 reports the top-ranked epoch under each. ResNet-50, MorphEm, and Cell-DINO agree with DINOv2 on the top-ranked epoch; CLIP selects a different epoch, consistent with its more object-focused representation [ 40 ] . Agreement on the top epoch does not mean the complete rankings agree: under DINOv2, epoch 315 ranks 2 2 nd of 200 200 , but it ranks only 15 15 th under ResNet-50, 74 74 th under Cell-DINO, and 112 112 th under MorphEm, so this is not evidence of full representation-independent agreement. Table 4 : Three of four alternative encoders select the same top-ranked epoch as DINOv2. Corrected-reference selection ( Appendix H ) under each encoder, out of 200 200 checkpoints. Encoder Top-ranked epoch DINOv2 (paper) 350 350 ResNet-50 350 350 Cell-DINO 350 350 MorphEm 350 350 CLIP 485 485"
+      },
+      {
+        "id": "A10",
+        "heading": "Appendix J Robustness to the DINOv2 layer",
+        "level": 1,
+        "text": "We repeated the DINOv2-based selection ( Appendix H ) using features from layers 1 1 , 3 3 , 5 5 , 7 7 , 9 9 , and 11 11 instead of the layer used elsewhere in the paper ( Section 3.2 ), keeping the pooling method unchanged. Four of the six layers agree with the layer used throughout the paper; the earliest and deepest layers select different epochs. Table 5 also reports the selection without the Colour axis at each layer, which diverges from the full-diagnostic selection at most layers, confirming that the layer-5 agreement concerns the complete Inter/Intra/Colour score rather than the DINOv2 embedding alone. Table 5 : Agreement with the layer-5 selection used throughout the paper holds at four of six tested layers, but only for the complete Inter/Intra/Colour score. Corrected-reference selection ( Appendix H ) at each DINOv2 layer, with and without the Colour axis. Layer Full score Without Colour 1 1 830 830 830 830 3 3 350 350 430 430 5 5 (paper) 350 350 480 480 7 7 350 350 295 295 9 9 350 350 290 290 11 11 290 290 275 275"
+      },
+      {
+        "id": "A11",
+        "heading": "Appendix K The final epoch is not the right checkpoint",
+        "level": 1,
+        "text": "Figure 10 shows the three S global S_{\\text{global}} axes (inter-similarity, intra-similarity, color) and DINO-FID over training for the full DiffuMT training run (1000 epochs, every-5th-epoch diagnostics sweep). Inter-similarity plateaus at ∼ 0.97 \\sim\\!0.97 from epoch 100 onward and is uninformative. Intra-similarity, the diversity axis, is not at its own minimum at the selected checkpoint, epoch 315 (its minimum is nearby, epoch 250); the geometric mean of Eq. 3 weighs it jointly with inter-similarity and color, so the two selections differ slightly ( Appendix G ). Because the geometric mean collapses when any axis falls, the diversity axis’s post-peak degradation is what keeps S global S_{\\text{global}} from drifting to a later epoch even while inter-similarity keeps improving. DINO-FID (panel d) stays flat and noisy through the same late-training window rather than rising with the diversity collapse; it conflates quality and diversity into one number rather than separating them ( Section 2 ), so we exclude it from S global S_{\\text{global}} on principle. Color tracks the selection score without overriding the diversity signal, so the {inter, intra, color} score still selects epoch 315."
+      },
+      {
+        "id": "A11.SS0.SSS0.Px1",
+        "heading": "Training vs. validation denoising loss.",
+        "level": 3,
+        "text": "Because the diversity collapse of Section 4.2 occurs late in training, we checked whether it coincides with classic overfitting. We computed training and validation denoising MSE at all 200 200 saved checkpoints (eight timestep draws, four noise seeds per image); Fig. 9 shows both curves. The two curves correlate at 0.87 0.87 with no widening gap late in training, so this measurement does not show the signature of validation loss diverging from training loss; it does not, however, rule out other forms of memorization. Figure 9 : Training and validation denoising MSE closely track each other throughout training, with no widening generalization gap. Both losses decrease rapidly during early training, reach their minimum after approximately one third of the training run, and subsequently increase together, indicating a deterioration of the denoising objective rather than conventional overfitting. Losses are Monte Carlo estimates based on eight timestep draws and four noise seeds per image, evaluated at each of the 200 200 saved checkpoints. Figure 10 : The diagnostic-selected checkpoint (epoch 315) balances realism, diversity and color jointly; no single axis peaks there in isolation. Per-epoch trajectories of the three S global S_{\\text{global}} axes (inter-sim, intra-sim, color) and DINO-FID for the DiffuMT run; DINO-FID is reported but excluded from the selection score. Dashed green: real-test reference where defined; dotted red: selected checkpoint."
+      },
+      {
+        "id": "A12",
+        "heading": "Appendix L 2AFC study details",
+        "level": 1,
+        "text": "The 2AFC validation reported in Section 5 uses the HuggingFace Space ( URL withheld for double-blind review ) as the trial interface. The Space also serves as an open community challenge. The analysis code that produces every number, figure and table in this section from the raw click log is released with the dataset."
+      },
+      {
+        "id": "A12.SS0.SSS0.Px1",
+        "heading": "Equivalence test.",
+        "level": 3,
+        "text": "The headline binomial test in Section 5 shows only the absence of a detectable difference from chance. To obtain positive evidence of equivalence we run a two-one-sided test (TOST): aggregate accuracy is statistically equivalent to chance within a ± 10 \\pm 10{} percentage-point margin ( p = 0.033 p=0.033{} ), and the 90 % 90\\% interval bounds the true accuracy to within ± 8.6 \\pm 8.6{} points of chance. We fix the equivalence margin at ± 10 \\pm 10{} points (i.e. true accuracy below 60 % 60\\%{} ) a priori ; it lies well under the 64 % 64\\% trainee discriminability that the comparable medical-imaging 2AFC study Med-cDiff [ 14 ] reports for a generator considered usable, so passing it is a conservative bar. Per-expert accuracies ( 110 / 11 = 10 110{}/11{}=10 trials each) are individually uninformative and are reported ( Fig. 3 ) only to show that the spread matches a binomial null, with individual accuracies ranging from 20.0% to 80.0%."
+      },
+      {
+        "id": "A12.SS0.SSS0.Px2",
+        "heading": "Image pool.",
+        "level": 3,
+        "text": "66 66 patches in total: 33 real × 256 256\\!\\times\\!256 patches drawn from the annotated test set used throughout the paper, and 33 generated patches sampled from the diagnostic-selected checkpoint (offset 0.2 0.2 , linear β \\beta -schedule, MSE loss, epoch 315). The generated patches are conditioned on the masks of the corresponding real patches, so the two pools share the underlying mask geometry."
+      },
+      {
+        "id": "A12.SS0.SSS0.Px3",
+        "heading": "Trial design.",
+        "level": 3,
+        "text": "Each trial shows two patches side by side. One is real, one generated, drawn from the respective pools and independently randomised left/right per trial. Participants are asked “ Which of the two images is a real microtubule recording? ” and click on one of the two patches. No time limit is imposed; the median response time is 4.3 s."
+      },
+      {
+        "id": "A12.SS0.SSS0.Px4",
+        "heading": "Participants.",
+        "level": 3,
+        "text": "11 domain experts: a mix of cell-biology and microscopy researchers who work with IRM recordings of microtubule dynamics, and machine-learning researchers who are familiar with the output of diffusion models. None has been involved in training the model or in selecting the checkpoint, and they were briefed only on the task, not on the appearance of the synthetic samples. The paper authors are not part of the expert group."
+      },
+      {
+        "id": "A12.SS0.SSS0.Px5",
+        "heading": "Positional bias.",
+        "level": 3,
+        "text": "We log the side of every click. Across all trials, experts click the left slot 46.4% of the time, and per-expert left-click rate is uncorrelated with accuracy ( r = 0.15 r=0.15{} , Fig. 11 ). A constant left-clicking strategy would yield 50.0 % 50.0\\% expected accuracy on a balanced pool, so the observed result is not an artifact of positional preference. Figure 11 : Chance-level accuracy is not an artifact of positional bias: per-expert accuracy and per-expert left-click rate are uncorrelated ( r = 0.15 r=0.15{} ). Points cluster near the central crosshair ( 50 % , 50 % ) (50\\%,50\\%) (chance accuracy and balanced clicking) with no systematic side preference."
+      },
+      {
+        "id": "A12.SS0.SSS0.Px6",
+        "heading": "Engagement.",
+        "level": 3,
+        "text": "The median reaction time is 4.3 s (3.9 s on correct vs. 5.2 s on incorrect trials), which indicates that experts deliberate rather than click through."
+      },
+      {
+        "id": "A12.SS0.SSS0.Px7",
+        "heading": "Anonymous-pool robustness.",
+        "level": 3,
+        "text": "Additionally pooling the 146 anonymous trials logged by players who left before entering a name leaves the conclusion unchanged: 47.7% over 256 trials ( 95 % 95\\% CI [ 41.6 % , 53.8 % ] [41.6\\%{},53.8\\%{}] , p = 0.49 p=0.49{} )."
+      },
+      {
+        "id": "A13.SS0.SSS0.Px1",
+        "heading": "TSTR per-fold values.",
+        "level": 3,
+        "text": "The medians reported in Section 6.1 summarize four recording-grouped folds; the individual values are real { 0.80 , 0.60 , 0.51 , 0.72 } \\{0.80,0.60,0.51,0.72\\} , DiffuMT { 0.74 , 0.61 , 0.69 , 0.65 } \\{0.74,0.61,0.69,0.65\\} , real + + DiffuMT { 0.78 , 0.67 , 0.69 , 0.68 } \\{0.78,0.67,0.69,0.68\\} , SynthMT { 0.57 , 0.26 , 0.36 , 0.50 } \\{0.57,0.26,0.36,0.50\\} , and the Naive arm { 0.61 , 0.36 , 0.49 , 0.55 } \\{0.61,0.36,0.49,0.55\\} ."
+      },
+      {
+        "id": "A13.SS0.SSS0.Px2",
+        "heading": "Pixel-level memorization screen.",
+        "level": 3,
+        "text": "The embedding-based memorization Δ \\Delta above compares nearest-neighbor cosine similarities and cannot rule out near-exact pixel copies with dissimilar embeddings. We additionally screened for pixel-level memorization using the normalized L 2 L_{2} nearest-neighbor criterion of [ 4 ] ( 50 50 nearest training neighbors, α = 0.5 \\alpha=0.5 ; a score below 1 1 flags a potential copy), comparing 40,000 40{,}000 generated images (all 200 200 checkpoints) against the 278 278 available training crops. No image met the copying criterion (minimum score 1.563 1.563 ), while all ten exact-copy positive controls we inserted as a check were correctly flagged; Fig. 12 shows the full score distribution. Figure 12 : Every one of the 40,000 40{,}000 generated images scores well above the copying threshold. Distribution of the normalized L 2 L_{2} memorization score [ 4 ] across all generated images and checkpoints; scores below 1 1 (dashed) would flag a potential copy. The observed minimum ( 1.563 1.563 , dotted) is still far from that threshold."
+      },
+      {
+        "id": "A13.SS0.SSS0.Px3",
+        "heading": "Same mask, different seeds.",
+        "level": 3,
+        "text": "The synthetic counterpart in each released triplet is one sample from p ⁡ ( x ∣ m ) p(x\\mid m) , not a deterministic function of the mask. Figure 13 samples three masks at four independent seeds each; filament geometry is preserved across seeds while texture, background brightness, contrast and exact filament thickness vary. The intra-set diversity flagged by the intra-similarity axis of our diagnostic ( Section 3.2 ) is exactly this seed-to-seed variation aggregated over the test set. Figure 13 : Same mask, different seeds (columns) yield visibly different textures and backgrounds (the diversity intra-sim measures); same seed, different masks (rows) share a diffuse background pattern because the seed fixes the initial latent x T x_{T} . Three masks (rows) × \\times four seeds (columns), 50 50 DDIM steps from the diagnostic-selected checkpoint (epoch 315). Across all DM runs of Table 2 , the memorization Δ \\Delta [ 4 ] (the nearest-neighbor cosine-similarity gap between train and test embeddings) stays at 0.01 0.01 , which rules out direct replication of training images. Instance intersection-over-union (IoU) ( 0.32 0.32 – 0.37 0.37 ) and the average per-image filament count ( ∼ 4 \\sim\\!4 ) likewise track the real reference ( IoU 0.37 0.37 , 4.10 4.10 filaments per image). Figure 14 : Our DM reproduces the real IRM background distribution; the parametric SynthMT baseline does not. CIELAB background (top) and foreground (bottom) distributions for SynthMT , our DM and the real reference. The DM background overlaps the reference; SynthMT ’s is visibly too bright. In the foreground both fall within a plausible range, with the DM slightly over-concentrated. Figure 15 : Our DM recovers camera noise, IRM background gradients and irregular filament brightness that the parametric baseline cannot reproduce, at the cost of looser geometric mask adherence. Sixteen triplets, each row left to right: a SynthMT parametric sample, our DiffuMT sample on the same synthetic mask, and the real image most similar to it (nearest neighbor, k = 1 k\\!=\\!1 )."
+      },
+      {
+        "id": "A13.SS0.SSS0.Px4",
+        "heading": "Dataset composition.",
+        "level": 3,
+        "text": "Each released DiffuMT triplet pairs a binary mask with its real microscopy patch and one mask-conditioned synthetic sample ( Section 3.1 ). A key advantage of pixel-space mask conditioning is that the release is not limited to a fixed tiling of the annotated data: because every labeled 512 × 512 512\\times 512 crop is larger than the 256 × 256 256\\times 256 model resolution, we sample arbitrarily many random 256 × 256 256\\times 256 views and synthesize a fresh conditional counterpart for each, turning 309 309 hand-annotated crops into a much larger triplet corpus at no additional labeling cost. Views are drawn only where the mask contains foreground (so every triplet shows filaments), and the 75 75 source recordings are partitioned into disjoint train/validation/test groups before cropping, so no recording—and therefore no underlying filament geometry—appears in more than one split. The public release contains 2000 2000 training, 400 400 validation and 400 400 test triplets built this way; each synthetic image is generated with DDIM sampling from the diagnostic-selected checkpoint (epoch 315), and filenames are anonymized to a running index so no acquisition metadata leaks."
+      },
+      {
+        "id": "A13.SS0.SSS0.Px5",
+        "heading": "Reproducibility.",
+        "level": 3,
+        "text": "Random seeds were not fixed across the stochastic components (initial U-Net weights, forward noise, the initial sampling noise x T x_{T} ; the DDIM reverse process itself is deterministic), though reading the diagnostic over 200 200 samples per checkpoint keeps the per-axis numbers stable to this, and every trend reported in the paper holds across all eight hyperparameter configurations ( Section 4 ). On publication we will release configuration files that fix the seeds and reproduce the numbers in Table 2 , together with the diagnostic implementation, the 2AFC analysis code, and the trained checkpoint."
+      }
+    ]
+  },
+  "text": "Diagnosing Diversity Collapse and Validating Mask-Conditioned Diffusion for Labeled Microtubule Microscopy Skip to main content Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: Why HTML? Report Issue Back to Abstract Download PDF Contents Reading mode Colour theme License: CC BY 4.0 arXiv:2610.09957v1 [eess.IV] 07 Oct 2026 \\paperID 7 \\vol V Diagnosing Diversity Collapse and Validating Mask-Conditioned Diffusion for Labeled Microtubule Microscopy Mario Koddenbrock Affiliation: HTW Berlin Frederic Rapp Affiliation: HTW Berlin Simone Reber Affiliation: Berliner Hochschule für Technik (BHT), Berlin, Germany Affiliation: Max Planck Institute for Infection Biology, Berlin, Germany Erik Rodner Affiliation: {mario.koddenbrock, erik.rodner}@htw-berlin.de Affiliation: HTW Berlin Abstract Mask-conditioned diffusion models have become standard for generating labeled training data in biomedical imaging. But the tools used to evaluate them were built for a different problem. Standard metrics like Fréchet inception distance (FID) and kernel inception distance (KID) score images through ImageNet-trained features. Those features do not transfer to microscopy, leaving the metrics poorly calibrated for specialized domains. Even with a domain-appropriate feature space, a single blended number can still hide a real failure: a model can produce visually plausible images that still transfer poorly to downstream tasks. We identify a specific failure mode: Late in training, realism keeps improving while texture diversity collapses. The model settles onto a fixed color palette, converging to a high-similarity, low-diversity state that standard metrics do not penalize. Therefore, we propose a diversity-aware diagnostic in a domain-validated feature space. It combines a realism axis based on inter-similarity to real images with a diversity axis based on intra-similarity among generated samples. This diagnostic selects a checkpoint that domain experts cannot reliably distinguish from real recordings in a forced-choice study. It also yields useful downstream segmentation: a segmenter trained only on synthetically labeled data reaches a median skeletonised intersection-over-union (SKIoU) comparable to one trained on real data, at lower cross-fold variance, and clearly ahead of the best available public alternative in this domain, a parametric renderer. We also reproduce a data-efficient hyperparameter-transfer experiment from prior work, tuning several foundation segmenters on a small labeled subset and evaluating on real images: transfer is stronger with our data. We release DiffuMT on HuggingFace, including the triplet dataset, code to reproduce the downstream-utility validation, and a standalone diagnostic tool for evaluating mask-conditioned diffusion models. 1 Introduction Microtubules (MTs) are cytoskeletal filaments that drive chromosome segregation, intracellular transport, and cell motility [ 9 ] . Their dynamic instability is the target of widely used chemotherapeutics, including taxanes such as paclitaxel [ 29 ] , as well as emerging neuroprotective therapies for neurodegeneration [ 36 ] . To quantify how candidate drugs perturb microtubule dynamics, MTs are reconstituted in vitro from stabilized nucleation seeds and imaged using interference reflection microscopy (IRM) or total internal reflection fluorescence (TIRF) microscopy [ 16 ] . Extracting quantitative measurements such as filament counts, lengths, and curvature distributions requires accurate instance segmentation. However, pixel-precise tracing of overlapping thin filaments remains a labor-intensive task, with expert annotation taking minutes per image. Recorded microscopy data therefore quickly exceeds available labeling capacity. This challenge is not unique to microtubule microscopy. Across biomedical imaging, including colonoscopy [ 6 ] , anatomical computed tomography (CT) and magnetic resonance imaging (MRI) [ 17 , 24 ] , pixel-level expert annotations remain a major bottleneck. A common solution is to generate additional labeled data using mask-conditioned diffusion models [ 17 , 6 , 24 , 22 , 41 ] . A binary annotation specifies where a structure should appear, while the diffusion model generates a corresponding realistic image. Pixel-space mask conditioning [ 17 , 6 ] preserves fine spatial details that latent-space approaches such as ControlNet [ 42 ] may attenuate. However, training these models on small domain-specific datasets can still result in severe mode collapse ( Section 4 ). The difficulty has therefore shifted from generating synthetic biomedical images to evaluating them. The standard metrics for generative image quality evaluation, including FID [ 11 ] and KID [ 1 ] , were developed for natural-image benchmarks with large and diverse datasets. Recent studies have shown that these metrics are poorly calibrated when transferred to small biomedical domains [ 40 , 30 ] . Furthermore, mask conditioning introduces an additional challenge: when the mask provides most of the spatial information, generated textures may collapse while image-level similarity remains high. A model can therefore appear realistic according to standard metrics while producing synthetic data that is insufficiently diverse or ineffective for downstream analysis. Figure 1 : The diagnostic-selected checkpoint is both perceptually indistinguishable from real and useful for downstream segmentation. (a) Generation: a binary mask m m and Gaussian noise x T x_{T} are denoised by a mask-conditioned DDPM (DDIM sampling) into a synthetic image x 0 x_{0} , selected by our diagnostic rather than FID; the denoising chain is illustrative. (b) Expert validation: shown a real and a generated image of the same mask, experts pick the real one only at chance: they cannot reliably tell synthetic from real. (c) Downstream utility: a segmenter trained only on synthetic data and tested on real (train-synthetic/test-real) matches a real-trained model and far exceeds the parametric baseline; the dashed line is the inter-annotator agreement on real images (the achievable segmentation ceiling). Exact values, uncertainties and protocols are reported in Sections 5 and 6.1 . We address this problem by evaluating mask-conditioned diffusion models through both realism and downstream utility ( Fig. 1 ). We train a pixel-space mask-conditioned diffusion model (DM) on IRM microtubule recordings and evaluate generated images using a two-alternative-forced-choice (2AFC) study with domain experts. Experts cannot reliably distinguish generated images from real recordings, demonstrating high perceptual realism. Realism alone, however, is not sufficient. Synthetic data must also support accurate analysis of real microscopy images. We therefore evaluate synthetic-data-only training for microtubule instance segmentation and reproduce a data-efficient hyperparameter-transfer experiment from prior work. A segmenter trained only on our synthetic data approaches the performance of one trained on real data, substantially outperforming the strongest available public parametric baseline. Furthermore, repeating a prior hyperparameter-transfer study shows that our synthetic data improves foundation-segmenter adaptation to real IRM images. Figure 2 highlights the failure mode motivating our diagnostic. Across checkpoints of the same mask-conditioned diffusion model, realism measured against real images remains nearly unchanged, while diversity varies substantially. A checkpoint selected by realism alone can therefore correspond to a collapsed generation regime. We propose a diversity-aware diagnostic in a domain-validated feature space (DINOv2), which jointly measures a realism axis (inter-similarity to real images) and a diversity axis (intra-similarity within the generated set). The diagnostic identifies checkpoints that balance realism and diversity and selects the model that passes the expert 2AFC evaluation. What this paper contributes. • DiffuMT , validated by 2AFC. We release an open triplet dataset consisting of binary masks, real MT images, and their mask-conditioned synthetic counterparts. Domain experts cannot reliably distinguish our generated images from real recordings in a 2AFC study ( Section 5 ). 1 1 1 Live 2AFC challenge: [URL withheld for double-blind review.] • A diversity-aware diagnostic for mask-conditioned diffusion. We show that realism metrics alone fail to detect late-stage diversity collapse and introduce a diagnostic that jointly evaluates realism and diversity in a domain-validated feature space ( Sections 3 and 4.2 ). • Proof of downstream utility. A segmenter trained only on DiffuMT achieves performance on real microtubule images comparable to real-data training while substantially outperforming the strongest public synthetic baseline. We further show improved adaptation of foundation segmenters using synthetic data in a reproduced low-data tuning experiment ( Sections 6.1 and 6.2 ). 2 Related work Diffusion models. Denoising diffusion models [ 35 , 12 ] and the related score-based formulation [ 39 ] are the de-facto generators for high-resolution image synthesis [ 5 , 26 ] . Sampling is accelerated by denoising diffusion implicit model (DDIM) [ 38 ] . It is made tractable at high resolution by latent diffusion [ 31 ] . It is most commonly conditioned via classifier-free guidance [ 13 ] . Fidelity and diversity in generative evaluation. Distributional metrics such as FID [ 11 ] and KID [ 1 ] combine sample quality and diversity into a single score. Even within their original natural-image setting, Inception-based scores do not consistently track human judgments of image quality [ 25 ] . This has motivated metrics that explicitly separate these factors, including precision and recall [ 19 ] , density and coverage [ 23 ] , and the reference-free Vendi score [ 8 ] . Our diagnostic follows this decomposition: inter-similarity to real images captures realism, while intra-similarity within generated samples captures diversity. Unlike previous metrics, we study their behavior in mask-conditioned biomedical diffusion, where realism often saturates while diversity collapses. The two axes must therefore be interpreted jointly and calibrated against a domain-specific reference distribution rather than ImageNet-based defaults [ 18 , 40 ] . Conditioned diffusion in biomedical imaging. Diffusion models have recently been adopted for biomedical image synthesis and analysis [ 15 ] . Conditioning can be performed in latent feature spaces, as in ControlNet [ 42 ] and spatially-adaptive denormalization (SPADE) [ 28 ] , or directly through spatial mask concatenation. The latter preserves pixel-level control and has been applied to synthetic medical images, including breast MRI , abdominal CT , and colonoscopy [ 17 , 6 ] . For microtubule microscopy, previous diffusion approaches focused on unconditional super-resolution [ 34 ] , whereas our goal is mask-conditioned generation of labeled IRM data. However, mask-conditioned diffusion can still collapse when conditioning provides most of the spatial information. Recent methods such as Diffusion Prism [ 41 ] and CADS [ 33 ] address this through training or sampling modifications; we instead focus on diagnosing and selecting against this failure mode. Offset noise and zero-terminal- signal-to-noise ratio (SNR) . Standard diffusion schedules leave residual signal at the final timestep, creating a train–inference mismatch that can bias samples toward the dataset mean. Offset noise [ 10 ] and related zero-terminal- SNR formulations [ 20 ] address this issue by enabling broader luminance variation. We adopt offset noise ( Section 3 ) to avoid low-contrast attractors in IRM microscopy. 2AFC validation in biomedical generators. Two-alternative forced choice (2AFC) is a standard psychophysical protocol for measuring whether observers can distinguish generated from real images. It has been used to evaluate biomedical generators, including medical diffusion models [ 14 ] and synthetic oncology imaging [ 7 ] . We use 2AFC as a domain-level validation of perceptual realism, complementing metric-based evaluation with downstream utility. 3 Method We evaluate a mask-conditioned diffusion model ( Section 3.1 ) using a diversity-aware diagnostic ( Section 3.2 ). The diffusion model itself follows [ 17 ] ; our contribution is the evaluation framework. 3.1 The model under study We use a denoising diffusion probabilistic model (DDPM) [ 12 , 35 ] sampled with DDIM [ 38 ] and conditioned on binary segmentation masks in pixel space following [ 17 ] . The denoiser ϵ θ \\epsilon_{\\theta} is a 2D U-Net [ 32 ] that receives the channel-wise concatenation of the noisy image x t ∈ ℝ 3 × h × w x_{t}\\in\\mathbb{R}^{3\\times h\\times w} and mask m ∈ { 0 , 1 } h × w m\\in\\{0,1\\}^{h\\times w} : ℒ m = 𝔼 x 0 , m , t , ϵ ​ [ ‖ ϵ − ϵ θ ​ ( x t , t | m ) ‖ 2 ] , \\mathcal{L}_{m}=\\mathbb{E}_{x_{0},m,t,\\epsilon}\\left[\\|\\epsilon-\\epsilon_{\\theta}(x_{t},t|m)\\|^{2}\\right], (1) where x t = α ¯ t ​ x 0 + 1 − α ¯ t ​ ϵ x_{t}=\\sqrt{\\bar{\\alpha}_{t}}x_{0}+\\sqrt{1-\\bar{\\alpha}_{t}}\\epsilon . Although DDIM sampling is deterministic for a fixed initial noise, different noise realizations produce different valid images, defining a conditional distribution p ⁡ ( x | m ) p(x|m) . Therefore, each released triplet represents only one possible synthetic realization of a mask. The only practical modifications to [ 17 ] ( Appendix C ) is offset noise [ 10 ] . 3.2 A three-axis diagnostic The diagnostic evaluates three complementary properties: realism, diversity, and appearance statistics. No individual axis reliably detects collapse; their joint behavior distinguishes healthy and degenerate regimes. Plausibility and diversity (DINOv2). We embed images using the fifth block of DINOv2 [ 27 ] , following the domain validation of [ 16 ] and consistent with evidence that intermediate-layer features can be more transferable than network outputs [ 2 ] , and normalize embeddings with L 2 L_{2} normalization. Realism is measured by inter-similarity , the average cosine similarity between generated images and their k = 10 k=10 nearest real neighbors. Diversity is measured by intra-similarity : S intra \\displaystyle S_{\\mathrm{intra}} = 1 n ⁡ ( n − 1 ) ​ ∑ i ≠ j y ^ i ⊤ ​ y ^ j , \\displaystyle=\\frac{1}{n(n-1)}\\sum_{i\\neq j}\\hat{y}_{i}^{\\top}\\hat{y}_{j}, (2) where lower values indicate higher diversity. This formulation places realism and diversity on the same feature scale. It correlates with the Vendi score [ 8 ] across all ablations ( | r | = 0.98 |r|=0.98 , Appendix E ). We check this dependence on DINOv2 by substituting four other embedding models ( Appendix I ) and by varying the DINOv2 layer ( Appendix J ). We additionally report DINOv2-based Fréchet and kernel distances ( Fréchet inception distance computed in DINOv2 feature space (DINO-FID) , kernel inception distance computed in DINOv2 feature space (DINO-KID) ) and a memorization delta [ 4 , 37 ] . These metrics are reported for completeness but are not used for checkpoint selection. Mask fidelity. Because generated images have no ground-truth segmentation, we evaluate mask consistency by re-segmenting generated images with SAM 3 [ 3 ] . We compare the recovered masks to the conditioning masks using SKIoU [ 21 ] and F1 at thresholds 0.5 0.5 and 0.75 0.75 . Scores are interpreted relative to human agreement ( SKIoU = 0.80 =0.80 ). Color and brightness. Images are converted to CIE L ∗ ​ a ∗ ​ b ∗ L^{*}a^{*}b^{*} colour space (CIELAB) space and separated into foreground and background regions using the conditioning mask. For each region, we measure the Earth Mover’s distance (EMD) between generated and reference distributions. This captures appearance collapse that may not be visible from structural metrics alone. Aggregation. For checkpoint selection, we combine the three perceptual axes (Inter, Intra, Color) using a geometric mean: S global = ( ∏ a ∈ 𝒜 s ^ a ) 1 / | 𝒜 | , S_{\\text{global}}=\\left(\\prod_{a\\in\\mathcal{A}}\\hat{s}_{a}\\right)^{1/|\\mathcal{A}|}, (3) where all axes are min-max normalized with higher values indicating better quality. The geometric mean prevents one strong axis from compensating for a collapsed one. But the diagnostic is robust to the aggregation choice; arithmetic and geometric means select the same checkpoint ( Appendix G ). 4 Experiments This section first establishes the failure mode motivating our diagnostic ( Section 4.2 ) before validating the selected checkpoint through expert 2AFC evaluation ( Section 5 ). Experimental details are given in Section 4.1 . 4.1 Experimental Setup Data. The dataset was originally curated by [ 16 ] and comes from IRM recordings acquired in two laboratories with different microscope systems and tubulin sources. MTs are thin, low-contrast filaments visible against a tightly controlled in vitro background. We extract random 512 × 512 512\\times 512 crops, 309 of which are manually annotated across 75 distinct source recordings. These are re-tiled into 256 × 256 256\\times 256 patches with 128-pixel overlap for training (no overlap for testing), yielding 2961 training tiles, 200 annotated test tiles, and 1336 unlabeled reference patches used for similarity scoring. Training. All runs share the same 113M-parameter 2D U-Net backbone, optimizer, batch size, and DDIM sampler; full implementation details are given in Appendix C . We use offset noise with scale σ = 0.2 \\sigma=0.2 , and vary only the β \\beta schedule (linear vs. scaled cosine) and regression loss (MSE, L 1 L_{1} , Huber) in the ablation study. The selected checkpoint is robust to the offset-noise scale ( Appendix F ); additional implementation details and ablations are deferred to the appendix. 4.2 Inter-similarity alone is insufficient Inter 0.98 0.98 Intra 0.99 0.99 Inter 0.97 0.97 Intra 0.87 0.87 Inter 0.98 0.98 Intra 0.97 0.97 Figure 2 : Inter-similarity gives only a weak, small-magnitude signal that does not reliably separate collapsed from healthy ( 0.98 / 0.97 / 0.98 0.98/0.97/0.98 ). Three checkpoints of one run, conditioned on the same binary mask, shown left to right: an early checkpoint (collapsed, blurry; no valid MTs are visible), a middle one (realistic and diverse), and a late one (collapsed to a near-uniform texture). Intra-similarity flags the two collapsed checkpoints (red), and only the middle checkpoint matches the real diversity baseline (green). Table 1 : Comparison of our diagnostic-selected model ( DiffuMT ), the parametric baseline ( SynthMT ), and the naïve final checkpoint. Although the naïve checkpoint achieves the best DINO-FID , it exhibits substantially lower diversity and worse color fidelity, illustrating why DINO-FID alone is insufficient for checkpoint selection. The real column reports inter-annotator agreement for mask fidelity and reference statistics for all other metrics. Metric Real SynthMT DiffuMT Naive (ground truth) (parametric, prior work) (ours) (no selection) SKIoU ( ↑ \\uparrow ) 0.80 ± 0.14 0.80\\pm 0.14 0.96 ± 0.15 0.96\\pm 0.15 0.86 ± 0.23 0.86\\pm 0.23 0.86 ± 0.10 0.86\\pm 0.10 F1@50 ( ↑ \\uparrow ) 0.89 ± 0.10 0.89\\pm 0.10 0.98 ± 0.15 0.98\\pm 0.15 0.93 ± 0.26 0.93\\pm 0.26 0.99 ± 0.10 0.99\\pm 0.10 F1@75 ( ↑ \\uparrow ) 0.87 ± 0.11 0.87\\pm 0.11 0.97 ± 0.16 0.97\\pm 0.16 0.88 ± 0.33 0.88\\pm 0.33 0.90 ± 0.30 0.90\\pm 0.30 DINO-FID ( ↓ \\downarrow ) – 0.27 0.27 0.14 0.14 0.07 \\mathbf{0.07} Color, global ( ↓ \\downarrow ) – 8.93 8.93 3.56 \\mathbf{3.56} 3.86 3.86 Color, foreground ( ↓ \\downarrow ) – 12.87 12.87 4.92 \\mathbf{4.92} 6.62 6.62 Color, background ( ↓ \\downarrow ) – 9.19 9.19 2.70 2.70 2.45 \\mathbf{2.45} Inter-Sim. ( ↑ \\uparrow ) – 0.86 ± 0.01 0.86\\pm 0.01 0.97 ± 0.01 \\mathbf{0.97\\pm 0.01} 0.96 ± 0.01 0.96\\pm 0.01 Intra-Sim. ( ≈ 0.88 \\approx 0.88 ) 0.88 ± 0.02 0.88\\pm 0.02 0.94 ± 0.03 0.94\\pm 0.03 0.89 ± 0.03 \\mathbf{0.89\\pm 0.03} 0.93 0.93 Δ \\Delta Intra-Sim. ( ↓ \\downarrow ) – 0.06 0.06 0.01 \\mathbf{0.01} 0.05 0.05 Inter-similarity saturates while diversity collapses. Figure 2 illustrates the central failure mode. Across three representative checkpoints, inter-similarity changes little despite clear visual differences, whereas intra-similarity correctly identifies the healthy checkpoint. The same pattern persists throughout training ( Fig. 10 ): inter-similarity rises rapidly before plateauing, while intra-similarity first improves and then collapses. Late in training, the two measures become positively correlated ( r = + 0.58 r=+0.58 ), indicating increasing realism at the expense of diversity. Color statistics corroborate the same trend ( r = − 0.71 r=-0.71 , p < 0.001 p<0.001 ), whereas DINO-FID and DINO-KID remain largely insensitive, demonstrating that distributional realism alone does not reveal late-stage diversity collapse. The selected checkpoint does not minimize intra-similarity alone, but achieves the best balance across all diagnostic axes. This behavior is consistent across all eight hyperparameter ablations and directly motivates our diversity-aware checkpoint selection. A qualitative counterpart is shown in Fig. 13 , where repeated sampling from the same conditioning mask produces diverse yet plausible textures at the selected checkpoint. Numerical signature. Figure 7 makes this precise by binning checkpoints into three training stages and correlating metrics within each bin. Inter- and intra-similarity are decoupled early and in the middle of training ( r ≈ + 0.09 r\\approx+0.09 ), so neither is a proxy for the other; they only re-couple in the late bin, which is the collapse itself rather than a mere correlate of it. The Vendi score [ 8 ] tracks intra-similarity almost perfectly in every bin ( | r | ≥ 0.97 |r|\\geq 0.97 ), confirming that our diversity axis is not an idiosyncratic choice ( Appendix E ). The full per-bin correlation structure, including the color and DINO-FID axes, is given in Appendix D . Comparison with existing approaches. Table 1 compares our diagnostic-selected model ( DiffuMT ), the parametric baseline SynthMT [ 16 ] , and a naïve last-epoch checkpoint. The naïve model highlights the limitation of conventional checkpoint selection: despite matching DiffuMT ’s mask fidelity and achieving the best DINO-FID , it exhibits substantially lower diversity and poorer color fidelity. Conversely, DiffuMT achieves the best balance across realism, diversity, and color fidelity, demonstrating that our diagnostic avoids selecting visually collapsed checkpoints. The parametric baseline reproduces conditioning masks almost perfectly but deviates substantially in appearance statistics, illustrating why mask fidelity alone is insufficient for evaluating generative models. Additional comparisons across hyperparameter configurations are provided in Appendix B . 5 Expert validation (2AFC) The diagnostic of Section 3.2 selects a single best checkpoint across all hyperparameter configurations and training epochs (offset 0.2 0.2 , linear β \\beta -schedule, MSE loss, epoch 315). We thank a reviewer for pointing out that our checkpoint-selection reference pool included training images; recomputing the selection with a corrected, held-out reference pool ranks epoch 315 second of 200 checkpoints (score 0.7433 0.7433 , vs. 0.7855 0.7855 for the new top-ranked epoch). this gap may reflect sampling noise rather than a genuine quality difference ( Appendix H ). We retain epoch 315 as the model validated below. To quantify the realism of the resulting model independently of any metric used to select it, we run a two-alternative-forced-choice (2AFC) study with 11 domain experts on 33 real and 33 generated × 256 256\\!\\times\\!256 images drawn from the held-out test set. The participant pool combines two groups of domain experts: cell-biology and microscopy researchers who routinely work with IRM recordings of MT dynamics, and machine-learning researchers who routinely inspect generative-model outputs. None of them was involved in selecting, training, or curating the model. Figure 3 : Experts cannot distinguish generated from real images: pool aggregate p = 0.92 p=0.92{} . One bar per expert; 95 % 95\\% Wilson CIs; dashed line = = chance, dotted line = = pool mean (50.9%). Protocol. Each trial presents two images side by side, one real and one generated, drawn at random from the pool and randomly swapped left/right, and asks the expert to identify the real one. The generated images are conditioned on the masks of the corresponding real images, so a real/generated pair shares the same underlying filament geometry ( Fig. 1 ). The trials are administered through the public HuggingFace Space that also serves as an open community challenge. 2 2 2 Live 2AFC challenge: [URL withheld for double-blind review.] The full protocol is given in Appendix L . Result. Experts could not reliably distinguish synthetic from real images: aggregate accuracy was 50.9% (56/110 trials; 95 % 95\\% Wilson CI [ 41.7 % , 60.1 % ] [41.7\\%{},60.1\\%{}] ), statistically consistent with chance ( p = 0.92 p=0.92{} , exact binomial test). A two-one-sided equivalence test further confirms that performance is within ± 8.6 \\pm 8.6{} percentage points of chance ( p = 0.033 p=0.033{} ), supporting perceptual indistinguishability rather than simply failing to detect a difference. Per-expert results are consistent with the binomial null ( Fig. 3 ); however, inference is performed at the pool level since each expert contributed only 10 10 trials. The equivalence-margin choice, two protocol controls (positional bias and engagement), and a robustness check on the anonymous trials are detailed in Appendix L . Comparison to the prior expert study on SynthMT . The parametric predecessor SynthMT [ 16 ] was perceptually evaluated through a 7 7 -point Likert protocol on five aspects (structural fidelity, background, lighting, noise, overall) with n = 6 n=6 experts; the authors chose Likert ratings over pairwise forced-choice to obtain aspect-specific judgments. Their reported outcome is a “measurable gap to real images [that] persists across all dimensions”. Our chance-level 2AFC on DiffuMT closes that gap on the strictest test available. 6 Downstream utility and transfer Perceptual realism alone does not guarantee useful synthetic data. We therefore evaluate whether DiffuMT improves downstream segmentation of real MT images in two settings: training a segmenter on synthetic data ( Section 6.1 ) and transferring tuned inference parameters from synthetic to real ( Section 6.2 ). Both use SKIoU as the evaluation metric and are interpreted relative to human agreement on real images (0.80 ± \\pm 0.14) reported in [ 16 ] . 6.1 Train on synthetic, test on real Figure 4 : The diagnostic-selected synthetic data is useful downstream. Train-synthetic, test-real segmentation with a compact U-Net (skeleton- SKIoU over 4 recording-grouped folds): DiffuMT (Ours) matches the real-data upper bound and helps as augmentation, while the parametric SynthMT transfers less of the real appearance. Boxes: interquartile range, line: median, computed over 4 recording-grouped folds. Dashed line and grey band: the inter-annotator agreement on real images ( SKIoU 0.80 ± \\pm 0.14). Protocol. We train an MT U-Net segmentation model on five data sources: (i) real images, (ii) the parametric baseline SynthMT , (iii) DiffuMT , (iv) real + + DiffuMT , and (v) Naive , samples from the raw last-epoch checkpoint of the same diffusion run without diagnostic-based selection. The Naive arm isolates the effect of checkpoint selection from the effect of synthetic data quality. All models are evaluated on held-out real images using recording-level splits to prevent leakage and share the same architecture, augmentation, and training budget. Results. Figure 4 shows that synthetic data quality directly affects downstream utility. Training on DiffuMT reaches SKIoU 0.67 on real images, approaching the real-data model (0.66) and outperforming the parametric baseline (0.43); combining real and DiffuMT further improves performance to 0.69 , ahead of real-only training in two of the four recording-grouped folds and behind it in the other two, a modest but consistent split-wise pattern given the small number of folds. The DiffuMT -trained model is also more stable across recording-grouped folds than the real-only model. The Naive comparison directly tests the diagnostic: although generated from the same training run, the unselected final checkpoint reaches only SKIoU 0.52, substantially below the diagnostic-selected model. This demonstrates that checkpoint selection, rather than training duration alone, determines downstream utility. 6.2 Repeated synthetic-to-real hyperparameter transfer Protocol. Foundation segmenters can be adapted to a new modality by tuning a few inference hyperparameters. We reproduce the hyperparameter-transfer experiment of [ 16 ] , who tuned the three segmenters strongest on synthetic-to-real transfer in that study (SAM3Text, MicroSAM and CellSAM; of these, only SAM3Text reached “human-grade” analysis there) on a single 10 10 -image subset of SynthMT and transferred the result to real, reporting SKIoU 0.93 0.93 on synthetic data but 0.74 ± 0.18 0.74\\pm 0.18 on real images. A single 10 10 -image draw is a fragile basis for that estimate, so we repeat the tuning over 10 independent random subsets (200 optimization trials each) and report the distribution over subsets. We run the identical protocol with both SynthMT and DiffuMT as the tuning source, and evaluate on the same held-out real images, computing the same per-image mean SKIoU they report for each of our 10 subsets before summarizing the resulting distribution by its median. Results. The reproduction yields two findings. First, results are better with our data: the median transfer per segmenter is 0.51–0.71 SKIoU for DiffuMT versus 0.45–0.66 for SynthMT ( DiffuMT is level or slightly ahead for all three segmenters; for example SAM3Text 0.71 vs 0.66). Second, the original single-subset result was a bit lucky: across 10 random subsets on SynthMT , SAM3Text’s real SKIoU ranges from 0.47 to 0.76 (median 0.66), and the study’s reported 0.74 0.74 sits near the top of that range. These results show that DiffuMT provides a more reliable tuning source, reducing the sensitivity of synthetic-to-real transfer to the choice of a small labeled subset. SAM3Text reaches SKIoU 0.71 when tuned on only 10 10 images, comparable to the 0.66 that a compact U-Net reaches only with ∼ 150 \\sim\\!150 real tiles, so the remaining gap to full training is a matter of budget rather than method. Comparison to real-data tuning. [ 16 ] also compared tuning SAM3Text on 10 10 real or 10 10 SynthMT images, reporting SKIoU 0.73 0.73 and 0.71 0.71 respectively, in a single-seed experiment. In our evaluation across 10 tuning seeds, SAM3Text achieves median SKIoU 0.71 with DiffuMT and 0.66 with SynthMT . The published real-data result is therefore numerically close to our DiffuMT median, although a single-seed result does not establish equivalence with our repeated evaluation, and the two protocols are not directly comparable. Figure 5 shows the per-seed transfer distributions for each source and segmenter. Figure 5 : Repeated synthetic-to-real transfer of tuned segmenter hyperparameters. Each box summarizes 10 independent tuning seeds (random 10 10 -image subsets, 200 trials each) for one source and segmenter (SAM3Text, MicroSAM and CellSAM, the three models selected as the best synthetic-to-real transfer segmenters in the SynthMT study, [ 16 ] ); the spread exposes single-subset fragility, and the DiffuMT -vs- SynthMT offset measures the benefit of a more realistic tuning source. The black star marks the single-subset SAM3Text result originally reported in [ 16 ] ( SKIoU 0.74 0.74 ): it sits near the top of our repeated-seed distribution for the same (source, model) combination, not at its median. Boxes: interquartile range, line: median, computed over 10 tuning seeds. Dashed line and grey band: the inter-annotator agreement on real images ( SKIoU 0.80 ± \\pm 0.14). 7 Discussion The failure mode identified in this work has a simple mechanistic explanation. When conditioning carries most of the spatial information, as in mask-conditioned diffusion, the remaining appearance degrees of freedom (texture, background, brightness) can collapse onto low-risk attractors while preserving the mask-defined structure. Late in training, we observe this as convergence toward a narrow color palette: the anti-correlation between color distance and inter-similarity ( r = − 0.71 r=-0.71 , Fig. 7 ) indicates that increasing similarity is achieved at the expense of appearance diversity. A related mechanism explains early collapse, where samples remain close to the dataset mean while still occupying the reference distribution in DINOv2 space. We expect this failure mode to extend beyond microtubule microscopy to other spatially conditioned generators, including pixel-space diffusion and small-domain conditional generative adversarial networks (cGANs) such as SPADE [ 28 ] . The aggregation strategy in Eq. 3 reflects this observation. A geometric mean prevents a strong score on one axis from compensating for collapse on another. The baseline-aware interpretation of mask fidelity highlights a broader issue in evaluating synthetic biomedical images. For thin filaments, segmentation itself is ambiguous: experts agree only to SKIoU 0.80 on real images. Therefore, geometric fidelity must be interpreted relative to this achievable ceiling. The comparison in Appendix A shows that a synthetic system can exceed this ceiling without necessarily producing more realistic images. Limitations. Our evaluation is based on a relatively small dataset ( 309 309 labeled 512 × 512 512\\times 512 crops) from a single biomedical domain. Although DiffuMT shows downstream utility, the train-on-synthetic experiment uses real expert masks as conditioning, whereas the parametric baseline relies on procedural masks; thus, differences in mask distribution may contribute alongside appearance realism. Separating these two effects would require a controlled comparison on matched conditioning masks, which we leave to future work; likewise, generating synthetic masks that capture realistic microtubule geometry, so that the pipeline no longer depends on real expert masks at inference time, is nontrivial and is itself a direction for future work. The hyperparameter-transfer experiment demonstrates improved adaptation over the parametric synthetic baseline, but does not establish superiority over tuning directly on an equally sized real subset, since DiffuMT itself is generated from a model trained on real microscopy. Finally, while the mechanism likely extends to other spatially conditioned generators, demonstrating the same failure mode across additional biomedical domains such as CT and MRI remains future work. 8 Conclusion We introduce DiffuMT , an openly available triplet dataset of pixel-precise masks, real IRM microscopy images, and mask-conditioned synthetic counterparts. Unlike standard generative metrics, our diversity-aware diagnostic identifies the collapse of unconstrained appearance features that can occur while realism scores remain high. The selected model produces synthetic images that domain experts cannot reliably distinguish from real recordings in a 2AFC study and generates training data that transfers to real segmentation: a model trained only on DiffuMT reaches segmentation performance comparable to a real-trained model and substantially exceeds the parametric baseline. Beyond this dataset, our diagnostic provides a general evaluation tool for mask-conditioned diffusion models, where realism and diversity must be assessed jointly rather than through a single distributional score. Data and code. The dataset, trained checkpoint, 2AFC challenge, and interactive browser demo will be released publicly upon acceptance. The diagnostic implementation will be released as a standalone tool applicable to other mask-conditioned diffusion models. Repository URLs are withheld here to preserve double-blind review. References [1] M. Bińkowski, D. J. Sutherland, M. Arbel, and A. Gretton (2018) Demystifying MMD GANs . In International Conference on Learning Representations (ICLR) , Cited by: §1 , §2 . [2] D. Bolya, P. Huang, P. Sun, J. H. Cho, A. Madotto, C. Wei, T. Ma, J. Zhi, J. Rajasegaran, H. Bangalath, et al. (2026) Perception encoder: the best visual embeddings are not at the output of the network . Advances in Neural Information Processing Systems 38 , pp. 60884–60937 . Cited by: §3.2 . [3] N. Carion, L. Gustafson, Y. Hu, N. Ravi, C. Rolland, et al. (2025) SAM 3: segment anything with concepts . arXiv preprint arXiv:2511.16719 . Cited by: Appendix C , §3.2 . [4] N. Carlini, J. Hayes, M. Nasr, M. Jagielski, V. Sehwag, F. Tramèr, B. Balle, D. Ippolito, and E. Wallace (2023) Extracting training data from diffusion models . In USENIX Security Symposium , Cited by: Figure 12 , Figure 12 , Appendix M , Appendix M , §3.2 . [5] P. Dhariwal and A. Nichol (2021) Diffusion models beat gans on image synthesis . Advances in neural information processing systems 34 , pp. 8780–8794 . Cited by: §2 . [6] Z. Dorjsembe, H. Pao, and F. Xiao (2024) Polyp-DDPM: diffusion-based semantic polyp synthesis for enhanced segmentation . In 2024 46th Annual International Conference of the IEEE Engineering in Medicine and Biology Society (EMBC) , Cited by: §1 , §2 . [7] R. Fedrigo, F. Yousefirizi, Z. Liu, A. K. Jha, R. V. Bergen, J. Rajotte, R. T. Ng, I. Bloise, S. Harsini, D. J. Kadrmas, C. Uribe, and A. Rahmim (2023) Observer study-based evaluation of TGAN architecture used to generate oncological PET images . In SPIE Medical Imaging , Note: arXiv:2311.16047 Cited by: §2 . [8] D. Friedman and A. B. Dieng (2023) The vendi score: a diversity evaluation metric for machine learning . Transactions on Machine Learning Research . Cited by: Appendix D , Appendix E , §2 , §3.2 , §4.2 . [9] C. Garcin and A. Straube (2019) Microtubules in cell migration . Essays in biochemistry 63 ( 5 ), pp. 509–520 . Cited by: §1 . [10] N. Guttenberg (2023) Diffusion with offset noise . Note: https://www.crosslabs.org/blog/diffusion-with-offset-noise Crosslabs blog post Cited by: §2 , §3.1 . [11] M. Heusel, H. Ramsauer, T. Unterthiner, B. Nessler, and S. Hochreiter (2017) GANs trained by a two time-scale update rule converge to a local nash equilibrium . In Advances in Neural Information Processing Systems (NeurIPS) , Cited by: §1 , §2 . [12] J. Ho, A. Jain, and P. Abbeel (2020) Denoising diffusion probabilistic models . In Advances in Neural Information Processing Systems , Cited by: §2 , §3.1 . [13] J. Ho and T. Salimans Classifier-free diffusion guidance . In NeurIPS 2021 Workshop on Deep Generative Models and Downstream Applications , Cited by: §2 . [14] A. L. Y. Hung, K. Zhao, H. Zheng, R. Yan, S. S. Raman, D. Terzopoulos, and K. Sung (2023) Med-cDiff: conditional medical image generation with diffusion models . Bioengineering 10 ( 11 ), pp. 1258 . Cited by: Appendix L , §2 . [15] A. Kazerouni, E. K. Aghdam, M. Heidari, R. Azad, M. Fayyaz, I. Hacihaliloglu, and D. Merhof (2023) Diffusion models in medical imaging: a comprehensive survey . Medical Image Analysis 88 , pp. 102846 . External Links: Document Cited by: §2 . [16] M. Koddenbrock, J. Westerhoff, D. Fachet, S. Reber, F. A. Gers, and E. Rodner (2026) Synthetic data enables human-grade microtubule analysis with foundation models for segmentation . PLOS Computational Biology 22 ( 5 ), pp. 1–25 . External Links: Document , Link Cited by: Appendix A , Appendix A , Appendix C , §1 , §3.2 , §4.1 , §4.2 , §5 , Figure 5 , Figure 5 , §6.2 , §6.2 , §6 . [17] N. Konz, Y. Chen, H. Dong, and M. A. Mazurowski (2024) Anatomically-controllable medical image generation with segmentation-guided diffusion models . arXiv preprint ",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Skip to main content",
+      "url": "https://arxiv.org/html/2610.09957v1#infobox"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/IgnoreMe"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "Why HTML?",
+      "url": "https://info.arxiv.org/about/accessible_HTML.html"
+    },
+    {
+      "text": "Back to Abstract",
+      "url": "https://arxiv.org/abs/2610.09957v1"
+    },
+    {
+      "text": "Download PDF",
+      "url": "https://arxiv.org/pdf/2610.09957v1"
+    },
+    {
+      "text": "License: CC BY 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2610.09957v1#bib.bib39"
+    },
+    {
+      "text": "29",
+      "url": "https://arxiv.org/html/2610.09957v1#bib.bib40"
+    },
+    {
+      "text": "36",
+      "url": "https://arxiv.org/html/2610.09957v1#bib.bib41"
+    },
+    {
+      "text": "16",
+      "url": "https://arxiv.org/html/2610.09957v1#bib.bib1"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2610.09957v1#bib.bib21"
+    },
+    {
+      "text": "17",
+      "url": "https://arxiv.org/html/2610.09957v1#bib.bib2"
+    },
+    {
+      "text": "24",
+      "url": "https://arxiv.org/html/2610.09957v1#bib.bib24"
+    },
+    {
+      "text": "22",
+      "url": "https://arxiv.org/html/2610.09957v1#bib.bib23"
+    },
+    {
+      "text": "41",
+      "url": "https://arxiv.org/html/2610.09957v1#bib.bib29"
+    },
+    {
+      "text": "42",
+      "url": "https://arxiv.org/html/2610.09957v1#bib.bib20"
+    },
+    {
+      "text": "Section 4",
+      "url": "https://arxiv.org/html/2610.09957v1#S4"
+    },
+    {
+      "text": "11",
+      "url": "https://arxiv.org/html/2610.09957v1#bib.bib12"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2610.09957v1#bib.bib13"
+    },
+    {
+      "text": "40",
+      "url": "https://arxiv.org/html/2610.09957v1#bib.bib10"
+    },
+    {
+      "text": "30",
+      "url": "https://arxiv.org/html/2610.09957v1#bib.bib27"
+    },
+    {
+      "text": "Sections 5",
+      "url": "https://arxiv.org/html/2610.09957v1#S5"
+    },
+    {
+      "text": "6.1",
+      "url": "https://arxiv.org/html/2610.09957v1#S6.SS1"
+    },
+    {
+      "text": "Fig. 1",
+      "url": "https://arxiv.org/html/2610.09957v1#S1.F1"
+    },
+    {
+      "text": "Figure 2",
+      "url": "https://arxiv.org/html/2610.09957v1#S4.F2"
+    },
+    {
+      "text": "Sections 3",
+      "url": "https://arxiv.org/html/2610.09957v1#S3"
+    },
+    {
+      "text": "4.2",
+      "url": "https://arxiv.org/html/2610.09957v1#S4.SS2"
+    },
+    {
+      "text": "6.2",
+      "url": "https://arxiv.org/html/2610.09957v1#S6.SS2"
+    },
+    {
+      "text": "35",
+      "url": "https://arxiv.org/html/2610.09957v1#bib.bib7"
+    },
+    {
+      "text": "12",
+      "url": "https://arxiv.org/html/2610.09957v1#bib.bib3"
+    },
+    {
+      "text": "39",
+      "url": "https://arxiv.org/html/2610.09957v1#bib.bib32"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2610.09957v1#bib.bib34"
+    },
+    {
+      "text": "26",
+      "url": "https://arxiv.org/html/2610.09957v1#bib.bib33"
+    },
+    {
+      "text": "38",
+      "url": "https://arxiv.org/html/2610.09957v1#bib.bib4"
+    },
+    {
+      "text": "31",
+      "url": "https://arxiv.org/html/2610.09957v1#bib.bib5"
+    },
+    {
+      "text": "13",
+      "url": "https://arxiv.org/html/2610.09957v1#bib.bib35"
+    },
+    {
+      "text": "25",
+      "url": "https://arxiv.org/html/2610.09957v1#bib.bib42"
+    },
+    {
+      "text": "19",
+      "url": "https://arxiv.org/html/2610.09957v1#bib.bib15"
+    },
+    {
+      "text": "23",
+      "url": "https://arxiv.org/html/2610.09957v1#bib.bib16"
+    },
+    {
+      "text": "8",
+      "url": "https://arxiv.org/html/2610.09957v1#bib.bib14"
+    },
+    {
+      "text": "18",
+      "url": "https://arxiv.org/html/2610.09957v1#bib.bib31"
+    },
+    {
+      "text": "15",
+      "url": "https://arxiv.org/html/2610.09957v1#bib.bib37"
+    },
+    {
+      "text": "28",
+      "url": "https://arxiv.org/html/2610.09957v1#bib.bib19"
+    },
+    {
+      "text": "34",
+      "url": "https://arxiv.org/html/2610.09957v1#bib.bib22"
+    },
+    {
+      "text": "33",
+      "url": "https://arxiv.org/html/2610.09957v1#bib.bib26"
+    },
+    {
+      "text": "10",
+      "url": "https://arxiv.org/html/2610.09957v1#bib.bib8"
+    },
+    {
+      "text": "20",
+      "url": "https://arxiv.org/html/2610.09957v1#bib.bib36"
+    },
+    {
+      "text": "14",
+      "url": "https://arxiv.org/html/2610.09957v1#bib.bib30"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2610.09957v1#bib.bib38"
+    },
+    {
+      "text": "Section 3.1",
+      "url": "https://arxiv.org/html/2610.09957v1#S3.SS1"
+    },
+    {
+      "text": "Section 3.2",
+      "url": "https://arxiv.org/html/2610.09957v1#S3.SS2"
+    },
+    {
+      "text": "32",
+      "url": "https://arxiv.org/html/2610.09957v1#bib.bib6"
+    },
+    {
+      "text": "Appendix C",
+      "url": "https://arxiv.org/html/2610.09957v1#A3"
+    },
+    {
+      "text": "27",
+      "url": "https://arxiv.org/html/2610.09957v1#bib.bib9"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2610.09957v1#bib.bib11"
+    },
+    {
+      "text": "Appendix E",
+      "url": "https://arxiv.org/html/2610.09957v1#A5"
+    },
+    {
+      "text": "Appendix I",
+      "url": "https://arxiv.org/html/2610.09957v1#A9"
+    },
+    {
+      "text": "Appendix J",
+      "url": "https://arxiv.org/html/2610.09957v1#A10"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2610.09957v1#bib.bib17"
+    }
+  ],
+  "matching_link_count": 134,
+  "links_truncated": true,
+  "invalid_links": []
+}

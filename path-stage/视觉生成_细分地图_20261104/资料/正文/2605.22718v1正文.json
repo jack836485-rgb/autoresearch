@@ -1,0 +1,512 @@
+{
+  "url": "https://arxiv.org/html/2605.22718v1",
+  "final_url": "https://arxiv.org/html/2605.22718v1",
+  "status": 200,
+  "title": "WorldKV: Efficient World Memory with World Retrieval and Compression",
+  "metadata": {},
+  "paper": {
+    "title": "WorldKV: Efficient World Memory with World Retrieval and Compression",
+    "title_warning": null,
+    "abstract": "Abstract Autoregressive video diffusion models have enabled real-time, action-conditioned world generation. However, sustaining a persistent world, where revisiting a previously seen viewpoint yields consistent content, remains an open problem. Full KV-cache attention preserves this consistency but breaks real-time constraints: memory footprint and attention cost grow linearly with rollout length.\nSliding-window inference restores throughput but discards long-term consistency. We propose WorldKV, a training-free framework with two components: World Retrieval and World Compression. World Retrieval stores evicted KV-cache chunks in GPU/CPU memory and selectively retrieves scene-relevant chunks via camera/action correspondence, inserting them back into the native attention window without re-encoding. World Compression prunes redundant tokens within each chunk via key-key similarity to an anchor frame, halving per-chunk storage to fit 2 × 2\\times more history under a fixed budget. On Matrix-Game-2.0 and LingBot-World-Fast, WorldKV matches or exceeds full-KV memory fidelity at roughly 2 × \\times the throughput, and is competitive with memory-trained baselines without any fine-tuning.",
+    "authors": [
+      {
+        "name": "Jung Yi",
+        "affiliations": [
+          "Affiliation: KAIST AI"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Minjae Kim",
+        "affiliations": [
+          "Affiliation: KAIST AI"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Paul Hyunbin Cho",
+        "affiliations": [
+          "Affiliation: KAIST AI"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Wooseok Jang",
+        "affiliations": [
+          "Affiliation: KAIST AI"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Sangdoo Yun",
+        "affiliations": [
+          "Affiliation: Naver AI Lab https://cvlab-kaist.github.io/WorldKV/"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Seungryong Kim",
+        "affiliations": [
+          "Affiliation: KAIST AI"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Jung Yi Affiliation: KAIST AI Minjae Kim Affiliation: KAIST AI Paul Hyunbin Cho Affiliation: KAIST AI Wooseok Jang Affiliation: KAIST AI Sangdoo Yun Affiliation: Naver AI Lab https://cvlab-kaist.github.io/WorldKV/ Seungryong Kim Affiliation: KAIST AI",
+    "arxiv_version": "2605.22718v1",
+    "arxiv_version_date": "2026-05-21",
+    "sections": [
+      {
+        "id": "S1",
+        "heading": "1 Introduction",
+        "level": 1,
+        "text": "Autoregressive video diffusion models with causal attention and KV-caching have recently emerged as a promising architecture for real-time interactive world generation [ 23 , 8 , 20 , 6 , 19 , 29 , 22 , 18 , 4 ] . These models generate action- or camera-conditioned visual streams at real-time frame rates, enabling applications in gaming [ 20 , 8 ] , embodied AI agents [ 22 ] , and robotic simulation [ 4 , 30 ] . Beyond producing plausible frames, the emerging goal is to sustain a persistent, explorable world — one in which a user can navigate freely, leave a room, and return to find it unchanged. Figure 1 : Emergent memory from attending Full KV cache : We empirically observed that, even though Matrix-Game-2.0 [ 6 ] was trained only on short clips, the model can use the KV cache as long-term visual context/memory. Achieving this kind of persistence is tightly linked to spatial and temporal memory : the ability to retain and recall scene content across time and revisits. Yet despite rapid progress in world model architectures, consistent memory remains an open challenge. A consistent world model should reconstruct the same structures and appearances when revisiting previously explored areas. However, models operating under sliding-window inference tend to hallucinate new content or drift [ 6 , 18 ] , as the KV-caches from the original scene have long been evicted from the context. A recent observation is that the KV cache in these models is not merely a computational buffer—it already functions as an emergent form of world memory . LingBot-World [ 23 ] demonstrated that, even without explicit memory training, attending to the full history of KV-caches enables the model to maintain spatial and temporal consistency across revisits. However, LingBot-World [ 23 ] was trained on minute-level videos, so its long-term memory may reflect learned behavior rather than a property of the KV cache itself. In this paper, we show that the phenomenon is more fundamental: it appears even in models not trained on long sequences. On Matrix-Game-2.0 [ 6 ] , which was trained on short sequences with a 6-frame sliding window, the model can nonetheless leverage past KV caches as long-term visual memory at inference time (Fig. 1 ). When we remove the sliding-window restriction and let the model attend to its entire KV-cache history, the model successfully reproduces previously seen viewpoints, while the same model under sliding-window inference fails. The memory is already there; the question is how to access it without the full cost of attending to the entire KV cache. Indeed, the cost of leveraging this emergent memory through full-history KV cache attention is substantial in practice: each frame produces 880 [ 6 ] to 1,560 [ 23 ] tokens, accumulating hundreds of thousands of tokens over a one-minute rollout. The corresponding KV cache rapidly exceeds GPU VRAM capacity (Fig. 2 (a)). Even before out-of-memory failures, the rapidly growing attention cost degrades inference speed: on LingBot-World-Fast, FPS drops from 8.87 to 3.61 over a one-minute rollout (Fig. 2 (b)), breaking real-time constraints. Sliding-window inference is therefore a structural necessity for real-time generation, yet it comes with an inherent trade-off: the eviction that bounds attention cost is also what discards long-term memory. Recent works address this through memory-augmented architectures: external memory banks retrieved via cross-attention [ 27 , 9 ] , spatial compression of the entire history [ 8 ] , or explicit 3D scene representations [ 17 , 12 ] that condition the video model on rendered views of the reconstructed geometry. While effective, these approaches require training dedicated memory modules or fine-tuning the backbone, and the 3D-representation methods additionally incur reconstruction latency at inference time. We take a different perspective. Rather than building external memory on top of the model, we observe that the model’s own KV cache is already available for world memory. We introduce WorldKV , a training-free framework that enables efficient long-term memory in autoregressive video world models through two complementary components: World Retrieval and World Compression . World Retrieval preserves KV-cache chunks by storing them in GPU/CPU memory and selectively retrieving scene-relevant caches back into the active attention window when the model revisits a scene. Retrieved KV caches are inserted back into the context natively, with no re-encoding or architectural changes required. The retrieval mechanism is modular, supporting camera/action-based and attention-based strategies as interchangeable components (Appendix C ). World Compression reduces redundancy in adjacent frames, which produce near-duplicate KV caches. By pruning redundant tokens based on Key-Key similarity, each chunk is roughly halved in size, allowing twice as much history under the same memory budget. This preserves memory fidelity comparable to full KV-cache attention, and in some cases even surpasses it. Our contributions are as follows: • We introduce World Retrieval , a retrieval-algorithm-agnostic framework that stores and selectively retrieves evicted KV-cache chunks, supporting camera/action-based and attention-based strategies as interchangeable components. • We present World Compression , a key-similarity-based pruning mechanism that compresses each chunk to approximately half its original size, enabling 2 × \\times more history under the same memory budget while preserving or improving revisit fidelity. • We quantitatively demonstrate, on two autoregressive video world models of different scales (Matrix-Game-2.0 [ 6 ] , LingBot-World-Fast [ 23 ] ), that training-free KV-cache management matches or exceeds both full KV-cache attention and memory-trained baselines on revisit fidelity while maintaining real-time inference."
+      },
+      {
+        "id": "S2",
+        "heading": "2 Related Work",
+        "level": 1,
+        "text": "(a) KV cache size (LingBot-World-Fast 14B) (b) FPS over rollout length Figure 2 : Cost of full-history KV-cache attention. (a) Full KV grows rapidly into the OOM region, while WorldKV grows gradually via compression and stays nearly flat with CPU offloading. (b) Full KV throughput degrades continuously on both backbones (14B on 4×B200, 1.3B on 4×H200), while WorldKV maintains stable throughput."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px1",
+        "heading": "Autoregressive Video Diffusion.",
+        "level": 3,
+        "text": "Recent work [ 2 , 10 , 24 , 32 , 36 , 14 , 3 ] integrates diffusion modeling with autoregressive (AR) prediction for long-horizon and streaming video generation. CausVid [ 32 ] distills a bidirectional diffusion transformer into a causal AR generator. Self Forcing [ 10 ] mitigates mismatch between training and inference by training on self-generated rollouts with KV caching. Rolling Forcing [ 14 ] jointly denoises multiple frames at progressively increasing noise levels. LongLive [ 28 ] introduces KV re-caching for smooth prompt transitions. Building on this line of work, real-time interactive video world models leveraging KV caching have emerged as a natural extension, exploiting cached past states for low-latency generation under streaming user input."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px2",
+        "heading": "Interactive World Model.",
+        "level": 3,
+        "text": "Building on autoregressive video diffusion, interactive world models predict action-conditioned future frames. Matrix-Game-2.0 [ 6 ] injects keyboard and mouse signals, while Hunyuan-GameCraft [ 11 ] unifies them into a camera action space. Yume-1.5 [ 16 ] further extends interactive exploration with text-controlled event generation, and LingBot-World [ 23 ] scales interactive world generation toward diverse domains and long-horizon rollouts. A growing line of work has explored memory mechanisms for long-term consistency in world models. WorldPlay [ 20 ] rebuilds context from geometrically important past frames via KV cache recomputation, with memory-aware distillation. RELIC [ 8 ] introduces a learnable action-aware compression mechanism that stores historical latent memory in the KV cache. In contrast, our framework operates training-free, exploiting sparse relevance and token redundancy in the existing KV cache."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px3",
+        "heading": "KV Cache Management.",
+        "level": 3,
+        "text": "In autoregressive generation, the KV cache grows linearly with sequence length, creating a bottleneck for long-context inference. In LLMs, fixed-budget cache management has been studied through positional heuristics [ 26 ] , accumulated attention scores [ 35 ] , observation-window importance estimates [ 13 , 5 ] , and query-aware page retrieval [ 21 ] . While these methods reduce the cost of language-model decoding, they are not designed for dense spatiotemporal generation. Recent work has begun to explore training-free KV-cache management for long-horizon autoregressive video diffusion [ 31 ] . We extend this direction to interactive world models, where long-horizon consistency further requires retrieving scene-relevant memory across revisited viewpoints while compressing redundant visual KV caches. Figure 3 : Attention maps for the action sequence “Right (chunks C0–C3) → \\rightarrow Stop (C4) → \\rightarrow Left (C5–C8) → \\rightarrow Stop (C9) → \\rightarrow Right (C10)”. The model assigns high attention to KV-caches whose viewpoint overlaps with the current action. This pattern motivates using camera/action as the retrieval criterion for selecting relevant past KV caches."
+      },
+      {
+        "id": "S3.SS0.SSS0.Px1",
+        "heading": "Interactive World Models.",
+        "level": 3,
+        "text": "An interactive world model aims to predict future visual observations from actions. Given the current visual state s t ∈ 𝒮 s_{t}\\in\\mathcal{S} and an action a t ∈ 𝒜 a_{t}\\in\\mathcal{A} , the model defines a conditional distribution over the next state s t + 1 s_{t+1} : s t + 1 ∼ p ⁡ ( s t + 1 ∣ s t , a t ) , s_{t+1}\\sim p(s_{t+1}\\mid s_{t},a_{t}), (1) where p : 𝒮 × 𝒜 → Δ ⁡ ( 𝒮 ) p:\\mathcal{S}\\times\\mathcal{A}\\to\\Delta(\\mathcal{S}) is the transition distribution. In this work, “world model” refers specifically to this action-conditioned visual generation setting. Recent world models [ 6 , 23 , 18 , 22 ] implement this transition using autoregressive video diffusion built on causal DiT architectures, conditioned on discrete keyboard actions or continuous camera trajectories."
+      },
+      {
+        "id": "S3.SS0.SSS0.Px2",
+        "heading": "Autoregressive Video Diffusion with KV Cache.",
+        "level": 3,
+        "text": "Autoregressive video diffusion models [ 10 , 24 , 3 ] synthesize long videos by sequentially generating frames or chunks (e.g., 3 frames). For a video of N N frames x 1 : N = ( x 1 , x 2 , … , x N ) x^{1:N}=(x^{1},x^{2},\\dots,x^{N}) , the generation is factorized as: p ( x 1 : N ) = ∏ i = 1 N p ( x i ∣ x < i ) , p(x^{1:N})=\\prod_{i=1}^{N}p(x^{i}\\mid x^{<i}), (2) where each conditional is modeled by a diffusion process. In practice, recent causal diffusion transformers [ 10 , 28 , 14 ] implement this conditioning through a KV cache, which stores key-value projections of previously generated frames or chunks. At step t t , the transformer 𝒢 θ \\mathcal{G}_{\\theta} denoises a noisy latent x t ( σ ) x_{t}^{(\\sigma)} conditioned on prior cached entries: x ^ t = 𝒢 θ ​ ( x t ( σ ) , σ , 𝐊 < t , 𝐕 < t ) . \\hat{x}_{t}=\\mathcal{G}_{\\theta}(x_{t}^{(\\sigma)},\\;\\sigma,\\;\\mathbf{K}_{<t},\\;\\mathbf{V}_{<t}). (3) The new key-value pairs are appended to the cache for subsequent steps."
+      },
+      {
+        "id": "S4.SS1",
+        "heading": "4.1 Overview",
+        "level": 2,
+        "text": "Our framework, WorldKV , operates on top of sliding-window inference and introduces two complementary components addressing the two bottlenecks of full-KV inference: attention computation and storage (Fig. 2 (a), (b)). World Retrieval (Sec. 4.2 ) stores evicted KV-cache chunks in GPU/CPU memory and retrieves only viewpoint-relevant caches at revisit time, bounding the active attention window to preserve real-time inference speed. World Compression (Sec. 4.3 ) prunes redundant tokens within each chunk via key-key similarity, compressing each 3-frame chunk to approximately half its size and fitting roughly 2 × \\times chunks under a fixed memory budget without out-of-memory failures."
+      },
+      {
+        "id": "S4.SS2",
+        "heading": "4.2 World Retrieval",
+        "level": 2,
+        "text": "Figure 4 : Overview of WorldKV. (a) World Retrieval stores KV-cache chunks after compression and retrieves view-relevant chunks back into the attention window at revisit time. (b) World Compression designates first frame of each chunk as the anchor, computes key similarity against the remaining frames, and prunes tokens redundant with the anchor."
+      },
+      {
+        "id": "S4.SS2.SSS0.Px1",
+        "heading": "Attention Sparsity under Camera/Action Revisits.",
+        "level": 3,
+        "text": "We first analyze how autoregressive world models distribute attention over historical KV caches under camera/action input. We generate a sequence of 11 chunks following the trajectory “Right (chunks C0–C3) → \\rightarrow Stop (C4) → \\rightarrow Left (C5–C8) → \\rightarrow Stop (C9) → \\rightarrow Right (C10)” and visualize the chunk-level attention maps for Matrix-Game-2.0 [ 6 ] and LingBot-World-Fast [ 23 ] in Fig. 3 . The maps reveal a clear view-correspondence pattern across both models. As the camera turns Left at C5–C8 and sweeps back toward the initial scene direction, attention rises on C0–C2, whose cached views overlap with the current viewpoint, as indicated by (1). At C9, where the camera stays near the initial viewpoint, attention concentrates on C0, the input image corresponding to that view, as marked by (2). When the camera turns right again at C10, attention shifts toward C5–C8, the chunks generated during the previous left-turn trajectory, as highlighted by (3). These patterns show that the model does not simply attend to the most recent caches; instead, it reuses past KV chunks whose viewpoints correspond to the current frame. This observation suggests that attending to a compact set of viewpoint-relevant KV chunks can preserve much of the important context provided by full-KV attention, motivating World Retrieval ."
+      },
+      {
+        "id": "S4.SS2.SSS0.Px2",
+        "heading": "World Retrieval Mechanism.",
+        "level": 3,
+        "text": "Motivated by the view-correspondence pattern observed above, World Retrieval operates as follows. Under sliding-window inference, KV-cache chunks evicted from the active attention window are stored in GPU/CPU memory rather than discarded, each indexed by the camera/action state 𝐚 i \\mathbf{a}_{i} at the time of its generation (absolute pose for camera models, cumulative discrete actions for keyboard action models). As illustrated in Fig. 4 (a), the sliding window is partitioned into four regions: 1) sink KV caches from the initial frames that serve as a visual anchor, 2) retrieved KV caches selected from stored history, 3) recent KV caches from the immediately preceding frames, and 4) denoising chunk currently being generated. World Retrieval operates on the retrieved region: at generation time, given the current camera/action state 𝐚 cur \\mathbf{a}_{\\text{cur}} , the top- k k most relevant chunks are selected from the stored history to fill this region: ℛ = Top ​ - ​ k ⁡ ( sim ⁡ ( 𝐚 cur , 𝐚 i ) ∣ i = 1 , … , M ) , \\mathcal{R}=\\operatorname{Top\\text{-}k}\\left(\\operatorname{sim}(\\mathbf{a}_{\\text{cur}},\\mathbf{a}_{i})\\mid i=1,\\dots,M\\right), (4) where M M is the number of stored chunks, k k is the retrieval budget, and sim ⁡ ( ⋅ , ⋅ ) \\operatorname{sim}(\\cdot,\\cdot) is a relevance function. The framework is retrieval-algorithm agnostic : sim ⁡ ( ⋅ , ⋅ ) \\operatorname{sim}(\\cdot,\\cdot) can be instantiated as camera/action-based similarity, query-based importance score, or other relevance methods. In this work, we evaluate camera/action-based and query-based retrieval in Appendix C ; both substantially outperform sliding-window inference, demonstrating that the framework generalizes across retrieval signals."
+      },
+      {
+        "id": "S4.SS3.SSS0.Px1",
+        "heading": "Motivation.",
+        "level": 3,
+        "text": "World Retrieval requires storing all evicted KV caches in GPU/CPU memory for potential future retrieval. However, this storage cost is substantial: on LingBot-World-Fast, a single chunk of 3 latent frames occupies approximately 3.4GB across all transformer layers, accumulating to over 200GB for a one-minute rollout — exceeding even the VRAM capacity of a B200 GPU (Fig. 2 (a)). We observe that temporally adjacent frames share substantial visual content (Appendix B ): camera viewpoint, scene layout, and object appearance change minimally over consecutive frames, producing near-duplicate KV caches that encode largely overlapping information. World Compression exploits this redundancy to reduce per-chunk storage while preserving the most distinctive KV caches. Beyond storage savings, this enables broader retrieval coverage within a fixed attention budget; as we show in Sec. 5.4 and Appendix D , broader coverage improves revisit fidelity."
+      },
+      {
+        "id": "S4.SS3.SSS0.Px2",
+        "heading": "Key-Key Similarity as a Redundancy Measure.",
+        "level": 3,
+        "text": "World Compression requires a criterion for identifying redundant tokens within a short temporal chunk. We use Key-Key cosine similarity as a redundancy signal: we compare non-anchor frame keys against the anchor-frame keys, and find that keys from spatiotemporally overlapping regions exhibit high cosine similarity while keys from newly revealed or dynamic regions diverge (Appendix B ). This finding is also consistent with prior evidence that keys in video diffusion transformers encode spatiotemporal correspondence [ 33 ] . We therefore prune high-similarity non-anchor tokens as redundant with the anchor, while retaining low-similarity tokens that carry distinctive content."
+      },
+      {
+        "id": "S4.SS3.SSS0.Px3",
+        "heading": "World Compression Mechanism.",
+        "level": 3,
+        "text": "Given a chunk consisting of F F consecutive frames, World Compression designates the first frame as the anchor and compresses the remaining F − 1 F-1 frames against it. Concretely, let 𝐊 ( a ) ∈ ℝ T × d \\mathbf{K}^{(a)}\\in\\mathbb{R}^{T\\times d} denote the T T key vectors from the anchor frame at a given layer. For each non-anchor frame f f , we measure the redundancy of each key 𝐤 j ( f ) \\mathbf{k}_{j}^{(f)} as its average cosine similarity to all anchor-frame keys: s j ( f ) = 1 T ​ ∑ i = 1 T 𝐤 j ( f ) ⊤ ​ 𝐤 i ( a ) ‖ 𝐤 j ( f ) ‖ ⋅ ‖ 𝐤 i ( a ) ‖ . s_{j}^{(f)}=\\frac{1}{T}\\sum_{i=1}^{T}\\frac{{\\mathbf{k}_{j}^{(f)}}^{\\top}\\mathbf{k}_{i}^{(a)}}{\\|\\mathbf{k}_{j}^{(f)}\\|\\cdot\\|\\mathbf{k}_{i}^{(a)}\\|}. (5) We pool these scores across all non-anchor frames and retain the bottom P % P\\% among the pooled non-anchor tokens by similarity, since low similarity indicates content not captured by the anchor, such as newly revealed regions under camera motion. The compressed chunk consists of all anchor-frame tokens plus the retained tokens. With F = 3 F=3 and P = 25 % P=25\\% retention across the 2 ​ T 2T non-anchor tokens, each chunk shrinks from 3 ​ T 3T to approximately 1.5 ​ T 1.5T tokens, achieving 2 × 2\\times storage efficiency. Compression is applied once per chunk at storage time and operates independently per layer: each layer retains its own set of distinctive tokens, since token importance varies across layers. At retrieval time, each layer attends to its own retained tokens within the inserted chunk. Beyond storage efficiency, compression improves revisit fidelity by reducing redundancy in the attention window; we analyze this in Sec. 5.4 ."
+      },
+      {
+        "id": "S5.SS1.SSS0.Px1",
+        "heading": "Benchmark.",
+        "level": 3,
+        "text": "To evaluate the memory performance of world models, we construct a benchmark of 60 scene-trajectory pairs spanning diverse visual domains (e.g., indoor, outdoor, urban, natural). Initial frames are sourced from real-world videos, game recordings, and AI-generated images. For each scene, we manually design a long-horizon trajectory containing diverse camera/action sequences — repetitive revisits, forward-backward traversals, and their combinations — with at least one loop-closure event where the camera returns to a previously observed viewpoint, enabling direct evaluation of revisit consistency."
+      },
+      {
+        "id": "S5.SS1.SSS0.Px2",
+        "heading": "Base Models.",
+        "level": 3,
+        "text": "We evaluate on two autoregressive video world models at different scales: (1) LingBot-World-Fast [ 23 ] is a 14B-parameter model distilled from a long-video teacher capable of generating one-minute sequences; it natively operates with full KV-cache attention. (2) Matrix-Game-2.0 [ 6 ] is a 1.3B-parameter model that was not trained on long-context video; it natively operates with a sliding window of 6 latent frames."
+      },
+      {
+        "id": "S5.SS1.SSS0.Px3",
+        "heading": "Baselines.",
+        "level": 3,
+        "text": "For each base model, we compare against its native inference mode (full KV-cache attention for LingBot-World-Fast [ 23 ] , sliding-window inference for Matrix-Game-2.0 [ 6 ] ). We additionally compare against WorldPlay [ 20 ] and Yume-1.5 [ 16 ] , which were trained with memory modules."
+      },
+      {
+        "id": "S5.SS1.SSS0.Px4",
+        "heading": "Implementation Details.",
+        "level": 3,
+        "text": "We use a sliding window of 18 latent frames partitioned into sink (3 frames), retrieval (9 frames), recent (3 frames), and denoising (3 frames). World Compression retains the anchor frame in full and keeps 25% of tokens in non-anchor frames, compressing each 3-frame chunk to 1.5 frames. For retrieval, we adopt a unified camera/action-based strategy across both models. Each evicted KV chunk is stored alongside its camera translation and rotation. At retrieval time, we compute a combined distance from the squared L2 distance in translation and geodesic distance in rotation, each normalized across the retrieval candidate set, and sum the two to form the final retrieval distance; chunks with the smallest distance are retrieved. For LingBot-World-Fast [ 23 ] , camera poses are directly available. For Matrix-Game-2.0 [ 6 ] , which accepts discrete keyboard and mouse inputs, we accumulate WASD and yaw/pitch commands into pseudo-translation and pseudo-rotation vectors. While these are not calibrated to scene geometry, they capture the relative camera motion induced by the action sequence, making them effective for retrieval."
+      },
+      {
+        "id": "S5.SS1.SSS0.Px5",
+        "heading": "Metrics.",
+        "level": 3,
+        "text": "We measure PSNR, SSIM [ 25 ] , and LPIPS [ 34 ] between each revisit frame and the corresponding first-visit frame generated at the same viewpoint. For FID [ 7 ] , we compute the distributional distance between the set of revisit frames and the set of first-visit reference frames. Higher PSNR/SSIM and lower LPIPS/FID indicate better memory fidelity. We also report throughput (FPS) measured at the last chunk of each rollout."
+      },
+      {
+        "id": "S5.SS2",
+        "heading": "5.2 Quantitative results",
+        "level": 2,
+        "text": "Table 1: Quantitative comparison on world memory evaluation. We apply WorldKV to video world models, measuring revisit consistency between revisited and first-visit frames. Throughputs are measured on 4 × \\times H200 GPUs by default; values in () are measured on 4 × \\times B200 GPUs. Method Throughput ↑ \\uparrow (FPS) LPIPS ↓ \\downarrow PSNR ↑ \\uparrow SSIM ↑ \\uparrow FID ↓ \\downarrow With Memory Training WorldPlay (8B) 4.95 0.496 14.556 0.470 113.317 Yume-1.5 (5B) 11.41 0.566 13.167 0.467 141.704 Without Memory Training LingBot-World-Fast (14B) - Sliding Window 5.05 (8.10) 0.581 12.184 0.375 144.036 - Full KV (Original) 2.36 (3.83) 0.441 15.901 0.472 85.705 - WorldKV(Ours) 4.78 (7.71) 0.455 15.660 0.463 75.644 Matrix-Game-2.0 (1.3B) - Sliding Window (Original) 18.87 0.594 11.422 0.280 157.261 - Full KV 7.82 0.529 13.748 0.364 124.912 - WorldKV(Ours) 16.25 0.462 14.101 0.405 93.561 Table 1 summarizes the main comparison. Sliding-window baselines perform poorly on both models, as evicted caches leave the model with no access to previously generated scene content at revisit time. In contrast, WorldKV maintains throughput close to sliding-window inference, while full KV-cache attention drops to less than half this throughput due to linearly growing context length. On LingBot-World-Fast [ 23 ] , which was distilled from a long-video teacher, full KV-cache attention already provides strong memory. WorldKV closely approaches Full KV performance across all metrics at roughly 2 × \\times the throughput. On Matrix-Game-2.0 [ 6 ] , WorldKV outperforms both sliding-window and full KV-cache attention across all metrics. Full KV underperforms here because Matrix-Game-2.0 was trained on short sequences: the accumulated KV cache contains degraded KV caches from out-of-distribution generation, and attending to all of them introduces compounding errors [ 31 ] . WorldKV avoids this by retrieving only the KV caches relevant to the current scene. Compared to memory-trained baselines, LingBot-World-Fast [ 23 ] with WorldKV outperforms WorldPlay [ 20 ] and Yume-1.5 [ 16 ] on LPIPS, PSNR, and FID with comparable SSIM, despite requiring no memory-specific training. Matrix-Game-2.0 [ 6 ] with WorldKV achieves competitive performance against memory-trained baselines."
+      },
+      {
+        "id": "S5.SS3",
+        "heading": "5.3 Qualitative results",
+        "level": 2,
+        "text": "Fig. 5 shows generations on two scenes under multi-revisit trajectories. On LingBot-World-Fast, WorldKV closely matches Full KV, recovering scene appearance with high fidelity, and Appendix A shows cases where WorldKV reconstructs revisited scenes more faithfully than Full KV. On Matrix-Game-2.0, where Full KV degrades over long horizons, WorldKV produces sharper and more consistent results than Full KV. Sliding-window drifts visibly on both backbones, as evicted caches prevent access to the original viewpoint. Compared to memory-trained baselines [ 20 , 16 ] , WorldKV clearly outperforms them on LingBot-World-Fast and remains comparable on Matrix-Game-2.0."
+      },
+      {
+        "id": "S5.SS4",
+        "heading": "5.4 Ablation studies",
+        "level": 2,
+        "text": "We ablate World Compression from two perspectives. First, the upper part of Table 2 varies the intra-chunk compression ratio, i.e., how many frame-equivalents are retained from each 3-frame chunk. The notation 3 → r 3\\to r means that a 3-frame chunk is compressed to r r frame-equivalents, ranging from anchor-only ( 3 → 1.0 3\\to 1.0 ) to no compression ( 3 → 3.0 3\\to 3.0 ); the latter corresponds to applying only World Retrieval(WR). Second, the lower part varies the inter-chunk coverage under a fixed 3-chunk-equivalent budget. For example, 6 → 3 6\\to 3 compresses 6 chunks into the same budget as 3 chunks, increasing history coverage without enlarging the attention window; the 3 → 3 3\\to 3 row again corresponds to the WR-only baseline. Additional ablations on the number of retrieved chunks are provided in Appendix D ."
+      },
+      {
+        "id": "S5.SS4.SSS0.Px1",
+        "heading": "Intra-Chunk Compression Ratio Ablation.",
+        "level": 3,
+        "text": "Table 2 (Top) shows the effect of varying the compression ratio within each chunk. On both models, retaining only the anchor frame ( 3 → 1.0 3\\to 1.0 ) yields lower performance, confirming that non-anchor tokens contain distinctive information not captured by the anchor alone. Moderate compression ( 3 → 1.5 3\\to 1.5 or 3 → 2.0 3\\to 2.0 ) achieves strong performance, while retaining more tokens gives limited gains. This suggests that World Compression preserves informative entries at practical compression ratios. Table 2: Ablation on World Compression. (Top) Intra-chunk compression (frames retained per 3-frame chunk). (Bottom) Inter-chunk compression (chunks compressed into a fixed 3-chunk budget). LingBot-World-Fast Matrix-Game-2.0 Intra-Chunk LPIPS ↓ \\downarrow PSNR ↑ \\uparrow SSIM ↑ \\uparrow FID ↓ \\downarrow LPIPS ↓ \\downarrow PSNR ↑ \\uparrow SSIM ↑ \\uparrow FID ↓ \\downarrow 3 → 1.0 3\\to 1.0 0.494 14.807 0.435 97.155 0.474 13.951 0.385 94.424 3 → 1.25 3\\to 1.25 0.463 15.599 0.467 90.124 0.463 14.158 0.397 95.376 3 → 1.5 3\\to 1.5 0.455 15.660 0.463 75.644 0.462 14.101 0.405 93.561 3 → 2.0 3\\to 2.0 0.456 15.654 0.461 76.230 0.453 14.258 0.417 96.000 3 → 2.5 3\\to 2.5 0.456 15.685 0.466 77.482 0.450 14.216 0.417 95.478 3 → 3.0 3\\to 3.0 0.459 15.594 0.467 75.005 0.443 14.630 0.433 93.536 LingBot-World-Fast Matrix-Game-2.0 Inter-Chunk LPIPS ↓ \\downarrow PSNR ↑ \\uparrow SSIM ↑ \\uparrow FID ↓ \\downarrow LPIPS ↓ \\downarrow PSNR ↑ \\uparrow SSIM ↑ \\uparrow FID ↓ \\downarrow 3 → 3 3\\to 3 0.468 15.436 0.454 91.389 0.496 13.416 0.369 105.988 6 → 3 6\\to 3 0.455 15.660 0.463 75.644 0.462 14.101 0.405 93.561 9 → 3 9\\to 3 0.482 14.982 0.430 101.226 0.499 13.403 0.360 108.460"
+      },
+      {
+        "id": "S5.SS4.SSS0.Px2",
+        "heading": "Inter-Chunk Compression Ratio Ablation.",
+        "level": 3,
+        "text": "Table 2 (Bottom) compares compression scopes under a fixed 3-chunk retrieval budget. On both models, 6 6 chunks → \\to 3 3 chunks outperforms uncompressed retrieval ( 3 → 3 3\\to 3 ), showing that broader historical coverage is more useful than preserving fewer chunks at full resolution. This agrees with Appendix D , where retrieving more chunks improves memory fidelity. In contrast, aggressive compression ( 9 → 3 9\\to 3 ) degrades performance by retaining only anchor frames and discarding distinctive non-anchor information."
+      },
+      {
+        "id": "S6",
+        "heading": "6 Conclusion",
+        "level": 1,
+        "text": "We introduced WorldKV, a training-free framework for efficient world memory in autoregressive video world models through KV-cache retrieval and compression. WorldKV enables consistent scene revisits while maintaining real-time inference, achieving memory fidelity competitive with full KV-cache attention and memory-trained baselines across two world models of different scales, all without any fine-tuning or distillation and at lower memory and attention cost. Figure 5 : Frame-by-frame comparison across methods on two trajectories."
+      },
+      {
+        "id": "S7",
+        "heading": "7 Limitations & Future Work",
+        "level": 1,
+        "text": "WorldKV improves the efficiency and fidelity of long-horizon world-model inference, while remaining an inference-time memory-management method. Since it operates on the KV cache of a frozen backbone, its visual fidelity remains bounded by the generation quality of the underlying pretrained world model. In rollouts substantially longer than those seen during training, autoregressive video generation may still accumulate visual artifacts caused by error accumulation. WorldKV focuses on efficient preservation and retrieval of past visual memory, and future work may combine it with training strategies for more stable multi-minute world generation. As shown in Fig. 2 (a), CPU offloading offers a complementary direction for reducing VRAM cost: all KV caches are stored in CPU memory, and only the chunks needed for current attention are loaded onto the GPU. This bounds VRAM consumption regardless of rollout length. However, the host-device transfer latency at retrieval time currently prevents real-time generation. We leave reducing this offloading latency to future work, which would enable real-time multi-minute world generation under bounded VRAM."
+      },
+      {
+        "id": "bib",
+        "heading": "References",
+        "level": 1,
+        "text": "[1] Z. Cai, W. Xiao, H. Sun, C. Luo, Y. Zhang, K. Wan, Y. Li, Y. Zhou, L. Chang, J. Gu, et al. (2025) R-kv: redundancy-aware kv cache compression for reasoning models . arXiv preprint arXiv:2505.24133 . Cited by: Appendix A . [2] B. Chen, D. Martí Monsó, Y. Du, M. Simchowitz, R. Tedrake, and V. Sitzmann (2024) Diffusion forcing: next-token prediction meets full-sequence diffusion . Advances in Neural Information Processing Systems 37 , pp. 24081–24125 . Cited by: §2 . [3] G. Chen, D. Lin, J. Yang, C. Lin, J. Zhu, M. Fan, H. Zhang, S. Chen, Z. Chen, C. Ma, et al. (2025) Skyreels-v2: infinite-length film generative model . arXiv preprint arXiv:2504.13074 . Cited by: §2 , §3 . [4] S. Gao, W. Liang, K. Zheng, A. Malik, S. Ye, S. Yu, W. Tseng, Y. Dong, K. Mo, C. Lin, Q. Ma, S. Nah, L. Magne, J. Xiang, Y. Xie, R. Zheng, D. Niu, Y. L. Tan, K.R. Zentner, G. Kurian, S. Indupuru, P. Jannaty, J. Gu, J. Zhang, J. Malik, P. Abbeel, M. Liu, Y. Zhu, J. Jang, and L. \". Fan (2026) DreamDojo: a generalist robot world model from large-scale human videos . arXiv preprint arXiv:2602.06949 . Cited by: §1 . [5] R. Ghadia, A. Kumar, G. Jain, P. Nair, and P. Das (2025) Dialogue without limits: constant-sized kv caches for extended responses in llms . arXiv preprint arXiv:2503.00979 . Cited by: §2 . [6] X. He, C. Peng, Z. Liu, B. Wang, Y. Zhang, Q. Cui, F. Kang, B. Jiang, M. An, Y. Ren, et al. (2025) Matrix-game 2.0: an open-source real-time and streaming interactive world model . arXiv preprint arXiv:2508.13009 . Cited by: Appendix E , Figure 1 , Figure 1 , 3rd item , §1 , §1 , §1 , §1 , §2 , §3 , §4.2 , §5.1 , §5.1 , §5.1 , §5.2 , §5.2 . [7] M. Heusel, H. Ramsauer, T. Unterthiner, B. Nessler, and S. Hochreiter (2017) GANs trained by a two time-scale update rule converge to a local nash equilibrium . In Neural Information Processing Systems , External Links: Link Cited by: §5.1 . [8] Y. Hong, Y. Mei, C. Ge, Y. Xu, Y. Zhou, S. Bi, Y. Hold-Geoffroy, M. Roberts, M. Fisher, E. Shechtman, et al. (2025) Relic: interactive video world model with long-horizon memory . arXiv preprint arXiv:2512.04040 . Cited by: §1 , §1 , §2 . [9] J. Huang, X. Hu, B. Han, S. Shi, Z. Tian, T. He, and L. Jiang (2025) Memory forcing: spatio-temporal memory for consistent scene generation on minecraft . arXiv preprint arXiv:2510.03198 . Cited by: §1 . [10] X. Huang, Z. Li, G. He, M. Zhou, and E. Shechtman (2025) Self forcing: bridging the train-test gap in autoregressive video diffusion . arXiv preprint arXiv:2506.08009 . Cited by: §2 , §3 , §3 . [11] J. Li, J. Tang, Z. Xu, L. Wu, Y. Zhou, S. Shao, T. Yu, Z. Cao, and Q. Lu (2025) Hunyuan-gamecraft: high-dynamic interactive game video generation with hybrid history condition . External Links: 2506.17201 , Link Cited by: §2 . [12] R. Li, P. Torr, A. Vedaldi, and T. Jakab (2025) VMem: consistent interactive video scene generation with surfel-indexed view memory . arXiv preprint arXiv:2506.18903 . Cited by: §1 . [13] Y. Li, Y. Huang, B. Yang, B. Venkitesh, A. Locatelli, H. Ye, T. Cai, P. Lewis, and D. Chen (2024) SnapKV: llm knows what you are looking for before generation . arXiv preprint arXiv:2404.14469 . Cited by: Appendix A , §2 . [14] K. Liu, W. Hu, J. Xu, Y. Shan, and S. Lu (2025) Rolling forcing: autoregressive long video diffusion in real time . arXiv preprint arXiv:2509.25161 . Cited by: §2 , §3 . [15] N. F. Liu, K. Lin, J. Hewitt, A. Paranjape, M. Bevilacqua, F. Petroni, and P. Liang (2024) Lost in the middle: how language models use long contexts . Transactions of the Association for Computational Linguistics 12 , pp. 157–173 . External Links: Link , Document Cited by: Appendix A . [16] X. Mao, Z. Li, C. Li, X. Xu, K. Ying, T. He, J. Pang, Y. Qiao, and K. Zhang (2025) Yume-1.5: a text-controlled interactive world generation model . arXiv preprint arXiv:2512.22096 . Cited by: §2 , §5.1 , §5.2 , §5.3 . [17] X. Ren, T. Shen, J. Huang, H. Ling, Y. Lu, M. Nimier-David, T. Müller, A. Keller, S. Fidler, and J. Gao (2025) GEN3C: 3d-informed world-consistent video generation with precise camera control . In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , Cited by: §1 . [18] G. Savva, O. Michel, D. Lu, S. Waiwitlikhit, T. Meehan, D. Mishra, S. Poddar, J. Lu, and S. Xie (2026) Solaris: building a multiplayer video world model in minecraft . arXiv preprint arXiv:2602.22208 . Cited by: §1 , §1 , §3 . [19] J. Seo, H. Choi, M. Kwon, J. Choi, S. Jin, G. Lee, J. Kim, J. Lee, G. Gu, D. Han, et al. (2026) Grounding world simulation models in a real-world metropolis . arXiv preprint arXiv:2603.15583 . Cited by: §1 . [20] W. Sun, H. Zhang, H. Wang, J. Wu, Z. Wang, Z. Wang, Y. Wang, J. Zhang, T. Wang, and C. Guo (2025) Worldplay: towards long-term geometric consistency for real-time interactive world modeling . arXiv preprint arXiv:2512.14614 . Cited by: §1 , §2 , §5.1 , §5.2 , §5.3 . [21] J. Tang, Y. Zhao, K. Zhu, G. Xiao, B. Kasikci, and S. Han (2024) Quest: query-aware sparsity for efficient long-context llm inference . arXiv preprint arXiv:2406.10774 . Cited by: §2 . [22] I. Team, D. Shen, G. Zhang, H. Liu, H. Ji, H. Bao, H. Zhai, J. Liu, J. Guo, N. Wang, S. Pan, W. Pan, W. Xie, X. Liu, X. Xiang, X. Zhang, X. Chen, Y. Wang, Y. Chen, Z. Fan, Z. Le, Z. Ye, and Z. Zhao (2026) INSPATIO-world: a real-time 4d world simulator via spatiotemporal autoregressive modeling . External Links: 2604.07209 , Link Cited by: Figure 9 , Figure 9 , Appendix E , §1 , §3 . [23] R. Team, Z. Gao, Q. Wang, Y. Zeng, J. Zhu, K. L. Cheng, Y. Li, H. Wang, Y. Xu, S. Ma, et al. (2026) Advancing open-source world models . arXiv preprint arXiv:2601.20540 . Cited by: Appendix A , 3rd item , §1 , §1 , §1 , §2 , §3 , §4.2 , §5.1 , §5.1 , §5.1 , §5.2 , §5.2 . [24] H. Teng, H. Jia, L. Sun, L. Li, M. Li, M. Tang, S. Han, T. Zhang, W. Zhang, W. Luo, et al. (2025) Magi-1: autoregressive video generation at scale . arXiv preprint arXiv:2505.13211 . Cited by: §2 , §3 . [25] Z. Wang, A. C. Bovik, H. R. Sheikh, and E. P. Simoncelli (2004) Image quality assessment: from error visibility to structural similarity . IEEE Transactions on Image Processing 13 , pp. 600–612 . External Links: Link Cited by: §5.1 . [26] G. Xiao, Y. Tian, B. Chen, S. Han, and M. Lewis (2023) Efficient streaming language models with attention sinks . arXiv . Cited by: §2 . [27] Z. Xiao, L. Yushi, Y. Zhou, W. Ouyang, S. Yang, Y. Zeng, and X. Pan WorldMem: long-term consistent world simulation with memory . In The Thirty-ninth Annual Conference on Neural Information Processing Systems , Cited by: §1 . [28] S. Yang, W. Huang, R. Chu, Y. Xiao, Y. Zhao, X. Wang, M. Li, E. Xie, Y. Chen, Y. Lu, et al. (2025) Longlive: real-time interactive long video generation . arXiv preprint arXiv:2509.22622 . Cited by: §2 , §3 . [29] D. Ye, F. Zhou, J. Lv, J. Ma, J. Zhang, J. Lv, J. Li, M. Deng, M. Yang, Q. Fu, et al. (2025) Yan: foundational interactive video generation . arXiv preprint arXiv:2508.08601 . Cited by: §1 . [30] S. Ye, Y. Ge, K. Zheng, S. Gao, S. Yu, G. Kurian, S. Indupuru, Y. L. Tan, C. Zhu, J. Xiang, et al. (2026) World action models are zero-shot policies . arXiv preprint arXiv:2602.15922 . Cited by: §1 . [31] J. Yi, W. Jang, P. H. Cho, J. Nam, H. Yoon, and S. Kim (2025) Deep forcing: training-free long video generation with deep sink and participative compression . arXiv preprint arXiv:2512.05081 . Cited by: Appendix C , §2 , §5.2 . [32] T. Yin, Q. Zhang, R. Zhang, W. T. Freeman, F. Durand, E. Shechtman, and X. Huang (2025) From slow bidirectional to fast autoregressive video diffusion models . In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 22963–22974 . Cited by: §2 . [33] T. Yuan, Y. Yang, L. Chen, Y. Yao, and Z. Qian (2025) Denoise to track: harnessing video diffusion priors for robust correspondence . arXiv preprint arXiv:2512.04619 . Cited by: §4.3 . [34] R. Zhang, P. Isola, A. A. Efros, E. Shechtman, and O. Wang (2018) The unreasonable effectiveness of deep features as a perceptual metric . 2018 IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 586–595 . External Links: Link Cited by: §5.1 . [35] Z. Zhang, Y. Sheng, T. Zhou, T. Chen, L. Zheng, R. Cai, Z. Song, Y. Tian, C. Ré, C. Barrett, et al. (2023) H2o: heavy-hitter oracle for efficient generative inference of large language models . Advances in Neural Information Processing Systems 36 , pp. 34661–34710 . Cited by: §2 . [36] H. Zhu, M. Zhao, G. He, H. Su, C. Li, and J. Zhu (2026) Causal forcing: autoregressive diffusion distillation done right for high-quality real-time interactive video generation . arXiv preprint arXiv:2602.02214 . Cited by: §2 ."
+      },
+      {
+        "id": "A1",
+        "heading": "Appendix A Selective Retrieval Outperforms Full KV Cache Attention",
+        "level": 1,
+        "text": "Figure 6 : Each column shows the same viewpoint revisited at different times during a long-horizon rollout. Compared with full KV-cache attention, WorldKV preserves scene-specific details more faithfully across repeated visits by selectively retrieving viewpoint-relevant chunks and pruning redundant caches within each chunk. While full KV-cache attention generally provides strong memory fidelity on LingBot-World-Fast [ 23 ] , Fig. 6 shows cases where WorldKV reconstructs revisited viewpoints more faithfully than attending to the full history. We hypothesize that this is related to attention dilution: as the KV cache grows, the model must attend over many entries, including redundant or viewpoint-irrelevant ones, which may weaken effective access to the entries that encode the revisited scene. This interpretation is motivated by related findings in long-context language models. Lost in the Middle [ 15 ] shows that relevant information can be underutilized even when it is present in long contexts. Similarly, KV-cache compression methods such as SnapKV [ 13 ] and R-KV [ 1 ] show that compact caches can match, and in some cases outperform, full-cache attention by reducing irrelevant or redundant context. Although these results are obtained in language-model decoding, they suggest that full-history attention is not always optimal when much of the context is irrelevant or redundant. In our setting, WorldKV follows this principle in dense spatiotemporal memory: it restricts the active attention window to retrieved viewpoint-relevant chunks and prunes near-duplicate entries within each chunk. To our knowledge, this is the first empirical observation of selective KV retrieval and compression outperforming full KV-cache attention in autoregressive video world models. These cases suggest that selective retrieval and compression can provide a cleaner effective context than full-history attention in some long-horizon world-model rollouts."
+      },
+      {
+        "id": "A2",
+        "heading": "Appendix B Key-Key Similarity Visualization",
+        "level": 1,
+        "text": "Figure 7 : Key-Key similarity visualization on Matrix-Game-2.0 and LingBot-World-Fast. Yellow patches indicate tokens in the 2nd and 3rd frames with the lowest 12.5% cosine similarity to the anchor-frame keys. These low-similarity tokens correspond to information not present in the anchor, including newly revealed regions under camera motion and dynamic object changes, and are retained by World Compression. Figure 7 visualizes the distinctive tokens selected by Key-Key similarity. For each scene, we use the first frame as the anchor and highlight the bottom 12.5% least-similar tokens from the 2nd and 3rd frames, based on cosine similarity to the anchor-frame keys. In camera-rotation cases (Fig. 7 (a), (b), (c)), low-similarity tokens concentrate on newly revealed regions absent from the anchor frame, such as the left or right image boundaries exposed by camera motion. This indicates that high key similarity corresponds to redundant visual content, while low similarity identifies newly visible information that should be preserved. Beyond newly revealed spatial content, Key-Key similarity also captures dynamic changes. In Fig. 7 (d), where the camera moves backward, low-similarity tokens appear not only on newly visible scene regions but also on the rotating blades of the windmill. This suggests that key-similarity-based pruning can preserve distinctive temporal information from moving objects, rather than only static spatial differences. Overall, these observations support Key-Key similarity as an effective cue for redundancy within a chunk."
+      },
+      {
+        "id": "A3",
+        "heading": "Appendix C Retrieval Algorithm Ablations",
+        "level": 1,
+        "text": "As described in Sec. 4.2 , World Retrieval is retrieval-algorithm agnostic. Table 3 compares two retrieval strategies against the sliding-window baseline. The first is the camera/action-based retrieval used in our main experiments (Sec. 5.1 ), which selects chunks by camera pose or accumulated discrete action similarity. The second is query-based retrieval, which ranks stored chunks by their attention scores with respect to the current denoising query, inspired by Deep Forcing [ 31 ] . Both strategies substantially outperform sliding-window inference on both models, indicating that useful scene memory can be recovered from stored KV history across different retrieval signals. Camera/action-based retrieval consistently performs best, suggesting that viewpoint correspondence provides a particularly strong retrieval signal for interactive world models. We therefore use camera/action-based retrieval as our default and leave improved retrieval algorithms for future work. Table 3: Retrieval Algorithm Ablation Method LPIPS ↓ \\downarrow PSNR ↑ \\uparrow SSIM ↑ \\uparrow FID ↓ \\downarrow LingBot-World-Fast Sliding 0.581 12.184 0.375 144.036 Camera / Action-based 0.455 15.660 0.463 75.644 Query-based 0.490 15.065 0.445 83.201 Matrix-Game-2.0 Sliding 0.594 11.422 0.280 157.261 Camera / Action-based 0.462 14.101 0.405 93.561 Query-based 0.488 13.579 0.363 109.723"
+      },
+      {
+        "id": "A4",
+        "heading": "Appendix D Increasing Retrieval Chunk Size",
+        "level": 1,
+        "text": "Fig. 8 shows the effect of increasing the number of retrieved chunks on memory fidelity. On both Matrix-Game-2.0 and LingBot-World-Fast, LPIPS, PSNR, and SSIM generally improve as more chunks are retrieved, indicating that broader access to historical KV caches improves revisit consistency. This trend further motivates World Compression: beyond reducing GPU/CPU storage cost, compression allows more historical chunks to fit within a fixed attention-window budget, expanding retrieval coverage. Figure 8 : Effect of increasing the number of retrieved chunks on memory fidelity. Retrieving more past KV-cache chunks generally improves reconstruction metrics on both models, motivating World Compression as a way to fit more historical chunks within a fixed attention-window budget."
+      },
+      {
+        "id": "A5",
+        "heading": "Appendix E WorldKV in Inspatio-World",
+        "level": 1,
+        "text": "To demonstrate that WorldKV generalizes beyond the two base models used in our main evaluation, we apply it to Inspatio-World [ 22 ] , a video-to-video 4D world model that generates novel-view sequences conditioned on an input video. Inspatio-World natively maintains memory for the input video by placing it in the sink region of the attention window, but has no mechanism to preserve memory for newly generated scenes. Like Matrix-Game-2.0 [ 6 ] , the model was not trained on long video sequences. As shown in Fig. 9 , applying WorldKV enables Inspatio-World [ 22 ] to preserve long-term memory consistency across revisits. This shows that WorldKV is not tied to specific models and can apply broadly to KV-cache-based autoregressive world models. Figure 9 : Applying WorldKV to Inspatio-World [ 22 ] , a video-to-video 4D world model. Top: input video with a fixed camera. Middle: Inspatio-World generates novel-view sequences from the input video but loses scene memory upon revisit. Bottom: with WorldKV applied, the same scene content is preserved consistently across views without any fine-tuning."
+      },
+      {
+        "id": "A6",
+        "heading": "Appendix F Additional Qualitative Results",
+        "level": 1,
+        "text": "Figure 10 : Frame-by-frame comparison across methods on two trajectories. Additional qualitative results of WorldKV are presented in Fig. 10 . These examples show that our training-free retrieval and compression framework maintains consistent scene revisits across long-horizon trajectories, achieving qualitative results comparable to full KV-cache attention and memory-trained baselines while preserving efficient inference."
+      },
+      {
+        "id": "A7",
+        "heading": "Appendix G Broader Impact",
+        "level": 1,
+        "text": "This paper studies efficient long-horizon inference with long-term memory for autoregressive video world models. By reducing the cost of maintaining and retrieving long-term visual memory, WorldKV may improve the practicality of interactive simulation, gaming, embodied AI, and robotic training environments, while reducing the memory and computation required by full-history attention. Because WorldKV is an inference-time memory-management method, it does not directly introduce new content-generation capabilities; however, it can make persistent interactive generation more efficient and accessible. Potential risks therefore follow those of generative video and interactive world models more broadly, including misuse for misleading synthetic content, unlabeled simulated media, or more realistic persistent virtual environments. Responsible deployment should include provenance, disclosure, and appropriate access controls when such systems are used in public-facing applications."
+      }
+    ]
+  },
+  "text": "WorldKV: Efficient World Memory with World Retrieval and Compression Skip to main content Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: Why HTML? Report Issue Back to Abstract Download PDF Contents Reading mode Colour theme License: CC BY 4.0 arXiv:2605.22718v1 [cs.CV] 21 May 2026 WorldKV: Efficient World Memory with World Retrieval and Compression Jung Yi Affiliation: KAIST AI Minjae Kim Affiliation: KAIST AI Paul Hyunbin Cho Affiliation: KAIST AI Wooseok Jang Affiliation: KAIST AI Sangdoo Yun Affiliation: Naver AI Lab https://cvlab-kaist.github.io/WorldKV/ Seungryong Kim Affiliation: KAIST AI Abstract Autoregressive video diffusion models have enabled real-time, action-conditioned world generation. However, sustaining a persistent world, where revisiting a previously seen viewpoint yields consistent content, remains an open problem. Full KV-cache attention preserves this consistency but breaks real-time constraints: memory footprint and attention cost grow linearly with rollout length. Sliding-window inference restores throughput but discards long-term consistency. We propose WorldKV, a training-free framework with two components: World Retrieval and World Compression. World Retrieval stores evicted KV-cache chunks in GPU/CPU memory and selectively retrieves scene-relevant chunks via camera/action correspondence, inserting them back into the native attention window without re-encoding. World Compression prunes redundant tokens within each chunk via key-key similarity to an anchor frame, halving per-chunk storage to fit 2 × 2\\times more history under a fixed budget. On Matrix-Game-2.0 and LingBot-World-Fast, WorldKV matches or exceeds full-KV memory fidelity at roughly 2 × \\times the throughput, and is competitive with memory-trained baselines without any fine-tuning. 1 Introduction Autoregressive video diffusion models with causal attention and KV-caching have recently emerged as a promising architecture for real-time interactive world generation [ 23 , 8 , 20 , 6 , 19 , 29 , 22 , 18 , 4 ] . These models generate action- or camera-conditioned visual streams at real-time frame rates, enabling applications in gaming [ 20 , 8 ] , embodied AI agents [ 22 ] , and robotic simulation [ 4 , 30 ] . Beyond producing plausible frames, the emerging goal is to sustain a persistent, explorable world — one in which a user can navigate freely, leave a room, and return to find it unchanged. Figure 1 : Emergent memory from attending Full KV cache : We empirically observed that, even though Matrix-Game-2.0 [ 6 ] was trained only on short clips, the model can use the KV cache as long-term visual context/memory. Achieving this kind of persistence is tightly linked to spatial and temporal memory : the ability to retain and recall scene content across time and revisits. Yet despite rapid progress in world model architectures, consistent memory remains an open challenge. A consistent world model should reconstruct the same structures and appearances when revisiting previously explored areas. However, models operating under sliding-window inference tend to hallucinate new content or drift [ 6 , 18 ] , as the KV-caches from the original scene have long been evicted from the context. A recent observation is that the KV cache in these models is not merely a computational buffer—it already functions as an emergent form of world memory . LingBot-World [ 23 ] demonstrated that, even without explicit memory training, attending to the full history of KV-caches enables the model to maintain spatial and temporal consistency across revisits. However, LingBot-World [ 23 ] was trained on minute-level videos, so its long-term memory may reflect learned behavior rather than a property of the KV cache itself. In this paper, we show that the phenomenon is more fundamental: it appears even in models not trained on long sequences. On Matrix-Game-2.0 [ 6 ] , which was trained on short sequences with a 6-frame sliding window, the model can nonetheless leverage past KV caches as long-term visual memory at inference time (Fig. 1 ). When we remove the sliding-window restriction and let the model attend to its entire KV-cache history, the model successfully reproduces previously seen viewpoints, while the same model under sliding-window inference fails. The memory is already there; the question is how to access it without the full cost of attending to the entire KV cache. Indeed, the cost of leveraging this emergent memory through full-history KV cache attention is substantial in practice: each frame produces 880 [ 6 ] to 1,560 [ 23 ] tokens, accumulating hundreds of thousands of tokens over a one-minute rollout. The corresponding KV cache rapidly exceeds GPU VRAM capacity (Fig. 2 (a)). Even before out-of-memory failures, the rapidly growing attention cost degrades inference speed: on LingBot-World-Fast, FPS drops from 8.87 to 3.61 over a one-minute rollout (Fig. 2 (b)), breaking real-time constraints. Sliding-window inference is therefore a structural necessity for real-time generation, yet it comes with an inherent trade-off: the eviction that bounds attention cost is also what discards long-term memory. Recent works address this through memory-augmented architectures: external memory banks retrieved via cross-attention [ 27 , 9 ] , spatial compression of the entire history [ 8 ] , or explicit 3D scene representations [ 17 , 12 ] that condition the video model on rendered views of the reconstructed geometry. While effective, these approaches require training dedicated memory modules or fine-tuning the backbone, and the 3D-representation methods additionally incur reconstruction latency at inference time. We take a different perspective. Rather than building external memory on top of the model, we observe that the model’s own KV cache is already available for world memory. We introduce WorldKV , a training-free framework that enables efficient long-term memory in autoregressive video world models through two complementary components: World Retrieval and World Compression . World Retrieval preserves KV-cache chunks by storing them in GPU/CPU memory and selectively retrieving scene-relevant caches back into the active attention window when the model revisits a scene. Retrieved KV caches are inserted back into the context natively, with no re-encoding or architectural changes required. The retrieval mechanism is modular, supporting camera/action-based and attention-based strategies as interchangeable components (Appendix C ). World Compression reduces redundancy in adjacent frames, which produce near-duplicate KV caches. By pruning redundant tokens based on Key-Key similarity, each chunk is roughly halved in size, allowing twice as much history under the same memory budget. This preserves memory fidelity comparable to full KV-cache attention, and in some cases even surpasses it. Our contributions are as follows: • We introduce World Retrieval , a retrieval-algorithm-agnostic framework that stores and selectively retrieves evicted KV-cache chunks, supporting camera/action-based and attention-based strategies as interchangeable components. • We present World Compression , a key-similarity-based pruning mechanism that compresses each chunk to approximately half its original size, enabling 2 × \\times more history under the same memory budget while preserving or improving revisit fidelity. • We quantitatively demonstrate, on two autoregressive video world models of different scales (Matrix-Game-2.0 [ 6 ] , LingBot-World-Fast [ 23 ] ), that training-free KV-cache management matches or exceeds both full KV-cache attention and memory-trained baselines on revisit fidelity while maintaining real-time inference. 2 Related Work (a) KV cache size (LingBot-World-Fast 14B) (b) FPS over rollout length Figure 2 : Cost of full-history KV-cache attention. (a) Full KV grows rapidly into the OOM region, while WorldKV grows gradually via compression and stays nearly flat with CPU offloading. (b) Full KV throughput degrades continuously on both backbones (14B on 4×B200, 1.3B on 4×H200), while WorldKV maintains stable throughput. Autoregressive Video Diffusion. Recent work [ 2 , 10 , 24 , 32 , 36 , 14 , 3 ] integrates diffusion modeling with autoregressive (AR) prediction for long-horizon and streaming video generation. CausVid [ 32 ] distills a bidirectional diffusion transformer into a causal AR generator. Self Forcing [ 10 ] mitigates mismatch between training and inference by training on self-generated rollouts with KV caching. Rolling Forcing [ 14 ] jointly denoises multiple frames at progressively increasing noise levels. LongLive [ 28 ] introduces KV re-caching for smooth prompt transitions. Building on this line of work, real-time interactive video world models leveraging KV caching have emerged as a natural extension, exploiting cached past states for low-latency generation under streaming user input. Interactive World Model. Building on autoregressive video diffusion, interactive world models predict action-conditioned future frames. Matrix-Game-2.0 [ 6 ] injects keyboard and mouse signals, while Hunyuan-GameCraft [ 11 ] unifies them into a camera action space. Yume-1.5 [ 16 ] further extends interactive exploration with text-controlled event generation, and LingBot-World [ 23 ] scales interactive world generation toward diverse domains and long-horizon rollouts. A growing line of work has explored memory mechanisms for long-term consistency in world models. WorldPlay [ 20 ] rebuilds context from geometrically important past frames via KV cache recomputation, with memory-aware distillation. RELIC [ 8 ] introduces a learnable action-aware compression mechanism that stores historical latent memory in the KV cache. In contrast, our framework operates training-free, exploiting sparse relevance and token redundancy in the existing KV cache. KV Cache Management. In autoregressive generation, the KV cache grows linearly with sequence length, creating a bottleneck for long-context inference. In LLMs, fixed-budget cache management has been studied through positional heuristics [ 26 ] , accumulated attention scores [ 35 ] , observation-window importance estimates [ 13 , 5 ] , and query-aware page retrieval [ 21 ] . While these methods reduce the cost of language-model decoding, they are not designed for dense spatiotemporal generation. Recent work has begun to explore training-free KV-cache management for long-horizon autoregressive video diffusion [ 31 ] . We extend this direction to interactive world models, where long-horizon consistency further requires retrieving scene-relevant memory across revisited viewpoints while compressing redundant visual KV caches. Figure 3 : Attention maps for the action sequence “Right (chunks C0–C3) → \\rightarrow Stop (C4) → \\rightarrow Left (C5–C8) → \\rightarrow Stop (C9) → \\rightarrow Right (C10)”. The model assigns high attention to KV-caches whose viewpoint overlaps with the current action. This pattern motivates using camera/action as the retrieval criterion for selecting relevant past KV caches. 3 Preliminaries Interactive World Models. An interactive world model aims to predict future visual observations from actions. Given the current visual state s t ∈ 𝒮 s_{t}\\in\\mathcal{S} and an action a t ∈ 𝒜 a_{t}\\in\\mathcal{A} , the model defines a conditional distribution over the next state s t + 1 s_{t+1} : s t + 1 ∼ p ⁡ ( s t + 1 ∣ s t , a t ) , s_{t+1}\\sim p(s_{t+1}\\mid s_{t},a_{t}), (1) where p : 𝒮 × 𝒜 → Δ ⁡ ( 𝒮 ) p:\\mathcal{S}\\times\\mathcal{A}\\to\\Delta(\\mathcal{S}) is the transition distribution. In this work, “world model” refers specifically to this action-conditioned visual generation setting. Recent world models [ 6 , 23 , 18 , 22 ] implement this transition using autoregressive video diffusion built on causal DiT architectures, conditioned on discrete keyboard actions or continuous camera trajectories. Autoregressive Video Diffusion with KV Cache. Autoregressive video diffusion models [ 10 , 24 , 3 ] synthesize long videos by sequentially generating frames or chunks (e.g., 3 frames). For a video of N N frames x 1 : N = ( x 1 , x 2 , … , x N ) x^{1:N}=(x^{1},x^{2},\\dots,x^{N}) , the generation is factorized as: p ( x 1 : N ) = ∏ i = 1 N p ( x i ∣ x < i ) , p(x^{1:N})=\\prod_{i=1}^{N}p(x^{i}\\mid x^{<i}), (2) where each conditional is modeled by a diffusion process. In practice, recent causal diffusion transformers [ 10 , 28 , 14 ] implement this conditioning through a KV cache, which stores key-value projections of previously generated frames or chunks. At step t t , the transformer 𝒢 θ \\mathcal{G}_{\\theta} denoises a noisy latent x t ( σ ) x_{t}^{(\\sigma)} conditioned on prior cached entries: x ^ t = 𝒢 θ ​ ( x t ( σ ) , σ , 𝐊 < t , 𝐕 < t ) . \\hat{x}_{t}=\\mathcal{G}_{\\theta}(x_{t}^{(\\sigma)},\\;\\sigma,\\;\\mathbf{K}_{<t},\\;\\mathbf{V}_{<t}). (3) The new key-value pairs are appended to the cache for subsequent steps. 4 Method 4.1 Overview Our framework, WorldKV , operates on top of sliding-window inference and introduces two complementary components addressing the two bottlenecks of full-KV inference: attention computation and storage (Fig. 2 (a), (b)). World Retrieval (Sec. 4.2 ) stores evicted KV-cache chunks in GPU/CPU memory and retrieves only viewpoint-relevant caches at revisit time, bounding the active attention window to preserve real-time inference speed. World Compression (Sec. 4.3 ) prunes redundant tokens within each chunk via key-key similarity, compressing each 3-frame chunk to approximately half its size and fitting roughly 2 × \\times chunks under a fixed memory budget without out-of-memory failures. 4.2 World Retrieval Figure 4 : Overview of WorldKV. (a) World Retrieval stores KV-cache chunks after compression and retrieves view-relevant chunks back into the attention window at revisit time. (b) World Compression designates first frame of each chunk as the anchor, computes key similarity against the remaining frames, and prunes tokens redundant with the anchor. Attention Sparsity under Camera/Action Revisits. We first analyze how autoregressive world models distribute attention over historical KV caches under camera/action input. We generate a sequence of 11 chunks following the trajectory “Right (chunks C0–C3) → \\rightarrow Stop (C4) → \\rightarrow Left (C5–C8) → \\rightarrow Stop (C9) → \\rightarrow Right (C10)” and visualize the chunk-level attention maps for Matrix-Game-2.0 [ 6 ] and LingBot-World-Fast [ 23 ] in Fig. 3 . The maps reveal a clear view-correspondence pattern across both models. As the camera turns Left at C5–C8 and sweeps back toward the initial scene direction, attention rises on C0–C2, whose cached views overlap with the current viewpoint, as indicated by (1). At C9, where the camera stays near the initial viewpoint, attention concentrates on C0, the input image corresponding to that view, as marked by (2). When the camera turns right again at C10, attention shifts toward C5–C8, the chunks generated during the previous left-turn trajectory, as highlighted by (3). These patterns show that the model does not simply attend to the most recent caches; instead, it reuses past KV chunks whose viewpoints correspond to the current frame. This observation suggests that attending to a compact set of viewpoint-relevant KV chunks can preserve much of the important context provided by full-KV attention, motivating World Retrieval . World Retrieval Mechanism. Motivated by the view-correspondence pattern observed above, World Retrieval operates as follows. Under sliding-window inference, KV-cache chunks evicted from the active attention window are stored in GPU/CPU memory rather than discarded, each indexed by the camera/action state 𝐚 i \\mathbf{a}_{i} at the time of its generation (absolute pose for camera models, cumulative discrete actions for keyboard action models). As illustrated in Fig. 4 (a), the sliding window is partitioned into four regions: 1) sink KV caches from the initial frames that serve as a visual anchor, 2) retrieved KV caches selected from stored history, 3) recent KV caches from the immediately preceding frames, and 4) denoising chunk currently being generated. World Retrieval operates on the retrieved region: at generation time, given the current camera/action state 𝐚 cur \\mathbf{a}_{\\text{cur}} , the top- k k most relevant chunks are selected from the stored history to fill this region: ℛ = Top ​ - ​ k ⁡ ( sim ⁡ ( 𝐚 cur , 𝐚 i ) ∣ i = 1 , … , M ) , \\mathcal{R}=\\operatorname{Top\\text{-}k}\\left(\\operatorname{sim}(\\mathbf{a}_{\\text{cur}},\\mathbf{a}_{i})\\mid i=1,\\dots,M\\right), (4) where M M is the number of stored chunks, k k is the retrieval budget, and sim ⁡ ( ⋅ , ⋅ ) \\operatorname{sim}(\\cdot,\\cdot) is a relevance function. The framework is retrieval-algorithm agnostic : sim ⁡ ( ⋅ , ⋅ ) \\operatorname{sim}(\\cdot,\\cdot) can be instantiated as camera/action-based similarity, query-based importance score, or other relevance methods. In this work, we evaluate camera/action-based and query-based retrieval in Appendix C ; both substantially outperform sliding-window inference, demonstrating that the framework generalizes across retrieval signals. 4.3 World Compression Motivation. World Retrieval requires storing all evicted KV caches in GPU/CPU memory for potential future retrieval. However, this storage cost is substantial: on LingBot-World-Fast, a single chunk of 3 latent frames occupies approximately 3.4GB across all transformer layers, accumulating to over 200GB for a one-minute rollout — exceeding even the VRAM capacity of a B200 GPU (Fig. 2 (a)). We observe that temporally adjacent frames share substantial visual content (Appendix B ): camera viewpoint, scene layout, and object appearance change minimally over consecutive frames, producing near-duplicate KV caches that encode largely overlapping information. World Compression exploits this redundancy to reduce per-chunk storage while preserving the most distinctive KV caches. Beyond storage savings, this enables broader retrieval coverage within a fixed attention budget; as we show in Sec. 5.4 and Appendix D , broader coverage improves revisit fidelity. Key-Key Similarity as a Redundancy Measure. World Compression requires a criterion for identifying redundant tokens within a short temporal chunk. We use Key-Key cosine similarity as a redundancy signal: we compare non-anchor frame keys against the anchor-frame keys, and find that keys from spatiotemporally overlapping regions exhibit high cosine similarity while keys from newly revealed or dynamic regions diverge (Appendix B ). This finding is also consistent with prior evidence that keys in video diffusion transformers encode spatiotemporal correspondence [ 33 ] . We therefore prune high-similarity non-anchor tokens as redundant with the anchor, while retaining low-similarity tokens that carry distinctive content. World Compression Mechanism. Given a chunk consisting of F F consecutive frames, World Compression designates the first frame as the anchor and compresses the remaining F − 1 F-1 frames against it. Concretely, let 𝐊 ( a ) ∈ ℝ T × d \\mathbf{K}^{(a)}\\in\\mathbb{R}^{T\\times d} denote the T T key vectors from the anchor frame at a given layer. For each non-anchor frame f f , we measure the redundancy of each key 𝐤 j ( f ) \\mathbf{k}_{j}^{(f)} as its average cosine similarity to all anchor-frame keys: s j ( f ) = 1 T ​ ∑ i = 1 T 𝐤 j ( f ) ⊤ ​ 𝐤 i ( a ) ‖ 𝐤 j ( f ) ‖ ⋅ ‖ 𝐤 i ( a ) ‖ . s_{j}^{(f)}=\\frac{1}{T}\\sum_{i=1}^{T}\\frac{{\\mathbf{k}_{j}^{(f)}}^{\\top}\\mathbf{k}_{i}^{(a)}}{\\|\\mathbf{k}_{j}^{(f)}\\|\\cdot\\|\\mathbf{k}_{i}^{(a)}\\|}. (5) We pool these scores across all non-anchor frames and retain the bottom P % P\\% among the pooled non-anchor tokens by similarity, since low similarity indicates content not captured by the anchor, such as newly revealed regions under camera motion. The compressed chunk consists of all anchor-frame tokens plus the retained tokens. With F = 3 F=3 and P = 25 % P=25\\% retention across the 2 ​ T 2T non-anchor tokens, each chunk shrinks from 3 ​ T 3T to approximately 1.5 ​ T 1.5T tokens, achieving 2 × 2\\times storage efficiency. Compression is applied once per chunk at storage time and operates independently per layer: each layer retains its own set of distinctive tokens, since token importance varies across layers. At retrieval time, each layer attends to its own retained tokens within the inserted chunk. Beyond storage efficiency, compression improves revisit fidelity by reducing redundancy in the attention window; we analyze this in Sec. 5.4 . 5 Experiments 5.1 Experimental settings Benchmark. To evaluate the memory performance of world models, we construct a benchmark of 60 scene-trajectory pairs spanning diverse visual domains (e.g., indoor, outdoor, urban, natural). Initial frames are sourced from real-world videos, game recordings, and AI-generated images. For each scene, we manually design a long-horizon trajectory containing diverse camera/action sequences — repetitive revisits, forward-backward traversals, and their combinations — with at least one loop-closure event where the camera returns to a previously observed viewpoint, enabling direct evaluation of revisit consistency. Base Models. We evaluate on two autoregressive video world models at different scales: (1) LingBot-World-Fast [ 23 ] is a 14B-parameter model distilled from a long-video teacher capable of generating one-minute sequences; it natively operates with full KV-cache attention. (2) Matrix-Game-2.0 [ 6 ] is a 1.3B-parameter model that was not trained on long-context video; it natively operates with a sliding window of 6 latent frames. Baselines. For each base model, we compare against its native inference mode (full KV-cache attention for LingBot-World-Fast [ 23 ] , sliding-window inference for Matrix-Game-2.0 [ 6 ] ). We additionally compare against WorldPlay [ 20 ] and Yume-1.5 [ 16 ] , which were trained with memory modules. Implementation Details. We use a sliding window of 18 latent frames partitioned into sink (3 frames), retrieval (9 frames), recent (3 frames), and denoising (3 frames). World Compression retains the anchor frame in full and keeps 25% of tokens in non-anchor frames, compressing each 3-frame chunk to 1.5 frames. For retrieval, we adopt a unified camera/action-based strategy across both models. Each evicted KV chunk is stored alongside its camera translation and rotation. At retrieval time, we compute a combined distance from the squared L2 distance in translation and geodesic distance in rotation, each normalized across the retrieval candidate set, and sum the two to form the final retrieval distance; chunks with the smallest distance are retrieved. For LingBot-World-Fast [ 23 ] , camera poses are directly available. For Matrix-Game-2.0 [ 6 ] , which accepts discrete keyboard and mouse inputs, we accumulate WASD and yaw/pitch commands into pseudo-translation and pseudo-rotation vectors. While these are not calibrated to scene geometry, they capture the relative camera motion induced by the action sequence, making them effective for retrieval. Metrics. We measure PSNR, SSIM [ 25 ] , and LPIPS [ 34 ] between each revisit frame and the corresponding first-visit frame generated at the same viewpoint. For FID [ 7 ] , we compute the distributional distance between the set of revisit frames and the set of first-visit reference frames. Higher PSNR/SSIM and lower LPIPS/FID indicate better memory fidelity. We also report throughput (FPS) measured at the last chunk of each rollout. 5.2 Quantitative results Table 1: Quantitative comparison on world memory evaluation. We apply WorldKV to video world models, measuring revisit consistency between revisited and first-visit frames. Throughputs are measured on 4 × \\times H200 GPUs by default; values in () are measured on 4 × \\times B200 GPUs. Method Throughput ↑ \\uparrow (FPS) LPIPS ↓ \\downarrow PSNR ↑ \\uparrow SSIM ↑ \\uparrow FID ↓ \\downarrow With Memory Training WorldPlay (8B) 4.95 0.496 14.556 0.470 113.317 Yume-1.5 (5B) 11.41 0.566 13.167 0.467 141.704 Without Memory Training LingBot-World-Fast (14B) - Sliding Window 5.05 (8.10) 0.581 12.184 0.375 144.036 - Full KV (Original) 2.36 (3.83) 0.441 15.901 0.472 85.705 - WorldKV(Ours) 4.78 (7.71) 0.455 15.660 0.463 75.644 Matrix-Game-2.0 (1.3B) - Sliding Window (Original) 18.87 0.594 11.422 0.280 157.261 - Full KV 7.82 0.529 13.748 0.364 124.912 - WorldKV(Ours) 16.25 0.462 14.101 0.405 93.561 Table 1 summarizes the main comparison. Sliding-window baselines perform poorly on both models, as evicted caches leave the model with no access to previously generated scene content at revisit time. In contrast, WorldKV maintains throughput close to sliding-window inference, while full KV-cache attention drops to less than half this throughput due to linearly growing context length. On LingBot-World-Fast [ 23 ] , which was distilled from a long-video teacher, full KV-cache attention already provides strong memory. WorldKV closely approaches Full KV performance across all metrics at roughly 2 × \\times the throughput. On Matrix-Game-2.0 [ 6 ] , WorldKV outperforms both sliding-window and full KV-cache attention across all metrics. Full KV underperforms here because Matrix-Game-2.0 was trained on short sequences: the accumulated KV cache contains degraded KV caches from out-of-distribution generation, and attending to all of them introduces compounding errors [ 31 ] . WorldKV avoids this by retrieving only the KV caches relevant to the current scene. Compared to memory-trained baselines, LingBot-World-Fast [ 23 ] with WorldKV outperforms WorldPlay [ 20 ] and Yume-1.5 [ 16 ] on LPIPS, PSNR, and FID with comparable SSIM, despite requiring no memory-specific training. Matrix-Game-2.0 [ 6 ] with WorldKV achieves competitive performance against memory-trained baselines. 5.3 Qualitative results Fig. 5 shows generations on two scenes under multi-revisit trajectories. On LingBot-World-Fast, WorldKV closely matches Full KV, recovering scene appearance with high fidelity, and Appendix A shows cases where WorldKV reconstructs revisited scenes more faithfully than Full KV. On Matrix-Game-2.0, where Full KV degrades over long horizons, WorldKV produces sharper and more consistent results than Full KV. Sliding-window drifts visibly on both backbones, as evicted caches prevent access to the original viewpoint. Compared to memory-trained baselines [ 20 , 16 ] , WorldKV clearly outperforms them on LingBot-World-Fast and remains comparable on Matrix-Game-2.0. 5.4 Ablation studies We ablate World Compression from two perspectives. First, the upper part of Table 2 varies the intra-chunk compression ratio, i.e., how many frame-equivalents are retained from each 3-frame chunk. The notation 3 → r 3\\to r means that a 3-frame chunk is compressed to r r frame-equivalents, ranging from anchor-only ( 3 → 1.0 3\\to 1.0 ) to no compression ( 3 → 3.0 3\\to 3.0 ); the latter corresponds to applying only World Retrieval(WR). Second, the lower part varies the inter-chunk coverage under a fixed 3-chunk-equivalent budget. For example, 6 → 3 6\\to 3 compresses 6 chunks into the same budget as 3 chunks, increasing history coverage without enlarging the attention window; the 3 → 3 3\\to 3 row again corresponds to the WR-only baseline. Additional ablations on the number of retrieved chunks are provided in Appendix D . Intra-Chunk Compression Ratio Ablation. Table 2 (Top) shows the effect of varying the compression ratio within each chunk. On both models, retaining only the anchor frame ( 3 → 1.0 3\\to 1.0 ) yields lower performance, confirming that non-anchor tokens contain distinctive information not captured by the anchor alone. Moderate compression ( 3 → 1.5 3\\to 1.5 or 3 → 2.0 3\\to 2.0 ) achieves strong performance, while retaining more tokens gives limited gains. This suggests that World Compression preserves informative entries at practical compression ratios. Table 2: Ablation on World Compression. (Top) Intra-chunk compression (frames retained per 3-frame chunk). (Bottom) Inter-chunk compression (chunks compressed into a fixed 3-chunk budget). LingBot-World-Fast Matrix-Game-2.0 Intra-Chunk LPIPS ↓ \\downarrow PSNR ↑ \\uparrow SSIM ↑ \\uparrow FID ↓ \\downarrow LPIPS ↓ \\downarrow PSNR ↑ \\uparrow SSIM ↑ \\uparrow FID ↓ \\downarrow 3 → 1.0 3\\to 1.0 0.494 14.807 0.435 97.155 0.474 13.951 0.385 94.424 3 → 1.25 3\\to 1.25 0.463 15.599 0.467 90.124 0.463 14.158 0.397 95.376 3 → 1.5 3\\to 1.5 0.455 15.660 0.463 75.644 0.462 14.101 0.405 93.561 3 → 2.0 3\\to 2.0 0.456 15.654 0.461 76.230 0.453 14.258 0.417 96.000 3 → 2.5 3\\to 2.5 0.456 15.685 0.466 77.482 0.450 14.216 0.417 95.478 3 → 3.0 3\\to 3.0 0.459 15.594 0.467 75.005 0.443 14.630 0.433 93.536 LingBot-World-Fast Matrix-Game-2.0 Inter-Chunk LPIPS ↓ \\downarrow PSNR ↑ \\uparrow SSIM ↑ \\uparrow FID ↓ \\downarrow LPIPS ↓ \\downarrow PSNR ↑ \\uparrow SSIM ↑ \\uparrow FID ↓ \\downarrow 3 → 3 3\\to 3 0.468 15.436 0.454 91.389 0.496 13.416 0.369 105.988 6 → 3 6\\to 3 0.455 15.660 0.463 75.644 0.462 14.101 0.405 93.561 9 → 3 9\\to 3 0.482 14.982 0.430 101.226 0.499 13.403 0.360 108.460 Inter-Chunk Compression Ratio Ablation. Table 2 (Bottom) compares compression scopes under a fixed 3-chunk retrieval budget. On both models, 6 6 chunks → \\to 3 3 chunks outperforms uncompressed retrieval ( 3 → 3 3\\to 3 ), showing that broader historical coverage is more useful than preserving fewer chunks at full resolution. This agrees with Appendix D , where retrieving more chunks improves memory fidelity. In contrast, aggressive compression ( 9 → 3 9\\to 3 ) degrades performance by retaining only anchor frames and discarding distinctive non-anchor information. 6 Conclusion We introduced WorldKV, a training-free framework for efficient world memory in autoregressive video world models through KV-cache retrieval and compression. WorldKV enables consistent scene revisits while maintaining real-time inference, achieving memory fidelity competitive with full KV-cache attention and memory-trained baselines across two world models of different scales, all without any fine-tuning or distillation and at lower memory and attention cost. Figure 5 : Frame-by-frame comparison across methods on two trajectories. 7 Limitations & Future Work WorldKV improves the efficiency and fidelity of long-horizon world-model inference, while remaining an inference-time memory-management method. Since it operates on the KV cache of a frozen backbone, its visual fidelity remains bounded by the generation quality of the underlying pretrained world model. In rollouts substantially longer than those seen during training, autoregressive video generation may still accumulate visual artifacts caused by error accumulation. WorldKV focuses on efficient preservation and retrieval of past visual memory, and future work may combine it with training strategies for more stable multi-minute world generation. As shown in Fig. 2 (a), CPU offloading offers a complementary direction for reducing VRAM cost: all KV caches are stored in CPU memory, and only the chunks needed for current attention are loaded onto the GPU. This bounds VRAM consumption regardless of rollout length. However, the host-device transfer latency at retrieval time currently prevents real-time generation. We leave reducing this offloading latency to future work, which would enable real-time multi-minute world generation under bounded VRAM. References [1] Z. Cai, W. Xiao, H. Sun, C. Luo, Y. Zhang, K. Wan, Y. Li, Y. Zhou, L. Chang, J. Gu, et al. (2025) R-kv: redundancy-aware kv cache compression for reasoning models . arXiv preprint arXiv:2505.24133 . Cited by: Appendix A . [2] B. Chen, D. Martí Monsó, Y. Du, M. Simchowitz, R. Tedrake, and V. Sitzmann (2024) Diffusion forcing: next-token prediction meets full-sequence diffusion . Advances in Neural Information Processing Systems 37 , pp. 24081–24125 . Cited by: §2 . [3] G. Chen, D. Lin, J. Yang, C. Lin, J. Zhu, M. Fan, H. Zhang, S. Chen, Z. Chen, C. Ma, et al. (2025) Skyreels-v2: infinite-length film generative model . arXiv preprint arXiv:2504.13074 . Cited by: §2 , §3 . [4] S. Gao, W. Liang, K. Zheng, A. Malik, S. Ye, S. Yu, W. Tseng, Y. Dong, K. Mo, C. Lin, Q. Ma, S. Nah, L. Magne, J. Xiang, Y. Xie, R. Zheng, D. Niu, Y. L. Tan, K.R. Zentner, G. Kurian, S. Indupuru, P. Jannaty, J. Gu, J. Zhang, J. Malik, P. Abbeel, M. Liu, Y. Zhu, J. Jang, and L. \". Fan (2026) DreamDojo: a generalist robot world model from large-scale human videos . arXiv preprint arXiv:2602.06949 . Cited by: §1 . [5] R. Ghadia, A. Kumar, G. Jain, P. Nair, and P. Das (2025) Dialogue without limits: constant-sized kv caches for extended responses in llms . arXiv preprint arXiv:2503.00979 . Cited by: §2 . [6] X. He, C. Peng, Z. Liu, B. Wang, Y. Zhang, Q. Cui, F. Kang, B. Jiang, M. An, Y. Ren, et al. (2025) Matrix-game 2.0: an open-source real-time and streaming interactive world model . arXiv preprint arXiv:2508.13009 . Cited by: Appendix E , Figure 1 , Figure 1 , 3rd item , §1 , §1 , §1 , §1 , §2 , §3 , §4.2 , §5.1 , §5.1 , §5.1 , §5.2 , §5.2 . [7] M. Heusel, H. Ramsauer, T. Unterthiner, B. Nessler, and S. Hochreiter (2017) GANs trained by a two time-scale update rule converge to a local nash equilibrium . In Neural Information Processing Systems , External Links: Link Cited by: §5.1 . [8] Y. Hong, Y. Mei, C. Ge, Y. Xu, Y. Zhou, S. Bi, Y. Hold-Geoffroy, M. Roberts, M. Fisher, E. Shechtman, et al. (2025) Relic: interactive video world model with long-horizon memory . arXiv preprint arXiv:2512.04040 . Cited by: §1 , §1 , §2 . [9] J. Huang, X. Hu, B. Han, S. Shi, Z. Tian, T. He, and L. Jiang (2025) Memory forcing: spatio-temporal memory for consistent scene generation on minecraft . arXiv preprint arXiv:2510.03198 . Cited by: §1 . [10] X. Huang, Z. Li, G. He, M. Zhou, and E. Shechtman (2025) Self forcing: bridging the train-test gap in autoregressive video diffusion . arXiv preprint arXiv:2506.08009 . Cited by: §2 , §3 , §3 . [11] J. Li, J. Tang, Z. Xu, L. Wu, Y. Zhou, S. Shao, T. Yu, Z. Cao, and Q. Lu (2025) Hunyuan-gamecraft: high-dynamic interactive game video generation with hybrid history condition . External Links: 2506.17201 , Link Cited by: §2 . [12] R. Li, P. Torr, A. Vedaldi, and T. Jakab (2025) VMem: consistent interactive video scene generation with surfel-indexed view memory . arXiv preprint arXiv:2506.18903 . Cited by: §1 . [13] Y. Li, Y. Huang, B. Yang, B. Venkitesh, A. Locatelli, H. Ye, T. Cai, P. Lewis, and D. Chen (2024) SnapKV: llm knows what you are looking for before generation . arXiv preprint arXiv:2404.14469 . Cited by: Appendix A , §2 . [14] K. Liu, W. Hu, J. Xu, Y. Shan, and S. Lu (2025) Rolling forcing: autoregressive long video diffusion in real time . arXiv preprint arXiv:2509.25161 . Cited by: §2 , §3 . [15] N. F. Liu, K. Lin, J. Hewitt, A. Paranjape, M. Bevilacqua, F. Petroni, and P. Liang (2024) Lost in the middle: how language models use long contexts . Transactions of the Association for Computational Linguistics 12 , pp. 157–173 . External Links: Link , Document Cited by: Appendix A . [16] X. Mao, Z. Li, C. Li, X. Xu, K. Ying, T. He, J. Pang, Y. Qiao, and K. Zhang (2025) Yume-1.5: a text-controlled interactive world generation model . arXiv preprint arXiv:2512.22096 . Cited by: §2 , §5.1 , §5.2 , §5.3 . [17] X. Ren, T. Shen, J. Huang, H. Ling, Y. Lu, M. Nimier-David, T. Müller, A. Keller, S. Fidler, and J. Gao (2025) GEN3C: 3d-informed world-consistent video generation with precise camera control . In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , Cited by: §1 . [18] G. Savva, O. Michel, D. Lu, S. Waiwitlikhit, T. Meehan, D. Mishra, S. Poddar, J. Lu, and S. Xie (2026) Solaris: building a multiplayer video world model in minecraft . arXiv preprint arXiv:2602.22208 . Cited by: §1 , §1 , §3 . [19] J. Seo, H. Choi, M. Kwon, J. Choi, S. Jin, G. Lee, J. Kim, J. Lee, G. Gu, D. Han, et al. (2026) Grounding world simulation models in a real-world metropolis . arXiv preprint arXiv:2603.15583 . Cited by: §1 . [20] W. Sun, H. Zhang, H. Wang, J. Wu, Z. Wang, Z. Wang, Y. Wang, J. Zhang, T. Wang, and C. Guo (2025) Worldplay: towards long-term geometric consistency for real-time interactive world modeling . arXiv preprint arXiv:2512.14614 . Cited by: §1 , §2 , §5.1 , §5.2 , §5.3 . [21] J. Tang, Y. Zhao, K. Zhu, G. Xiao, B. Kasikci, and S. Han (2024) Quest: query-aware sparsity for efficient long-context llm inference . arXiv preprint arXiv:2406.10774 . Cited by: §2 . [22] I. Team, D. Shen, G. Zhang, H. Liu, H. Ji, H. Bao, H. Zhai, J. Liu, J. Guo, N. Wang, S. Pan, W. Pan, W. Xie, X. Liu, X. Xiang, X. Zhang, X. Chen, Y. Wang, Y. Chen, Z. Fan, Z. Le, Z. Ye, and Z. Zhao (2026) INSPATIO-world: a real-time 4d world simulator via spatiotemporal autoregressive modeling . External Links: 2604.07209 , Link Cited by: Figure 9 , Figure 9 , Appendix E , §1 , §3 . [23] R. Team, Z. Gao, Q. Wang, Y. Zeng, J. Zhu, K. L. Cheng, Y. Li, H. Wang, Y. Xu, S. Ma, et al. (2026) Advancing open-source world models . arXiv preprint arXiv:2601.20540 . Cited by: Appendix A , 3rd item , §1 , §1 , §1 , §2 , §3 , §4.2 , §5.1 , §5.1 , §5.1 , §5.2 , §5.2 . [24] H. Teng, H. Jia, L. Sun, L. Li, M. Li, M. Tang, S. Han, T. Zhang, W. Zhang, W. Luo, et al. (2025) Magi-1: autoregressive video generation at scale . arXiv preprint arXiv:2505.13211 . Cited by: §2 , §3 . [25] Z. Wang, A. C. Bovik, H. R. Sheikh, and E. P. Simoncelli (2004) Image quality assessment: from error visibility to structural similarity . IEEE Transactions on Image Processing 13 , pp. 600–612 . External Links: Link Cited by: §5.1 . [26] G. Xiao, Y. Tian, B. Chen, S. Han, and M. Lewis (2023) Efficient streaming language models with attention sinks . arXiv . Cited by: §2 . [27] Z. Xiao, L. Yushi, Y. Zhou, W. Ouyang, S. Yang, Y. Zeng, and X. Pan WorldMem: long-term consistent world simulation with memory . In The Thirty-ninth Annual Conference on Neural Information Processing Systems , Cited by: §1 . [28] S. Yang, W. Huang, R. Chu, Y. Xiao, Y. Zhao, X. Wang, M. Li, E. Xie, Y. Chen, Y. Lu, et al. (2025) Longlive: real-time interactive long video generation . arXiv preprint arXiv:2509.22622 . Cited by: §2 , §3 . [29] D. Ye, F. Zhou, J. Lv, J. Ma, J. Zhang, J. Lv, J. Li, M. Deng, M. Yang, Q. Fu, et al. (2025) Yan: foundational interactive video generation . arXiv preprint arXiv:2508.08601 . Cited by: §1 . [30] S. Ye, Y. Ge, K. Zheng, S. Gao, S. Yu, G. Kurian, S. Indupuru, Y. L. Tan, C. Zhu, J. Xiang, et al. (2026) World action models are zero-shot policies . arXiv preprint arXiv:2602.15922 . Cited by: §1 . [31] J. Yi, W. Jang, P. H. Cho, J. Nam, H. Yoon, and S. Kim (2025) Deep forcing: training-free long video generation with deep sink and participative compression . arXiv preprint arXiv:2512.05081 . Cited by: Appendix C , §2 , §5.2 . [32] T. Yin, Q. Zhang, R. Zhang, W. T. Freeman, F. Durand, E. Shechtman, and X. Huang (2025) From slow bidirectional to fast autoregressive video diffusion models . In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 22963–22974 . Cited by: §2 . [33] T. Yuan, Y. Yang, L. Chen, Y. Yao, and Z. Qian (2025) Denoise to track: harnessing video diffusion priors for robust correspondence . arXiv preprint arXiv:2512.04619 . Cited by: §4.3 . [34] R. Zhang, P. Isola, A. A. Efros, E. Shechtman, and O. Wang (2018) The unreasonable effectiveness of deep features as a perceptual metric . 2018 IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 586–595 . External Links: Link Cited by: §5.1 . [35] Z. Zhang, Y. Sheng, T. Zhou, T. Chen, L. Zheng, R. Cai, Z. Song, Y. Tian, C. Ré, C. Barrett, et al. (2023) H2o: heavy-hitter oracle for efficient generative inference of large language models . Advances in Neural Information Processing Systems 36 , pp. 34661–34710 . Cited by: §2 . [36] H. Zhu, M. Zhao, G. He, H. Su, C. Li, and J. Zhu (2026) C",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Skip to main content",
+      "url": "https://arxiv.org/html/2605.22718v1#infobox"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/IgnoreMe"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "Why HTML?",
+      "url": "https://info.arxiv.org/about/accessible_HTML.html"
+    },
+    {
+      "text": "Back to Abstract",
+      "url": "https://arxiv.org/abs/2605.22718v1"
+    },
+    {
+      "text": "Download PDF",
+      "url": "https://arxiv.org/pdf/2605.22718v1"
+    },
+    {
+      "text": "License: CC BY 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "https://cvlab-kaist.github.io/WorldKV/",
+      "url": "https://cvlab-kaist.github.io/WorldKV/"
+    },
+    {
+      "text": "23",
+      "url": "https://arxiv.org/html/2605.22718v1#bib.bib1"
+    },
+    {
+      "text": "8",
+      "url": "https://arxiv.org/html/2605.22718v1#bib.bib2"
+    },
+    {
+      "text": "20",
+      "url": "https://arxiv.org/html/2605.22718v1#bib.bib3"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2605.22718v1#bib.bib5"
+    },
+    {
+      "text": "19",
+      "url": "https://arxiv.org/html/2605.22718v1#bib.bib35"
+    },
+    {
+      "text": "29",
+      "url": "https://arxiv.org/html/2605.22718v1#bib.bib4"
+    },
+    {
+      "text": "22",
+      "url": "https://arxiv.org/html/2605.22718v1#bib.bib6"
+    },
+    {
+      "text": "18",
+      "url": "https://arxiv.org/html/2605.22718v1#bib.bib7"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2605.22718v1#bib.bib8"
+    },
+    {
+      "text": "30",
+      "url": "https://arxiv.org/html/2605.22718v1#bib.bib12"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2605.22718v1#S1.F1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2605.22718v1#S2.F2"
+    },
+    {
+      "text": "27",
+      "url": "https://arxiv.org/html/2605.22718v1#bib.bib13"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2605.22718v1#bib.bib15"
+    },
+    {
+      "text": "17",
+      "url": "https://arxiv.org/html/2605.22718v1#bib.bib14"
+    },
+    {
+      "text": "12",
+      "url": "https://arxiv.org/html/2605.22718v1#bib.bib16"
+    },
+    {
+      "text": "C",
+      "url": "https://arxiv.org/html/2605.22718v1#A3"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2605.22718v1#bib.bib17"
+    },
+    {
+      "text": "10",
+      "url": "https://arxiv.org/html/2605.22718v1#bib.bib19"
+    },
+    {
+      "text": "24",
+      "url": "https://arxiv.org/html/2605.22718v1#bib.bib22"
+    },
+    {
+      "text": "32",
+      "url": "https://arxiv.org/html/2605.22718v1#bib.bib18"
+    },
+    {
+      "text": "36",
+      "url": "https://arxiv.org/html/2605.22718v1#bib.bib36"
+    },
+    {
+      "text": "14",
+      "url": "https://arxiv.org/html/2605.22718v1#bib.bib21"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2605.22718v1#bib.bib23"
+    },
+    {
+      "text": "28",
+      "url": "https://arxiv.org/html/2605.22718v1#bib.bib20"
+    },
+    {
+      "text": "11",
+      "url": "https://arxiv.org/html/2605.22718v1#bib.bib24"
+    },
+    {
+      "text": "16",
+      "url": "https://arxiv.org/html/2605.22718v1#bib.bib10"
+    },
+    {
+      "text": "26",
+      "url": "https://arxiv.org/html/2605.22718v1#bib.bib25"
+    },
+    {
+      "text": "35",
+      "url": "https://arxiv.org/html/2605.22718v1#bib.bib26"
+    },
+    {
+      "text": "13",
+      "url": "https://arxiv.org/html/2605.22718v1#bib.bib27"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2605.22718v1#bib.bib33"
+    },
+    {
+      "text": "21",
+      "url": "https://arxiv.org/html/2605.22718v1#bib.bib32"
+    },
+    {
+      "text": "31",
+      "url": "https://arxiv.org/html/2605.22718v1#bib.bib11"
+    },
+    {
+      "text": "4.2",
+      "url": "https://arxiv.org/html/2605.22718v1#S4.SS2"
+    },
+    {
+      "text": "4.3",
+      "url": "https://arxiv.org/html/2605.22718v1#S4.SS3"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2605.22718v1#S2.F3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2605.22718v1#S4.F4"
+    },
+    {
+      "text": "B",
+      "url": "https://arxiv.org/html/2605.22718v1#A2"
+    },
+    {
+      "text": "5.4",
+      "url": "https://arxiv.org/html/2605.22718v1#S5.SS4"
+    },
+    {
+      "text": "D",
+      "url": "https://arxiv.org/html/2605.22718v1#A4"
+    },
+    {
+      "text": "33",
+      "url": "https://arxiv.org/html/2605.22718v1#bib.bib9"
+    },
+    {
+      "text": "25",
+      "url": "https://arxiv.org/html/2605.22718v1#bib.bib29"
+    },
+    {
+      "text": "34",
+      "url": "https://arxiv.org/html/2605.22718v1#bib.bib30"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2605.22718v1#bib.bib28"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2605.22718v1#S5.T1"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2605.22718v1#S6.F5"
+    },
+    {
+      "text": "A",
+      "url": "https://arxiv.org/html/2605.22718v1#A1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2605.22718v1#S5.T2"
+    },
+    {
+      "text": "Appendix A",
+      "url": "https://arxiv.org/html/2605.22718v1#A1.p1.1"
+    },
+    {
+      "text": "§2",
+      "url": "https://arxiv.org/html/2605.22718v1#S2.SS0.SSS0.Px1.p1.1"
+    },
+    {
+      "text": "§3",
+      "url": "https://arxiv.org/html/2605.22718v1#S3.SS0.SSS0.Px2.p1.1"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2605.22718v1#S1.p1.1"
+    }
+  ],
+  "matching_link_count": 99,
+  "links_truncated": true,
+  "invalid_links": []
+}

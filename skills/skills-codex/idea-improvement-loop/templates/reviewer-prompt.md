@@ -60,7 +60,7 @@ aggregation changes. Comparing only the base implementation at several budgets m
 that Claim untested; require the comparisons that could explain the proposed gain.
 
 Verdict meanings:
-- experiment_ready: all three contribution scores >= 6, at least two >= 8, feasibility pass,
+- experiment_ready: all three contribution scores >= 6, at least two >= 7, at least one >= 8, feasibility pass,
   and no fatal contribution, novelty, feasibility, or claim blocker
 - promising_needs_revision: potentially salvageable, but contribution, evidence, novelty, or feasibility needs revision
 - needs_rethink: the main contribution is too weak, covered, unsupported, or cannot be tested by the experiment

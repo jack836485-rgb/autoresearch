@@ -1,0 +1,349 @@
+{
+  "url": "https://arxiv.org/html/2606.12280v1",
+  "final_url": "https://arxiv.org/html/2606.12280v1",
+  "status": 200,
+  "title": "Holding the FP8 Quality Ceiling at 8-Bit Weights and Activations:INT8 and GGUF Post-Training Quantization of Ideogram 4.0 for Consumer GPUs",
+  "metadata": {},
+  "paper": {
+    "title": "Holding the FP8 Quality Ceiling at 8-Bit Weights and Activations: INT8 and GGUF Post-Training Quantization of Ideogram 4.0 for Consumer GPUs",
+    "title_warning": null,
+    "abstract": "Abstract Post-training quantization lets large text-to-image diffusion transformers run on consumer\nGPUs, yet the hardware-specific trade-offs are seldom measured directly. We quantize\nIdeogram 4.0 — a 9.3B flow-matching diffusion transformer (DiT), shipped as two\nseparate-weight copies of a single-stream 34-layer backbone for classifier-free guidance\nand conditioned by a Qwen3-VL-8B encoder — for Ampere RTX 3090 GPUs, which lack FP8\ntensor cores. Our INT8 W8A8 recipe (per-channel weights, per-token dynamic\nactivations, SmoothQuant, and mixed-precision protection of a small high-fragility layer\nset) holds the FP8 quality ceiling: on a 200-prompt benchmark the paired same-seed\nbootstrap CI for INT8 − - FP8 includes zero on both Pick and CLIP, while INT8 improves on\nNF4 by + 1.9 +1.9 CLIP (95% CI [ + 1.21 , + 2.64 ] [+1.21,+2.64] , excluding zero).\nA per-category OCR analysis — to our knowledge unreported for this model class —\nconfirms text legibility is preserved, and an ablation isolates protection of the FFN\ndown-projections as the dominant quality lever.\nOur GGUF Q4_K quantization beats NF4 at equal on-disk size and is the Pareto\nwinner on the quality–memory frontier, with paired confidence intervals excluding zero\n(Q8_0 is quality-neutral).\nFinally, we characterize where 8-bit quantization helps and where it does not: INT8’s\nweights match FP8’s footprint rather than shrink it, so a speed gain on Ampere awaits a\nfused INT8 kernel (§ 7 ).",
+    "authors": [
+      {
+        "name": "Deep Gandhi",
+        "affiliations": [
+          "Affiliation: Transformer Lab"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Ali Asaria",
+        "affiliations": [
+          "Affiliation: Transformer Lab"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Tony Salomone",
+        "affiliations": [
+          "Affiliation: Transformer Lab"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Deep Gandhi † † thanks: Corresponding author: deep@lab.cloud Affiliation: Transformer Lab Ali Asaria Affiliation: Transformer Lab Tony Salomone Affiliation: Transformer Lab",
+    "arxiv_version": "2606.12280v1",
+    "arxiv_version_date": "2026-06-10",
+    "sections": [
+      {
+        "id": "S1",
+        "heading": "1  Introduction",
+        "level": 1,
+        "text": "Text-to-image diffusion transformers have grown past the point where their published checkpoints fit comfortably on consumer GPUs, and the community increasingly relies on quantized redistributions. Ideogram 4.0 ships two: a weight-only FP8 variant and an NF4 variant, both under a non-commercial license. Our deployment target is deliberately also our development hardware — a cluster of RTX 3090s (24 GB, Ampere). Ampere has no FP8 tensor cores, so the FP8 checkpoint executes by dequantizing each linear to bf16 every forward. On our single-GPU-compute recipe this dequantization overhead is modest — the FP8 variant runs at 172.9 172.9 s/image, only ≈ \\approx 5% over NF4 ( 164.5 164.5 s/image). The published FP8 variant is therefore usable on Ampere — the gaps it leaves are (i) NF4’s quality loss, which is largest on text, and (ii) the absence of an Ampere-native low-precision compute path (Ampere has fast native INT8, but the ideogram4 stack ships no fused INT8 GEMM). We target the first gap with a quality-preserving INT8 W8A8 recipe and a memory-competitive GGUF Q4_K, and lay the groundwork for the second by validating the INT8 recipe as the substrate a fused Ampere-INT8 kernel would accelerate (§ 7 ). Ideogram 4.0 is a single-stream 34-layer flow-matching DiT, but classifier-free guidance is realized by shipping two separate-weight copies of that backbone — a conditional and an unconditional transformer ( ≈ \\approx 9.3 GB each at FP8) — so quantization must cover both ( 211 211 linear layers × 2 \\times 2 ). We use “branch” to mean these two weight sets, not a dual-stream architecture. Text rendering is the model’s signature strength and, by the literature’s consensus, the first casualty of aggressive quantization [ 1 , 2 , 3 ] ; we therefore measure OCR fidelity in every evaluation rather than trusting aggregate image-quality scores. We make four contributions: 1. An INT8 W8A8 recipe for this dual-branch flow-matching DiT that holds the FP8 quality ceiling at 8-bit weights and activations — the paired INT8 − - FP8 CI includes zero on Pick and CLIP — and beats the published NF4 baseline by + 1.9 +1.9 CLIP (CI excluding zero) (§ 5 ). 2. A per-module activation fragility analysis : a timestep-stable profile that identifies the FFN down-projections as the fragile set, and an ablation showing that protecting just 17 of them ( ≈ \\approx 8% of linears) is the dominant quality lever, with a sharp recovery knee (§ 5 ). 3. GGUF k-quants for a diffusion transformer : Q4_K beats NF4 at equal on-disk size, making it the Pareto winner on the quality–memory frontier, and Q8_0 is quality-neutral (§ 5 ). 4. A per-category OCR-under-quantization evaluation — to our knowledge unreported for a model of this class — showing text legibility is preserved, together with a reference-fidelity (PSNR/SSIM/LPIPS) analysis reconciling pixel-similarity with standalone quality (§ 5 ). We further give a precise account of where 8-bit quantization does and does not pay off on this hardware (§ 7 )."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px1",
+        "heading": "Weight–activation PTQ.",
+        "level": 2,
+        "text": "The W8A8 recipe is well converged: SmoothQuant migrates activation outliers into weights with a tunable strength α \\alpha [ 4 ] , addressing the collapse of naive per-tensor INT8 activations under outlier channels [ 5 ] . On diffusion transformers, per-token dynamic activation quantization with per-channel weights is the validated configuration [ 6 , 7 ] , and FP4DiT argues DiT activations are token/channel-dominated rather than timestep-dominated, so online per-token scales sidestep U-Net-style temporal calibration [ 8 ] . PTQD reports a CUTLASS INT8 W8A8 kernel at 2.03 × 2.03\\times on an RTX 3090 [ 9 ] — the most direct evidence that an Ampere INT8 thesis pays off. At 8 bits, heavy machinery matters less: several works find W8A8 near-lossless with modest calibration [ 10 , 11 ] , reserving rotation/low-rank tricks for ≤ \\leq 4-bit (and offline rotations are in any case blocked by adaLN’s runtime-generated modulation [ 7 , 12 ] )."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px2",
+        "heading": "Weight-only / GGUF.",
+        "level": 2,
+        "text": "GPTQ’s Hessian-compensated group-wise rounding is the calibrated backbone for ≤ \\leq 4-bit weights [ 13 ] ; AWQ’s activation-aware channel scaling is orthogonal and robust to the calibration distribution [ 14 ] ; QLoRA defines the NF4 format we must beat and the block-scale accounting for honest bits-per-weight comparisons [ 15 ] . A key caveat we exploit: at 8 bits even naive round-to-nearest is fine; calibrated methods only separate at Q4/Q5 [ 13 ] ."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px3",
+        "heading": "Mixed-precision protection and profiling.",
+        "level": 2,
+        "text": "Protecting a small, identifiable layer set is the standard fragility mitigation: time-embedding and boundary layers [ 16 , 17 ] , and — at module-type granularity — attention output projections and FFN down-projections [ 18 ] . The protection set is found by a cheap per-block activation sweep (max-abs / std / kurtosis over a few denoising steps) whose ranking is timestep-stable [ 19 ] ; we run exactly such a sweep on Ideogram’s stack. QAT under memory constraints is reported to underperform plain PTQ on a comparable DiT [ 19 ] , so we stay PTQ-only."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px4",
+        "heading": "Diffusion backbones, caching, and evaluation.",
+        "level": 2,
+        "text": "Ideogram 4.0 is a flow-matching DiT [ 17 , 20 ] ; step-caching methods such as TeaCache [ 21 ] and the flow-matching-specific TACache [ 22 ] are applicable in principle (DeepCache’s U-Net skip-split does not port to a single-stream DiT [ 23 ] ), though we leave caching to future work. The field measures reference-based fidelity against full-precision outputs — LPIPS/PSNR/SSIM, with PSNR > 21 \\mathrm{PSNR}>21 used as a “matches 16-bit” threshold [ 7 ] — alongside standalone CLIPScore/ImageReward, and warns that reference-free scores can mislead [ 22 , 24 ] . For text, OCR exact-match and normalized edit distance are scored with an independent OCR model [ 1 ] . PartiPrompts is the standard prompt source [ 23 ] . Crucially, no work in this corpus measures OCR fidelity under quantization ; that is our central evaluation novelty."
+      },
+      {
+        "id": "S3.SS0.SSS0.Px1",
+        "heading": "Setting.",
+        "level": 2,
+        "text": "We quantize the 211 linear layers of each of the two DiT branches (conditional and unconditional); the Qwen3-VL text encoder and the VAE are left at their published precision. The FP8 checkpoint is our reference because, dequantized exactly to bf16, it is the highest-fidelity output reproducible on Ampere (there is no public BF16 release)."
+      },
+      {
+        "id": "S3.SS0.SSS0.Px2",
+        "heading": "INT8 W8A8.",
+        "level": 2,
+        "text": "For each quantized linear we use per-channel (per-output-row) INT8 weights and per-token dynamic INT8 activations. Per-token dynamic scaling absorbs the timestep dependence of DiT activations without a static calibration table [ 8 ] . We apply SmoothQuant outlier migration with α = 0.5 \\alpha=0.5 : for a weight W W and per-channel activation scale s s , a smoothing vector λ j = s j α / max i ⁡ | W i ​ j | 1 − α \\lambda_{j}=s_{j}^{\\alpha}/\\max_{i}|W_{ij}|^{\\,1-\\alpha} rescales activations down and weights up before quantization [ 4 ] . Activation scales come from a profiling pass (below)."
+      },
+      {
+        "id": "S3.SS0.SSS0.Px3",
+        "heading": "Activation fragility profiling.",
+        "level": 2,
+        "text": "On 8 prompts (a subset of the 128-prompt calibration set, disjoint from evaluation) we hook every linear in the conditional DiT and record per-step max-abs, standard deviation, and kurtosis over the denoising trajectory, following the timestep-stable profiling recipe of [ 19 ] ; the small budget suffices because the ranking is trajectory-stable (below). We rank layers by a fragility score (mean kurtosis × \\times max-abs); the ranking is stable across the trajectory (Spearman 0.930 0.930 between early- and late-step halves). The FFN down-projections ( feed_forward.w2 ) dominate — the single most fragile layer scores roughly 10 × 10\\times its runner-up, consistent with the module-type findings of [ 18 ] ."
+      },
+      {
+        "id": "S3.SS0.SSS0.Px4",
+        "heading": "Mixed-precision protection.",
+        "level": 2,
+        "text": "The top- N N most fragile layers are kept in bf16 (no activation quantization); the rest are W8A8. We select N N by a protection-size ladder (§ 5 ); the chosen N = 17 N=17 ( ≈ \\approx 8% of the 211 linears, ≈ \\approx 1.5 GB bf16 overhead) comprises the high-fragility FFN down-projections plus the time-embedding output."
+      },
+      {
+        "id": "S3.SS0.SSS0.Px5",
+        "heading": "GGUF k-quants.",
+        "level": 2,
+        "text": "Independently, we serialize each DiT to GGUF weight-only formats: Q8_0 (8.5 bits/weight, round-to-nearest) and Q4_K (4.5 bits/weight, the NF4 size class). Because no GGUF quantizer ships a Q4_K encoder , we implement a NumPy Q4_K superblock quantizer and a Torch dequantization kernel, verified bit-exact against a reference decoder."
+      },
+      {
+        "id": "S4.SS0.SSS0.Px1",
+        "heading": "Prompts and protocol.",
+        "level": 2,
+        "text": "We use three disjoint prompt sets built from PartiPrompts with a deterministic seed: a calibration set ( n = 128 n{=}128 ), a quality benchmark ( n = 200 n{=}200 , category-stratified, no text prompts), and a text-rendering benchmark ( n = 100 n{=}100 , of which 63 carry machine-checkable OCR targets). Calibration is disjoint from evaluation (no calibrate-on-eval leakage). All variants generate from identical ( prompt , seed , steps , resolution ) (\\text{prompt},\\text{seed},\\text{steps},\\text{resolution}) tuples: seed 1000, 48 steps, 1024 × 1024 1024{\\times}1024 , the V4_QUALITY_48 preset."
+      },
+      {
+        "id": "S4.SS0.SSS0.Px2",
+        "heading": "Metrics.",
+        "level": 2,
+        "text": "Standalone quality: PickScore and CLIPScore, computed in-house (we never quote cross-paper absolutes [ 25 ] ). Text: OCR exact-match accuracy and normalized edit distance (NED, lower is better) via EasyOCR, independent of the generation pipeline [ 1 ] . Reference fidelity: PSNR, SSIM, and LPIPS (AlexNet) of each variant’s image against the FP8 image at the same seed — FP-referenced metrics correlate better with perception than dataset-referenced ones at small n n [ 6 ] . Efficiency: end-to-end seconds/image at fixed config, peak VRAM, and on-disk size with scales included."
+      },
+      {
+        "id": "S4.SS0.SSS0.Px3",
+        "heading": "Hardware.",
+        "level": 2,
+        "text": "A SkyPilot cluster of 2 × \\times RTX 3090 (24 GB, Ampere; no FP8 tensor cores, fast INT8). The validated single-GPU-compute recipe places both FP8 DiTs on one card with the VAE on the second. All latency numbers are for in-VRAM execution (no CPU offload of weights during denoising), per speedup-claim hygiene [ 12 ] ."
+      },
+      {
+        "id": "S5.SS0.SSS0.Px1",
+        "heading": "INT8 holds the FP8 quality ceiling.",
+        "level": 2,
+        "text": "Table 1 reports the headline comparison. On the 200-prompt quality benchmark, INT8 reaches Pick 18.96 18.96 / CLIP 17.42 17.42 . Because all variants share seed and prompts, we compute paired per-prompt deltas with a 10,000 10{,}000 -sample bootstrap 95% CI ( n = 200 n{=}200 ). INT8 vs. FP8 : Pick Δ = − 0.013 \\Delta{=}{-}0.013 (CI [ − 0.12 , + 0.09 ] [-0.12,+0.09] ) and CLIP Δ = − 0.125 \\Delta{=}{-}0.125 (CI [ − 0.73 , + 0.47 ] [-0.73,+0.47] ) — both CIs include zero, so INT8 is statistically indistinguishable from the FP8 ceiling at this sample size. INT8 vs. NF4 : Pick Δ = + 0.46 \\Delta{=}{+}0.46 (CI [ + 0.33 , + 0.59 ] [+0.33,+0.59] ) and CLIP Δ = + 1.90 \\Delta{=}{+}1.90 (CI [ + 1.21 , + 2.64 ] [+1.21,+2.64] ) — both exclude zero, so INT8’s quality advantage over NF4 is robust, not noise. (We report CIs, not significance stars; no multiple-comparison correction is applied, so within-band sub-metric orderings below should be read descriptively.) On the text benchmark, INT8’s OCR NED ( 0.704 0.704 ) is on par with FP8 ( 0.715 0.715 ) and ahead of NF4 ( 0.760 0.760 ), over the n = 63 n{=}63 prompts carrying OCR targets; exact-match accuracy is near zero for all variants (FP8 0 % 0\\% ) — a property of the base model on these prompts — so we read NED as a relative ranking near the metric’s noise floor, not as INT8 improving on its own FP8 reference. Table 1: Headline comparison (seed 1000, 48 steps, 1024 2 1024^{2} ). INT8 matches FP8 on all three quality/text metrics while NF4 loses ≈ \\approx 2 CLIP and OCR fidelity; the trade-off is that INT8, at 8-bit weights, is FP8-class in size and (without a fused kernel) slower than NF4. Pick/CLIP are over the 200-prompt quality benchmark and OCR NED over the 63 OCR-target prompts; latency is in-VRAM s/image; size is the on-disk DiT-weight footprint (both branches). Q4_K Pick/CLIP are over the same 200-prompt benchmark. NF4 quality values are recorded to 2 d.p. from the published-variant run. Variant Pick ↑ \\uparrow CLIP ↑ \\uparrow OCR NED ↓ \\downarrow s/img ↓ \\downarrow Size (GB) ↓ \\downarrow Weights FP8 (ref) 18.97 17.54 0.715 172.9 18.6 8-bit (deq.) NF4 18.50 15.53 0.760 164.5 ∼ \\sim 10.4 4-bit W INT8 (ours) 18.96 17.42 0.704 184–185 18.6 8-bit W+A Q4_K (ours) 19.46 19.10 0.62–0.73 203.3 10.4 4.5-bit W"
+      },
+      {
+        "id": "S5.SS0.SSS0.Px2",
+        "heading": "Reference fidelity: INT8 and NF4 in the same band.",
+        "level": 2,
+        "text": "Table 2 reports PSNR/SSIM/LPIPS against the FP8 images over all 300 prompts. INT8 and NF4 sit in the same perceptual-distance band: INT8 has higher SSIM ( 0.722 0.722 vs. 0.705 0.705 ), NF4 marginally better PSNR and LPIPS, with an LPIPS gap of only 0.0096 0.0096 (descriptive, no significance test). INT8 passes the PSNR ≥ 21 \\mathrm{PSNR}\\geq 21 “matches 16-bit” threshold [ 7 ] ( 21.42 21.42 ) and marginally misses LPIPS ≤ 0.30 \\mathrm{LPIPS}\\leq 0.30 ( 0.3055 0.3055 , by 0.0055 0.0055 ); the NF4 baseline ( 0.296 0.296 ) passes by a similarly small margin, so both variants effectively straddle the 0.30 0.30 line. The crucial reconciliation: INT8 deviates from FP8 by about the same amount NF4 does in pixels, but those deviations preserve quality (matching FP8 on Pick/CLIP), whereas NF4’s similar-magnitude deviations come with a real − 1.89 -1.89 CLIP loss. Reference-pixel-closeness and standalone quality are distinct axes, and INT8 wins on the latter. Table 2: Reference fidelity vs. the FP8 images (300 prompts; Q4_K on the 50-prompt slice only). Higher PSNR/SSIM and lower LPIPS = closer to FP8. Variant PSNR ↑ \\uparrow SSIM ↑ \\uparrow LPIPS ↓ \\downarrow n n INT8 (ours) 21.42 0.722 0.306 300 NF4 21.91 0.705 0.296 300 Q4_K (ours, slice) 19.96 0.646 0.388 50"
+      },
+      {
+        "id": "S5.SS0.SSS0.Px3",
+        "heading": "What drives the recovery: protection > > smoothing.",
+        "level": 2,
+        "text": "Table 3 isolates the two levers on the 50-prompt sweep slice. Naive W8A8 (no smoothing, no protection) drops to CLIP 14.30 14.30 ; adding SmoothQuant alone recovers to 16.56 16.56 and protection alone to 16.81 16.81 , while both together reach 17.54 17.54 — the ceiling. Protection is the dominant lever ( ≈ \\approx 78–92% of the recovery) and the two effects are sub-additive. The protection-size ladder shows a sharp knee: N = 17 N=17 holds the ceiling (CLIP 17.42 17.42 ) while N = 8 N=8 collapses back toward the unprotected baseline (CLIP 16.01 16.01 ), a − 1.41 -1.41 CLIP cliff over nine layers. Table 3: INT8 ablation on the 50-prompt quality slice (CLIP ↑ \\uparrow ). Protection of the high-fragility FFN down-projections is the dominant lever; the recovery knee between 8 and 17 protected layers is sharp. Configuration CLIP ↑ \\uparrow Naive W8A8 ( α = 0 \\alpha{=}0 , no protection) 14.30 + SmoothQuant only ( α = 0.5 \\alpha{=}0.5 ) 16.56 + Protection only (top-17) 16.81 + Both (final recipe) 17.54 Protection ladder N = 8 N{=}8 16.01 Protection ladder N = 17 N{=}17 (chosen) 17.42"
+      },
+      {
+        "id": "S5.SS0.SSS0.Px4",
+        "heading": "GGUF: Q4_K beats NF4 at equal size, Q8_0 is quality-neutral.",
+        "level": 2,
+        "text": "On the 200-prompt quality benchmark, Q4_K (4.5 bpw, 10.44 GB — the NF4 size class) reaches Pick 19.46 19.46 / CLIP 19.10 19.10 , beating NF4 by Pick + 0.96 +0.96 (paired 95% CI [ + 0.77 , + 1.15 ] [+0.77,+1.15] ) and CLIP + 3.57 +3.57 ( [ + 2.65 , + 4.51 ] [+2.65,+4.51] ), both intervals excluding zero. At an essentially identical on-disk size ( + 0.04 +0.04 GB over NF4), Q4_K is therefore the Pareto winner on the quality–memory frontier. It also scores above the FP8 reference on these standalone metrics (Pick + 0.49 +0.49 , CLIP + 1.55 +1.55 , intervals excluding zero); this reflects model divergence rather than higher fidelity — the reference metrics (Table 2 ) show Q4_K deviating further from FP8 in pixels (LPIPS 0.39 0.39 ), so the no-reference Pick/CLIP scorers favor its distinct outputs. On text, Q4_K’s OCR NED ( 0.62 0.62 – 0.73 0.73 ) is comparable to FP8 and ahead of NF4. Q8_0 (8.5 bpw, 19.7 GB), measured on a 50-prompt subset, is quality-neutral — Pick 18.713 18.713 against the reference 18.714 18.714 . Q4_K’s Torch dequant path runs at 203 203 s/image, slower than the other variants."
+      },
+      {
+        "id": "S5.SS0.SSS0.Px5",
+        "heading": "Qualitative comparison.",
+        "level": 2,
+        "text": "Figures 1 and 2 make the quantitative story visible. In the text examples (Fig. 1 ), INT8 reproduces the FP8 reference’s lettering almost exactly — the slogans “OPEN 24 HOURS” and “Batch Norm” stay sharp and correctly spelled, the only variant to match FP8’s glyph fidelity. Q4_K and NF4 both render the headline slogan but garble the finer secondary text (e.g. the second word of “Batch Norm”); on these prompts the two 4-bit variants look alike, and Q4_K’s OCR-NED advantage over NF4 ( 0.62 0.62 – 0.73 0.73 vs. 0.760 0.760 ) is an aggregate effect (Table 1 ) rather than a visible per-prompt one. Across all four columns the failure mode is the same: the garment, layout, and headline survive while the fine secondary lettering is the first thing to break — text rendering is the most quantization-fragile content in this model, consistent with its being the single largest per-prompt divergence hotspot in our error analysis (§ 5 , typography). The general scenes (Fig. 2 ) illustrate the pixel-distance-versus-quality distinction at the heart of § 6 : INT8 tracks the FP8 composition most closely (e.g. the sushi-map tile layout and the oil-painting brushwork), while NF4 and Q4_K diverge more in fine layout and detail yet remain coherent, high-quality images — consistent with their larger LPIPS-to-FP8 alongside undamaged standalone scores. We present these as illustrations of the aggregate metrics, not as evidence in themselves. Figure 1: Text rendering at fixed seed: FP8 (reference), INT8 (ours), NF4, Q4_K (ours). INT8 reproduces the FP8 lettering most faithfully (both “Batch Norm” and “OPEN 24 HOURS” correct); Q4_K and NF4 render the headline slogan but garble finer secondary text on these examples. Q4_K’s lower OCR NED than NF4 (Table 1 ) is an aggregate effect, not always visible per prompt. Figure 2: General scenes across FP8, INT8 (ours), NF4, and Q4_K (ours) at fixed seed. INT8 tracks FP8 most closely; lower-bit variants diverge more in layout and detail while remaining high-quality standalone."
+      },
+      {
+        "id": "S6",
+        "heading": "6  Discussion",
+        "level": 1,
+        "text": "Our results pin down where 8-bit quantization error concentrates and why protecting a tiny layer set recovers full quality. The fragility profile and the ablation agree: the FFN down-projections carry the outlier-heavy activations, and keeping just 17 of them in bf16 ( ≈ \\approx 8% of linears) closes almost the entire gap to the FP8 ceiling, while per-token dynamic scaling and α = 0.5 \\alpha{=}0.5 smoothing absorb the rest. The one place INT8 visibly departs from FP8 is typography: its largest per-prompt LPIPS deviations are all text prompts (up to ≈ \\approx 0.90), yet OCR confirms the rendered text stays legible (NED 0.704 0.704 , on par with FP8). This is the paper’s central measurement lesson — pixel-distance to the reference and standalone quality are distinct axes. A variant can drift from FP8 in pixels (as INT8 does on text, and as NF4 does broadly) while either preserving quality (INT8) or losing it (NF4, − 1.9 -1.9 CLIP); only a metric battery that separates the two, and that includes an OCR probe, makes the difference visible."
+      },
+      {
+        "id": "S7.SS0.SSS0.Px1",
+        "heading": "INT8’s gains are quality, not yet compute.",
+        "level": 2,
+        "text": "At 8-bit weights INT8 is FP8-class in size ( 18.6 18.6 GB vs. NF4’s 10.4 10.4 GB), and because the ideogram4 stack ships no fused INT8 GEMM it runs eager at ≈ \\approx 184 s/image — ≈ \\approx 6% over the FP8 recipe and ≈ \\approx 12% over NF4. Scaled-dot-product attention is already in the model and CFG-branch batching does not apply to the separate-weight design, and torch.compile fails on this stack (its Triton codegen crashes on the INT8 dequant kernel and, separately, on the package’s own FP8 kernel). INT8 is therefore best read as a quality-preserving substrate : a fused Ampere-INT8 kernel (CUTLASS/ViDiT-Q-style [ 9 , 6 ] ) would convert its 8-bit compute into a realized speed-up, and that is the most direct line of future work. Q4_K already delivers the memory win today."
+      },
+      {
+        "id": "S7.SS0.SSS0.Px2",
+        "heading": "Statistical scope.",
+        "level": 2,
+        "text": "Headline quality uses a single seed (1000); we report paired bootstrap CIs over its 200 prompts but not across seeds. The 2 × 2 2{\\times}2 ablation and the protection ladder are single-run at n = 50 n{=}50 , so the “ 78 78 – 92 % 92\\% ” attribution and the “sharp knee” are descriptive, not error-bounded. The protection cutoff N = 17 N{=}17 is chosen on a 50-prompt slice that is a subset of the 200-prompt benchmark (a selection/evaluation overlap), though the fragility ranking it relies on comes from a disjoint 8-prompt set. The Q4_K standalone-quality result carries paired confidence intervals over the full 200-prompt benchmark, but its reference-fidelity metrics (PSNR/SSIM/LPIPS, Table 2 ) and all Q8_0 numbers are measured on a 50-prompt subset without error bars."
+      },
+      {
+        "id": "S7.SS0.SSS0.Px3",
+        "heading": "Baselines and generality.",
+        "level": 2,
+        "text": "We compare against the published FP8/NF4 variants, not academic PTQ methods (GPTQ, AWQ, SmoothQuant-only); ours is a tuned recipe for this model rather than a method bake-off. Our reference is FP8 (no public BF16 release exists), so “fidelity to FP8” is a proxy for full precision, and the standalone Pick/CLIP judges are CLIP-family and weak on fine typography — a non-CLIP judge (ImageReward/HPSv2) would strengthen the text claims. All latency figures come from a single cluster and were not replicated on independent hardware. Consistent with prior work [ 6 , 19 ] , pseudo-quantization yields no compute speedup without native kernels."
+      },
+      {
+        "id": "S8",
+        "heading": "8  Availability",
+        "level": 1,
+        "text": "The quantized weights are released on Hugging Face under a gated license consistent with the upstream Ideogram 4.0 non-commercial, research-only terms: • INT8 W8A8: https://huggingface.co/transformerlab/ideogram-4-int8-w8a8 • GGUF Q4_K: https://huggingface.co/transformerlab/ideogram-4-gguf-q4_k All results use seed 1000 and the eval recipe in the reproducibility package."
+      },
+      {
+        "id": "S9",
+        "heading": "9  Conclusion and Future Work",
+        "level": 1,
+        "text": "A SmoothQuant-plus-fragility-protection INT8 W8A8 recipe lets a 9.3B dual-branch flow-matching DiT run at 8-bit weights and activations while holding the FP8 quality ceiling and beating the published NF4 baseline by + 1.89 +1.89 CLIP. On the efficiency axis, the Pareto success criterion — ≥ \\geq NF4 quality at ≤ \\leq its memory — is met by GGUF Q4_K , which beats NF4 quality at equal on-disk size; INT8 clears the quality bar but, being FP8-class in size and (absent a fused kernel) no faster, does not clear the memory bar. The clearest next step is exactly that fused Ampere INT8 GEMM (CUTLASS/ViDiT-Q-style), which would turn the validated 8-bit-compute recipe into a realized latency win on hardware that lacks FP8 tensor cores [ 9 , 6 ] ; step-caching (TACache for flow matching [ 22 ] ), extending the full reference-fidelity battery to Q8_0, and text-encoder quantization are the natural follow-ons, each measured under the same per-category OCR protocol."
+      },
+      {
+        "id": "bib",
+        "heading": "References",
+        "level": 1,
+        "text": "[1] Lichen Ma, Tiezhu Yue, Pei Fu, Yujie Zhong, Kai Zhou, Xiaoming Wei, and Jie Hu. CharGen: High Accurate Character-Level Visual Text Generation Model with MultiModal Encoder. arXiv:2412.17225 [cs.CV], 2024. [2] Wenda Shi, Yiren Song, Dengming Zhang, Jiaming Liu, and Xingxing Zou. FonTS: Text Rendering with Typography and Style Controls. arXiv:2412.00136 [cs.CV], 2024. [3] Natalia Frumkin and Diana Marculescu. Q-Sched: Pushing the Boundaries of Few-Step Diffusion Models with Quantization-Aware Scheduling. arXiv:2509.01624 [cs.CV], 2025. [4] Guangxuan Xiao, Ji Lin, Mickael Seznec, Hao Wu, Julien Demouth, and Song Han. SmoothQuant: Accurate and Efficient Post-Training Quantization for Large Language Models. arXiv:2211.10438 [cs.CL], 2022. [5] Tim Dettmers, Mike Lewis, Younes Belkada, and Luke Zettlemoyer. LLM.int8(): 8-bit Matrix Multiplication for Transformers at Scale. arXiv:2208.07339 [cs.LG], 2022. [6] Tianchen Zhao, Tongcheng Fang, Haofeng Huang, Enshu Liu, Rui Wan, Widyadewi Soedarmadji, Shiyao Li, Zinan Lin, Guohao Dai, Shengen Yan, Huazhong Yang, Xuefei Ning, and Yu Wang. ViDiT-Q: Efficient and Accurate Quantization of Diffusion Transformers for Image and Video Generation. arXiv:2406.02540 [cs.CV], 2024. [7] Muyang Li, Yujun Lin, Zhekai Zhang, Tianle Cai, Xiuyu Li, Junxian Guo, Enze Xie, Chenlin Meng, Jun-Yan Zhu, and Song Han. SVDQuant: Absorbing Outliers by Low-Rank Components for 4-Bit Diffusion Models. arXiv:2411.05007 [cs.CV], 2024. [8] Ruichen Chen, Keith G. Mills, and Di Niu. FP4DiT: Towards Effective Floating Point Quantization for Diffusion Transformers. arXiv:2503.15465 [cs.CV], 2025. [9] Yefei He, Luping Liu, Jing Liu, Weijia Wu, Hong Zhou, and Bohan Zhuang. PTQD: Accurate Post-Training Quantization for Diffusion Models. arXiv:2305.10657 [cs.CV], 2023. [10] Jiaojiao Ye, Zhen Wang, and Linnan Jiang. PQD: Post-training Quantization for Efficient Diffusion Models. arXiv:2501.00124 [cs.CV], 2024. [11] Shuaiting Li, Juncan Deng, Zeyu Wang, Kedong Xu, Rongtao Deng, Hong Gu, Haibin Shen, and Kejie Huang. Efficiency Meets Fidelity: A Novel Quantization Framework for Stable Diffusion. arXiv:2412.06661 [cs.CV], 2024. [12] Sayeh Sharify, Mahsa Salmani, and Hesham Mostafa. DiRotQ: Rotation-Aware Quantization for 4-bit Diffusion Transformers. arXiv:2605.16732 [cs.CV], 2026. [13] Elias Frantar, Saleh Ashkboos, Torsten Hoefler, and Dan Alistarh. GPTQ: Accurate Post-Training Quantization for Generative Pre-trained Transformers. arXiv:2210.17323 [cs.LG], 2022. [14] Ji Lin, Jiaming Tang, Haotian Tang, Shang Yang, Wei-Ming Chen, Wei-Chen Wang, Guangxuan Xiao, Xingyu Dang, Chuang Gan, and Song Han. AWQ: Activation-aware Weight Quantization for LLM Compression and Acceleration. arXiv:2306.00978 [cs.CL], 2023. [15] Tim Dettmers, Artidoro Pagnoni, Ari Holtzman, and Luke Zettlemoyer. QLoRA: Efficient Finetuning of Quantized LLMs. arXiv:2305.14314 [cs.LG], 2023. [16] Vage Egiazarian, Denis Kuznedelev, Anton Voronov, Ruslan Svirschevski, Michael Goin, Daniil Pavlov, Dan Alistarh, and Dmitry Baranchuk. Accurate Compression of Text-to-Image Diffusion Models via Vector Quantization. arXiv:2409.00492 [cs.CV], 2024. [17] William Peebles and Saining Xie. Scalable Diffusion Models with Transformers. arXiv:2212.09748 [cs.CV], 2022. [18] Junhao Wu, Dezhong Yao, and Hai Jin. Timestep-Aware SVDQuant-GPTQ for W4A4 Quantization of Wan2.2-I2V. arXiv:2605.27003 [cs.CV], 2026. [19] Yiming Zhao. Boundary-Protection W8A8 HiFloat8 Quantization for Large-Scale Text-to-Video Diffusion Transformers. arXiv:2606.00957 [cs.CV], 2026. [20] Yaron Lipman, Ricky T. Q. Chen, Heli Ben-Hamu, Maximilian Nickel, and Matt Le. Flow Matching for Generative Modeling. arXiv:2210.02747 [cs.LG], 2022. [21] Feng Liu, Shiwei Zhang, Xiaofeng Wang, Yujie Wei, Haonan Qiu, Yuzhong Zhao, Yingya Zhang, Qixiang Ye, and Fang Wan. Timestep Embedding Tells: It’s Time to Cache for Video Diffusion Model. arXiv:2411.19108 [cs.CV], 2024. [22] Xiao Liu, Kai Liu, Naiyang Guan, Hongliang Lu, Zhixin Wang, Zhikai Chen, Renjing Pei, and Yulun Zhang. Accelerating Rectified Flow Models via Trajectory-Aware Caching. arXiv:2605.16789 [cs.CV], 2026. [23] Xinyin Ma, Gongfan Fang, and Xinchao Wang. DeepCache: Accelerating Diffusion Models for Free. arXiv:2312.00858 [cs.CV], 2023. [24] Xun Zhang, Kaicheng Yang, Hongliang Lu, Haotong Qin, Yong Guo, and Yulun Zhang. Q-DiT4SR: Exploration of Detail-Preserving Diffusion Transformer Quantization for Real-World Image Super-Resolution. arXiv:2602.01273 [cs.CV], 2026. [25] Shuhan Zhuang, Mengqi Huang, Fengyi Fu, Nan Chen, Bohan Lei, and Zhendong Mao. HDGlyph: A Hierarchical Disentangled Glyph-Based Framework for Long-Tail Text Rendering in Diffusion Models. arXiv:2505.06543 [cs.CV], 2025."
+      }
+    ]
+  },
+  "text": "Holding the FP8 Quality Ceiling at 8-Bit Weights and Activations:INT8 and GGUF Post-Training Quantization of Ideogram 4.0 for Consumer GPUs Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: CC BY-NC-SA 4.0 arXiv:2606.12280v1 [cs.LG] 10 Jun 2026 Holding the FP8 Quality Ceiling at 8-Bit Weights and Activations: INT8 and GGUF Post-Training Quantization of Ideogram 4.0 for Consumer GPUs Deep Gandhi † † thanks: Corresponding author: deep@lab.cloud Affiliation: Transformer Lab Ali Asaria Affiliation: Transformer Lab Tony Salomone Affiliation: Transformer Lab Abstract Post-training quantization lets large text-to-image diffusion transformers run on consumer GPUs, yet the hardware-specific trade-offs are seldom measured directly. We quantize Ideogram 4.0 — a 9.3B flow-matching diffusion transformer (DiT), shipped as two separate-weight copies of a single-stream 34-layer backbone for classifier-free guidance and conditioned by a Qwen3-VL-8B encoder — for Ampere RTX 3090 GPUs, which lack FP8 tensor cores. Our INT8 W8A8 recipe (per-channel weights, per-token dynamic activations, SmoothQuant, and mixed-precision protection of a small high-fragility layer set) holds the FP8 quality ceiling: on a 200-prompt benchmark the paired same-seed bootstrap CI for INT8 − - FP8 includes zero on both Pick and CLIP, while INT8 improves on NF4 by + 1.9 +1.9 CLIP (95% CI [ + 1.21 , + 2.64 ] [+1.21,+2.64] , excluding zero). A per-category OCR analysis — to our knowledge unreported for this model class — confirms text legibility is preserved, and an ablation isolates protection of the FFN down-projections as the dominant quality lever. Our GGUF Q4_K quantization beats NF4 at equal on-disk size and is the Pareto winner on the quality–memory frontier, with paired confidence intervals excluding zero (Q8_0 is quality-neutral). Finally, we characterize where 8-bit quantization helps and where it does not: INT8’s weights match FP8’s footprint rather than shrink it, so a speed gain on Ampere awaits a fused INT8 kernel (§ 7 ). 1 Introduction Text-to-image diffusion transformers have grown past the point where their published checkpoints fit comfortably on consumer GPUs, and the community increasingly relies on quantized redistributions. Ideogram 4.0 ships two: a weight-only FP8 variant and an NF4 variant, both under a non-commercial license. Our deployment target is deliberately also our development hardware — a cluster of RTX 3090s (24 GB, Ampere). Ampere has no FP8 tensor cores, so the FP8 checkpoint executes by dequantizing each linear to bf16 every forward. On our single-GPU-compute recipe this dequantization overhead is modest — the FP8 variant runs at 172.9 172.9 s/image, only ≈ \\approx 5% over NF4 ( 164.5 164.5 s/image). The published FP8 variant is therefore usable on Ampere — the gaps it leaves are (i) NF4’s quality loss, which is largest on text, and (ii) the absence of an Ampere-native low-precision compute path (Ampere has fast native INT8, but the ideogram4 stack ships no fused INT8 GEMM). We target the first gap with a quality-preserving INT8 W8A8 recipe and a memory-competitive GGUF Q4_K, and lay the groundwork for the second by validating the INT8 recipe as the substrate a fused Ampere-INT8 kernel would accelerate (§ 7 ). Ideogram 4.0 is a single-stream 34-layer flow-matching DiT, but classifier-free guidance is realized by shipping two separate-weight copies of that backbone — a conditional and an unconditional transformer ( ≈ \\approx 9.3 GB each at FP8) — so quantization must cover both ( 211 211 linear layers × 2 \\times 2 ). We use “branch” to mean these two weight sets, not a dual-stream architecture. Text rendering is the model’s signature strength and, by the literature’s consensus, the first casualty of aggressive quantization [ 1 , 2 , 3 ] ; we therefore measure OCR fidelity in every evaluation rather than trusting aggregate image-quality scores. We make four contributions: 1. An INT8 W8A8 recipe for this dual-branch flow-matching DiT that holds the FP8 quality ceiling at 8-bit weights and activations — the paired INT8 − - FP8 CI includes zero on Pick and CLIP — and beats the published NF4 baseline by + 1.9 +1.9 CLIP (CI excluding zero) (§ 5 ). 2. A per-module activation fragility analysis : a timestep-stable profile that identifies the FFN down-projections as the fragile set, and an ablation showing that protecting just 17 of them ( ≈ \\approx 8% of linears) is the dominant quality lever, with a sharp recovery knee (§ 5 ). 3. GGUF k-quants for a diffusion transformer : Q4_K beats NF4 at equal on-disk size, making it the Pareto winner on the quality–memory frontier, and Q8_0 is quality-neutral (§ 5 ). 4. A per-category OCR-under-quantization evaluation — to our knowledge unreported for a model of this class — showing text legibility is preserved, together with a reference-fidelity (PSNR/SSIM/LPIPS) analysis reconciling pixel-similarity with standalone quality (§ 5 ). We further give a precise account of where 8-bit quantization does and does not pay off on this hardware (§ 7 ). 2 Related Work Weight–activation PTQ. The W8A8 recipe is well converged: SmoothQuant migrates activation outliers into weights with a tunable strength α \\alpha [ 4 ] , addressing the collapse of naive per-tensor INT8 activations under outlier channels [ 5 ] . On diffusion transformers, per-token dynamic activation quantization with per-channel weights is the validated configuration [ 6 , 7 ] , and FP4DiT argues DiT activations are token/channel-dominated rather than timestep-dominated, so online per-token scales sidestep U-Net-style temporal calibration [ 8 ] . PTQD reports a CUTLASS INT8 W8A8 kernel at 2.03 × 2.03\\times on an RTX 3090 [ 9 ] — the most direct evidence that an Ampere INT8 thesis pays off. At 8 bits, heavy machinery matters less: several works find W8A8 near-lossless with modest calibration [ 10 , 11 ] , reserving rotation/low-rank tricks for ≤ \\leq 4-bit (and offline rotations are in any case blocked by adaLN’s runtime-generated modulation [ 7 , 12 ] ). Weight-only / GGUF. GPTQ’s Hessian-compensated group-wise rounding is the calibrated backbone for ≤ \\leq 4-bit weights [ 13 ] ; AWQ’s activation-aware channel scaling is orthogonal and robust to the calibration distribution [ 14 ] ; QLoRA defines the NF4 format we must beat and the block-scale accounting for honest bits-per-weight comparisons [ 15 ] . A key caveat we exploit: at 8 bits even naive round-to-nearest is fine; calibrated methods only separate at Q4/Q5 [ 13 ] . Mixed-precision protection and profiling. Protecting a small, identifiable layer set is the standard fragility mitigation: time-embedding and boundary layers [ 16 , 17 ] , and — at module-type granularity — attention output projections and FFN down-projections [ 18 ] . The protection set is found by a cheap per-block activation sweep (max-abs / std / kurtosis over a few denoising steps) whose ranking is timestep-stable [ 19 ] ; we run exactly such a sweep on Ideogram’s stack. QAT under memory constraints is reported to underperform plain PTQ on a comparable DiT [ 19 ] , so we stay PTQ-only. Diffusion backbones, caching, and evaluation. Ideogram 4.0 is a flow-matching DiT [ 17 , 20 ] ; step-caching methods such as TeaCache [ 21 ] and the flow-matching-specific TACache [ 22 ] are applicable in principle (DeepCache’s U-Net skip-split does not port to a single-stream DiT [ 23 ] ), though we leave caching to future work. The field measures reference-based fidelity against full-precision outputs — LPIPS/PSNR/SSIM, with PSNR > 21 \\mathrm{PSNR}>21 used as a “matches 16-bit” threshold [ 7 ] — alongside standalone CLIPScore/ImageReward, and warns that reference-free scores can mislead [ 22 , 24 ] . For text, OCR exact-match and normalized edit distance are scored with an independent OCR model [ 1 ] . PartiPrompts is the standard prompt source [ 23 ] . Crucially, no work in this corpus measures OCR fidelity under quantization ; that is our central evaluation novelty. 3 Method Setting. We quantize the 211 linear layers of each of the two DiT branches (conditional and unconditional); the Qwen3-VL text encoder and the VAE are left at their published precision. The FP8 checkpoint is our reference because, dequantized exactly to bf16, it is the highest-fidelity output reproducible on Ampere (there is no public BF16 release). INT8 W8A8. For each quantized linear we use per-channel (per-output-row) INT8 weights and per-token dynamic INT8 activations. Per-token dynamic scaling absorbs the timestep dependence of DiT activations without a static calibration table [ 8 ] . We apply SmoothQuant outlier migration with α = 0.5 \\alpha=0.5 : for a weight W W and per-channel activation scale s s , a smoothing vector λ j = s j α / max i ⁡ | W i ​ j | 1 − α \\lambda_{j}=s_{j}^{\\alpha}/\\max_{i}|W_{ij}|^{\\,1-\\alpha} rescales activations down and weights up before quantization [ 4 ] . Activation scales come from a profiling pass (below). Activation fragility profiling. On 8 prompts (a subset of the 128-prompt calibration set, disjoint from evaluation) we hook every linear in the conditional DiT and record per-step max-abs, standard deviation, and kurtosis over the denoising trajectory, following the timestep-stable profiling recipe of [ 19 ] ; the small budget suffices because the ranking is trajectory-stable (below). We rank layers by a fragility score (mean kurtosis × \\times max-abs); the ranking is stable across the trajectory (Spearman 0.930 0.930 between early- and late-step halves). The FFN down-projections ( feed_forward.w2 ) dominate — the single most fragile layer scores roughly 10 × 10\\times its runner-up, consistent with the module-type findings of [ 18 ] . Mixed-precision protection. The top- N N most fragile layers are kept in bf16 (no activation quantization); the rest are W8A8. We select N N by a protection-size ladder (§ 5 ); the chosen N = 17 N=17 ( ≈ \\approx 8% of the 211 linears, ≈ \\approx 1.5 GB bf16 overhead) comprises the high-fragility FFN down-projections plus the time-embedding output. GGUF k-quants. Independently, we serialize each DiT to GGUF weight-only formats: Q8_0 (8.5 bits/weight, round-to-nearest) and Q4_K (4.5 bits/weight, the NF4 size class). Because no GGUF quantizer ships a Q4_K encoder , we implement a NumPy Q4_K superblock quantizer and a Torch dequantization kernel, verified bit-exact against a reference decoder. 4 Experimental Setup Prompts and protocol. We use three disjoint prompt sets built from PartiPrompts with a deterministic seed: a calibration set ( n = 128 n{=}128 ), a quality benchmark ( n = 200 n{=}200 , category-stratified, no text prompts), and a text-rendering benchmark ( n = 100 n{=}100 , of which 63 carry machine-checkable OCR targets). Calibration is disjoint from evaluation (no calibrate-on-eval leakage). All variants generate from identical ( prompt , seed , steps , resolution ) (\\text{prompt},\\text{seed},\\text{steps},\\text{resolution}) tuples: seed 1000, 48 steps, 1024 × 1024 1024{\\times}1024 , the V4_QUALITY_48 preset. Metrics. Standalone quality: PickScore and CLIPScore, computed in-house (we never quote cross-paper absolutes [ 25 ] ). Text: OCR exact-match accuracy and normalized edit distance (NED, lower is better) via EasyOCR, independent of the generation pipeline [ 1 ] . Reference fidelity: PSNR, SSIM, and LPIPS (AlexNet) of each variant’s image against the FP8 image at the same seed — FP-referenced metrics correlate better with perception than dataset-referenced ones at small n n [ 6 ] . Efficiency: end-to-end seconds/image at fixed config, peak VRAM, and on-disk size with scales included. Hardware. A SkyPilot cluster of 2 × \\times RTX 3090 (24 GB, Ampere; no FP8 tensor cores, fast INT8). The validated single-GPU-compute recipe places both FP8 DiTs on one card with the VAE on the second. All latency numbers are for in-VRAM execution (no CPU offload of weights during denoising), per speedup-claim hygiene [ 12 ] . 5 Results INT8 holds the FP8 quality ceiling. Table 1 reports the headline comparison. On the 200-prompt quality benchmark, INT8 reaches Pick 18.96 18.96 / CLIP 17.42 17.42 . Because all variants share seed and prompts, we compute paired per-prompt deltas with a 10,000 10{,}000 -sample bootstrap 95% CI ( n = 200 n{=}200 ). INT8 vs. FP8 : Pick Δ = − 0.013 \\Delta{=}{-}0.013 (CI [ − 0.12 , + 0.09 ] [-0.12,+0.09] ) and CLIP Δ = − 0.125 \\Delta{=}{-}0.125 (CI [ − 0.73 , + 0.47 ] [-0.73,+0.47] ) — both CIs include zero, so INT8 is statistically indistinguishable from the FP8 ceiling at this sample size. INT8 vs. NF4 : Pick Δ = + 0.46 \\Delta{=}{+}0.46 (CI [ + 0.33 , + 0.59 ] [+0.33,+0.59] ) and CLIP Δ = + 1.90 \\Delta{=}{+}1.90 (CI [ + 1.21 , + 2.64 ] [+1.21,+2.64] ) — both exclude zero, so INT8’s quality advantage over NF4 is robust, not noise. (We report CIs, not significance stars; no multiple-comparison correction is applied, so within-band sub-metric orderings below should be read descriptively.) On the text benchmark, INT8’s OCR NED ( 0.704 0.704 ) is on par with FP8 ( 0.715 0.715 ) and ahead of NF4 ( 0.760 0.760 ), over the n = 63 n{=}63 prompts carrying OCR targets; exact-match accuracy is near zero for all variants (FP8 0 % 0\\% ) — a property of the base model on these prompts — so we read NED as a relative ranking near the metric’s noise floor, not as INT8 improving on its own FP8 reference. Table 1: Headline comparison (seed 1000, 48 steps, 1024 2 1024^{2} ). INT8 matches FP8 on all three quality/text metrics while NF4 loses ≈ \\approx 2 CLIP and OCR fidelity; the trade-off is that INT8, at 8-bit weights, is FP8-class in size and (without a fused kernel) slower than NF4. Pick/CLIP are over the 200-prompt quality benchmark and OCR NED over the 63 OCR-target prompts; latency is in-VRAM s/image; size is the on-disk DiT-weight footprint (both branches). Q4_K Pick/CLIP are over the same 200-prompt benchmark. NF4 quality values are recorded to 2 d.p. from the published-variant run. Variant Pick ↑ \\uparrow CLIP ↑ \\uparrow OCR NED ↓ \\downarrow s/img ↓ \\downarrow Size (GB) ↓ \\downarrow Weights FP8 (ref) 18.97 17.54 0.715 172.9 18.6 8-bit (deq.) NF4 18.50 15.53 0.760 164.5 ∼ \\sim 10.4 4-bit W INT8 (ours) 18.96 17.42 0.704 184–185 18.6 8-bit W+A Q4_K (ours) 19.46 19.10 0.62–0.73 203.3 10.4 4.5-bit W Reference fidelity: INT8 and NF4 in the same band. Table 2 reports PSNR/SSIM/LPIPS against the FP8 images over all 300 prompts. INT8 and NF4 sit in the same perceptual-distance band: INT8 has higher SSIM ( 0.722 0.722 vs. 0.705 0.705 ), NF4 marginally better PSNR and LPIPS, with an LPIPS gap of only 0.0096 0.0096 (descriptive, no significance test). INT8 passes the PSNR ≥ 21 \\mathrm{PSNR}\\geq 21 “matches 16-bit” threshold [ 7 ] ( 21.42 21.42 ) and marginally misses LPIPS ≤ 0.30 \\mathrm{LPIPS}\\leq 0.30 ( 0.3055 0.3055 , by 0.0055 0.0055 ); the NF4 baseline ( 0.296 0.296 ) passes by a similarly small margin, so both variants effectively straddle the 0.30 0.30 line. The crucial reconciliation: INT8 deviates from FP8 by about the same amount NF4 does in pixels, but those deviations preserve quality (matching FP8 on Pick/CLIP), whereas NF4’s similar-magnitude deviations come with a real − 1.89 -1.89 CLIP loss. Reference-pixel-closeness and standalone quality are distinct axes, and INT8 wins on the latter. Table 2: Reference fidelity vs. the FP8 images (300 prompts; Q4_K on the 50-prompt slice only). Higher PSNR/SSIM and lower LPIPS = closer to FP8. Variant PSNR ↑ \\uparrow SSIM ↑ \\uparrow LPIPS ↓ \\downarrow n n INT8 (ours) 21.42 0.722 0.306 300 NF4 21.91 0.705 0.296 300 Q4_K (ours, slice) 19.96 0.646 0.388 50 What drives the recovery: protection > > smoothing. Table 3 isolates the two levers on the 50-prompt sweep slice. Naive W8A8 (no smoothing, no protection) drops to CLIP 14.30 14.30 ; adding SmoothQuant alone recovers to 16.56 16.56 and protection alone to 16.81 16.81 , while both together reach 17.54 17.54 — the ceiling. Protection is the dominant lever ( ≈ \\approx 78–92% of the recovery) and the two effects are sub-additive. The protection-size ladder shows a sharp knee: N = 17 N=17 holds the ceiling (CLIP 17.42 17.42 ) while N = 8 N=8 collapses back toward the unprotected baseline (CLIP 16.01 16.01 ), a − 1.41 -1.41 CLIP cliff over nine layers. Table 3: INT8 ablation on the 50-prompt quality slice (CLIP ↑ \\uparrow ). Protection of the high-fragility FFN down-projections is the dominant lever; the recovery knee between 8 and 17 protected layers is sharp. Configuration CLIP ↑ \\uparrow Naive W8A8 ( α = 0 \\alpha{=}0 , no protection) 14.30 + SmoothQuant only ( α = 0.5 \\alpha{=}0.5 ) 16.56 + Protection only (top-17) 16.81 + Both (final recipe) 17.54 Protection ladder N = 8 N{=}8 16.01 Protection ladder N = 17 N{=}17 (chosen) 17.42 GGUF: Q4_K beats NF4 at equal size, Q8_0 is quality-neutral. On the 200-prompt quality benchmark, Q4_K (4.5 bpw, 10.44 GB — the NF4 size class) reaches Pick 19.46 19.46 / CLIP 19.10 19.10 , beating NF4 by Pick + 0.96 +0.96 (paired 95% CI [ + 0.77 , + 1.15 ] [+0.77,+1.15] ) and CLIP + 3.57 +3.57 ( [ + 2.65 , + 4.51 ] [+2.65,+4.51] ), both intervals excluding zero. At an essentially identical on-disk size ( + 0.04 +0.04 GB over NF4), Q4_K is therefore the Pareto winner on the quality–memory frontier. It also scores above the FP8 reference on these standalone metrics (Pick + 0.49 +0.49 , CLIP + 1.55 +1.55 , intervals excluding zero); this reflects model divergence rather than higher fidelity — the reference metrics (Table 2 ) show Q4_K deviating further from FP8 in pixels (LPIPS 0.39 0.39 ), so the no-reference Pick/CLIP scorers favor its distinct outputs. On text, Q4_K’s OCR NED ( 0.62 0.62 – 0.73 0.73 ) is comparable to FP8 and ahead of NF4. Q8_0 (8.5 bpw, 19.7 GB), measured on a 50-prompt subset, is quality-neutral — Pick 18.713 18.713 against the reference 18.714 18.714 . Q4_K’s Torch dequant path runs at 203 203 s/image, slower than the other variants. Qualitative comparison. Figures 1 and 2 make the quantitative story visible. In the text examples (Fig. 1 ), INT8 reproduces the FP8 reference’s lettering almost exactly — the slogans “OPEN 24 HOURS” and “Batch Norm” stay sharp and correctly spelled, the only variant to match FP8’s glyph fidelity. Q4_K and NF4 both render the headline slogan but garble the finer secondary text (e.g. the second word of “Batch Norm”); on these prompts the two 4-bit variants look alike, and Q4_K’s OCR-NED advantage over NF4 ( 0.62 0.62 – 0.73 0.73 vs. 0.760 0.760 ) is an aggregate effect (Table 1 ) rather than a visible per-prompt one. Across all four columns the failure mode is the same: the garment, layout, and headline survive while the fine secondary lettering is the first thing to break — text rendering is the most quantization-fragile content in this model, consistent with its being the single largest per-prompt divergence hotspot in our error analysis (§ 5 , typography). The general scenes (Fig. 2 ) illustrate the pixel-distance-versus-quality distinction at the heart of § 6 : INT8 tracks the FP8 composition most closely (e.g. the sushi-map tile layout and the oil-painting brushwork), while NF4 and Q4_K diverge more in fine layout and detail yet remain coherent, high-quality images — consistent with their larger LPIPS-to-FP8 alongside undamaged standalone scores. We present these as illustrations of the aggregate metrics, not as evidence in themselves. Figure 1: Text rendering at fixed seed: FP8 (reference), INT8 (ours), NF4, Q4_K (ours). INT8 reproduces the FP8 lettering most faithfully (both “Batch Norm” and “OPEN 24 HOURS” correct); Q4_K and NF4 render the headline slogan but garble finer secondary text on these examples. Q4_K’s lower OCR NED than NF4 (Table 1 ) is an aggregate effect, not always visible per prompt. Figure 2: General scenes across FP8, INT8 (ours), NF4, and Q4_K (ours) at fixed seed. INT8 tracks FP8 most closely; lower-bit variants diverge more in layout and detail while remaining high-quality standalone. 6 Discussion Our results pin down where 8-bit quantization error concentrates and why protecting a tiny layer set recovers full quality. The fragility profile and the ablation agree: the FFN down-projections carry the outlier-heavy activations, and keeping just 17 of them in bf16 ( ≈ \\approx 8% of linears) closes almost the entire gap to the FP8 ceiling, while per-token dynamic scaling and α = 0.5 \\alpha{=}0.5 smoothing absorb the rest. The one place INT8 visibly departs from FP8 is typography: its largest per-prompt LPIPS deviations are all text prompts (up to ≈ \\approx 0.90), yet OCR confirms the rendered text stays legible (NED 0.704 0.704 , on par with FP8). This is the paper’s central measurement lesson — pixel-distance to the reference and standalone quality are distinct axes. A variant can drift from FP8 in pixels (as INT8 does on text, and as NF4 does broadly) while either preserving quality (INT8) or losing it (NF4, − 1.9 -1.9 CLIP); only a metric battery that separates the two, and that includes an OCR probe, makes the difference visible. 7 Limitations INT8’s gains are quality, not yet compute. At 8-bit weights INT8 is FP8-class in size ( 18.6 18.6 GB vs. NF4’s 10.4 10.4 GB), and because the ideogram4 stack ships no fused INT8 GEMM it runs eager at ≈ \\approx 184 s/image — ≈ \\approx 6% over the FP8 recipe and ≈ \\approx 12% over NF4. Scaled-dot-product attention is already in the model and CFG-branch batching does not apply to the separate-weight design, and torch.compile fails on this stack (its Triton codegen crashes on the INT8 dequant kernel and, separately, on the package’s own FP8 kernel). INT8 is therefore best read as a quality-preserving substrate : a fused Ampere-INT8 kernel (CUTLASS/ViDiT-Q-style [ 9 , 6 ] ) would convert its 8-bit compute into a realized speed-up, and that is the most direct line of future work. Q4_K already delivers the memory win today. Statistical scope. Headline quality uses a single seed (1000); we report paired bootstrap CIs over its 200 prompts but not across seeds. The 2 × 2 2{\\times}2 ablation and the protection ladder are single-run at n = 50 n{=}50 , so the “ 78 78 – 92 % 92\\% ” attribution and the “sharp knee” are descriptive, not error-bounded. The protection cutoff N = 17 N{=}17 is chosen on a 50-prompt slice that is a subset of the 200-prompt benchmark (a selection/evaluation overlap), though the fragility ranking it relies on comes from a disjoint 8-prompt set. The Q4_K standalone-quality result carries paired confidence intervals over the full 200-prompt benchmark, but its reference-fidelity metrics (PSNR/SSIM/LPIPS, Table 2 ) and all Q8_0 numbers are measured on a 50-prompt subset without error bars. Baselines and generality. We compare against the published FP8/NF4 variants, not academic PTQ methods (GPTQ, AWQ, SmoothQuant-only); ours is a tuned recipe for this model rather than a method bake-off. Our reference is FP8 (no public BF16 release exists), so “fidelity to FP8” is a proxy for full precision, and the standalone Pick/CLIP judges are CLIP-family and weak on fine typography — a non-CLIP judge (ImageReward/HPSv2) would strengthen the text claims. All latency figures come from a single cluster and were not replicated on independent hardware. Consistent with prior work [ 6 , 19 ] , pseudo-quantization yields no compute speedup without native kernels. 8 Availability The quantized weights are released on Hugging Face under a gated license consistent with the upstream Ideogram 4.0 non-commercial, research-only terms: • INT8 W8A8: https://huggingface.co/transformerlab/ideogram-4-int8-w8a8 • GGUF Q4_K: https://huggingface.co/transformerlab/ideogram-4-gguf-q4_k All results use seed 1000 and the eval recipe in the reproducibility package. 9 Conclusion and Future Work A SmoothQuant-plus-fragility-protection INT8 W8A8 recipe lets a 9.3B dual-branch flow-matching DiT run at 8-bit weights and activations while holding the FP8 quality ceiling and beating the published NF4 baseline by + 1.89 +1.89 CLIP. On the efficiency axis, the Pareto success criterion — ≥ \\geq NF4 quality at ≤ \\leq its memory — is met by GGUF Q4_K , which beats NF4 quality at equal on-disk size; INT8 clears the quality bar but, being FP8-class in size and (absent a fused kernel) no faster, does not clear the memory bar. The clearest next step is exactly that fused Ampere INT8 GEMM (CUTLASS/ViDiT-Q-style), which would turn the validated 8-bit-compute recipe into a realized latency win on hardware that lacks FP8 tensor cores [ 9 , 6 ] ; step-caching (TACache for flow matching [ 22 ] ), extending the full reference-fidelity battery to Q8_0, and text-encoder quantization are the natural follow-ons, each measured under the same per-category OCR protocol. References [1] Lichen Ma, Tiezhu Yue, Pei Fu, Yujie Zhong, Kai Zhou, Xiaoming Wei, and Jie Hu. CharGen: High Accurate Character-Level Visual Text Generation Model with MultiModal Encoder. arXiv:2412.17225 [cs.CV], 2024. [2] Wenda Shi, Yiren Song, Dengming Zhang, Jiaming Liu, and Xingxing Zou. FonTS: Text Rendering with Typography and Style Controls. arXiv:2412.00136 [cs.CV], 2024. [3] Natalia Frumkin and Diana Marculescu. Q-Sched: Pushing the Boundaries of Few-Step Diffusion Models with Quantization-Aware Scheduling. arXiv:2509.01624 [cs.CV], 2025. [4] Guangxuan Xiao, Ji Lin, Mickael Seznec, Hao Wu, Julien Demouth, and Song Han. SmoothQuant: Accurate and Efficient Post-Training Quantization for Large Language Models. arXiv:2211.10438 [cs.CL], 2022. [5] Tim Dettmers, Mike Lewis, Younes Belkada, and Luke Zettlemoyer. LLM.int8(): 8-bit Matrix Multiplication for Transformers at Scale. arXiv:2208.07339 [cs.LG], 2022. [6] Tianchen Zhao, Tongcheng Fang, Haofeng Huang, Enshu Liu, Rui Wan, Widyadewi Soedarmadji, Shiyao Li, Zinan Lin, Guohao Dai, Shengen Yan, Huazhong Yang, Xuefei Ning, and Yu Wang. ViDiT-Q: Efficient and Accurate Quantization of Diffusion Transformers for Image and Video Generation. arXiv:2406.02540 [cs.CV], 2024. [7] Muyang Li, Yujun Lin, Zhekai Zhang, Tianle Cai, Xiuyu Li, Junxian Guo, Enze Xie, Chenlin Meng, Jun-Yan Zhu, and Song Han. SVDQuant: Absorbing Outliers by Low-Rank Components for 4-Bit Diffusion Models. arXiv:2411.05007 [cs.CV], 2024. [8] Ruichen Chen, Keith G. Mills, and Di Niu. FP4DiT: Towards Effective Floating Point Quantization for Diffusion Transformers. arXiv:2503.15465 [cs.CV], 2025. [9] Yefei He, Luping Liu, Jing Liu, Weijia Wu, Hong Zhou, and Bohan Zhuang. PTQD: Accurate Post-Training Quantization for Diffusion Models. arXiv:2305.10657 [cs.CV], 2023. [10] Jiaojiao Ye, Zhen Wang, and Linnan Jiang. PQD: Post-training Quantization for Efficient Diffusion Models. arXiv:2501.00124 [cs.CV], 2024. [11] Shuaiting Li, Juncan Deng, Zeyu Wang, Kedong Xu, Rongtao Deng, Hong Gu, Haibin Shen, and Kejie Huang. Efficiency Meets Fidelity: A Novel Quantization Framework for Stable Diffusion. arXiv:2412.06661 [cs.CV], 2024. [12] Sayeh Sharify, Mahsa Salmani, and Hesham Mostafa. DiRotQ: Rotation-Aware Quantization for 4-bit Diffusion Transformers. arXiv:2605.16732 [cs.CV], 2026. [13] Elias Frantar, Saleh Ashkboos, Torsten Hoefler, and Dan Alistarh. GPTQ: Accurate Post-Training Quantization for Generative Pre-trained Transformers. arXiv:2210.17323 [cs.LG], 2022. [14] Ji Lin, Jiaming Tang, Haotian Tang, Shang Yang, Wei-Ming Chen, Wei-Chen Wang, Guangxuan Xiao, Xingyu Dang, Chuang Gan, and Song Han. AWQ: Activation-aware Weight Quantization for LLM Compression and Acceleration. arXiv:2306.00978 [cs.CL], 2023. [15] Tim Dettmers, Artidoro Pagnoni, Ari Holtzman, and Luke Zettlemoyer. QLoRA: Efficient Finetuning of Quantized LLMs. arXiv:2305.14314 [cs.LG], 2023. [16] Vage Egiazarian, Denis Kuznedelev, Anton Voronov, Ruslan Svirschevski, Michael Goin, Daniil Pavlov, Dan Alistarh, and Dmitry Baranchuk. Accurate Compression of Text-to-Image Diffusion Models via Vector Quantization. arXiv:2409.00492 [cs.CV], 2024. [17] William Peebles and Saining Xie. Scalable Diffusion Models with Transformers. arXiv:2212.09748 [cs.CV], 2022. [18] Junhao Wu, Dezhong Yao, and Hai Jin. Timestep-Aware SVDQuant-GPTQ for W4A4 Quantization of Wan2.2-I2V. arXiv:2605.27003 [cs.CV], 2026. [19] Yiming Zhao. Boundary-Protection W8A8 HiFloat8 Quantization for Large-Scale Text-to-Video Diffusion Transformers. arXiv:2606.00957 [cs.CV], 2026. [20] Yaron Lipman, Ricky T. Q. Chen, Heli Ben-Hamu, Maximilian Nickel, and Matt Le. Flow Matching for Generative Modeling. arXiv:2210.02747 [cs.LG], 2022. [21] Feng Liu, Shiwei Zhang, Xiaofeng Wang, Yujie Wei, Haonan Qiu, Yuzhong Zhao, Yingya Zhang, Qixiang Ye, and Fang Wan. Timestep Embedding Tells: It’s Time to Cache for Video Diffusion Model. arXiv:2411.19108 [cs.CV], 2024. [22] Xiao Liu, Kai Liu, Naiyang Guan, Hongliang Lu, Zhixin Wang, Zhikai Chen, Renjing Pei, and Yulun Zhang. Accelerating Rectified Flow Models via Trajectory-Aware Caching. arXiv:2605.16789 [cs.CV], 2026. [23] Xinyin Ma, Gongfan Fang, and Xinchao Wang. DeepCache: Accelerating Diffusion Models for Free. arXiv:2312.00858 [cs.CV], 2023. [24] Xun Zhang, Kaicheng Yang, Hongliang Lu, Haotong Qin, Yong Guo, and Yulun Zhang. Q-DiT4SR: Exploration of Detail-Preserving Diffusion Transformer Quantization for Real-World Image Super-Resolution. arXiv:2602.01273 [cs.CV], 2026. [25] Shuhan Zhuang, Mengqi Huang, Fengyi Fu, Nan Chen, Bohan Lei, and Zhendong Mao. HDGlyph: A Hierarchical Disentangled Glyph-Based Framework for Long-Tail Text Rendering in Diffusion Models. arXiv:2505.06543 [cs.CV], 2025.",
+  "text_truncated": false,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: CC BY-NC-SA 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2606.12280v1#S7"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2606.12280v1#bib.bib1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2606.12280v1#bib.bib2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2606.12280v1#bib.bib3"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2606.12280v1#S5"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2606.12280v1#bib.bib4"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2606.12280v1#bib.bib5"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2606.12280v1#bib.bib6"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2606.12280v1#bib.bib7"
+    },
+    {
+      "text": "8",
+      "url": "https://arxiv.org/html/2606.12280v1#bib.bib8"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2606.12280v1#bib.bib9"
+    },
+    {
+      "text": "10",
+      "url": "https://arxiv.org/html/2606.12280v1#bib.bib10"
+    },
+    {
+      "text": "11",
+      "url": "https://arxiv.org/html/2606.12280v1#bib.bib11"
+    },
+    {
+      "text": "12",
+      "url": "https://arxiv.org/html/2606.12280v1#bib.bib12"
+    },
+    {
+      "text": "13",
+      "url": "https://arxiv.org/html/2606.12280v1#bib.bib13"
+    },
+    {
+      "text": "14",
+      "url": "https://arxiv.org/html/2606.12280v1#bib.bib14"
+    },
+    {
+      "text": "15",
+      "url": "https://arxiv.org/html/2606.12280v1#bib.bib15"
+    },
+    {
+      "text": "16",
+      "url": "https://arxiv.org/html/2606.12280v1#bib.bib16"
+    },
+    {
+      "text": "17",
+      "url": "https://arxiv.org/html/2606.12280v1#bib.bib17"
+    },
+    {
+      "text": "18",
+      "url": "https://arxiv.org/html/2606.12280v1#bib.bib18"
+    },
+    {
+      "text": "19",
+      "url": "https://arxiv.org/html/2606.12280v1#bib.bib19"
+    },
+    {
+      "text": "20",
+      "url": "https://arxiv.org/html/2606.12280v1#bib.bib20"
+    },
+    {
+      "text": "21",
+      "url": "https://arxiv.org/html/2606.12280v1#bib.bib21"
+    },
+    {
+      "text": "22",
+      "url": "https://arxiv.org/html/2606.12280v1#bib.bib22"
+    },
+    {
+      "text": "23",
+      "url": "https://arxiv.org/html/2606.12280v1#bib.bib23"
+    },
+    {
+      "text": "24",
+      "url": "https://arxiv.org/html/2606.12280v1#bib.bib24"
+    },
+    {
+      "text": "25",
+      "url": "https://arxiv.org/html/2606.12280v1#bib.bib25"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2606.12280v1#S5.T1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2606.12280v1#S5.T2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2606.12280v1#S5.T3"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2606.12280v1#S5.F1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2606.12280v1#S5.F2"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2606.12280v1#S6"
+    },
+    {
+      "text": "https://huggingface.co/transformerlab/ideogram-4-int8-w8a8",
+      "url": "https://huggingface.co/transformerlab/ideogram-4-int8-w8a8"
+    },
+    {
+      "text": "https://huggingface.co/transformerlab/ideogram-4-gguf-q4_k",
+      "url": "https://huggingface.co/transformerlab/ideogram-4-gguf-q4_k"
+    }
+  ],
+  "matching_link_count": 38,
+  "links_truncated": false,
+  "invalid_links": []
+}

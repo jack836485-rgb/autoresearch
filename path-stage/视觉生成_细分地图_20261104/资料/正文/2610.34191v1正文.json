@@ -1,0 +1,564 @@
+{
+  "url": "https://arxiv.org/html/2610.34191v1",
+  "final_url": "https://arxiv.org/html/2610.34191v1",
+  "status": 200,
+  "title": "Timing Matters Twice: When to Query and When to Skip in Flow-Matching On-Policy Distillation.",
+  "metadata": {},
+  "paper": {
+    "title": "Timing Matters Twice: When to Query and When to Skip in Flow-Matching On-Policy Distillation.",
+    "title_warning": null,
+    "abstract": "Abstract On-policy distillation (OPD) enables flow-matching models to acquire complementary capabilities from specialized teachers through supervision on student-generated trajectories. However, different evaluation dimensions (e.g., aesthetics and OCR accuracy) and tasks (e.g., image generation and editing) emphasize different aspects of the denoising process, suggesting that their effective supervision may occur at different stages. Existing methods typically select supervision states from predefined timestep distributions, which may overlook these phase-dependent differences with unnecessary computation overhead. This motivates two critical timing decisions: when to adaptively query teachers for effective supervision based on the evolving generative process, and when to skip the remaining rollout to avoid redundant computation, i.e. , timing matters twice .\nIn this paper, we introduce PhaseOPD , a phase-aware query-and-skip framework that identifies generative phases online from revisions of predicted-clean latents, using existing student velocity predictions without additional model evaluations. For each task-assigned teacher, PhaseOPD selects a supervision state based on its phase preference and skips the unused rollout suffix once all query decisions are finalized, preserving the single-query velocity-distillation objective.\nOn SD3.5-M, PhaseOPD executes only 5.56 of 16 rollout positions per local batch (65.2% fewer), reducing training time by 41.3% relative to DanceOPD while improving Aesthetic, GenEval, and OCR scores.",
+    "authors": [
+      {
+        "name": "Renye Yan",
+        "affiliations": [
+          "Affiliation: Peking University"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Junyi Zhan",
+        "affiliations": [
+          "Affiliation: Peking University"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Jikang Cheng",
+        "affiliations": [
+          "Affiliation: Peking University"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Wei Peng",
+        "affiliations": [
+          "Affiliation: Stanford University * Equal contribution. † Project lead."
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Renye Yan Affiliation: Peking University Junyi Zhan Affiliation: Peking University Jikang Cheng Affiliation: Peking University Wei Peng Affiliation: Stanford University * Equal contribution. † Project lead.",
+    "arxiv_version": "2610.34191v1",
+    "arxiv_version_date": "2026-10-25",
+    "sections": [
+      {
+        "id": "S1",
+        "heading": "1 Introduction",
+        "level": 1,
+        "text": "Figure 1 : Teacher supervision is not equally useful throughout denoising: semantic composition, text rendering, and aesthetics benefit most from different query intervals. This motivates adapting query timing to each teacher-task pair and terminating the rollout after the required queries, rather than using a shared preset schedule and completing every denoising step. In recent years, diffusion and flow-matching models have made significant progress in image generation [ 7 , 9 , 12 , 16 , 18 ] . The research focus has gradually shifted from improving basic generative capabilities to aligning models with challenging task-specific objectives and preferences through post-training. In complex applications, generative models must satisfy multiple criteria simultaneously, including accurate semantic composition, coherent spatial structure, high-quality local details, and visual appearance aligned with human preferences. Improving multiple visual objectives within a unified model has therefore become an important challenge in generative model post-training. Previous studies have mainly combined reward signals from different evaluation dimensions using weighted aggregation and optimized the generation distribution of pretrained models through reinforcement learning [ 19 , 17 ] . However, such methods not only rely on sparse scalar rewards for optimization, but also suffer from competing update directions induced by heterogeneous rewards, often resulting in gradient interference and imbalanced capabilities. To mitigate reward sparsity and gradient conflicts in joint multi-objective optimization, recent studies have introduced On-Policy Distillation (OPD) into generative models [ 5 , 8 , 20 ] . Instead of directly optimizing a single policy with multiple rewards, multi-teacher OPD first trains specialized teachers independently for different objectives. These teachers then provide supervision on the student’s own generation trajectories, integrating diverse generative capabilities into a unified student model. Although OPD provides an effective approach to multi-objective optimization, existing OPD paradigms do not adequately characterize how the value of each task-specific teacher’s supervision changes across generation stages. Because each teacher is trained for a distinct objective, the key question is which part of the student’s trajectory provides the most effective supervision for that teacher and its corresponding task—not which teacher should be assigned to a given stage. This raises two connected questions: for each teacher-task pair, at what stage should the student be queried to obtain the most useful supervision? Once the relevant query for each task has been completed, when can the remaining rollout be terminated to avoid redundant computation? When query timing is not specified for each teacher-task pair, it remains unclear whether a chosen supervision stage is well suited to that teacher’s objective. This matters because denoising follows a stage-dependent pattern: early stages focus on constructing global semantics, intermediate stages gradually shift toward local content generation, and later stages place greater emphasis on refining details and visual aesthetics. These evolving responsibilities mean that the utility of a given teacher’s guidance depends on whether the student’s state at a particular stage is suitable for that teacher’s corresponding objective. Thus, supervision timing should be determined for each teacher-task pair, rather than by assigning teachers to stages in isolation. Beyond effectively scheduling teacher supervision, avoiding unnecessary computational overhead is another important challenge for multi-teacher OPD. Obtaining teacher supervision requires long and continuous rollouts of student trajectories, which introduces considerable computational costs. More importantly, once all necessary teacher queries have been completed, or once the denoising process is close to convergence and the latent representation has become nearly stationary, continuing the remaining rollout provides little additional information for distillation. It may even introduce optimization conflicts due to a mismatch between teacher supervision and generation dynamics. Therefore, skipping redundant trajectory supervision while preserving its effectiveness is crucial to improving OPD training efficiency. Appendix. A discusses related work in detail. Building on these insights, we propose PhaseOPD, a dual timing-adaptive policy distillation framework that uses the student’s generation dynamics to schedule each task-specific teacher at the stages where its supervision is most useful. Unlike existing methods that focus primarily on task-level teacher selection without jointly optimizing teacher-query timing and trajectory length, PhaseOPD identifies a suitable query interval for each teacher-task pair from the student’s evolving trajectory. For example, it schedules structure-oriented supervision during global layout and primary structure formation, supervision for objectives involving both structure and detail during the transition toward semantic content and salient details, and visual-quality supervision during later texture and appearance refinement. The task-specific teacher defines what is supervised, while the trajectory dynamics determine when its supervision is applied. This constitutes the first level of adaptivity in PhaseOPD. In addition, PhaseOPD uses generation dynamics and the marginal utility of task-specific supervision to detect diminishing returns. It terminates the remaining rollout once no further teacher query is needed, thereby reducing computational overhead. This constitutes the second level of adaptivity in PhaseOPD and follows Occam’s razor: introduce supervision only when necessary. In summary, our main contributions are threefold: (1) We revisit teacher organization in multi-teacher on-policy distillation by introducing a generation-dynamics dimension orthogonal to the task dimension. We further identify the mismatch between teacher supervision and denoising dynamics, a problem that task-level OPD cannot adequately characterize. (2) We propose PhaseOPD, which uses the student’s dynamics to identify, for each task-specific teacher, the generation intervals where its supervision is most valuable and schedules queries accordingly. This reduces cross-stage interference and unnecessary over-constraint. (3) We introduce a dynamic truncation strategy that immediately terminates the subsequent rollout once the supervision signals determine the required teacher-query positions, avoiding redundant computation."
+      },
+      {
+        "id": "S2",
+        "heading": "2 Motivation",
+        "level": 1,
+        "text": "Mainstream OPD paradigms overlook that different specialized teacher capabilities should align with the characteristics of different denoising stages. This oversight can create temporal conflicts between teacher supervision and denoising dynamics. If a teacher specializing in local details intervenes before the global structure stabilizes, its supervision may prematurely steer the model toward local optimization objectives and disrupt primary structure formation. Meanwhile, because local details rely on an established global structure as their underlying carrier, the absence of a stable structural foundation also prevents detail-oriented supervision from fully realizing its value . Conversely, once the primary structure has converged and the model has entered the local refinement stage, continued strong structural supervision may unnecessarily constrain subsequent detail enhancement. More generally, even if a teacher’s objective is reasonable, applying its supervision at an incompatible generation stage may still produce low-value or even competing gradients. This issue resembles course scheduling in education. A student’s learning outcome depends not only on what is taught, but also on whether the course sequence matches the student’s current developmental stage. The visualization in Fig. 1 further shows how teacher-query and supervision-skipping timing affect overall performance. Teachers specializing in semantic structure achieve the best results when queried early in the generation stage. In contrast, Optical Character Recognition (OCR) teachers focusing on textual content and teachers specializing in aesthetic quality yield greater supervisory benefits during the middle and late stages, respectively."
+      },
+      {
+        "id": "S3",
+        "heading": "3 Method",
+        "level": 1,
+        "text": "This section presents PhaseOPD’s overall framework, extending task-level teacher organization to generation-dynamics-aware teacher coordination. We first introduce an adaptive generation-stage identification module that analyzes the student model’s own generation trajectory to determine the generative responsibility of its current state. Based on the identified stage, PhaseOPD employs a dynamic teacher-routing mechanism that assigns teachers with different capabilities to the generation stages where their supervision is most effective, thereby reducing cross-stage supervision conflicts. Finally, we propose a dynamic rollout truncation mechanism to eliminate redundant computation. Figure 2 : Overall framework of our method"
+      },
+      {
+        "id": "S3.SS1.SSS0.Px1",
+        "heading": "Flow-Matching based Generation .",
+        "level": 4,
+        "text": "For the denoising process, 𝐱 t = ( 1 − t ) ​ 𝐱 0 + t ​ 𝐱 1 . \\mathbf{x}_{t}=(1-t)\\mathbf{x}_{0}+t\\mathbf{x}_{1}. where t ∈ [ 0 , 1 ] t\\in[0,1] denotes the continuous interpolation time, and 𝐱 t \\mathbf{x}_{t} represents the noisy latent state at t t . 𝐱 0 \\mathbf{x}_{0} denotes clean data, while 𝐱 1 \\mathbf{x}_{1} represents pure noise. The model learns a velocity field 𝐯 θ ​ ( 𝐱 t , t , 𝐜 ) \\mathbf{v}_{\\theta}(\\mathbf{x}_{t},t,\\mathbf{c}) , where 𝐜 \\mathbf{c} denotes the prompt encoder. Using the predicted velocity, we obtain the current clean estimate: 𝐱 ^ 0 | t = 𝐱 t − t ​ 𝐯 θ ​ ( 𝐱 t , t , 𝐜 ) . \\hat{\\mathbf{x}}_{0|t}=\\mathbf{x}_{t}-t\\,\\mathbf{v}_{\\theta}(\\mathbf{x}_{t},t,\\mathbf{c}). (1)"
+      },
+      {
+        "id": "S3.SS1.SSS0.Px2",
+        "heading": "Reward-Based Policy Optimization .",
+        "level": 4,
+        "text": "Reinforcement learning (RL) provides a direct approach to optimizing task-specific performance during the post-training of generative models. Based on the continuous generation trajectory defined in the previous section, a generative model can be viewed as a parameterized policy π θ \\pi_{\\theta} , where the complete generation process corresponds to a trajectory sampled from the policy τ ∼ π θ \\tau\\sim\\pi_{\\theta} . Given the conditioning information 𝐜 \\mathbf{c} , a reward function evaluates the quality of the final generated sample r ⁡ ( 𝐱 0 , 𝐜 ) r(\\mathbf{x}_{0},\\mathbf{c}) . The RL objective is defined as maximizing the expected reward 𝒥 ⁡ ( θ ) = 𝔼 𝐱 0 ∼ π θ ​ [ r ⁡ ( 𝐱 0 , 𝐜 ) ] . \\mathcal{J}(\\theta)=\\mathbb{E}_{\\mathbf{x}_{0}\\sim\\pi_{\\theta}}\\left[r(\\mathbf{x}_{0},\\mathbf{c})\\right]. Using policy gradient methods, the model parameters are updated according to the reward feedback ∇ θ 𝒥 ​ ( θ ) = 𝔼 τ ∼ π θ ​ [ ∇ θ ​ log ​ π θ ​ ( τ ) ​ r ​ ( 𝐱 0 , 𝐜 ) ] . \\nabla_{\\theta}\\mathcal{J}(\\theta)=\\mathbb{E}_{\\tau\\sim\\pi_{\\theta}}\\left[\\nabla_{\\theta}\\log\\pi_{\\theta}(\\tau)r(\\mathbf{x}_{0},\\mathbf{c})\\right]. Multi-objective generation tasks typically require the simultaneous optimization of multiple evaluation criteria ℛ = { r 1 , r 2 , ⋯ , r K } , \\mathcal{R}=\\{r_{1},r_{2},\\cdots,r_{K}\\}, where each reward targets a specific generative capability or preference."
+      },
+      {
+        "id": "S3.SS1.SSS0.Px3",
+        "heading": "Multi-Teacher On-Policy Distillation .",
+        "level": 4,
+        "text": "{ π ϕ 1 , π ϕ 2 , ⋯ , π ϕ K } , \\{\\pi_{\\phi_{1}},\\pi_{\\phi_{2}},\\cdots,\\pi_{\\phi_{K}}\\}, τ ∼ π θ , \\tau\\sim\\pi_{\\theta}, Multi-teacher On-Policy Distillation first trains multiple teacher policies for different objectives [ 5 , 8 ] { π ϕ 1 , π ϕ 2 , ⋯ , π ϕ K } , \\{\\pi_{\\phi_{1}},\\pi_{\\phi_{2}},\\cdots,\\pi_{\\phi_{K}}\\}, where π ϕ k \\pi_{\\phi_{k}} denotes the teacher policy optimized for the k t ​ h k^{th} objective. During distillation, the student model π θ \\pi_{\\theta} generates trajectories according to its own policy τ ∼ π θ \\tau\\sim\\pi_{\\theta} , and the corresponding teacher provides online supervision at the states the student visits. For the k t ​ h k^{th} teacher, the distillation objective can be formulated as: ℒ k = 𝔼 τ ∼ π θ [ D ( π θ ( ⋅ | 𝐱 t ) , π ϕ k ( ⋅ | 𝐱 t ) ) ] , \\mathcal{L}_{k}=\\mathbb{E}_{\\tau\\sim\\pi_{\\theta}}\\left[D\\left(\\pi_{\\theta}(\\cdot|\\mathbf{x}_{t}),\\pi_{\\phi_{k}}(\\cdot|\\mathbf{x}_{t})\\right)\\right], (2) where D ⁡ ( ⋅ , ⋅ ) D(\\cdot,\\cdot) measures the discrepancy between the student and teacher policies."
+      },
+      {
+        "id": "S3.SS2",
+        "heading": "3.2 Online Generative Phase Perception",
+        "level": 2,
+        "text": "Existing OPD methods select teachers primarily according to task categories. However, a teacher’s supervisory value varies across states and generation stages. To allocate teacher supervision on demand following the inherent generation dynamics, PhaseOPD detects stage transitions during the student model’s on-policy rollout and adaptively determines when each teacher should provide supervision."
+      },
+      {
+        "id": "S3.SS2.SSS0.Px1",
+        "heading": "Spatial Dynamics Analysis .",
+        "level": 4,
+        "text": "Let k k denote a discrete sampling index along the student-generated trajectory, and let t k t_{k} denote the corresponding continuous time. Using the clean latent predictions from Eq. 1 , we define the revision between adjacent sampling positions as: 𝐝 k = 𝐱 ^ 0 | t k − 𝐱 ^ 0 | t k − 1 . \\mathbf{d}_{k}=\\hat{\\mathbf{x}}_{0\\mid t_{k}}-\\hat{\\mathbf{x}}_{0\\mid t_{k-1}}. (3) To distinguish block-level structural changes from local spatial variations, let 𝒫 s ​ ( ⋅ ) \\mathcal{P}_{s}(\\cdot) denote a block-averaging projection at scale s s , which first applies channel-wise average pooling with both kernel size and stride set to s s , followed by nearest-neighbor upsampling to restore the original latent spatial dimensions. This process can be formulated as: ( 𝒫 s ​ ( 𝐝 k ) ) ℓ , h , w \\displaystyle\\bigl(\\mathcal{P}_{s}(\\mathbf{d}_{k})\\bigr)_{\\ell,h,w} (4) = 1 s 2 ​ ∑ a = 0 s − 1 ∑ b = 0 s − 1 ( 𝐝 k ) ℓ , s ⁡ ⌊ h / s ⌋ + a , s ⁡ ⌊ w / s ⌋ + b . \\displaystyle=\\frac{1}{s^{2}}\\sum_{a=0}^{s-1}\\sum_{b=0}^{s-1}(\\mathbf{d}_{k})_{\\ell,\\,s\\lfloor h/s\\rfloor+a,\\,s\\lfloor w/s\\rfloor+b}. Here, ℓ \\ell denotes the latent channel index; h h and w w denote the zero-based spatial row and column indices, respectively; a a and b b are within-block offsets; and ⌊ ⋅ ⌋ \\lfloor\\cdot\\rfloor denotes the floor operation. This operation assigns the mean of each non-overlapping s × s s\\times s block to all positions within that block and requires both latent’s height and width to be divisible by s s . We define the spatial-scale revision ratio as: F k = ‖ 𝐝 k − 𝒫 s ​ ( 𝐝 k ) ‖ 2 2 ‖ 𝐝 k ‖ 2 2 + ε . F_{k}=\\frac{\\left\\|\\mathbf{d}_{k}-\\mathcal{P}_{s}(\\mathbf{d}_{k})\\right\\|_{2}^{2}}{\\left\\|\\mathbf{d}_{k}\\right\\|_{2}^{2}+\\varepsilon}. (5) Here, ε \\varepsilon is a numerical stability term, and we use s = 4 s=4 in this work. A smaller F k F_{k} indicates that the current revision is dominated by block-level, low-frequency structural changes. In contrast, a larger F k F_{k} indicates a greater contribution of local spatial variations to the revision energy. This signal measures the spatial composition of the prediction revision, not image quality or overall revision magnitude. We further define the rate of change in the spatial-scale revision ratio between adjacent sampling positions as: Δ ​ F k = F k − F k − 1 . \\Delta F_{k}=F_{k}-F_{k-1}. (6)"
+      },
+      {
+        "id": "S3.SS2.SSS0.Px2",
+        "heading": "Adaptive Phase Boundary Detection .",
+        "level": 4,
+        "text": "According to the previously defined rate of change in the spatial-scale revision ratio, Δ ​ F k \\Delta F_{k} , we further analyze how its slope evolves along the generation trajectory to identify dynamical boundaries between generation stages. Specifically, during denoising, Δ ​ F k \\Delta F_{k} initially increases, then decreases, and gradually stabilizes. We therefore define two stage boundaries as the first positions at which the slope approaches zero during the increasing and decreasing phases, respectively. First, we define the discrete slope of Δ ​ F k \\Delta F_{k} between adjacent sampling positions as g k = Δ ​ F k − Δ ​ F k − 1 k − ( k − 1 ) = Δ ​ F k − Δ ​ F k − 1 . g_{k}=\\frac{\\Delta F_{k}-\\Delta F_{k-1}}{k-(k-1)}=\\Delta F_{k}-\\Delta F_{k-1}. (7) To prevent local fluctuations at individual sampling positions from obscuring the overall trend, we introduce a historical observation window of length W W and define its average slope as: g ¯ k ( W ) = 1 W ​ ∑ j = k − W k − 1 g j . \\bar{g}_{k}^{(W)}=\\frac{1}{W}\\sum_{j=k-W}^{k-1}g_{j}. (8) Here, W W denotes the length of the historical observation window, and g ¯ k ( W ) \\bar{g}_{k}^{(W)} denotes the average slope over the W W sampling positions preceding the current position. The first stage boundary is defined as the first position at which the current slope approaches zero following a period of sustained growth in Δ ​ F k \\Delta F_{k} as: k L = min { k | g ¯ k ( W ) > 0 , | g k | → 0 } . k_{\\mathrm{L}}=\\min\\left\\{k\\;\\middle|\\;\\bar{g}_{k}^{(W)}>0,\\;|g_{k}|\\to 0\\right\\}. (9) The second stage boundary is defined as the position at which the current slope again approaches zero following a period of sustained decline in Δ ​ F k \\Delta F_{k} , as formulated: k R = min { k > k L | g ¯ k ( W ) < 0 , | g k | → 0 } . k_{\\mathrm{R}}=\\min\\left\\{k>k_{\\mathrm{L}}\\;\\middle|\\;\\bar{g}_{k}^{(W)}<0,\\;|g_{k}|\\to 0\\right\\}. (10) Since the generation process consists of discrete sampling positions, we adopt a near-zero criterion rather than requiring the slope to be exactly zero. Based on the two dynamical boundaries defined above, we adaptively partition the student model’s generation trajectory into three consecutive stages as: S k = { I , k < k L , II , k L ≤ k < k R , III , k ≥ k R . \\mathrm{S}_{k}=\\begin{cases}\\mathrm{I},&k<k_{\\mathrm{L}},\\\\ \\mathrm{II},&k_{\\mathrm{L}}\\leq k<k_{\\mathrm{R}},\\\\ \\mathrm{III},&k\\geq k_{\\mathrm{R}}.\\end{cases} (11) Here, S k \\mathrm{S}_{k} denotes the generation stage at sampling position k k . Stage I \\mathrm{I} establishes global semantics and primary structures, Stage II \\mathrm{II} forms local content, and Stage III \\mathrm{III} refines visual aesthetics."
+      },
+      {
+        "id": "S3.SS3",
+        "heading": "3.3 Teacher-Conditioned Phase Routing",
+        "level": 2,
+        "text": "Building on the three generation stages identified in Sec. 3.2 , we establish a correspondence between generation stages and supervision objectives, enabling each specialized teacher to contribute during the stage in which its supervision is most valuable. Stage I: Global Structure Formation . Since the overall structure has not yet fully formed at this stage, local details lack a stable structural foundation. This stage is therefore better suited to supervision targeting global structural consistency, such as GenEval. We set the teacher query position to the sampling position immediately preceding the left boundary, namely k L − 1 k_{\\mathrm{L}}-1 . This choice is motivated by the observation that states too close to the pure-noise endpoint lack well-defined structure. Selecting the last sampling position before the left boundary thus allows structure-related supervision to be applied once structural information has begun to emerge, but before local details become dominant. Stage II: Local Content Generation . In Stage II, the primary structure provides a relatively stable spatial foundation for local content, while local semantics and details continue to emerge and evolve. This stage is therefore well suited to specialized teachers that focus on local content accuracy, such as OCR teachers. We randomly sample a supervision point within Stage II to cover varying degrees of local content formation, avoid excessive reliance on a single generation position, and improve the adaptability of local content supervision to variations in states within this stage. Stage III: Visual Aesthetic Enhancement . In the final stage of generation, the image approaches convergence, with the primary structure and local details remaining largely unchanged. This stability provides a foundation for aesthetic optimization, making this stage well suited to specialized aesthetic teachers, such as Aesthetic. In Stage III, we set the teacher query position to the first sampling position after the right boundary, namely k R + 1 k_{\\mathrm{R}}+1 . This choice lets aesthetic supervision act on a state where the primary structure and local content are already stable, while still leaving room for further refinement. Once the supervision position for the current sample is determined, the teacher provides supervision only at the corresponding student-visited state, preserving the basic formulation of on-policy distillation while reducing cross-stage supervision mismatch and redundant trajectory computation. The unified query rule can be written as: q m = { k L − 1 , m ∈ 𝒯 str , K , K ∼ Unif ⁡ ( { k L , … , k R − 1 } ) , m ∈ 𝒯 loc , k R + 1 , m ∈ 𝒯 vis . q_{m}=\\begin{cases}k_{\\mathrm{L}}-1,&m\\in\\mathcal{T}_{\\mathrm{str}},\\\\[3.0pt] K,\\quad K\\sim\\operatorname{Unif}\\bigl(\\{k_{\\mathrm{L}},\\ldots,k_{\\mathrm{R}}-1\\}\\bigr),&m\\in\\mathcal{T}_{\\mathrm{loc}},\\\\[3.0pt] k_{\\mathrm{R}}+1,&m\\in\\mathcal{T}_{\\mathrm{vis}}.\\end{cases} (12) Here, q m q_{m} denotes the query position for teacher m m ; 𝒯 str \\mathcal{T}_{\\mathrm{str}} , 𝒯 loc \\mathcal{T}_{\\mathrm{loc}} , and 𝒯 vis \\mathcal{T}_{\\mathrm{vis}} denote the sets of teachers responsible for optimizing global structure, local content, and visual quality, respectively; and K K denotes a position randomly sampled from Stage II. We emphasize that GenEval, OCR, and Aesthetic serve as representative examples of these three teacher categories rather than a fixed teacher configuration. Other teachers with corresponding optimization capabilities are equally applicable."
+      },
+      {
+        "id": "S4",
+        "heading": "4 Experiments",
+        "level": 1,
+        "text": "This chapter evaluates PhaseOPD around three questions: (1) whether staged querying can improve both generation quality and training cost with the primary teacher group; (2) whether these gains generalize across teacher combinations, student backbones, and task types; and (3) what roles adaptive triggering and early termination play, and why online signals can identify effective querying stages. We present the main results, generalization experiments, component ablations, and mechanistic analyses in that order. Detailed settings and additional results are provided in Appendix B ."
+      },
+      {
+        "id": "S4.SS1.SSS0.Px1",
+        "heading": "Implementation Details & Training Data",
+        "level": 4,
+        "text": "We initialize an SD3.5-Medium student from the base model and train rank-32 LoRA adapters at 512 × 512 512\\times 512 resolution using frozen Aesthetic, GenEval, and OCR teachers. Our default configuration uses 16-step on-policy rollouts, equal task sampling, 3,000 updates, and four H20 GPUs. Full data construction, guidance scales, and optimization settings are provided in Appendix B.1 ."
+      },
+      {
+        "id": "S4.SS1.SSS0.Px2",
+        "heading": "Metrics.",
+        "level": 4,
+        "text": "We use AES on DrawBench, GenEval, and OCR as the primary metrics for aesthetics, compositional alignment, and text rendering. We additionally report HPSv3, PickScore, and SigLIP where applicable, and use ImageReward and VQAScore as held-out diagnostics."
+      },
+      {
+        "id": "S4.SS1.SSS0.Px3",
+        "heading": "Baselines.",
+        "level": 4,
+        "text": "We compare against the SD3.5-M base model, three single-teacher models, DanceOPD, and DiffusionOPD. Our default model augments DanceOPD with phase-aware querying; we additionally apply the same mechanism to DiffusionOPD and FlowOPD and evaluate its transfer to the BAGEL and FLUX backbones."
+      },
+      {
+        "id": "S4.SS2",
+        "heading": "4.2 Main Results",
+        "level": 2,
+        "text": "Table 1 : Final generation quality, independent diagnostic metrics, and training cost. Aesthetic, GenEval, and OCR are training objectives. ImageReward and VQAScore, shaded in light blue, are excluded from training and assess cross-metric generalization and potential reward hacking. The base model and individual teachers serve as capability references. Among multi-teacher methods, the best and second-best results are shown in bold and underlined, respectively. Method Aesthetic ↑ \\uparrow GenEval ↑ \\uparrow OCR ↑ \\uparrow Time (min) ↓ \\downarrow Update (s) ↓ \\downarrow GPU-h ↓ \\downarrow ImageReward ↑ \\uparrow VQAScore ↑ \\uparrow Base model and single-teacher references SD3.5-M Base 5.3973 0.6620 0.5611 – – – 0.9565 0.7416 Aesthetic Teacher 6.2133 0.7246 0.5852 – – – 1.5708 0.7840 GenEval Teacher 5.2709 0.9336 0.6473 – – – 0.8062 0.7225 OCR Teacher 5.2665 0.6631 0.9428 – – – 0.9243 0.7275 Multi-teacher distillation methods DanceOPD 5.8185 0.8903 0.9289 275.67 5.5133 18.3778 1.3536 0.7856 DiffusionOPD 6.1335 0.9457 0.9516 967.73 38.7093 64.5156 1.5432 0.7907 Ours 6.1705 0.9461 0.9413 161.89 3.2379 10.7929 1.5586 0.7923 Tab. 1 summarizes overall performance across multiple capabilities and training cost. Although DanceOPD and DiffusionOPD can integrate knowledge from multiple teachers, their trajectory-level supervision incurs substantial computational overhead. In contrast, our method achieves a better overall balance across Aesthetic, GenEval, and OCR while maintaining higher training efficiency. These results suggest that adaptively identifying and accommodating diffusion models’ generation dynamics through targeted teacher supervision can improve multi-teacher knowledge fusion while avoiding unused rollout computation. Consistent improvements on independent diagnostic metrics—ImageReward and VQAScore in Tab. 1 —further indicate that these gains generalize beyond the training objectives, rather than merely reflecting overfitting to teacher rewards. Fig. 5 further presents representative results for the primary teacher group. We select Aesthetic, GenEval, and OCR prompts from a fixed sampling list. All methods within each row use the same prompt, initial noise, and inference configuration, so differences in visual quality, compositional generation, and text rendering directly reflect the three corresponding metrics in Tab. 1 . We further compare the cost required by different methods to reach the same visual metric scores. Fig. 3 shows the learning curves of the three methods under the same wall-clock budget. Our method reaches competitive quality levels earlier and maintains stable performance across multiple capabilities throughout subsequent training, indicating that its advantages do not stem from a longer training budget or a fortuitously selected final checkpoint. Together with the final results in Tab. 1 , these findings show that our method consistently achieves a more favorable quality–time trade-off throughout training. The respective contributions of staged querying and early termination are further examined in the subsequent component ablations. Figure 3 : Quality over the first 160 training minutes. Panels show Aesthetic, GenEval, and OCR for DanceOPD, DiffusionOPD, and Ours. Time uses each method’s matched mean update time measured with exclusive GPU access. Phase-aware querying can be directly integrated into DanceOPD, DiffusionOPD, and FlowOPD without modifying their original distillation objectives. As shown in Fig. 4 , incorporating our method improves both generation quality and training efficiency across all three underlying methods. These results indicate that PhaseOPD is not tied to a specific distillation loss or implementation and can serve as a general-purpose component for different OPD methods. Figure 4 : Plug-and-play comparison across three OPD objectives. Each panel compares SD3.5-M Base, the corresponding OPD method, and the method augmented with Ours. Quality metrics share scales across panels; Overall Quality is the geometric mean of the three normalized quality scores. Training efficiency uses inverse training time normalized within each panel and is omitted for the base model. Figure 5 : Qualitative comparison with the primary teacher set. Rows correspond to Aesthetic, GenEval, and OCR; columns show SD3.5-M Base, DanceOPD, DiffusionOPD, and Ours. All methods use archived, paired outputs generated with the same seed."
+      },
+      {
+        "id": "S4.SS3",
+        "heading": "4.3 Compatibility Experiments",
+        "level": 2,
+        "text": "Table 2 : Generation quality, cross-metric generalization, and training cost with alternative teachers. HPSv3, SigLIP, and OCR are training objectives; ImageReward and VQAScore are held-out metrics for assessing generalization and potential reward hacking. Bold and underlined values indicate the best and second-best multi-teacher results, respectively. Base and single-teacher models serve as references. Ours offers a favorable quality–efficiency balance across teacher combinations. Method HPSv3 ↑ \\uparrow SigLIP ↑ \\uparrow OCR ↑ \\uparrow Time (min) ↓ \\downarrow Update (s) ↓ \\downarrow GPU-h ↓ \\downarrow ImageReward ↑ \\uparrow VQAScore ↑ \\uparrow Base model and single-teacher references SD3.5-M Base 2.613 0.1472 0.5611 – – – 0.9565 0.7416 HPSv3 Teacher 12.44 0.1361 0.5648 – – – 1.309 0.7392 SigLIP Teacher 7.091 0.1973 0.6083 – – – 1.274 0.7904 OCR Teacher 2.673 0.1507 0.9428 – – – 0.9243 0.7275 Multi-teacher distillation methods DanceOPD 10.20 0.1891 0.9418 150.7 3.014 10.05 1.299 0.7635 DiffusionOPD 9.964 0.1652 0.9311 351.4 7.029 23.43 1.121 0.7438 Ours 10.30 0.1938 0.9136 91.50 1.830 6.100 1.323 0.7665 Figure 6 : Qualitative comparison with the alternative teacher set. Rows correspond to HPSv3, SigLIP, and OCR; columns show SD3.5-M Base, DanceOPD, DiffusionOPD, and Ours. Figure 7 : Cross-backbone and cross-task generalization on BAGEL. This setting changes both the student backbone and teacher tasks, covering text-to-image generation, global editing, and local editing. Figure 8 : Teacher-specific query distributions across three OPD hosts. Panels correspond to Ours, DiffusionOPD + Ours, and FlowOPD + Ours, each showing GenEval, OCR, and Aesthetic teachers. The horizontal axis indicates query position; the vertical axis shows the percentage of trajectories normalized separately for each teacher. Figure 9 : Mean dynamics of online detection signals. The blue curve shows the change in the spatial-scale revision ratio, Δ ​ F k \\Delta F_{k} , and the orange curve shows its first-order difference g k g_{k} . Background colors and vertical dashed lines indicate three generation stages identified by near-zero slopes after sustained increases and decreases in Δ ​ F k \\Delta F_{k} . Table 3 : Cross-backbone generalization on FLUX. FLUX.1-dev Base serves as the pretrained reference. We compare DanceOPD and Ours on PickScore, GenEval, OCR, and training cost. Method PickScore ↑ \\uparrow GenEval ↑ \\uparrow OCR ↑ \\uparrow Time (min) ↓ \\downarrow Update (s) ↓ \\downarrow GPU-h ↓ \\downarrow FLUX.1-dev Base 0.8745 0.6569 0.56540 – – – DanceOPD 0.9284 0.8271 0.8842 804.88 16.091 53.658 Ours 0.9292 0.82858 0.9478 376.00 7.510 25.066 Figure 10 : Double-blind user preferences for Ours versus multi-teacher baselines. To examine whether our method depends on the default teacher combination, we replace the Aesthetic and GenEval teachers with HPSv3 and SigLIP while retaining the OCR teacher. Tab. 2 shows that the single-teacher models still exhibit pronounced task-specific biases, whereas our method achieves the best HPSv3, SigLIP, and independent diagnostic scores among multi-teacher methods while remaining competitive on OCR. These results indicate that phase-aware querying can adapt to different teachers’ capability profiles and still produce a well-balanced, multi-capability student under different teacher combinations, rather than being effective only for the default teacher group. Fig. 6 further presents paired generation results across the three capabilities. The HPSv3 examples emphasize overall visual quality, the SigLIP examples assess image–text semantic alignment and spatial consistency, and the OCR examples focus on the accuracy and legibility of the specified text. Our method maintains consistent performance across different prompt types, providing qualitative support for the quantitative results obtained with the alternative teacher group."
+      },
+      {
+        "id": "S4.SS4",
+        "heading": "4.4 Generalization Experiments",
+        "level": 2,
+        "text": "We evaluate the cross-backbone generalization of our method in two complementary settings. The BAGEL experiments change both the generative backbone and the task formulation, extending text-to-image generation to global and local editing. As shown in Fig. 7 , our method improves text-to-image generation and local editing, remains competitive on global editing, and reduces overall training cost. The FLUX experiments retain the multi-teacher text-to-image generation setting and replace only the underlying generative model. Tab. 3 shows that our method outperforms DanceOPD across all generation quality metrics while achieving higher training efficiency. Together, these experiments demonstrate that phase-aware querying is not tied to the specific generation process of SD3.5-M but can generalize across model architectures and task formulations, consistently improving the quality–cost trade-off."
+      },
+      {
+        "id": "S4.SS5",
+        "heading": "4.5 Ablation Studies",
+        "level": 2,
+        "text": "Table 4 : Effects of individual components on final quality and training efficiency. AT denotes adaptive triggering, and ES denotes early skipping. The best and second-best results for each metric are shown in bold and underlined, respectively. Variant AT ES Aesthetic ↑ \\uparrow GenEval ↑ \\uparrow OCR ↑ \\uparrow Time (min) ↓ \\downarrow Update (s) ↓ \\downarrow GPU-h ↓ \\downarrow Ours (w/o AT and ES) × \\times × \\times 5.9044 0.9496 0.8626 275.333 5.5067 18.356 Ours (w/o AT) × \\times ✓ \\checkmark 5.8073 0.8892 0.9305 241.78 4.836 16.119 Ours (w/o ES) ✓ \\checkmark × \\times 6.1642 0.9341 0.9275 277.667 5.5533 18.511 Full Ours ✓ \\checkmark ✓ \\checkmark 6.1705 0.9461 0.9413 161.893 3.2379 10.793 Our method comprises adaptive phase querying (AT) and early skipping (ES). To examine their respective roles, we remove AT, ES, and both components in Tab. 4 . Removing ES yields Aesthetic performance close to that of the full model, with slight decreases in GenEval and OCR and a substantial increase in training time. This suggests that ES effectively reduces rollout computation while preserving generation quality. Removing only AT lowers all three quality metrics and increases training time, indicating that adaptive phase querying helps balance effective supervision with computational efficiency. When we remove both AT and ES, GenEval improves, but Aesthetic and OCR decline substantially, revealing trade-offs among capabilities. The full model achieves the best Aesthetic and OCR scores and the second-best GenEval score, while offering the highest training efficiency. These results support the complementary roles of AT and ES: AT selects supervision points according to the generation phase, while ES eliminates subsequent computation once the necessary queries have been completed. Together, they achieve a better balance between generation quality and training efficiency."
+      },
+      {
+        "id": "S4.SS6",
+        "heading": "4.6 Mechanism Analysis",
+        "level": 2,
+        "text": "Controlled single-teacher experiments on phase sensitivity are provided in Appendix B.4 . To analyze the querying preferences of different teachers during generation, we summarize the query positions selected by our method under three OPD training objectives in Fig. 8 . GenEval queries are concentrated primarily in the early stages, OCR queries favor the middle stages, and Aesthetic queries span both early and late stages. Although the precise peaks vary with the underlying training objective, the overall phase preferences of the three teachers remain consistent. These results indicate that different teachers supervise at different generation stages, while our method adapts query positions to the student’s actual trajectory rather than relying on fixed timesteps."
+      },
+      {
+        "id": "S4.SS6.SSS0.Px1",
+        "heading": "Student dynamics recover this ordering online",
+        "level": 4,
+        "text": "Fig. 9 shows the two online signals used by the adaptive trigger: the change in the spatial-scale revision ratio, Δ ​ F k = F k − F k − 1 \\Delta F_{k}=F_{k}-F_{k-1} , and its first-order difference, g k = Δ ​ F k − Δ ​ F k − 1 g_{k}=\\Delta F_{k}-\\Delta F_{k-1} . As the rollout progresses, Δ ​ F k \\Delta F_{k} rises rapidly in the early stages and reaches a peak, then declines substantially before settling into small, stable fluctuations in the later stages. The detector identifies stage boundaries when g k g_{k} approaches zero after sustained increases and decreases in Δ ​ F k \\Delta F_{k} , respectively, following the criterion in Sec. 3.2 . These transitions separate the early rise, intermediate decline, and later stabilization of the spatial-scale revision signal. Because both signals are computed solely from current and past student states, phase boundaries can be identified causally online without access to future rollout states."
+      },
+      {
+        "id": "S4.SS7",
+        "heading": "4.7 User Preference Study",
+        "level": 2,
+        "text": "To evaluate the generated results from a human perceptual perspective, we conduct a double-blind user preference study comparing our method against DanceOPD and DiffusionOPD in pairwise comparisons. Each pair of candidate images is generated using the same text prompt, random seed, and inference configuration and presented in a randomized order. Participants are unaware of which method produced each image and are asked to select the better result based on overall visual quality, text alignment, and content completeness, or to indicate a tie. As shown in Fig. 10 , our method receives higher user preference rates against both multi-teacher distillation baselines. These findings are consistent with the automatic evaluations, indicating that the improvements from phase-aware querying translate into perceptible gains in generation quality rather than merely numerical improvements on specific evaluation metrics."
+      },
+      {
+        "id": "S5",
+        "heading": "5 Conclusion",
+        "level": 1,
+        "text": "We presented PhaseOPD, which connects teacher supervision timing with early termination of student rollouts. Causal signals from predicted-clean latent revisions identify teacher-specific query states, allowing single-query distillation to proceed without generating the remaining trajectory. Experiments show fewer rollout steps, lower training cost, the strongest GenEval score in our comparison, and faster first-hour gains on GenEval and OCR. The results support jointly designing where to learn and how far to roll out as a practical route to efficient multi-capability post-training."
+      },
+      {
+        "id": "bib",
+        "heading": "References",
+        "level": 1,
+        "text": "[1] R. Agarwal, N. Vieillard, Y. Zhou, P. Stanczyk, S. Ramos, M. Geist, and O. Bachem (2024) On-policy distillation of language models: learning from self-generated mistakes . In International Conference on Learning Representations , External Links: Link Cited by: §A.2 , §A.4 . [2] Y. Balaji, S. Nah, X. Huang, A. Vahdat, J. Song, Q. Zhang, K. Kreis, M. Aittala, T. Aila, S. Laine, B. Catanzaro, T. Karras, and M. Liu (2022) eDiff-I: text-to-image diffusion models with an ensemble of expert denoisers . arXiv preprint arXiv:2211.01324 . External Links: Link Cited by: §A.3 . [3] K. Black, M. Janner, Y. Du, I. Kostrikov, and S. Levine (2024) Training diffusion models with reinforcement learning . In International Conference on Learning Representations , External Links: Link Cited by: §A.1 . [4] P. Esser, S. Kulal, A. Blattmann, R. Entezari, J. Müller, H. Saini, Y. Levi, D. Lorenz, A. Sauer, F. Boesel, D. Podell, T. Dockhorn, Z. English, and R. Rombach (2024) Scaling rectified flow transformers for high-resolution image synthesis . In International Conference on Machine Learning , External Links: Link Cited by: §A.1 . [5] Z. Fang, W. Huang, Y. Zeng, Y. Zhao, S. Chen, K. Feng, Y. Lin, L. Chen, Z. Chen, S. Cao, and F. Zhao (2026) Flow-OPD: on-policy distillation for flow matching models . arXiv preprint arXiv:2605.08063 . External Links: Link Cited by: §A.2 , §A.4 , §1 , §3.1 . [6] J. Ho, A. Jain, and P. Abbeel (2020) Denoising diffusion probabilistic models . In Advances in Neural Information Processing Systems , External Links: Link Cited by: §A.1 . [7] H. Li, T. Ren, X. Ma, C. Qing, Z. Fang, S. He, Z. Guo, H. Wu, J. Tian, Y. Zou, et al. (2026) Videococo: code-as-cot for physically-consistent video generation via an agentic dual-engine system . arXiv preprint arXiv:2607.27380 . Cited by: §1 . [8] Q. Li, J. Yu, K. Jiang, Y. Wei, Z. Xing, P. Li, R. Chu, S. Zhang, Y. Liu, and Z. Wu (2026) DiffusionOPD: a unified perspective of on-policy distillation in diffusion models . arXiv preprint arXiv:2605.15055 . External Links: Link Cited by: §A.2 , §A.4 , §1 , §3.1 . [9] Z. Ling, X. Yu, R. Yan, J. Cheng, Z. Wang, Q. Shuai, and C. Zou (2026) GenTrack: physical alignment for robot-native motion generation and zero-shot humanoid tracking . arXiv preprint arXiv:2608.01410 . Cited by: §1 . [10] Y. Lipman, R. T. Q. Chen, H. Ben-Hamu, M. Nickel, and M. Le (2023) Flow matching for generative modeling . In International Conference on Learning Representations , External Links: Link Cited by: §A.1 . [11] J. Liu, G. Liu, J. Liang, Y. Li, J. Liu, X. Wang, P. Wan, D. Zhang, and W. Ouyang (2025) Flow-GRPO: training flow matching models via online RL . arXiv preprint arXiv:2505.05470 . External Links: Link Cited by: §A.1 . [12] Q. Ma, J. Cheng, L. Liang, Z. Yu, T. Huang, and R. Yan (2026) Can we perform online rl for image editing without editing rewards? . arXiv preprint arXiv:2608.22780 . Cited by: §1 . [13] Z. Ning, Z. Zhou, P. Jiang, X. Han, G. Zhang, J. Yang, Z. Zheng, Y. Zheng, W. Liu, and C. Guo (2026) Flow3D-OPD: multi-teacher on-policy distillation for 3D geometry generation with flow-matching diffusion transformer . arXiv preprint arXiv:2609.07137 . External Links: Link Cited by: §A.4 . [14] T. Salimans and J. Ho (2022) Progressive distillation for fast sampling of diffusion models . In International Conference on Learning Representations , External Links: Link Cited by: §A.3 . [15] B. Wallace, M. Dang, R. Rafailov, L. Zhou, A. Lou, S. Purushwalkam, S. Ermon, C. Xiong, S. Joty, and N. Naik (2024) Diffusion model alignment using direct preference optimization . In IEEE/CVF Conference on Computer Vision and Pattern Recognition , External Links: Link Cited by: §A.1 . [16] R. Yan, J. Cheng, Y. Wu, B. Huang, W. Peng, Z. Wang, L. Liang, and Y. Cai (2026) SwiftExplorer: training-free diffusion model alignment with swift diversity exploration . arXiv preprint arXiv:2609.06651 . Cited by: §1 . [17] R. Yan, J. Cheng, Y. Wu, W. Peng, Z. Wang, L. Liang, and Y. Cai (2026) PAST: prompt-adaptive sampling termination for efficient diffusion model . arXiv preprint arXiv:2608.06794 . Cited by: §1 . [18] R. Yan, J. Zhong, J. Cheng, Y. Gao, Y. Li, and L. Liang (2026) Beyond explicit intent: discovering and shaping artistic intent through human-ai co-creation . arXiv preprint arXiv:2610.24010 . Cited by: §1 . [19] E. Zhao, R. Yan, J. Li, K. Li, and J. Xing (2022) AlphaHoldem: high-performance artificial intelligence for heads-up no-limit poker via end-to-end reinforcement learning . In Proceedings of the AAAI conference on artificial intelligence , Vol. 36 , pp. 4689–4697 . Cited by: §1 . [20] W. Zhou, X. Zhu, Z. Xu, B. Dong, L. Gong, Y. Liang, M. Chu, L. Qu, L. Kong, W. Liu, and T. Chua (2026) DanceOPD: on-policy generative field distillation . arXiv preprint arXiv:2606.27377 . External Links: Link Cited by: §A.2 , §A.4 , §1 ."
+      },
+      {
+        "id": "A1.SS1",
+        "heading": "A.1 Post-training generative models.",
+        "level": 2,
+        "text": "Diffusion models [ 6 ] and flow matching [ 10 ] learn iterative transformations between noise and data; rectified-flow transformers scale this approach to high-resolution text-to-image synthesis [ 4 ] . Post-training methods align these models with downstream objectives. DDPO treats denoising as a sequential decision process and applies policy gradients to image rewards [ 3 ] ; Diffusion-DPO instead learns from pairwise preferences [ 15 ] . Flow-GRPO extends online policy optimization to flow matching and reduces the number of training denoising steps [ 11 ] . PhaseOPD integrates expert capabilities and reduces rollout computation by identifying supervision states online."
+      },
+      {
+        "id": "A1.SS2",
+        "heading": "A.2 On-policy capability transfer.",
+        "level": 2,
+        "text": "Training on student-generated sequences is a central principle of on-policy language-model distillation [ 1 ] . DiffusionOPD transfers task-specific teachers along student trajectories using a continuous-state distillation formulation [ 8 ] . Flow-OPD combines specialized teachers, task routing, and dense trajectory supervision for flow models [ 5 ] . DanceOPD routes each sample to one generative field and uses velocity regression at a low-noise student state [ 20 ] . We retain task-specific teachers and single-query regression. Our contribution concerns how student dynamics determine the query state and the minimum rollout prefix needed to select it; we do not claim a new regression loss or single-query distillation principle."
+      },
+      {
+        "id": "A1.SS3",
+        "heading": "A.3 Stage specialization and efficient sampling.",
+        "level": 2,
+        "text": "eDiff-I assigns separately trained denoisers to different synthesis stages [ 2 ] , demonstrating the usefulness of time-dependent specialization. PhaseOPD instead schedules supervision from capability-specific teachers using the evolving student state, producing one student for inference. Progressive distillation reduces the number of steps required to generate a completed sample [ 14 ] . Our early stopping serves a different purpose: it removes the unneeded suffix of a training trajectory once its supervision state is known. It leaves the inference procedure unchanged and can be studied independently of methods that accelerate completed-image sampling."
+      },
+      {
+        "id": "A1.SS4",
+        "heading": "A.4 On-Policy Distillation",
+        "level": 2,
+        "text": "On-policy distillation supervises students on self-generated states, reducing training–generation mismatch [ 1 ] . For visual generation, Flow-OPD combines task routing with dense trajectory supervision [ 5 ] , while DiffusionOPD derives a continuous-state distillation objective [ 8 ] . Flow3D-OPD extends multi-teacher transfer to 3D geometry [ 13 ] , and DanceOPD uses one low-noise velocity query per sample [ 20 ] . These methods leave a complementary timing question: which state best supports each teacher’s objective, and how much rollout is needed to select it? PhaseOPD uses student dynamics to determine teacher-specific query positions and skips the remaining rollout once all query decisions are finalized."
+      },
+      {
+        "id": "A2.SS1.SSS0.Px1",
+        "heading": "Implementation Details & Training Data.",
+        "level": 4,
+        "text": "We use SD3.5-Medium as the base model for multi-teacher distillation at a resolution of 512 × 512 512\\times 512 . The student is initialized from the base model and trained using LoRA with rank r = 32 r=32 and scaling factor α = 64 \\alpha=64 . We use frozen task-specific teachers for Aesthetic, GenEval, and OCR, training the student to match their velocity predictions at selected generation states rather than directly optimizing reward scores. For Aesthetic, we use text prompts from Pick-a-Pic; for GenEval and OCR, we follow the training splits used in FlowGRPO. After deduplicating prompts, removing overlaps with the designated test splits, and setting aside fixed validation sets, we retain 25,106, 32,943, and 19,392 training prompts for the three tasks, respectively. Training uses 16-step online student rollouts, with a classifier-free guidance (CFG) scale of 4.5 for the student and 4.5, 1.0, and 4.5 for the three teachers, respectively. Tasks are sampled with equal probability, and all distillation loss weights are set to 1. The main experiments are run on four H20 GPUs for 3,000 updates with a learning rate of 10 − 4 10^{-4} ."
+      },
+      {
+        "id": "A2.SS1.SSS0.Px2",
+        "heading": "Metrics.",
+        "level": 4,
+        "text": "We evaluate image aesthetic quality using Aesthetic Score (AES) on DrawBench and assess semantic alignment and text-generation accuracy using GenEval and OCR, respectively. We additionally report HPSv3, PickScore, SigLIP, ImageReward, and VQAScore as auxiliary evaluation metrics."
+      },
+      {
+        "id": "A2.SS1.SSS0.Px3",
+        "heading": "Baselines.",
+        "level": 4,
+        "text": "We compare the base model, three single-teacher models, and representative multi-teacher online policy distillation methods, including DanceOPD and DiffusionOPD. The base and single-teacher models serve as references for individual capabilities, while the multi-teacher methods evaluate different knowledge-fusion strategies. By default, we use DanceOPD as the underlying distillation objective and refer to its variant augmented with phase-aware querying as Ours . When the same strategy is applied to other objectives, we use the names “DiffusionOPD + Ours” and “FlowOPD + Ours.” In addition to the main experiments on SD3.5-M, we compare DanceOPD with Ours on the BAGEL and FLUX backbones to separate the effects of teacher combinations, generative backbones, and task types."
+      },
+      {
+        "id": "A2.SS2",
+        "heading": "B.2 Time to Matched Quality",
+        "level": 2,
+        "text": "To examine whether the training-time advantage persists at comparable quality, we measure the wall-clock time required to reach a common threshold for each task. Fig. 11 reports results for Aesthetic ≥ 5.70 \\geq 5.70 , GenEval ≥ 0.89 \\geq 0.89 , and OCR ≥ 0.90 \\geq 0.90 . Ours reaches these targets in 16.19, 32.38, and 16.19 minutes, respectively, earlier than both DanceOPD and DiffusionOPD. These gains complement the final-checkpoint comparisons, showing that phase-aware querying and early skipping speed up capability acquisition across all three objectives. Figure 11 : Training time to reach quality targets: Aesthetic ≥ 5.70 \\geq 5.70 , GenEval ≥ 0.89 \\geq 0.89 , and OCR ≥ 0.90 \\geq 0.90 ."
+      },
+      {
+        "id": "A2.SS3",
+        "heading": "B.3 Independent Diagnostic Evaluation",
+        "level": 2,
+        "text": "We use independent diagnostic metrics to assess whether improvements extend beyond the rewards used to train the teachers. The seven models in each comparison are evaluated on GenAI-Bench-1600 with shared prompts, seeds, and inference settings: 512 × 512 512\\times 512 resolution, 40 sampling steps, and CFG 4.5. ImageReward uses ImageReward-v1.0, while VQAScore uses CLIP-FlanT5-XXL through t2v-metrics==3.0 . The results in Tabs. 1 and 2 show that Ours improves both diagnostic metrics over the multi-teacher baselines under both teacher combinations. This consistency supports transfer beyond the teacher-specific training objectives."
+      },
+      {
+        "id": "A2.SS4.SSS0.Px1",
+        "heading": "Phase Sensitivity of Teacher Supervision.",
+        "level": 4,
+        "text": "Different teacher models exhibit different sensitivities to the querying phase. We conduct separate training runs with the Aesthetic, GenEval, and OCR teachers, restricting queries to R1 (steps 1–4), R2 (5–8), R3 (9–12), or R4 (13–16). Across these experiments, only the teacher query interval is varied. Fig. 12 reports changes in the corresponding target metric relative to the Beta querying strategy, reflecting each teacher’s individual phase preference rather than the joint performance of a multi-teacher model. Figure 12 : Stage sensitivity of teacher supervision. The three panels report Aesthetic, GenEval, and OCR gains from controlled single-teacher experiments. Each bar shows the change relative to the Beta query strategy when queries are restricted to the corresponding generation interval. The GenEval teacher exhibits a clear preference for early-stage supervision, with its largest relative gain occurring in R1. Effective supervision from the OCR teacher concentrates in the middle stages, with the largest relative gain in R2 and the second-largest in R3. The Aesthetic teacher achieves its highest relative gain in R3, followed by R2. R4 underperforms the Beta strategy for all three teachers, indicating that states closer to the trajectory endpoint do not consistently provide more effective teacher supervision. These distinct temporal response profiles provide controlled experimental evidence for determining query timing based on the teacher type and the student’s current state."
+      },
+      {
+        "id": "A2.SS4.SSS0.Px2",
+        "heading": "Absolute Scores for Fixed Query Intervals.",
+        "level": 4,
+        "text": "Tab. 5 provides the absolute scores underlying Fig. 12 . Each metric column comes from separate single-teacher training runs, with queries restricted to R1 (positions 1–4), R2 (5–8), R3 (9–12), or R4 (13–16); Beta is the reference query strategy. GenEval performs best in R1, OCR in R2, and Aesthetic in R3, while R4 falls below Beta for all three objectives. These results reinforce the distinct temporal preferences of the teachers and explain why a shared late-stage query rule can limit capability transfer. Table 5 : Single-teacher scores for fixed query intervals. Query interval Aesthetic GenEval OCR R1 6.3258 0.8042 0.8926 R2 6.4515 0.7833 0.9171 R3 6.4623 0.7458 0.9114 R4 6.2956 0.6542 0.8569 Beta 6.4341 0.6833 0.9034"
+      },
+      {
+        "id": "A2.SS4.SSS0.Px3",
+        "heading": "OCR Stage Policy and Teacher Routing.",
+        "level": 4,
+        "text": "We further examine how the OCR query interval and task-routing distribution affect the final capability balance. Tab. 6 reports results after 3,000 updates. The stage-policy comparison fixes balanced routing and varies the OCR stage policy; the routing comparison fixes the Stage-1/2 mixture and varies the routing distribution. Both Ours rows reproduce the full configuration in Tab. 1 . The Stage-1/2 mixture exceeds Stage-2-only and Stage-2/3 supervision on all three metrics, while balanced routing also outperforms OCR-biased routing across the reported scores. These comparisons show that allocating supervision across both trajectory positions and teacher tasks affects the joint capability balance. Table 6 : OCR stage-policy and teacher-routing results at 3,000 updates. Both Ours rows reproduce Table 1 . Configuration Aesthetic ↑ \\uparrow GenEval ↑ \\uparrow OCR ↑ \\uparrow OCR stage policy Stage-2 only 5.9199 0.9379 0.9139 Stage-1/2 mixture (Ours) 6.1705 0.9461 0.9413 Stage-2/3 mixture 5.9154 0.9339 0.9139 Teacher routing policy Balanced (Ours) 6.1705 0.9461 0.9413 OCR-biased 5.8790 0.9456 0.9203"
+      },
+      {
+        "id": "A2.SS5",
+        "heading": "B.5 Alternative-Teacher Learning Curves",
+        "level": 2,
+        "text": "To examine learning efficiency under a different teacher combination, we replace the primary teachers with HPSv3, SigLIP, and OCR while retaining the student backbone, optimizer, and evaluation interval. Fig. 13 compares DanceOPD, DiffusionOPD, and Ours over a common 90-minute budget. All curves start from the same SD3.5-M Base evaluation point; checkpoint times are converted from update counts using the measured training times in Tab. 2 , and each trajectory is truncated at the budget boundary. The panels track perceptual preference, semantic alignment, and text accuracy over time, complementing the final-checkpoint scores. Figure 13 : Time–quality trajectories with the alternative teacher set under a 90-minute budget. The panels report HPSv3, SigLIP cosine, and OCR. All methods start from the same SD3.5-M Base scores."
+      },
+      {
+        "id": "A2.SS6",
+        "heading": "B.6 Sensitivity to Training Guidance",
+        "level": 2,
+        "text": "We compare training CFG scales of 1.0 and 4.5 while fixing evaluation CFG at 4.5. The student and the Aesthetic and OCR teachers use the listed training scale, while the GenEval teacher remains at CFG 1.0. As shown in Tab. 7 , DanceOPD + Ours achieves higher scores on all three metrics at CFG 4.5, whereas CFG 1.0 reduces training time from 161.89 to 81.39 minutes. For DiffusionOPD + Ours, CFG 1.0 reduces time from 395.57 to 205.94 minutes and improves GenEval, while CFG 4.5 gives higher Aesthetic and OCR scores. Thus, the guidance scale offers a further quality–cost trade-off within both distillation frameworks. Table 7 : Quality and training cost under different training CFG settings. Evaluation CFG is fixed at 4.5. CFG Step Time (min) GPU-h Aesthetic GenEval OCR DanceOPD + Ours 4.5 3000 161.89 10.7929 6.1705 0.9461 0.9413 1.0 3000 81.39 5.640 5.6135 0.9396 0.9129 DiffusionOPD + Ours 4.5 1500 395.57 26.4101 6.1003 0.8915 0.9281 1.0 1500 205.94 13.7814 5.8450 0.9301 0.9239"
+      },
+      {
+        "id": "A2.SS7",
+        "heading": "B.7 Additional Qualitative Comparisons",
+        "level": 2,
+        "text": "We provide additional examples to examine how the transferred capabilities appear in generated images. The following comparisons cover text accuracy, visual presentation, semantic constraints, alternative teachers, and different OPD hosts, extending the quantitative evaluations with task-specific visual evidence."
+      },
+      {
+        "id": "A2.SS7.SSS1",
+        "heading": "B.7.1 Text Accuracy",
+        "level": 3,
+        "text": "Fig. 14 compares the reproduction of requested text. Ours reduces character errors and improves the completeness of the rendered content in the shown examples, providing qualitative support for the OCR improvements reported in the main text. The final punctuation in example (d) remains imperfect, illustrating a remaining limitation even when most of the target text is correctly reproduced. Figure 14 : Text accuracy. PhaseOPD improves target-text reproduction; final punctuation in (d) remains imperfect."
+      },
+      {
+        "id": "A2.SS7.SSS2",
+        "heading": "B.7.2 Text Visual Quality",
+        "level": 3,
+        "text": "Beyond character accuracy, we examine how generated text fits its visual context. Fig. 15 shows examples in which Ours combines readable lettering with coherent typography, supporting materials, and scene composition. These comparisons complement the OCR scores by illustrating the visual integration of text with the surrounding image. Figure 15 : Text visual quality. PhaseOPD unifies readable text, coherent typography, materials, and scene integration."
+      },
+      {
+        "id": "A2.SS7.SSS3",
+        "heading": "B.7.3 Aesthetic Quality",
+        "level": 3,
+        "text": "Fig. 16 presents additional comparisons of lighting, materials, and spatial appearance. Ours retains coherent illumination and material detail while producing clearer subject contours and visual separation in selected scenes. Together with the training-cost results, these examples illustrate that the shorter training rollouts can preserve visually detailed outputs. Figure 16 : Aesthetic quality. PhaseOPD preserves lighting and materials while clarifying subjects in selected scenes."
+      },
+      {
+        "id": "A2.SS7.SSS4",
+        "heading": "B.7.4 Semantic Alignment",
+        "level": 3,
+        "text": "We examine the retention of object counts, attributes, and spatial relations in Fig. 17 . Ours improves the shown counting results over DanceOPD while retaining key attributes and scene relationships. These examples complement the GenEval results by showing how compositional improvements appear alongside coherent subject presentation. Figure 17 : Semantic alignment. PhaseOPD improves counts over DanceOPD in the shown examples while preserving attributes and spatial relations."
+      },
+      {
+        "id": "A2.SS7.SSS5",
+        "heading": "B.7.5 Joint Text and Scene Quality",
+        "level": 3,
+        "text": "Fig. 18 examines prompts that require readable text and coherent scene content simultaneously. In the shown comparisons, Ours reduces repeated text or subject occlusion and produces more complete text-bearing objects within their surroundings. These examples illustrate how transferred capabilities jointly support local text quality and overall scene organization. Figure 18 : Joint text and scene quality. PhaseOPD combines readable text with clear subjects and coherent surroundings."
+      },
+      {
+        "id": "A2.SS7.SSS6",
+        "heading": "B.7.6 Alternative Teachers",
+        "level": 3,
+        "text": "To examine visual transfer beyond the primary teacher set, Fig. 19 provides additional results using HPSv3, SigLIP, and OCR teachers. Ours retains subject and scene details and improves count alignment in the macaron example. These observations complement Tab. 2 by showing that the alternative teacher combination can transfer both appearance and semantic capabilities to the student. Figure 19 : Alternative teachers. PhaseOPD retains scene detail and improves count alignment in the macaron example under HPSv3, SigLIP, and OCR supervision."
+      },
+      {
+        "id": "A2.SS7.SSS7",
+        "heading": "B.7.7 Cross-Host Transfer",
+        "level": 3,
+        "text": "Fig. 20 compares outputs obtained by adding PhaseOPD to two OPD hosts. In both settings, the augmented models retain readable text and exhibit richer material detail in the shown examples. These comparisons provide qualitative support for the plug-and-play results in Fig. 4 , illustrating that phase-aware querying can preserve complementary capabilities across different distillation objectives. Figure 20 : Cross-host transfer. PhaseOPD retains readable text and enriches material appearance with both OPD hosts."
+      }
+    ]
+  },
+  "text": "Timing Matters Twice: When to Query and When to Skip in Flow-Matching On-Policy Distillation. Skip to main content Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: Why HTML? Report Issue Back to Abstract Download PDF Contents Reading mode Colour theme License: CC Zero arXiv:2610.34191v1 [cs.CV] 25 Oct 2026 Timing Matters Twice: When to Query and When to Skip in Flow-Matching On-Policy Distillation. Renye Yan Affiliation: Peking University Junyi Zhan Affiliation: Peking University Jikang Cheng Affiliation: Peking University Wei Peng Affiliation: Stanford University * Equal contribution. † Project lead. Abstract On-policy distillation (OPD) enables flow-matching models to acquire complementary capabilities from specialized teachers through supervision on student-generated trajectories. However, different evaluation dimensions (e.g., aesthetics and OCR accuracy) and tasks (e.g., image generation and editing) emphasize different aspects of the denoising process, suggesting that their effective supervision may occur at different stages. Existing methods typically select supervision states from predefined timestep distributions, which may overlook these phase-dependent differences with unnecessary computation overhead. This motivates two critical timing decisions: when to adaptively query teachers for effective supervision based on the evolving generative process, and when to skip the remaining rollout to avoid redundant computation, i.e. , timing matters twice . In this paper, we introduce PhaseOPD , a phase-aware query-and-skip framework that identifies generative phases online from revisions of predicted-clean latents, using existing student velocity predictions without additional model evaluations. For each task-assigned teacher, PhaseOPD selects a supervision state based on its phase preference and skips the unused rollout suffix once all query decisions are finalized, preserving the single-query velocity-distillation objective. On SD3.5-M, PhaseOPD executes only 5.56 of 16 rollout positions per local batch (65.2% fewer), reducing training time by 41.3% relative to DanceOPD while improving Aesthetic, GenEval, and OCR scores. 1 Introduction Figure 1 : Teacher supervision is not equally useful throughout denoising: semantic composition, text rendering, and aesthetics benefit most from different query intervals. This motivates adapting query timing to each teacher-task pair and terminating the rollout after the required queries, rather than using a shared preset schedule and completing every denoising step. In recent years, diffusion and flow-matching models have made significant progress in image generation [ 7 , 9 , 12 , 16 , 18 ] . The research focus has gradually shifted from improving basic generative capabilities to aligning models with challenging task-specific objectives and preferences through post-training. In complex applications, generative models must satisfy multiple criteria simultaneously, including accurate semantic composition, coherent spatial structure, high-quality local details, and visual appearance aligned with human preferences. Improving multiple visual objectives within a unified model has therefore become an important challenge in generative model post-training. Previous studies have mainly combined reward signals from different evaluation dimensions using weighted aggregation and optimized the generation distribution of pretrained models through reinforcement learning [ 19 , 17 ] . However, such methods not only rely on sparse scalar rewards for optimization, but also suffer from competing update directions induced by heterogeneous rewards, often resulting in gradient interference and imbalanced capabilities. To mitigate reward sparsity and gradient conflicts in joint multi-objective optimization, recent studies have introduced On-Policy Distillation (OPD) into generative models [ 5 , 8 , 20 ] . Instead of directly optimizing a single policy with multiple rewards, multi-teacher OPD first trains specialized teachers independently for different objectives. These teachers then provide supervision on the student’s own generation trajectories, integrating diverse generative capabilities into a unified student model. Although OPD provides an effective approach to multi-objective optimization, existing OPD paradigms do not adequately characterize how the value of each task-specific teacher’s supervision changes across generation stages. Because each teacher is trained for a distinct objective, the key question is which part of the student’s trajectory provides the most effective supervision for that teacher and its corresponding task—not which teacher should be assigned to a given stage. This raises two connected questions: for each teacher-task pair, at what stage should the student be queried to obtain the most useful supervision? Once the relevant query for each task has been completed, when can the remaining rollout be terminated to avoid redundant computation? When query timing is not specified for each teacher-task pair, it remains unclear whether a chosen supervision stage is well suited to that teacher’s objective. This matters because denoising follows a stage-dependent pattern: early stages focus on constructing global semantics, intermediate stages gradually shift toward local content generation, and later stages place greater emphasis on refining details and visual aesthetics. These evolving responsibilities mean that the utility of a given teacher’s guidance depends on whether the student’s state at a particular stage is suitable for that teacher’s corresponding objective. Thus, supervision timing should be determined for each teacher-task pair, rather than by assigning teachers to stages in isolation. Beyond effectively scheduling teacher supervision, avoiding unnecessary computational overhead is another important challenge for multi-teacher OPD. Obtaining teacher supervision requires long and continuous rollouts of student trajectories, which introduces considerable computational costs. More importantly, once all necessary teacher queries have been completed, or once the denoising process is close to convergence and the latent representation has become nearly stationary, continuing the remaining rollout provides little additional information for distillation. It may even introduce optimization conflicts due to a mismatch between teacher supervision and generation dynamics. Therefore, skipping redundant trajectory supervision while preserving its effectiveness is crucial to improving OPD training efficiency. Appendix. A discusses related work in detail. Building on these insights, we propose PhaseOPD, a dual timing-adaptive policy distillation framework that uses the student’s generation dynamics to schedule each task-specific teacher at the stages where its supervision is most useful. Unlike existing methods that focus primarily on task-level teacher selection without jointly optimizing teacher-query timing and trajectory length, PhaseOPD identifies a suitable query interval for each teacher-task pair from the student’s evolving trajectory. For example, it schedules structure-oriented supervision during global layout and primary structure formation, supervision for objectives involving both structure and detail during the transition toward semantic content and salient details, and visual-quality supervision during later texture and appearance refinement. The task-specific teacher defines what is supervised, while the trajectory dynamics determine when its supervision is applied. This constitutes the first level of adaptivity in PhaseOPD. In addition, PhaseOPD uses generation dynamics and the marginal utility of task-specific supervision to detect diminishing returns. It terminates the remaining rollout once no further teacher query is needed, thereby reducing computational overhead. This constitutes the second level of adaptivity in PhaseOPD and follows Occam’s razor: introduce supervision only when necessary. In summary, our main contributions are threefold: (1) We revisit teacher organization in multi-teacher on-policy distillation by introducing a generation-dynamics dimension orthogonal to the task dimension. We further identify the mismatch between teacher supervision and denoising dynamics, a problem that task-level OPD cannot adequately characterize. (2) We propose PhaseOPD, which uses the student’s dynamics to identify, for each task-specific teacher, the generation intervals where its supervision is most valuable and schedules queries accordingly. This reduces cross-stage interference and unnecessary over-constraint. (3) We introduce a dynamic truncation strategy that immediately terminates the subsequent rollout once the supervision signals determine the required teacher-query positions, avoiding redundant computation. 2 Motivation Mainstream OPD paradigms overlook that different specialized teacher capabilities should align with the characteristics of different denoising stages. This oversight can create temporal conflicts between teacher supervision and denoising dynamics. If a teacher specializing in local details intervenes before the global structure stabilizes, its supervision may prematurely steer the model toward local optimization objectives and disrupt primary structure formation. Meanwhile, because local details rely on an established global structure as their underlying carrier, the absence of a stable structural foundation also prevents detail-oriented supervision from fully realizing its value . Conversely, once the primary structure has converged and the model has entered the local refinement stage, continued strong structural supervision may unnecessarily constrain subsequent detail enhancement. More generally, even if a teacher’s objective is reasonable, applying its supervision at an incompatible generation stage may still produce low-value or even competing gradients. This issue resembles course scheduling in education. A student’s learning outcome depends not only on what is taught, but also on whether the course sequence matches the student’s current developmental stage. The visualization in Fig. 1 further shows how teacher-query and supervision-skipping timing affect overall performance. Teachers specializing in semantic structure achieve the best results when queried early in the generation stage. In contrast, Optical Character Recognition (OCR) teachers focusing on textual content and teachers specializing in aesthetic quality yield greater supervisory benefits during the middle and late stages, respectively. 3 Method This section presents PhaseOPD’s overall framework, extending task-level teacher organization to generation-dynamics-aware teacher coordination. We first introduce an adaptive generation-stage identification module that analyzes the student model’s own generation trajectory to determine the generative responsibility of its current state. Based on the identified stage, PhaseOPD employs a dynamic teacher-routing mechanism that assigns teachers with different capabilities to the generation stages where their supervision is most effective, thereby reducing cross-stage supervision conflicts. Finally, we propose a dynamic rollout truncation mechanism to eliminate redundant computation. Figure 2 : Overall framework of our method 3.1 Generative Models and On-Policy Distillation Flow-Matching based Generation . For the denoising process, 𝐱 t = ( 1 − t ) ​ 𝐱 0 + t ​ 𝐱 1 . \\mathbf{x}_{t}=(1-t)\\mathbf{x}_{0}+t\\mathbf{x}_{1}. where t ∈ [ 0 , 1 ] t\\in[0,1] denotes the continuous interpolation time, and 𝐱 t \\mathbf{x}_{t} represents the noisy latent state at t t . 𝐱 0 \\mathbf{x}_{0} denotes clean data, while 𝐱 1 \\mathbf{x}_{1} represents pure noise. The model learns a velocity field 𝐯 θ ​ ( 𝐱 t , t , 𝐜 ) \\mathbf{v}_{\\theta}(\\mathbf{x}_{t},t,\\mathbf{c}) , where 𝐜 \\mathbf{c} denotes the prompt encoder. Using the predicted velocity, we obtain the current clean estimate: 𝐱 ^ 0 | t = 𝐱 t − t ​ 𝐯 θ ​ ( 𝐱 t , t , 𝐜 ) . \\hat{\\mathbf{x}}_{0|t}=\\mathbf{x}_{t}-t\\,\\mathbf{v}_{\\theta}(\\mathbf{x}_{t},t,\\mathbf{c}). (1) Reward-Based Policy Optimization . Reinforcement learning (RL) provides a direct approach to optimizing task-specific performance during the post-training of generative models. Based on the continuous generation trajectory defined in the previous section, a generative model can be viewed as a parameterized policy π θ \\pi_{\\theta} , where the complete generation process corresponds to a trajectory sampled from the policy τ ∼ π θ \\tau\\sim\\pi_{\\theta} . Given the conditioning information 𝐜 \\mathbf{c} , a reward function evaluates the quality of the final generated sample r ⁡ ( 𝐱 0 , 𝐜 ) r(\\mathbf{x}_{0},\\mathbf{c}) . The RL objective is defined as maximizing the expected reward 𝒥 ⁡ ( θ ) = 𝔼 𝐱 0 ∼ π θ ​ [ r ⁡ ( 𝐱 0 , 𝐜 ) ] . \\mathcal{J}(\\theta)=\\mathbb{E}_{\\mathbf{x}_{0}\\sim\\pi_{\\theta}}\\left[r(\\mathbf{x}_{0},\\mathbf{c})\\right]. Using policy gradient methods, the model parameters are updated according to the reward feedback ∇ θ 𝒥 ​ ( θ ) = 𝔼 τ ∼ π θ ​ [ ∇ θ ​ log ​ π θ ​ ( τ ) ​ r ​ ( 𝐱 0 , 𝐜 ) ] . \\nabla_{\\theta}\\mathcal{J}(\\theta)=\\mathbb{E}_{\\tau\\sim\\pi_{\\theta}}\\left[\\nabla_{\\theta}\\log\\pi_{\\theta}(\\tau)r(\\mathbf{x}_{0},\\mathbf{c})\\right]. Multi-objective generation tasks typically require the simultaneous optimization of multiple evaluation criteria ℛ = { r 1 , r 2 , ⋯ , r K } , \\mathcal{R}=\\{r_{1},r_{2},\\cdots,r_{K}\\}, where each reward targets a specific generative capability or preference. Multi-Teacher On-Policy Distillation . { π ϕ 1 , π ϕ 2 , ⋯ , π ϕ K } , \\{\\pi_{\\phi_{1}},\\pi_{\\phi_{2}},\\cdots,\\pi_{\\phi_{K}}\\}, τ ∼ π θ , \\tau\\sim\\pi_{\\theta}, Multi-teacher On-Policy Distillation first trains multiple teacher policies for different objectives [ 5 , 8 ] { π ϕ 1 , π ϕ 2 , ⋯ , π ϕ K } , \\{\\pi_{\\phi_{1}},\\pi_{\\phi_{2}},\\cdots,\\pi_{\\phi_{K}}\\}, where π ϕ k \\pi_{\\phi_{k}} denotes the teacher policy optimized for the k t ​ h k^{th} objective. During distillation, the student model π θ \\pi_{\\theta} generates trajectories according to its own policy τ ∼ π θ \\tau\\sim\\pi_{\\theta} , and the corresponding teacher provides online supervision at the states the student visits. For the k t ​ h k^{th} teacher, the distillation objective can be formulated as: ℒ k = 𝔼 τ ∼ π θ [ D ( π θ ( ⋅ | 𝐱 t ) , π ϕ k ( ⋅ | 𝐱 t ) ) ] , \\mathcal{L}_{k}=\\mathbb{E}_{\\tau\\sim\\pi_{\\theta}}\\left[D\\left(\\pi_{\\theta}(\\cdot|\\mathbf{x}_{t}),\\pi_{\\phi_{k}}(\\cdot|\\mathbf{x}_{t})\\right)\\right], (2) where D ⁡ ( ⋅ , ⋅ ) D(\\cdot,\\cdot) measures the discrepancy between the student and teacher policies. 3.2 Online Generative Phase Perception Existing OPD methods select teachers primarily according to task categories. However, a teacher’s supervisory value varies across states and generation stages. To allocate teacher supervision on demand following the inherent generation dynamics, PhaseOPD detects stage transitions during the student model’s on-policy rollout and adaptively determines when each teacher should provide supervision. Spatial Dynamics Analysis . Let k k denote a discrete sampling index along the student-generated trajectory, and let t k t_{k} denote the corresponding continuous time. Using the clean latent predictions from Eq. 1 , we define the revision between adjacent sampling positions as: 𝐝 k = 𝐱 ^ 0 | t k − 𝐱 ^ 0 | t k − 1 . \\mathbf{d}_{k}=\\hat{\\mathbf{x}}_{0\\mid t_{k}}-\\hat{\\mathbf{x}}_{0\\mid t_{k-1}}. (3) To distinguish block-level structural changes from local spatial variations, let 𝒫 s ​ ( ⋅ ) \\mathcal{P}_{s}(\\cdot) denote a block-averaging projection at scale s s , which first applies channel-wise average pooling with both kernel size and stride set to s s , followed by nearest-neighbor upsampling to restore the original latent spatial dimensions. This process can be formulated as: ( 𝒫 s ​ ( 𝐝 k ) ) ℓ , h , w \\displaystyle\\bigl(\\mathcal{P}_{s}(\\mathbf{d}_{k})\\bigr)_{\\ell,h,w} (4) = 1 s 2 ​ ∑ a = 0 s − 1 ∑ b = 0 s − 1 ( 𝐝 k ) ℓ , s ⁡ ⌊ h / s ⌋ + a , s ⁡ ⌊ w / s ⌋ + b . \\displaystyle=\\frac{1}{s^{2}}\\sum_{a=0}^{s-1}\\sum_{b=0}^{s-1}(\\mathbf{d}_{k})_{\\ell,\\,s\\lfloor h/s\\rfloor+a,\\,s\\lfloor w/s\\rfloor+b}. Here, ℓ \\ell denotes the latent channel index; h h and w w denote the zero-based spatial row and column indices, respectively; a a and b b are within-block offsets; and ⌊ ⋅ ⌋ \\lfloor\\cdot\\rfloor denotes the floor operation. This operation assigns the mean of each non-overlapping s × s s\\times s block to all positions within that block and requires both latent’s height and width to be divisible by s s . We define the spatial-scale revision ratio as: F k = ‖ 𝐝 k − 𝒫 s ​ ( 𝐝 k ) ‖ 2 2 ‖ 𝐝 k ‖ 2 2 + ε . F_{k}=\\frac{\\left\\|\\mathbf{d}_{k}-\\mathcal{P}_{s}(\\mathbf{d}_{k})\\right\\|_{2}^{2}}{\\left\\|\\mathbf{d}_{k}\\right\\|_{2}^{2}+\\varepsilon}. (5) Here, ε \\varepsilon is a numerical stability term, and we use s = 4 s=4 in this work. A smaller F k F_{k} indicates that the current revision is dominated by block-level, low-frequency structural changes. In contrast, a larger F k F_{k} indicates a greater contribution of local spatial variations to the revision energy. This signal measures the spatial composition of the prediction revision, not image quality or overall revision magnitude. We further define the rate of change in the spatial-scale revision ratio between adjacent sampling positions as: Δ ​ F k = F k − F k − 1 . \\Delta F_{k}=F_{k}-F_{k-1}. (6) Adaptive Phase Boundary Detection . According to the previously defined rate of change in the spatial-scale revision ratio, Δ ​ F k \\Delta F_{k} , we further analyze how its slope evolves along the generation trajectory to identify dynamical boundaries between generation stages. Specifically, during denoising, Δ ​ F k \\Delta F_{k} initially increases, then decreases, and gradually stabilizes. We therefore define two stage boundaries as the first positions at which the slope approaches zero during the increasing and decreasing phases, respectively. First, we define the discrete slope of Δ ​ F k \\Delta F_{k} between adjacent sampling positions as g k = Δ ​ F k − Δ ​ F k − 1 k − ( k − 1 ) = Δ ​ F k − Δ ​ F k − 1 . g_{k}=\\frac{\\Delta F_{k}-\\Delta F_{k-1}}{k-(k-1)}=\\Delta F_{k}-\\Delta F_{k-1}. (7) To prevent local fluctuations at individual sampling positions from obscuring the overall trend, we introduce a historical observation window of length W W and define its average slope as: g ¯ k ( W ) = 1 W ​ ∑ j = k − W k − 1 g j . \\bar{g}_{k}^{(W)}=\\frac{1}{W}\\sum_{j=k-W}^{k-1}g_{j}. (8) Here, W W denotes the length of the historical observation window, and g ¯ k ( W ) \\bar{g}_{k}^{(W)} denotes the average slope over the W W sampling positions preceding the current position. The first stage boundary is defined as the first position at which the current slope approaches zero following a period of sustained growth in Δ ​ F k \\Delta F_{k} as: k L = min { k | g ¯ k ( W ) > 0 , | g k | → 0 } . k_{\\mathrm{L}}=\\min\\left\\{k\\;\\middle|\\;\\bar{g}_{k}^{(W)}>0,\\;|g_{k}|\\to 0\\right\\}. (9) The second stage boundary is defined as the position at which the current slope again approaches zero following a period of sustained decline in Δ ​ F k \\Delta F_{k} , as formulated: k R = min { k > k L | g ¯ k ( W ) < 0 , | g k | → 0 } . k_{\\mathrm{R}}=\\min\\left\\{k>k_{\\mathrm{L}}\\;\\middle|\\;\\bar{g}_{k}^{(W)}<0,\\;|g_{k}|\\to 0\\right\\}. (10) Since the generation process consists of discrete sampling positions, we adopt a near-zero criterion rather than requiring the slope to be exactly zero. Based on the two dynamical boundaries defined above, we adaptively partition the student model’s generation trajectory into three consecutive stages as: S k = { I , k < k L , II , k L ≤ k < k R , III , k ≥ k R . \\mathrm{S}_{k}=\\begin{cases}\\mathrm{I},&k<k_{\\mathrm{L}},\\\\ \\mathrm{II},&k_{\\mathrm{L}}\\leq k<k_{\\mathrm{R}},\\\\ \\mathrm{III},&k\\geq k_{\\mathrm{R}}.\\end{cases} (11) Here, S k \\mathrm{S}_{k} denotes the generation stage at sampling position k k . Stage I \\mathrm{I} establishes global semantics and primary structures, Stage II \\mathrm{II} forms local content, and Stage III \\mathrm{III} refines visual aesthetics. 3.3 Teacher-Conditioned Phase Routing Building on the three generation stages identified in Sec. 3.2 , we establish a correspondence between generation stages and supervision objectives, enabling each specialized teacher to contribute during the stage in which its supervision is most valuable. Stage I: Global Structure Formation . Since the overall structure has not yet fully formed at this stage, local details lack a stable structural foundation. This stage is therefore better suited to supervision targeting global structural consistency, such as GenEval. We set the teacher query position to the sampling position immediately preceding the left boundary, namely k L − 1 k_{\\mathrm{L}}-1 . This choice is motivated by the observation that states too close to the pure-noise endpoint lack well-defined structure. Selecting the last sampling position before the left boundary thus allows structure-related supervision to be applied once structural information has begun to emerge, but before local details become dominant. Stage II: Local Content Generation . In Stage II, the primary structure provides a relatively stable spatial foundation for local content, while local semantics and details continue to emerge and evolve. This stage is therefore well suited to specialized teachers that focus on local content accuracy, such as OCR teachers. We randomly sample a supervision point within Stage II to cover varying degrees of local content formation, avoid excessive reliance on a single generation position, and improve the adaptability of local content supervision to variations in states within this stage. Stage III: Visual Aesthetic Enhancement . In the final stage of generation, the image approaches convergence, with the primary structure and local details remaining largely unchanged. This stability provides a foundation for aesthetic optimization, making this stage well suited to specialized aesthetic teachers, such as Aesthetic. In Stage III, we set the teacher query position to the first sampling position after the right boundary, namely k R + 1 k_{\\mathrm{R}}+1 . This choice lets aesthetic supervision act on a state where the primary structure and local content are already stable, while still leaving room for further refinement. Once the supervision position for the current sample is determined, the teacher provides supervision only at the corresponding student-visited state, preserving the basic formulation of on-policy distillation while reducing cross-stage supervision mismatch and redundant trajectory computation. The unified query rule can be written as: q m = { k L − 1 , m ∈ 𝒯 str , K , K ∼ Unif ⁡ ( { k L , … , k R − 1 } ) , m ∈ 𝒯 loc , k R + 1 , m ∈ 𝒯 vis . q_{m}=\\begin{cases}k_{\\mathrm{L}}-1,&m\\in\\mathcal{T}_{\\mathrm{str}},\\\\[3.0pt] K,\\quad K\\sim\\operatorname{Unif}\\bigl(\\{k_{\\mathrm{L}},\\ldots,k_{\\mathrm{R}}-1\\}\\bigr),&m\\in\\mathcal{T}_{\\mathrm{loc}},\\\\[3.0pt] k_{\\mathrm{R}}+1,&m\\in\\mathcal{T}_{\\mathrm{vis}}.\\end{cases} (12) Here, q m q_{m} denotes the query position for teacher m m ; 𝒯 str \\mathcal{T}_{\\mathrm{str}} , 𝒯 loc \\mathcal{T}_{\\mathrm{loc}} , and 𝒯 vis \\mathcal{T}_{\\mathrm{vis}} denote the sets of teachers responsible for optimizing global structure, local content, and visual quality, respectively; and K K denotes a position randomly sampled from Stage II. We emphasize that GenEval, OCR, and Aesthetic serve as representative examples of these three teacher categories rather than a fixed teacher configuration. Other teachers with corresponding optimization capabilities are equally applicable. 4 Experiments This chapter evaluates PhaseOPD around three questions: (1) whether staged querying can improve both generation quality and training cost with the primary teacher group; (2) whether these gains generalize across teacher combinations, student backbones, and task types; and (3) what roles adaptive triggering and early termination play, and why online signals can identify effective querying stages. We present the main results, generalization experiments, component ablations, and mechanistic analyses in that order. Detailed settings and additional results are provided in Appendix B . 4.1 Experimental Setup Implementation Details & Training Data We initialize an SD3.5-Medium student from the base model and train rank-32 LoRA adapters at 512 × 512 512\\times 512 resolution using frozen Aesthetic, GenEval, and OCR teachers. Our default configuration uses 16-step on-policy rollouts, equal task sampling, 3,000 updates, and four H20 GPUs. Full data construction, guidance scales, and optimization settings are provided in Appendix B.1 . Metrics. We use AES on DrawBench, GenEval, and OCR as the primary metrics for aesthetics, compositional alignment, and text rendering. We additionally report HPSv3, PickScore, and SigLIP where applicable, and use ImageReward and VQAScore as held-out diagnostics. Baselines. We compare against the SD3.5-M base model, three single-teacher models, DanceOPD, and DiffusionOPD. Our default model augments DanceOPD with phase-aware querying; we additionally apply the same mechanism to DiffusionOPD and FlowOPD and evaluate its transfer to the BAGEL and FLUX backbones. 4.2 Main Results Table 1 : Final generation quality, independent diagnostic metrics, and training cost. Aesthetic, GenEval, and OCR are training objectives. ImageReward and VQAScore, shaded in light blue, are excluded from training and assess cross-metric generalization and potential reward hacking. The base model and individual teachers serve as capability references. Among multi-teacher methods, the best and second-best results are shown in bold and underlined, respectively. Method Aesthetic ↑ \\uparrow GenEval ↑ \\uparrow OCR ↑ \\uparrow Time (min) ↓ \\downarrow Update (s) ↓ \\downarrow GPU-h ↓ \\downarrow ImageReward ↑ \\uparrow VQAScore ↑ \\uparrow Base model and single-teacher references SD3.5-M Base 5.3973 0.6620 0.5611 – – – 0.9565 0.7416 Aesthetic Teacher 6.2133 0.7246 0.5852 – – – 1.5708 0.7840 GenEval Teacher 5.2709 0.9336 0.6473 – – – 0.8062 0.7225 OCR Teacher 5.2665 0.6631 0.9428 – – – 0.9243 0.7275 Multi-teacher distillation methods DanceOPD 5.8185 0.8903 0.9289 275.67 5.5133 18.3778 1.3536 0.7856 DiffusionOPD 6.1335 0.9457 0.9516 967.73 38.7093 64.5156 1.5432 0.7907 Ours 6.1705 0.9461 0.9413 161.89 3.2379 10.7929 1.5586 0.7923 Tab. 1 summarizes overall performance across multiple capabilities and training cost. Although DanceOPD and DiffusionOPD can integrate knowledge from multiple teachers, their trajectory-level supervision incurs substantial computational overhead. In contrast, our method achieves a better overall balance across Aesthetic, GenEval, and OCR while maintaining higher training efficiency. These results suggest that adaptively identifying and accommodating diffusion models’ generation dynamics through targeted teacher supervision can improve multi-teacher knowledge fusion while avoiding unused rollout computation. Consistent improvements on independent diagnostic metrics—ImageReward and VQAScore in Tab. 1 —further indicate that these gains generalize beyond the training objectives, rather than merely reflecting overfitting to teacher rewards. Fig. 5 further presents representative results for the primary teacher group. We select Aesthetic, GenEval, and OCR prompts from a fixed sampling list. All methods within each row use the same prompt, initial noise, and inference configuration, so differences in visual quality, compositional generation, and text rendering directly reflect the three corresponding metrics in Tab. 1 . We further compare the cost required by different methods to reach the same visual metric scores. Fig. 3 shows the learning curves of the three methods under the same wall-clock budget. Our method reaches competitive quality levels earlier and maintains stable performance across multiple capabilities throughout subsequent training, indicating that its advantages do not stem from a longer training budget or a fortuitously selected final checkpoint. Together with the final results in Tab. 1 , these findings show that our method consistently achieves a more favorable quality–time trade-off throughout training. The respective contributions of staged querying and early termination are further examined in the subsequent component ablations. Figure 3 : Quality over the first 160 training minutes. Panels show Aesthetic, GenEval, and OCR for DanceOPD, DiffusionOPD, and Ours. Time uses each method’s matched mean update time measured with exclusive GPU access. Phase-aware querying can be directly integrated into DanceOPD, DiffusionOPD, and FlowOPD without modifying their original distillation objectives. As shown in Fig. 4 , incorporating our method improves both generation quality and training efficiency across all three underlying methods. These results indicate that PhaseOPD is not tied to a specific distillation loss or implementation and can serve as a general-purpose component for different OPD methods. Figure 4 : Plug-and-play comparison across three OPD objectives. Each panel compares SD3.5-M Base, the corresponding OPD method, and the method augmented with Ours. Quality metrics share scales across panels; Overall Quality is the geometric mean of the three normalized quality scores. Training efficiency uses inverse training time normalized within each panel and is omitted for the base model. Figure 5 : Qualitative comparison with the primary teacher set. Rows correspond to Aesthetic, GenEval, and OCR; columns show SD3.5-M Base, DanceOPD, DiffusionOPD, and Ours. All methods use archived, paired outputs generated with the same seed. 4.3 Compatibility Experiments Table 2 : Generation quality, cross-metric generalization, and training cost with alternative teachers. HPSv3, SigLIP, and OCR are training objectives; ImageReward and VQAScore are held-out metrics for assessing generalization and potential reward hacking. Bold and underlined values indicate the best and second-best multi-teacher results, respectively. Base and single-teacher models serve as references. Ours offers a favorable quality–efficiency balance across teacher combinations. Method HPSv3 ↑ \\uparrow SigLIP ↑ \\uparrow OCR ↑ \\uparrow Time (min) ↓ \\downarrow Update (s) ↓ \\downarrow GPU-h ↓ \\downarrow ImageReward ↑ \\uparrow VQAScore ↑ \\uparrow Base model and single-teacher references SD3.5-M Base 2.613 0.1472 0.5611 – – – 0.9565 0.7416 HPSv3 Teacher 12.44 0.1361 0.5648 – – – 1.309 0.7392 SigLIP Teacher 7.091 0.1973 0.6083 – – – 1.274 0.7904 OCR Teacher 2.673 0.1507 0.9428 – – – 0.9243 0.7275 Multi-teacher distillation methods DanceOPD 10.20 0.1891 0.9418 150.7 3.014 10.05 1.299 0.7635 DiffusionOPD 9.964 0.1652 0.9311 351.4 7.029 23.43 1.121 0.7438 Ours 10.30 0.1938 0.9136 91.50 1.830 6.100 1.323 0.7665 Figure 6 : Qualitative comparison with the alternative teacher set. Rows correspond to HPSv3, SigLIP, and OCR; columns show SD3.5-M Base, DanceOPD, DiffusionOPD, and Ours. Figure 7 : Cross-backbone and cross-task generalization on BAGEL. This setting changes both the student backbone and teacher tasks, covering text-to-image generation, global editing, and local editing. Figure 8 : Teacher-specific query distributions across three OPD hosts. Panels correspond to Ours, DiffusionOPD + Ours, and FlowOPD + Ours, each showing GenEval, OCR, and Aesthetic teachers. The horizontal axis indicates query position; the vertical axis shows the percentage of trajectories normalized separately for each teacher. Figure 9 : Mean dynamics of online detection signals. The blue curve shows the change in the spatial-scale revision ratio, Δ ​ F k \\Delta F_{k} , and the orange curve shows its first-order difference g k g_{k} . Background colors and vertical dashed lines indicate three generation stages identified by near-zero slopes after sustained increases and decreases in Δ ​ F k \\Delta F_{k} . Table 3 : Cross-backbone generalization on FLUX. FLUX.1-dev Base serves as the pretrained reference. We compare DanceOPD and Ours on PickScore, GenEval, OCR, and training cost. Method PickScore ↑ \\uparrow GenEval ↑ \\uparrow OCR ↑ \\uparrow Time (min) ↓ \\downarrow Update (s) ↓ \\downarrow GPU-h ↓ \\downarrow FLUX.1-dev Base 0.8745 0.6569 0.56540 – – – DanceOPD 0.9284 0.8271 0.8842 804.88 16.091 53.658 Ours 0.9292 0.82858 0.9478 376.00 7.510 25.066 Figure 10 : Double-blind user preferences for Ours versus multi-teacher baselines. To examine whether our method depends on the default teacher combination, we replace the Aesthetic and GenEval teachers with HPSv3 and SigLIP while retaining the OCR teacher. Tab. 2 shows that the single-teacher models still exhibit pronounced task-specific biases, whereas our method achieves the best HPSv3, SigLIP, and independent diagnostic scores among multi-teacher methods while remaining competitive on OCR. These results indicate that phase-aware querying can adapt to different teachers’ capability profiles and still produce a well-balanced, multi-capability student under different teacher combinations, rather than being effective only for the default teacher group. Fig. 6 further presents paired generation results across the three capabilities. The HPSv3 examples emphasize overall visual quality, the SigLIP examples assess image–text semantic alignment and spatial consistency, and the OCR examples focus on the accuracy and legibility of the specified text. Our method maintains consistent performance across different prompt types, providing qualitative support for the quantitative results obtained with the alternative teacher group. 4.4 Generalization Experiments We evaluate the cross-backbone generalization of our method in two complementary settings. The BAGEL experiments change both the generative backbone and the task formulation, extending text-to-image generation to global and local editing. As shown in Fig. 7 , our method improves text-to-image generation and local editing, remains competitive on global editing, and reduces overall training cost. The FLUX experiments retain the multi-teacher text-to-image generation setting and replace only the underlying generative model. Tab. 3 shows that our method outperforms DanceOPD across all generation quality metrics while achieving higher training efficiency. Together, these experiments demonstrate that phase-aware querying is not tied to the specific generation process of SD3.5-M but can generalize across model architectures and task formulations, consistently improving the quality–cost trade-off. 4.5 Ablation Studies Table 4 : Effects of individual components on final quality and training efficiency. AT denotes adaptive triggering, and ES denotes early skipping. The best and second-best results for each metric are shown in bold and underlined, respectively. Variant AT ES Aesthetic ↑ \\uparrow GenEval ↑ \\uparrow OCR ↑ \\uparrow Time (min) ↓ \\downarrow Update (s) ↓ \\downarrow GPU-h ↓ \\downarrow Ours (w/o AT and ES) × \\times × \\times 5.9044 0.9496 0.8626 275.333 5.5067 18.356 Ours (w/o AT) × \\times ✓ \\checkmark 5.8073 0.8892 0.9305 241.78 4.836 16.119 Ours (w/o ES) ✓ \\checkmark × \\times 6.1642 0.9341 0.9275 277.667 5.5533 18.511 Full Ours ✓ \\checkmark ✓ \\checkmark 6.1705 0.9461 0.9413 161.893 3.2379 10.793 Our method comprises adaptive phase querying (AT) and early skipping (ES). To examine their respective roles, we remove AT, ES, and both components in Tab. 4 . Removing ES yields Aesthetic performance close to that of the full model, with slight decreases in GenEval and OCR and a substantial increase in training time. This suggests that ES effectively reduces rollout computation while preserving generation quality. Removing only AT lowers all three quality metrics and increases training time, indicating that adaptive phase querying helps balance effective supervision with computational efficiency. When we remove both AT and ES, GenEval improves, but Aesthetic and OCR decline substantially, revealing trade-offs among capabilities. The full model achieves the best Aesthetic and OCR scores and the second-best GenEval score, while offering the highest training efficiency. These results support the complementary roles of AT and ES: AT selects supervision points according to the generation phase, while ES eliminates subsequent computation once the necessary queries have been completed. Together, they achieve a better balance between generation quality and training efficiency. 4.6 Mechanism Analysis Controlled single-teacher experiments on phase sensitivity are provided in Appendix B.4 . To analyze the querying preferences of different teachers during generation, we summarize the query positions selected by our method under three OPD training objectives in Fig. 8 . GenEval queries are concentrated primarily in the early stages, OCR queries favor the middle stages, and Aesthetic queries span both early and late stages. Although the precise peaks vary with the underlying training objective, the overall phase preferences of the three teachers remain consistent. These results indicate that different teachers supervise at different generation stages, while our method adapts query positions to the student’s actual trajectory rather than relying on fixed timesteps. Student dynamics recover this ordering online Fig. 9 shows the two online signals used by the adaptive trigger: the change in the spatial-scale revision ratio, Δ ​ F k = F k − F k − 1 \\Delta F_{k}=F_{k}-F_{k-1} , and its first-order difference, g k = Δ ​ F k − Δ ​ F k − 1 g_{k}=\\Delta F_{k}-\\Delta F_{k-1} . As the rollout progresses, Δ ​ F k \\Delta F_{k} rises rapidly in the early stages and reaches a peak, then declines substantially before settling into small, stable fluctuations in the later stages. The detector identifies stage boundaries when g k g_{k} approaches zero after sustained increases and decreases in Δ ​ F k \\Delta F_{k} , respectively, following the criterion in Sec. 3.2 . These transitions separate the early rise, intermediate decline, and later stabilization of the spatial-scale revision signal. Because both signals are computed solely from current and past student states, phase boundaries can be identified causally online without access to future rollout states. 4.7 User Preference Study To evaluate the generated results from a human perceptual perspective, we conduct a double-blind user preference study comparing our method against DanceOPD and DiffusionOPD in pairwise comparisons. Each pair of candidate images is generated using the same text prompt, random seed, and inference configuration and presented in a randomized order. Participants are unaware of which method produced each image and are asked to select the better result based on overall visual quality, text alignment, and content completeness, or to indicate a tie. As shown in Fig. 10 , our method receives higher user preference rates against both multi-teacher distillation baselines. These findings are consistent with the automatic evaluations, indicating that the improvements from phase-aware querying translate into perceptible gains in generation quality rather than merely numerical improvements on specific evaluation metrics. 5 Conclusion We presented PhaseOPD, which connects teacher supervision timing with early termination of student rollouts. Causal signals from predicted-clean latent revisions identify teacher-specific query states, allowing single-query distillation to proceed without generating the remaining trajectory. Experiments show fewer rollout steps, lower training cost, the strongest GenEval score in our comparison, and faster first-hour gains on GenEval and OCR. The results support jointly designing where to learn and how far to roll out as a practical route to efficient multi-capability post-training. References [1] R. Agarwal, N. Vieillard, Y. Zhou, P. Stanczyk, S. Ramos, M. ",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Skip to main content",
+      "url": "https://arxiv.org/html/2610.34191v1#infobox"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/IgnoreMe"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "Why HTML?",
+      "url": "https://info.arxiv.org/about/accessible_HTML.html"
+    },
+    {
+      "text": "Back to Abstract",
+      "url": "https://arxiv.org/abs/2610.34191v1"
+    },
+    {
+      "text": "Download PDF",
+      "url": "https://arxiv.org/pdf/2610.34191v1"
+    },
+    {
+      "text": "License: CC Zero",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2610.34191v1#bib.bib15"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2610.34191v1#bib.bib16"
+    },
+    {
+      "text": "12",
+      "url": "https://arxiv.org/html/2610.34191v1#bib.bib17"
+    },
+    {
+      "text": "16",
+      "url": "https://arxiv.org/html/2610.34191v1#bib.bib18"
+    },
+    {
+      "text": "18",
+      "url": "https://arxiv.org/html/2610.34191v1#bib.bib20"
+    },
+    {
+      "text": "19",
+      "url": "https://arxiv.org/html/2610.34191v1#bib.bib14"
+    },
+    {
+      "text": "17",
+      "url": "https://arxiv.org/html/2610.34191v1#bib.bib19"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2610.34191v1#bib.bib8"
+    },
+    {
+      "text": "8",
+      "url": "https://arxiv.org/html/2610.34191v1#bib.bib9"
+    },
+    {
+      "text": "20",
+      "url": "https://arxiv.org/html/2610.34191v1#bib.bib10"
+    },
+    {
+      "text": "A",
+      "url": "https://arxiv.org/html/2610.34191v1#A1"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2610.34191v1#S1.F1"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2610.34191v1#S3.E1"
+    },
+    {
+      "text": "3.2",
+      "url": "https://arxiv.org/html/2610.34191v1#S3.SS2"
+    },
+    {
+      "text": "B",
+      "url": "https://arxiv.org/html/2610.34191v1#A2"
+    },
+    {
+      "text": "B.1",
+      "url": "https://arxiv.org/html/2610.34191v1#A2.SS1"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2610.34191v1#S4.T1"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2610.34191v1#S4.F5"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2610.34191v1#S4.F3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2610.34191v1#S4.F4"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2610.34191v1#S4.T2"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2610.34191v1#S4.F6"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2610.34191v1#S4.F7"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2610.34191v1#S4.T3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2610.34191v1#S4.T4"
+    },
+    {
+      "text": "B.4",
+      "url": "https://arxiv.org/html/2610.34191v1#A2.SS4"
+    },
+    {
+      "text": "8",
+      "url": "https://arxiv.org/html/2610.34191v1#S4.F8"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2610.34191v1#S4.F9"
+    },
+    {
+      "text": "10",
+      "url": "https://arxiv.org/html/2610.34191v1#S4.F10"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/2306.13649"
+    },
+    {
+      "text": "§A.2",
+      "url": "https://arxiv.org/html/2610.34191v1#A1.SS2.p1.1"
+    },
+    {
+      "text": "§A.4",
+      "url": "https://arxiv.org/html/2610.34191v1#A1.SS4.p1.1"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/2211.01324"
+    },
+    {
+      "text": "§A.3",
+      "url": "https://arxiv.org/html/2610.34191v1#A1.SS3.p1.1"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/2305.13301"
+    },
+    {
+      "text": "§A.1",
+      "url": "https://arxiv.org/html/2610.34191v1#A1.SS1.p1.1"
+    },
+    {
+      "text": "Link",
+      "url": "https://proceedings.mlr.press/v235/esser24a.html"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/2605.08063"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2610.34191v1#S1.p2.1"
+    },
+    {
+      "text": "§3.1",
+      "url": "https://arxiv.org/html/2610.34191v1#S3.SS1.SSS0.Px3.p2.1"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/2006.11239"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2610.34191v1#S1.p1.1"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/2605.15055"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/2210.02747"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/2505.05470"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/2609.07137"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/2202.00512"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/2311.12908"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/2606.27377"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2610.34191v1#bib.bib1"
+    },
+    {
+      "text": "10",
+      "url": "https://arxiv.org/html/2610.34191v1#bib.bib2"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2610.34191v1#bib.bib3"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2610.34191v1#bib.bib4"
+    }
+  ],
+  "matching_link_count": 79,
+  "links_truncated": true,
+  "invalid_links": []
+}

@@ -1,0 +1,313 @@
+{
+  "url": "https://arxiv.org/html/2608.02689v1",
+  "final_url": "https://arxiv.org/html/2608.02689v1",
+  "status": 200,
+  "title": "Stuck on “A”: Diagnosing and Repairing Interface Injuryin Attention-to-KDA Linearization of a 0.6B Language Model",
+  "metadata": {},
+  "paper": {
+    "title": "Stuck on “A”: Diagnosing and Repairing Interface Injury in Attention-to-KDA Linearization of a 0.6B Language Model",
+    "title_warning": null,
+    "abstract": "Abstract We convert 21 of 28 full-attention layers of Qwen3-0.6B-Base into KDA\n(Kimi Delta Attention) linear-attention layers on a single consumer-grade\nGPU budget, and ask a simple question: what exactly does the conversion\nbreak? After surgery, hidden-state alignment and end-to-end KL\ndistillation drive the student close to its teacher in perplexity, yet\nmultiple-choice accuracy stays near random chance (25–29% vs. the\nteacher’s 50.6% on C-Eval). Using a four-permutation diagnostic that\nrotates answer options while holding content fixed, we show the model sticks to option labels (predicting “A” 81% of the time;\n106/161 questions keep the same label under all four rotations) rather\nthan following answer content—an interface injury that standard\ndistillation metrics cannot see. A 1,000-step format-targeted\ncompletion-only KL stage repairs the interface (+12.48 points on C-Eval,\nlabel-stickiness roughly halved), after which persona SFT and one round\nof on-policy DPO preserve benchmark scores within noise. We release\ncode, weights, recipes, and the full audit trail, and distill the\nengineering lessons—including an FP32-master failure mode in which\nbf16 optimizer updates are silently swallowed—that made convergence\npossible at this budget.",
+    "authors": [
+      {
+        "name": "Ronglong Bao",
+        "affiliations": [
+          "Affiliation: DT-Project"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Ronglong Bao † † thanks: ˜˜Code, weights and recipes: https://github.com/Sisyphbaous-DT-Project/open-qingyi Affiliation: DT-Project Email: islonglongy@qq.com",
+    "arxiv_version": "2608.02689v1",
+    "arxiv_version_date": "2026-08-03",
+    "sections": [
+      {
+        "id": "S1",
+        "heading": "1 Introduction",
+        "level": 1,
+        "text": "Linear attention replaces the O ⁡ ( n ) O(n) KV cache of full attention with an O ⁡ ( 1 ) O(1) recurrent state, offering structural advantages for long-context inference and edge deployment. KDA (Kimi Delta Attention), used in Moonshot’s Kimi Linear series, adds per-channel forget gating and a beta write gate to the delta rule ( Yang and Kautz, 2024 ; Moonshot AI, 2025 ) . Converting a pretrained full-attention model into such an architecture (“linearization”) is attractive because it reuses the knowledge already stored in the weights, but the conversion is lossy and its failure modes are poorly documented: public records contain both successful recipes ( Kostelec and Guo, 2026 ) and reports of divergence ( Chen et al., 2026 ) . We study linearization at the smallest practical scale—Qwen3-0.6B-Base, 28 layers, with 21 layers replaced by KDA and 7 GQA layers retained—under a budget constraint: one rented 32 GB GPU, tens of millions of tokens rather than billions. Our central question is diagnostic: what does the conversion actually damage? The naive reading of standard metrics is misleading twice over. First, layer-wise hidden-state alignment reduces overall CE from 9.48 to 4.13 while C-Eval accuracy remains at the 25% random baseline. Second, 7,000 steps of end-to-end forward-KL distillation close the validation CE gap to +0.128 nats, yet accuracy rises only to 28.8%. Perplexity, in short, can lie ( Kostelec and Guo, 2026 ) . To find out where the ability went, we design a four-permutation diagnostic : 161 clean multiple-choice questions are built from the training corpus itself (zero overlap with any benchmark), and each question is evaluated four times with its options cyclically rotated. A model that follows answer content should track the correct option; a model that has lost the knowledge should fail uniformly. Our converted model does neither: it predicts “A” 81.06% of the time and keeps the same label across all four rotations on 106/161 questions, while its average margin on the correct option is negative ( − 0.117 -0.117 nats). Uniform forgetting alone cannot explain this pattern: the student has lost the interface that maps knowledge onto option labels. A 1,000-step repair stage (Stage 3b) with completion-only KL on teacher-verified MCQ permutations, poetry, and translation QA lifts C-Eval from 28.8% to 41.3%, halves label-stickiness, and turns the correct-option margin positive—at a measurable cost in general distribution fit (valid KL 0.160 → 0.196 0.160\\to 0.196 ). Persona alignment (SFT, identity booster, one round of on-policy DPO) then proceeds without catastrophic forgetting under 15 benchmark guard points, yielding a final 41.83% C-Eval model whose persona is baked into the weights."
+      },
+      {
+        "id": "S1.SS0.SSS0.Px1",
+        "heading": "Contributions.",
+        "level": 3,
+        "text": "(i) A four-permutation diagnostic that separates interface injury from knowledge loss in converted models, applicable to any linearization or compression pipeline; (ii) a complete, budget-constrained Qwen3 → \\to KDA conversion recipe with every failure documented (false teacher-init, gate ablation, bf16 update-swallowing, cache bugs); (iii) evidence that persona alignment can survive architecture conversion essentially for free; (iv) open release of code, weights, recipes, and audit trails."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px1",
+        "heading": "Linear attention and delta rules.",
+        "level": 3,
+        "text": "Linear attention replaces softmax attention with recurrent state updates ( Katharopoulos et al., 2020 ) . The delta rule and its gated variants ( Yang and Kautz, 2024 ) underpin KDA as used in the Kimi Linear series ( Moonshot AI, 2025 ) ; we port the reference implementation with the fla kernels ( Yang and Zhang, 2024 ) ."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px2",
+        "heading": "Linearization of pretrained models.",
+        "level": 3,
+        "text": "HALO ( Chen et al., 2026 ) converts Qwen3-series Transformers into hybrid RNN-attention models with 2.3B tokens (attention weight transfer, three-stage distillation, attention-layer selection), and reports that Qwen3 → \\to KDA conversion under its Appendix-B configuration diverges at Stage 2 (gradient norm → \\to inf, unresponsive to lowered learning rates). GenDistill ( Kostelec and Guo, 2026 ) converts Qwen3-0.6B into a Hybrid-KDA student via layer-wise alignment, end-to-end KL, and completion-only KD, ablating six design axes. Its headline finding is that log-likelihood scoring systematically hides generation-quality gaps: in its 7B motivating example, a student within 0.2 points of its teacher under log-likelihood trails by 20.8 points under autoregressive generation. Notably, its Appendix N already observes a multiple-choice positional collapse in generation: an SFT student picks “A” on 79.5% of HellaSwag questions (vs. 54% for its KD student), with conditional accuracy on non-A options collapsing. Our pipeline belongs to the same recipe family—our unfreezing scope is motivated by GenDistill’s MLP-freezing ablation—implemented independently under a consumer budget. The complement is this: where GenDistill contrasts scoring protocols and notes positional collapse as one of four SFT-specific generation behaviors, we make option-label sticking the central object—a controlled four-permutation diagnostic inside the log-likelihood protocol that quantifies label-following vs. content-following, attributes the failure to missing format supervision, and verifies repair with before/after re-measurement."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px3",
+        "heading": "Knowledge distillation.",
+        "level": 3,
+        "text": "We use forward KL between teacher and student distributions ( Hinton et al., 2015 ) , layer-wise hidden-state MSE for Stage 2, and completion-only masked KL for Stage 3b. Our temperature ablation (Section 3.4 ) relates to standard analyses of soft targets."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px4",
+        "heading": "Persona alignment and preference optimization.",
+        "level": 3,
+        "text": "Identity injection via SFT concentration control and one round of on-policy DPO ( Rafailov et al., 2023 ) extends the conversion pipeline to persona-level attributes."
+      },
+      {
+        "id": "S3.SS1",
+        "heading": "3.1 Hybrid Layout and Surgery",
+        "level": 2,
+        "text": "From Qwen3-0.6B-Base ( Qwen Team, 2025 ) , every 4th layer keeps its native GQA (layers 3, 7, 11, 15, 19, 23, 27, 0-indexed; the final layer is always full attention); the remaining 21 layers are replaced with KDA (16 heads, head-dim 128, causal short conv k = 4 k{=}4 + SiLU, q/k L2-norm, low-rank forget gate, beta write gate, gated RMSNorm, NoPE). The KDA implementation matches the Kimi Linear reference to ∼ \\sim 10 − 6 10^{-6} numerical error against fla ’s chunk_kda . The hybrid keeps a linearly growing KV cache through the 7 GQA layers; the O ⁡ ( 1 ) O(1) recurrent state covers 75% of layers."
+      },
+      {
+        "id": "S3.SS1.SSS0.Px1",
+        "heading": "KDA recurrence.",
+        "level": 3,
+        "text": "Each KDA layer keeps a matrix-valued state S t ∈ ℝ d v × d k S_{t}\\in\\mathbb{R}^{d_{v}\\times d_{k}} per head, updated by a per-channel gated delta rule ( Yang and Kautz, 2024 ; Moonshot AI, 2025 ) : S t = S t − 1 ​ Diag ​ ( α t ) ​ ( I − β t ​ k t ​ k t ⊤ ) + β t ​ v t ​ k t ⊤ , S_{t}=S_{t-1}\\,\\mathrm{Diag}(\\alpha_{t})\\,\\bigl(I-\\beta_{t}k_{t}k_{t}^{\\top}\\bigr)+\\beta_{t}\\,v_{t}k_{t}^{\\top}, (1) with output o t = S t ​ q t o_{t}=S_{t}\\,q_{t} , where k t , q t ∈ ℝ d k k_{t},q_{t}\\in\\mathbb{R}^{d_{k}} , v t , o t ∈ ℝ d v v_{t},o_{t}\\in\\mathbb{R}^{d_{v}} , α t ∈ ( 0 , 1 ) d k \\alpha_{t}\\in(0,1)^{d_{k}} is the per-channel forget gate (median half-life ≈ \\approx 6.3 tokens under our g6 initialization) and β t ∈ ( 0 , 1 ) \\beta_{t}\\in(0,1) the write gate. We use the transposed state convention of the Kimi Linear report. Decoding state is O ⁡ ( d k ​ d v ) O(d_{k}d_{v}) per layer—constant in context length—while training runs in the parallel chunkwise form ( chunk_kda )."
+      },
+      {
+        "id": "S3.SS1.SSS0.Px2",
+        "heading": "Gate initialization is decisive (six-scheme ablation, g1–g7).",
+        "level": 3,
+        "text": "Judged by overall CE on a fresh held-out ruler (v2-default = 16.60 =16.60 , uniform = 11.93 =11.93 , teacher = 3.01 =3.01 ), near-total retention explodes the recurrent state while near-total forgetting scores worse than random . Our adopted setting g6 (dt_bias = 0 =0 , decay scale exp ⁡ ( A log ) ∈ ( 0.03 , 0.3 ) \\exp(A_{\\log})\\in(0.03,0.3) ) reaches 9.48."
+      },
+      {
+        "id": "S3.SS1.SSS0.Px3",
+        "heading": "False teacher-init (a cautionary tale).",
+        "level": 3,
+        "text": "Two surgery generations (v1/v2) claimed Q/K/V/O projection transplant; forensic checks later showed v1’s “transplant” never happened (cosine − 0.00 -0.00 to teacher, + 0.69 +0.69 to random init) and v2’s was functionally orthogonal to the teacher (mean cosine 0.007 0.007 ). v3 abandons projection transplant entirely; functional probe cosine rises to 0.434 0.434 ."
+      },
+      {
+        "id": "S3.SS2",
+        "heading": "3.2 Stage 2: Layer-wise Alignment",
+        "level": 2,
+        "text": "Each KDA layer receives its corresponding teacher hidden state; the teacher is frozen, errors are detached across layers, and only the KDA parameters (193.6M) train (lr 10 − 4 → 10 − 5 10^{-4}{\\to}10^{-5} , 8,192 tokens/step). Overall CE falls from 9.48 to a best of 4.125 (KL 1.33)— while C-Eval stays at 25.5% . This is the cleanest single instance of the perplexity–ability decoupling at the heart of this paper: hidden-trajectory alignment and task ability decouple completely."
+      },
+      {
+        "id": "S3.SS3",
+        "heading": "3.3 Stage 3a: End-to-End KL Distillation",
+        "level": 2,
+        "text": "The objective is forward KL between teacher and student next-token distributions over pretraining text, normalized by the number of effective tokens, with no CE term: ℒ KL = 1 N tok ∑ t D KL ( p T ( ⋅ ∣ x < t ) ∥ p S ( ⋅ ∣ x < t ) ) , \\mathcal{L}_{\\mathrm{KL}}=\\frac{1}{N_{\\mathrm{tok}}}\\sum_{t}D_{\\mathrm{KL}}\\bigl(p_{T}(\\cdot\\mid x_{<t})\\,\\|\\,p_{S}(\\cdot\\mid x_{<t})\\bigr), (2) where p ∝ exp ⁡ ( z / T ) p\\propto\\exp(z/T) , with the standard T 2 T^{2} gradient rescaling when T ≠ 1 T\\neq 1 ( Hinton et al., 2015 ) . Gradients flow through the full forward graph into all 21 KDA layers. Trainable scope: KDA + all MLPs + all LayerNorms (457.9M); embeddings, tied lm_head, and the 7 attention layers stay frozen, following GenDistill’s MLP-freezing ablation, which reports task-dependent but overall adverse effects on knowledge transfer. We bypass materializing full logits (2.32 GiB per bf16 copy) and compute chunked fp32 KL (gradient error ≤ 2.4 × 10 − 7 \\leq 2.4{\\times}10^{-7} vs. dense). 7,000 steps at 8,192 tokens/step (57.3M tokens) yield valid CE 2.9385 vs. teacher 2.8108 (gap +0.128), valid KL 0.160—and C-Eval 28.8%."
+      },
+      {
+        "id": "S3.SS4",
+        "heading": "3.4 Temperature Ablation",
+        "level": 2,
+        "text": "Two arms resume from the same step-7000 checkpoint, data cursor, optimizer state, and RNG: arm A at T = 1 T{=}1 , arm B at T = 2 T{=}2 , each for 1,000 further steps. A finishes at 28.7% C-Eval; B at 30.5%, holding ≥ \\geq 30% at two consecutive checkpoints—a directional gain in option ranking—while B’s valid CE/KL degrade (2.9385/0.1602 → \\to 2.9485/0.1702). The 1.8-point gap is not significance-tested; we treat T = 2 T{=}2 as a directional observation, not a causal conclusion."
+      },
+      {
+        "id": "S4.SS1",
+        "heading": "4.1 Four-Permutation Protocol",
+        "level": 2,
+        "text": "We generate 161 clean MCQs from the training corpus itself (73 source documents, ≤ \\leq 4 questions per document; zero exact/5-gram overlap with C-Eval ( Huang et al., 2023 ) , MMLU ( Hendrycks et al., 2021 ) , or CMMLU ( Li et al., 2023 ) ; zero fingerprint overlap with our three-tier evaluation rulers). Each question i i is scored under all four cyclic rotations r ∈ { 0 , 1 , 2 , 3 } r\\in\\{0,1,2,3\\} of its options. Let y ^ i , r = arg ⁡ max j ⁡ log ⁡ p ⁡ ( ℓ j ∣ x i , r ) \\hat{y}_{i,r}=\\arg\\max_{j}\\log p(\\ell_{j}\\mid x_{i,r}) be the predicted option label , y i , r ∗ y^{*}_{i,r} the correct option, and m i , r = log ⁡ p ⁡ ( ℓ y i , r ∗ ∣ x i , r ) − max j ≠ y i , r ∗ ⁡ log ⁡ p ⁡ ( ℓ j ∣ x i , r ) m_{i,r}=\\log p(\\ell_{y^{*}_{i,r}}\\mid x_{i,r})-\\max_{j\\neq y^{*}_{i,r}}\\log p(\\ell_{j}\\mid x_{i,r}) the correct-option margin under rotation r r . We report stickiness = 1 N ∑ i = 1 N 𝟏 [ y ^ i , 0 = y ^ i , 1 = y ^ i , 2 = y ^ i , 3 ] , \\displaystyle=\\frac{1}{N}\\sum_{i=1}^{N}\\mathbf{1}\\bigl[\\hat{y}_{i,0}=\\hat{y}_{i,1}=\\hat{y}_{i,2}=\\hat{y}_{i,3}\\bigr], (3) margin = 1 4 ​ N ​ ∑ i , r m i , r . \\displaystyle=\\frac{1}{4N}\\sum_{i,r}m_{i,r}. (4) Three behaviors separate cleanly: content-following (stickiness → \\to 0, margin > 0 >0 ), knowledge loss (uniform failure), and label-sticking (high stickiness, margin collapsing)—and the student lands squarely in the third (Table 1 ). Metric (161 × \\times 4) Teacher Student-7000 Accuracy 66.46% 36.18% Correct-option margin (nats) +0.995 − - 0.117 Predicted “A” share — 81.06% Same label all 4 rotations — 106/161 Exactly 1/4 correct (luck) — 112/161 Table 1: Four-permutation diagnosis after Stage 3a. The student overwhelmingly emits “A” after “Answer:” and fails to track answer content—label-sticking, not uniform forgetting."
+      },
+      {
+        "id": "S4.SS2",
+        "heading": "4.2 What the Diagnosis Does and Does Not Show",
+        "level": 2,
+        "text": "The protocol directly evidences severe label-stickiness: pretraining-text KL provides almost no supervision for the MCQ format. It does not directly prove the student ranks answer contents correctly without labels—we lack label-free content scoring, and knowledge damage cannot be excluded (teacher-right/student-wrong cases persist in poetry and translation). Our claim is therefore scoped: interface injury is one major repairable factor , and the repair below provides strong supporting evidence."
+      },
+      {
+        "id": "S5",
+        "heading": "5 Stage 3b: Format-Targeted Repair",
+        "level": 1,
+        "text": "Data: 6,250 teacher-verified MCQs (teacher correct under all four rotations, min margin ≥ \\geq 0.25 nats) × \\times 4 permutations (A/B/C/D exactly balanced) + 3,000 poetry QA + 3,000 translation QA; zero overlap with all benchmarks and rulers. The loss is completion-only KL: the prompt contributes no direct loss, and no question straddles a pack boundary: ℒ comp = 1 ∑ t m t ∑ t m t D KL ( p T ∥ p S ) t , \\mathcal{L}_{\\mathrm{comp}}=\\frac{1}{\\sum_{t}m_{t}}\\sum_{t}m_{t}\\,D_{\\mathrm{KL}}\\!\\Bigl(p_{T}\\,\\|\\,p_{S}\\Bigr)_{t}, (5) where the per-token KL is conditioned on x < t x_{<t} as in Eq. ( 2 ), and m t = 𝟏 [ t ∈ completion ∪ { EOS } ] m_{t}=\\mathbf{1}\\bigl[t\\in\\text{completion}\\cup\\{\\mathrm{EOS}\\}\\bigr] . Training: T = 2 T{=}2 , 1,000 steps (8.2M packed tokens) from step-7000. Stage 3a +Stage 3b C-Eval 28.83% 41.31% 4-perm accuracy 36.18% 53.73% All-4-correct questions 7/161 47/161 Correct-option margin − - 0.117 +0.233 Predicted “A” share 81.06% 58.5% Same label 4 rotations 106/161 47/161 Valid CE / KL 2.939 / 0.160 2.976 / 0.196 Table 2: Stage 3b repair. The interface improves substantially (“substantially repaired, not cured”: “A” share remains far above the 25% balance), at a measurable cost in general distribution fit. Table 2 summarizes the repair: +12.48 C-Eval points, label-stickiness roughly halved, margin turned positive. We read this as strong evidence that most benchmark-relevant knowledge survived conversion and was gated behind a broken interface—not as proof of zero knowledge loss."
+      },
+      {
+        "id": "S6",
+        "heading": "6 Persona Alignment Survives Conversion",
+        "level": 1,
+        "text": "Post-repair, we inject a persona (“Qingyi”, a digital-twin assistant) entirely at the weight level: two-epoch SFT (7,768 steps; lr 1.5 × 10 − 5 1.5{\\times}10^{-5} then 10 − 5 10^{-5} ), a 300-step identity booster (55% identity QA + protective chat), and one 100-step round of on-policy DPO ( Rafailov et al., 2023 ) (545 pairs, β = 0.1 \\beta{=}0.1 ): ℒ DPO = − log ⁡ σ ⁡ ( β ⁡ ( r w − r l ) ) , \\mathcal{L}_{\\mathrm{DPO}}=-\\log\\sigma\\bigl(\\beta\\,(r_{w}-r_{l})\\bigr), (6) with r y = log ⁡ π θ ​ ( y ∣ x ) π ref ​ ( y ∣ x ) r_{y}=\\log\\frac{\\pi_{\\theta}(y\\mid x)}{\\pi_{\\mathrm{ref}}(y\\mid x)} ."
+      },
+      {
+        "id": "S6.SS0.SSS0.Px1",
+        "heading": "No catastrophic forgetting.",
+        "level": 3,
+        "text": "Fifteen rolling and terminal C-Eval evaluations were conducted during SFT, and the booster and DPO stages were scored separately at their acceptance gates: an early dip to 38.63% ( − 2.68 -2.68 pt) recovers, and scores stabilize at 39–41% (final 41.83% ± \\pm 1.33 vs. 41.31% pre-SFT—inside the noise band)."
+      },
+      {
+        "id": "S6.SS0.SSS0.Px2",
+        "heading": "Concentration × \\times steps × \\times protection.",
+        "level": 3,
+        "text": "Identity facts bind at step-300 of the booster; step-400 overflows (denying H 2 O, greedy loops in chit-chat). There is no universal concentration threshold: 26% succeeded in an earlier generation, 55% succeeds here at 300 steps—the safe window is a three-variable interaction."
+      },
+      {
+        "id": "S6.SS0.SSS0.Px3",
+        "heading": "One DPO round is the sweet spot.",
+        "level": 3,
+        "text": "Held-out reward accuracy 0.625 → 0.792 0.625\\to 0.792 ; a second on-policy round only breeds repetition and is discarded wholesale."
+      },
+      {
+        "id": "S7.SS0.SSS0.Px1",
+        "heading": "bf16 swallows small updates.",
+        "level": 3,
+        "text": "With bf16 parameters and bf16 Adam moments, a norm weight initialized at 1.0 1.0 remains exactly 1.0 1.0 after 1,000 steps at lr 10 − 4 10^{-4} (sub-ULP updates). Stages 2/3 use FP32 master weights and moments. Any distillation run showing healthy gradient norms but frozen weights should check this first—we note this matches HALO’s “unresponsive to lowered lr” symptom, though we claim no causal proof."
+      },
+      {
+        "id": "S7.SS0.SSS0.Px2",
+        "heading": "New layers need cache parity from day one.",
+        "level": 3,
+        "text": "Our KDA layer initially accepted but ignored the incremental cache, collapsing generation into garbage from the second token—and several “persona not bound” readings were artifacts of this bug. The fix ( HybridKDACache : per-layer recurrent state + conv windows) removes the collapse at 1.7 × \\times speedup, no retraining."
+      },
+      {
+        "id": "S7.SS0.SSS0.Px3",
+        "heading": "Process hardening.",
+        "level": 3,
+        "text": "Canonical-init SHA-256 locking at the training entry; three-tier evaluation rulers with document-fingerprint isolation (tune/valid/release; release never opened); resume validation of 11 hyperparameters; cursor-exact data replay. Each rule was earned by a concrete accident."
+      },
+      {
+        "id": "S8",
+        "heading": "8 Results",
+        "level": 1,
+        "text": "Stage Checkpoint C-Eval Base Qwen3-0.6B-Base 50.52 / 50.59% v3 surgery (untrained) — (CE 9.48) v3 Stage 2 best 25.48% v3 Stage 3a step-7000 28.83% v3 Stage 3b step-8000 41.31% v3 SFT step-7768 40.34% v3 booster step-300 42.27% v3 DPO step-100 (final) 41.83% ± \\pm 1.33 Table 3: Full lineage (lm-evaluation-harness ( Gao et al., 2024 ) , ceval-valid , 0-shot). The two teacher readings are same-protocol measurements at different times. Table 3 collects the lineage. The final model sits 8.8 points below its teacher; whether the residual gap is data diversity (our working hypothesis) or architectural capacity is undecidable from a single model, seed, and data scale."
+      },
+      {
+        "id": "S9",
+        "heading": "9 Limitations",
+        "level": 1,
+        "text": "(i) The same ceval-valid served repeatedly for checkpoint selection (15+ guard points), so the final score is not an untouched test (winner’s curse); our locked release ruler was never opened before submission. (ii) Four-permutation evidence does not include label-free content scoring; knowledge damage is not excluded. (iii) No final MMLU/CMMLU, generation, long-context, or throughput benchmarks on the final weights. (iv) Refusal behavior under sampling is unstable. (v) Single model/seed/scale; no KDA CPU fallback (Triton kernels). (vi) The temperature ablation lacks significance testing."
+      },
+      {
+        "id": "S10",
+        "heading": "10 Conclusion",
+        "level": 1,
+        "text": "Converting a 0.6B full-attention model to a KDA hybrid on a consumer budget is feasible, but the standard metric stack—perplexity, KL, hidden-state MSE—systematically misreports the damage. A four-permutation diagnostic reveals a major repairable injury: the interface from knowledge to option labels. A short format-targeted stage repairs it, and persona alignment then costs essentially nothing. We release everything: code, weights, recipes, and the accidents."
+      },
+      {
+        "id": "Sx1",
+        "heading": "Acknowledgments",
+        "level": 1,
+        "text": "Compute: one rented 32 GB GPU; local RTX 4070 Laptop for v1. We thank the authors of GenDistill and HALO for public recipes and failure records."
+      },
+      {
+        "id": "bib",
+        "heading": "References",
+        "level": 1,
+        "text": "Chen et al. (2026) Yingfa Chen, Zhen Leng Thai, Zihan Zhou, Zhu Zhang, Xingyu Shen, Shuo Wang, Chaojun Xiao, Xu Han, and Zhiyuan Liu. 2026. Hybrid linear attention done right: Efficient distillation and effective architectures for extremely long contexts. arXiv:2601.22156. Gao et al. (2024) Leo Gao, Jonathan Tow, Baber Abbasi, Stella Biderman, Sid Black, Anthony DiPofi, Charles Foster, Laurence Golding, Jeffrey Hsu, Alain Le Noac’h, Haonan Li, Kyle McDonell, Niklas Muennighoff, Chris Ociepa, Jason Phang, Laria Reynolds, Hailey Schoelkopf, Aviya Skowron, Lintang Sutawika, and 5 others. 2024. A framework for few-shot language model evaluation. https://zenodo.org/records/12608602 . Hendrycks et al. (2021) Dan Hendrycks, Collin Burns, Steven Basart, Andy Zou, Mantas Mazeika, Dawn Song, and Jacob Steinhardt. 2021. Measuring massive multitask understanding. In Proceedings of ICLR . Hinton et al. (2015) Geoffrey Hinton, Oriol Vinyals, and Jeff Dean. 2015. Distilling the knowledge in a neural network. arXiv:1503.02531. Huang et al. (2023) Yuzhen Huang, Yuzhuo Bai, Zhihao Zhu, Junlei Zhang, Jinghan Zhang, Tangjun Su, Junteng Liu, Chuancheng Lv, Yikai Zhang, Jiayi Lei, Yao Fu, Maosong Sun, and Junxian He. 2023. C-Eval: A multi-level multi-discipline chinese evaluation suite for foundation models. In Proceedings of NeurIPS Datasets and Benchmarks . Katharopoulos et al. (2020) Angelos Katharopoulos, Apoorv Vyas, Nikolaos Pappas, and François Fleuret. 2020. Transformers are RNNs: Fast autoregressive transformers with linear attention. In Proceedings of ICML . Kostelec and Guo (2026) Juan Gabriel Kostelec and Qinghai Guo. 2026. When perplexity lies: Generation-focused distillation of hybrid sequence models. arXiv:2603.26556v2. Huawei Zurich Research Center; ACS Lab, Huawei Technologies. Li et al. (2023) Haonan Li, Yixuan Zhang, Fajri Koto, Yifei Yang, Hai Zhao, Yeyun Gong, Nan Duan, and Timothy Baldwin. 2023. CMMLU: Measuring massive multitask language understanding in chinese. arXiv:2306.09212. Moonshot AI (2025) Moonshot AI. 2025. Kimi linear: An expressive, efficient attention architecture. arXiv:2510.26692. Qwen Team (2025) Qwen Team. 2025. Qwen3 technical report. arXiv:2505.09388. Rafailov et al. (2023) Rafael Rafailov, Archit Sharma, Eric Mitchell, Stefano Ermon, Christopher D. Manning, and Chelsea Finn. 2023. Direct preference optimization: Your language model is secretly a reward model. In Proceedings of NeurIPS . Yang and Kautz (2024) Songlin Yang and Jan Kautz. 2024. Gated delta networks: Improving Mamba2 with delta rule. arXiv preprint arXiv:2412.06464 . Yang and Zhang (2024) Songlin Yang and Yu Zhang. 2024. fla: A triton-based library for hardware-efficient implementations of linear attention mechanism. https://github.com/fla-org/flash-linear-attention ."
+      }
+    ]
+  },
+  "text": "Stuck on “A”: Diagnosing and Repairing Interface Injuryin Attention-to-KDA Linearization of a 0.6B Language Model Skip to main content Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: Why HTML? Report Issue Back to Abstract Download PDF Contents Reading mode Colour theme License: CC BY 4.0 arXiv:2608.02689v1 [cs.CL] 03 Aug 2026 Stuck on “A”: Diagnosing and Repairing Interface Injury in Attention-to-KDA Linearization of a 0.6B Language Model Ronglong Bao † † thanks: ˜˜Code, weights and recipes: https://github.com/Sisyphbaous-DT-Project/open-qingyi Affiliation: DT-Project Email: islonglongy@qq.com Abstract We convert 21 of 28 full-attention layers of Qwen3-0.6B-Base into KDA (Kimi Delta Attention) linear-attention layers on a single consumer-grade GPU budget, and ask a simple question: what exactly does the conversion break? After surgery, hidden-state alignment and end-to-end KL distillation drive the student close to its teacher in perplexity, yet multiple-choice accuracy stays near random chance (25–29% vs. the teacher’s 50.6% on C-Eval). Using a four-permutation diagnostic that rotates answer options while holding content fixed, we show the model sticks to option labels (predicting “A” 81% of the time; 106/161 questions keep the same label under all four rotations) rather than following answer content—an interface injury that standard distillation metrics cannot see. A 1,000-step format-targeted completion-only KL stage repairs the interface (+12.48 points on C-Eval, label-stickiness roughly halved), after which persona SFT and one round of on-policy DPO preserve benchmark scores within noise. We release code, weights, recipes, and the full audit trail, and distill the engineering lessons—including an FP32-master failure mode in which bf16 optimizer updates are silently swallowed—that made convergence possible at this budget. 1 Introduction Linear attention replaces the O ⁡ ( n ) O(n) KV cache of full attention with an O ⁡ ( 1 ) O(1) recurrent state, offering structural advantages for long-context inference and edge deployment. KDA (Kimi Delta Attention), used in Moonshot’s Kimi Linear series, adds per-channel forget gating and a beta write gate to the delta rule ( Yang and Kautz, 2024 ; Moonshot AI, 2025 ) . Converting a pretrained full-attention model into such an architecture (“linearization”) is attractive because it reuses the knowledge already stored in the weights, but the conversion is lossy and its failure modes are poorly documented: public records contain both successful recipes ( Kostelec and Guo, 2026 ) and reports of divergence ( Chen et al., 2026 ) . We study linearization at the smallest practical scale—Qwen3-0.6B-Base, 28 layers, with 21 layers replaced by KDA and 7 GQA layers retained—under a budget constraint: one rented 32 GB GPU, tens of millions of tokens rather than billions. Our central question is diagnostic: what does the conversion actually damage? The naive reading of standard metrics is misleading twice over. First, layer-wise hidden-state alignment reduces overall CE from 9.48 to 4.13 while C-Eval accuracy remains at the 25% random baseline. Second, 7,000 steps of end-to-end forward-KL distillation close the validation CE gap to +0.128 nats, yet accuracy rises only to 28.8%. Perplexity, in short, can lie ( Kostelec and Guo, 2026 ) . To find out where the ability went, we design a four-permutation diagnostic : 161 clean multiple-choice questions are built from the training corpus itself (zero overlap with any benchmark), and each question is evaluated four times with its options cyclically rotated. A model that follows answer content should track the correct option; a model that has lost the knowledge should fail uniformly. Our converted model does neither: it predicts “A” 81.06% of the time and keeps the same label across all four rotations on 106/161 questions, while its average margin on the correct option is negative ( − 0.117 -0.117 nats). Uniform forgetting alone cannot explain this pattern: the student has lost the interface that maps knowledge onto option labels. A 1,000-step repair stage (Stage 3b) with completion-only KL on teacher-verified MCQ permutations, poetry, and translation QA lifts C-Eval from 28.8% to 41.3%, halves label-stickiness, and turns the correct-option margin positive—at a measurable cost in general distribution fit (valid KL 0.160 → 0.196 0.160\\to 0.196 ). Persona alignment (SFT, identity booster, one round of on-policy DPO) then proceeds without catastrophic forgetting under 15 benchmark guard points, yielding a final 41.83% C-Eval model whose persona is baked into the weights. Contributions. (i) A four-permutation diagnostic that separates interface injury from knowledge loss in converted models, applicable to any linearization or compression pipeline; (ii) a complete, budget-constrained Qwen3 → \\to KDA conversion recipe with every failure documented (false teacher-init, gate ablation, bf16 update-swallowing, cache bugs); (iii) evidence that persona alignment can survive architecture conversion essentially for free; (iv) open release of code, weights, recipes, and audit trails. 2 Related Work Linear attention and delta rules. Linear attention replaces softmax attention with recurrent state updates ( Katharopoulos et al., 2020 ) . The delta rule and its gated variants ( Yang and Kautz, 2024 ) underpin KDA as used in the Kimi Linear series ( Moonshot AI, 2025 ) ; we port the reference implementation with the fla kernels ( Yang and Zhang, 2024 ) . Linearization of pretrained models. HALO ( Chen et al., 2026 ) converts Qwen3-series Transformers into hybrid RNN-attention models with 2.3B tokens (attention weight transfer, three-stage distillation, attention-layer selection), and reports that Qwen3 → \\to KDA conversion under its Appendix-B configuration diverges at Stage 2 (gradient norm → \\to inf, unresponsive to lowered learning rates). GenDistill ( Kostelec and Guo, 2026 ) converts Qwen3-0.6B into a Hybrid-KDA student via layer-wise alignment, end-to-end KL, and completion-only KD, ablating six design axes. Its headline finding is that log-likelihood scoring systematically hides generation-quality gaps: in its 7B motivating example, a student within 0.2 points of its teacher under log-likelihood trails by 20.8 points under autoregressive generation. Notably, its Appendix N already observes a multiple-choice positional collapse in generation: an SFT student picks “A” on 79.5% of HellaSwag questions (vs. 54% for its KD student), with conditional accuracy on non-A options collapsing. Our pipeline belongs to the same recipe family—our unfreezing scope is motivated by GenDistill’s MLP-freezing ablation—implemented independently under a consumer budget. The complement is this: where GenDistill contrasts scoring protocols and notes positional collapse as one of four SFT-specific generation behaviors, we make option-label sticking the central object—a controlled four-permutation diagnostic inside the log-likelihood protocol that quantifies label-following vs. content-following, attributes the failure to missing format supervision, and verifies repair with before/after re-measurement. Knowledge distillation. We use forward KL between teacher and student distributions ( Hinton et al., 2015 ) , layer-wise hidden-state MSE for Stage 2, and completion-only masked KL for Stage 3b. Our temperature ablation (Section 3.4 ) relates to standard analyses of soft targets. Persona alignment and preference optimization. Identity injection via SFT concentration control and one round of on-policy DPO ( Rafailov et al., 2023 ) extends the conversion pipeline to persona-level attributes. 3 Conversion Pipeline 3.1 Hybrid Layout and Surgery From Qwen3-0.6B-Base ( Qwen Team, 2025 ) , every 4th layer keeps its native GQA (layers 3, 7, 11, 15, 19, 23, 27, 0-indexed; the final layer is always full attention); the remaining 21 layers are replaced with KDA (16 heads, head-dim 128, causal short conv k = 4 k{=}4 + SiLU, q/k L2-norm, low-rank forget gate, beta write gate, gated RMSNorm, NoPE). The KDA implementation matches the Kimi Linear reference to ∼ \\sim 10 − 6 10^{-6} numerical error against fla ’s chunk_kda . The hybrid keeps a linearly growing KV cache through the 7 GQA layers; the O ⁡ ( 1 ) O(1) recurrent state covers 75% of layers. KDA recurrence. Each KDA layer keeps a matrix-valued state S t ∈ ℝ d v × d k S_{t}\\in\\mathbb{R}^{d_{v}\\times d_{k}} per head, updated by a per-channel gated delta rule ( Yang and Kautz, 2024 ; Moonshot AI, 2025 ) : S t = S t − 1 ​ Diag ​ ( α t ) ​ ( I − β t ​ k t ​ k t ⊤ ) + β t ​ v t ​ k t ⊤ , S_{t}=S_{t-1}\\,\\mathrm{Diag}(\\alpha_{t})\\,\\bigl(I-\\beta_{t}k_{t}k_{t}^{\\top}\\bigr)+\\beta_{t}\\,v_{t}k_{t}^{\\top}, (1) with output o t = S t ​ q t o_{t}=S_{t}\\,q_{t} , where k t , q t ∈ ℝ d k k_{t},q_{t}\\in\\mathbb{R}^{d_{k}} , v t , o t ∈ ℝ d v v_{t},o_{t}\\in\\mathbb{R}^{d_{v}} , α t ∈ ( 0 , 1 ) d k \\alpha_{t}\\in(0,1)^{d_{k}} is the per-channel forget gate (median half-life ≈ \\approx 6.3 tokens under our g6 initialization) and β t ∈ ( 0 , 1 ) \\beta_{t}\\in(0,1) the write gate. We use the transposed state convention of the Kimi Linear report. Decoding state is O ⁡ ( d k ​ d v ) O(d_{k}d_{v}) per layer—constant in context length—while training runs in the parallel chunkwise form ( chunk_kda ). Gate initialization is decisive (six-scheme ablation, g1–g7). Judged by overall CE on a fresh held-out ruler (v2-default = 16.60 =16.60 , uniform = 11.93 =11.93 , teacher = 3.01 =3.01 ), near-total retention explodes the recurrent state while near-total forgetting scores worse than random . Our adopted setting g6 (dt_bias = 0 =0 , decay scale exp ⁡ ( A log ) ∈ ( 0.03 , 0.3 ) \\exp(A_{\\log})\\in(0.03,0.3) ) reaches 9.48. False teacher-init (a cautionary tale). Two surgery generations (v1/v2) claimed Q/K/V/O projection transplant; forensic checks later showed v1’s “transplant” never happened (cosine − 0.00 -0.00 to teacher, + 0.69 +0.69 to random init) and v2’s was functionally orthogonal to the teacher (mean cosine 0.007 0.007 ). v3 abandons projection transplant entirely; functional probe cosine rises to 0.434 0.434 . 3.2 Stage 2: Layer-wise Alignment Each KDA layer receives its corresponding teacher hidden state; the teacher is frozen, errors are detached across layers, and only the KDA parameters (193.6M) train (lr 10 − 4 → 10 − 5 10^{-4}{\\to}10^{-5} , 8,192 tokens/step). Overall CE falls from 9.48 to a best of 4.125 (KL 1.33)— while C-Eval stays at 25.5% . This is the cleanest single instance of the perplexity–ability decoupling at the heart of this paper: hidden-trajectory alignment and task ability decouple completely. 3.3 Stage 3a: End-to-End KL Distillation The objective is forward KL between teacher and student next-token distributions over pretraining text, normalized by the number of effective tokens, with no CE term: ℒ KL = 1 N tok ∑ t D KL ( p T ( ⋅ ∣ x < t ) ∥ p S ( ⋅ ∣ x < t ) ) , \\mathcal{L}_{\\mathrm{KL}}=\\frac{1}{N_{\\mathrm{tok}}}\\sum_{t}D_{\\mathrm{KL}}\\bigl(p_{T}(\\cdot\\mid x_{<t})\\,\\|\\,p_{S}(\\cdot\\mid x_{<t})\\bigr), (2) where p ∝ exp ⁡ ( z / T ) p\\propto\\exp(z/T) , with the standard T 2 T^{2} gradient rescaling when T ≠ 1 T\\neq 1 ( Hinton et al., 2015 ) . Gradients flow through the full forward graph into all 21 KDA layers. Trainable scope: KDA + all MLPs + all LayerNorms (457.9M); embeddings, tied lm_head, and the 7 attention layers stay frozen, following GenDistill’s MLP-freezing ablation, which reports task-dependent but overall adverse effects on knowledge transfer. We bypass materializing full logits (2.32 GiB per bf16 copy) and compute chunked fp32 KL (gradient error ≤ 2.4 × 10 − 7 \\leq 2.4{\\times}10^{-7} vs. dense). 7,000 steps at 8,192 tokens/step (57.3M tokens) yield valid CE 2.9385 vs. teacher 2.8108 (gap +0.128), valid KL 0.160—and C-Eval 28.8%. 3.4 Temperature Ablation Two arms resume from the same step-7000 checkpoint, data cursor, optimizer state, and RNG: arm A at T = 1 T{=}1 , arm B at T = 2 T{=}2 , each for 1,000 further steps. A finishes at 28.7% C-Eval; B at 30.5%, holding ≥ \\geq 30% at two consecutive checkpoints—a directional gain in option ranking—while B’s valid CE/KL degrade (2.9385/0.1602 → \\to 2.9485/0.1702). The 1.8-point gap is not significance-tested; we treat T = 2 T{=}2 as a directional observation, not a causal conclusion. 4 The Interface Injury Diagnosis 4.1 Four-Permutation Protocol We generate 161 clean MCQs from the training corpus itself (73 source documents, ≤ \\leq 4 questions per document; zero exact/5-gram overlap with C-Eval ( Huang et al., 2023 ) , MMLU ( Hendrycks et al., 2021 ) , or CMMLU ( Li et al., 2023 ) ; zero fingerprint overlap with our three-tier evaluation rulers). Each question i i is scored under all four cyclic rotations r ∈ { 0 , 1 , 2 , 3 } r\\in\\{0,1,2,3\\} of its options. Let y ^ i , r = arg ⁡ max j ⁡ log ⁡ p ⁡ ( ℓ j ∣ x i , r ) \\hat{y}_{i,r}=\\arg\\max_{j}\\log p(\\ell_{j}\\mid x_{i,r}) be the predicted option label , y i , r ∗ y^{*}_{i,r} the correct option, and m i , r = log ⁡ p ⁡ ( ℓ y i , r ∗ ∣ x i , r ) − max j ≠ y i , r ∗ ⁡ log ⁡ p ⁡ ( ℓ j ∣ x i , r ) m_{i,r}=\\log p(\\ell_{y^{*}_{i,r}}\\mid x_{i,r})-\\max_{j\\neq y^{*}_{i,r}}\\log p(\\ell_{j}\\mid x_{i,r}) the correct-option margin under rotation r r . We report stickiness = 1 N ∑ i = 1 N 𝟏 [ y ^ i , 0 = y ^ i , 1 = y ^ i , 2 = y ^ i , 3 ] , \\displaystyle=\\frac{1}{N}\\sum_{i=1}^{N}\\mathbf{1}\\bigl[\\hat{y}_{i,0}=\\hat{y}_{i,1}=\\hat{y}_{i,2}=\\hat{y}_{i,3}\\bigr], (3) margin = 1 4 ​ N ​ ∑ i , r m i , r . \\displaystyle=\\frac{1}{4N}\\sum_{i,r}m_{i,r}. (4) Three behaviors separate cleanly: content-following (stickiness → \\to 0, margin > 0 >0 ), knowledge loss (uniform failure), and label-sticking (high stickiness, margin collapsing)—and the student lands squarely in the third (Table 1 ). Metric (161 × \\times 4) Teacher Student-7000 Accuracy 66.46% 36.18% Correct-option margin (nats) +0.995 − - 0.117 Predicted “A” share — 81.06% Same label all 4 rotations — 106/161 Exactly 1/4 correct (luck) — 112/161 Table 1: Four-permutation diagnosis after Stage 3a. The student overwhelmingly emits “A” after “Answer:” and fails to track answer content—label-sticking, not uniform forgetting. 4.2 What the Diagnosis Does and Does Not Show The protocol directly evidences severe label-stickiness: pretraining-text KL provides almost no supervision for the MCQ format. It does not directly prove the student ranks answer contents correctly without labels—we lack label-free content scoring, and knowledge damage cannot be excluded (teacher-right/student-wrong cases persist in poetry and translation). Our claim is therefore scoped: interface injury is one major repairable factor , and the repair below provides strong supporting evidence. 5 Stage 3b: Format-Targeted Repair Data: 6,250 teacher-verified MCQs (teacher correct under all four rotations, min margin ≥ \\geq 0.25 nats) × \\times 4 permutations (A/B/C/D exactly balanced) + 3,000 poetry QA + 3,000 translation QA; zero overlap with all benchmarks and rulers. The loss is completion-only KL: the prompt contributes no direct loss, and no question straddles a pack boundary: ℒ comp = 1 ∑ t m t ∑ t m t D KL ( p T ∥ p S ) t , \\mathcal{L}_{\\mathrm{comp}}=\\frac{1}{\\sum_{t}m_{t}}\\sum_{t}m_{t}\\,D_{\\mathrm{KL}}\\!\\Bigl(p_{T}\\,\\|\\,p_{S}\\Bigr)_{t}, (5) where the per-token KL is conditioned on x < t x_{<t} as in Eq. ( 2 ), and m t = 𝟏 [ t ∈ completion ∪ { EOS } ] m_{t}=\\mathbf{1}\\bigl[t\\in\\text{completion}\\cup\\{\\mathrm{EOS}\\}\\bigr] . Training: T = 2 T{=}2 , 1,000 steps (8.2M packed tokens) from step-7000. Stage 3a +Stage 3b C-Eval 28.83% 41.31% 4-perm accuracy 36.18% 53.73% All-4-correct questions 7/161 47/161 Correct-option margin − - 0.117 +0.233 Predicted “A” share 81.06% 58.5% Same label 4 rotations 106/161 47/161 Valid CE / KL 2.939 / 0.160 2.976 / 0.196 Table 2: Stage 3b repair. The interface improves substantially (“substantially repaired, not cured”: “A” share remains far above the 25% balance), at a measurable cost in general distribution fit. Table 2 summarizes the repair: +12.48 C-Eval points, label-stickiness roughly halved, margin turned positive. We read this as strong evidence that most benchmark-relevant knowledge survived conversion and was gated behind a broken interface—not as proof of zero knowledge loss. 6 Persona Alignment Survives Conversion Post-repair, we inject a persona (“Qingyi”, a digital-twin assistant) entirely at the weight level: two-epoch SFT (7,768 steps; lr 1.5 × 10 − 5 1.5{\\times}10^{-5} then 10 − 5 10^{-5} ), a 300-step identity booster (55% identity QA + protective chat), and one 100-step round of on-policy DPO ( Rafailov et al., 2023 ) (545 pairs, β = 0.1 \\beta{=}0.1 ): ℒ DPO = − log ⁡ σ ⁡ ( β ⁡ ( r w − r l ) ) , \\mathcal{L}_{\\mathrm{DPO}}=-\\log\\sigma\\bigl(\\beta\\,(r_{w}-r_{l})\\bigr), (6) with r y = log ⁡ π θ ​ ( y ∣ x ) π ref ​ ( y ∣ x ) r_{y}=\\log\\frac{\\pi_{\\theta}(y\\mid x)}{\\pi_{\\mathrm{ref}}(y\\mid x)} . No catastrophic forgetting. Fifteen rolling and terminal C-Eval evaluations were conducted during SFT, and the booster and DPO stages were scored separately at their acceptance gates: an early dip to 38.63% ( − 2.68 -2.68 pt) recovers, and scores stabilize at 39–41% (final 41.83% ± \\pm 1.33 vs. 41.31% pre-SFT—inside the noise band). Concentration × \\times steps × \\times protection. Identity facts bind at step-300 of the booster; step-400 overflows (denying H 2 O, greedy loops in chit-chat). There is no universal concentration threshold: 26% succeeded in an earlier generation, 55% succeeds here at 300 steps—the safe window is a three-variable interaction. One DPO round is the sweet spot. Held-out reward accuracy 0.625 → 0.792 0.625\\to 0.792 ; a second on-policy round only breeds repetition and is discarded wholesale. 7 Engineering Lessons bf16 swallows small updates. With bf16 parameters and bf16 Adam moments, a norm weight initialized at 1.0 1.0 remains exactly 1.0 1.0 after 1,000 steps at lr 10 − 4 10^{-4} (sub-ULP updates). Stages 2/3 use FP32 master weights and moments. Any distillation run showing healthy gradient norms but frozen weights should check this first—we note this matches HALO’s “unresponsive to lowered lr” symptom, though we claim no causal proof. New layers need cache parity from day one. Our KDA layer initially accepted but ignored the incremental cache, collapsing generation into garbage from the second token—and several “persona not bound” readings were artifacts of this bug. The fix ( HybridKDACache : per-layer recurrent state + conv windows) removes the collapse at 1.7 × \\times speedup, no retraining. Process hardening. Canonical-init SHA-256 locking at the training entry; three-tier evaluation rulers with document-fingerprint isolation (tune/valid/release; release never opened); resume validation of 11 hyperparameters; cursor-exact data replay. Each rule was earned by a concrete accident. 8 Results Stage Checkpoint C-Eval Base Qwen3-0.6B-Base 50.52 / 50.59% v3 surgery (untrained) — (CE 9.48) v3 Stage 2 best 25.48% v3 Stage 3a step-7000 28.83% v3 Stage 3b step-8000 41.31% v3 SFT step-7768 40.34% v3 booster step-300 42.27% v3 DPO step-100 (final) 41.83% ± \\pm 1.33 Table 3: Full lineage (lm-evaluation-harness ( Gao et al., 2024 ) , ceval-valid , 0-shot). The two teacher readings are same-protocol measurements at different times. Table 3 collects the lineage. The final model sits 8.8 points below its teacher; whether the residual gap is data diversity (our working hypothesis) or architectural capacity is undecidable from a single model, seed, and data scale. 9 Limitations (i) The same ceval-valid served repeatedly for checkpoint selection (15+ guard points), so the final score is not an untouched test (winner’s curse); our locked release ruler was never opened before submission. (ii) Four-permutation evidence does not include label-free content scoring; knowledge damage is not excluded. (iii) No final MMLU/CMMLU, generation, long-context, or throughput benchmarks on the final weights. (iv) Refusal behavior under sampling is unstable. (v) Single model/seed/scale; no KDA CPU fallback (Triton kernels). (vi) The temperature ablation lacks significance testing. 10 Conclusion Converting a 0.6B full-attention model to a KDA hybrid on a consumer budget is feasible, but the standard metric stack—perplexity, KL, hidden-state MSE—systematically misreports the damage. A four-permutation diagnostic reveals a major repairable injury: the interface from knowledge to option labels. A short format-targeted stage repairs it, and persona alignment then costs essentially nothing. We release everything: code, weights, recipes, and the accidents. Acknowledgments Compute: one rented 32 GB GPU; local RTX 4070 Laptop for v1. We thank the authors of GenDistill and HALO for public recipes and failure records. References Chen et al. (2026) Yingfa Chen, Zhen Leng Thai, Zihan Zhou, Zhu Zhang, Xingyu Shen, Shuo Wang, Chaojun Xiao, Xu Han, and Zhiyuan Liu. 2026. Hybrid linear attention done right: Efficient distillation and effective architectures for extremely long contexts. arXiv:2601.22156. Gao et al. (2024) Leo Gao, Jonathan Tow, Baber Abbasi, Stella Biderman, Sid Black, Anthony DiPofi, Charles Foster, Laurence Golding, Jeffrey Hsu, Alain Le Noac’h, Haonan Li, Kyle McDonell, Niklas Muennighoff, Chris Ociepa, Jason Phang, Laria Reynolds, Hailey Schoelkopf, Aviya Skowron, Lintang Sutawika, and 5 others. 2024. A framework for few-shot language model evaluation. https://zenodo.org/records/12608602 . Hendrycks et al. (2021) Dan Hendrycks, Collin Burns, Steven Basart, Andy Zou, Mantas Mazeika, Dawn Song, and Jacob Steinhardt. 2021. Measuring massive multitask understanding. In Proceedings of ICLR . Hinton et al. (2015) Geoffrey Hinton, Oriol Vinyals, and Jeff Dean. 2015. Distilling the knowledge in a neural network. arXiv:1503.02531. Huang et al. (2023) Yuzhen Huang, Yuzhuo Bai, Zhihao Zhu, Junlei Zhang, Jinghan Zhang, Tangjun Su, Junteng Liu, Chuancheng Lv, Yikai Zhang, Jiayi Lei, Yao Fu, Maosong Sun, and Junxian He. 2023. C-Eval: A multi-level multi-discipline chinese evaluation suite for foundation models. In Proceedings of NeurIPS Datasets and Benchmarks . Katharopoulos et al. (2020) Angelos Katharopoulos, Apoorv Vyas, Nikolaos Pappas, and François Fleuret. 2020. Transformers are RNNs: Fast autoregressive transformers with linear attention. In Proceedings of ICML . Kostelec and Guo (2026) Juan Gabriel Kostelec and Qinghai Guo. 2026. When perplexity lies: Generation-focused distillation of hybrid sequence models. arXiv:2603.26556v2. Huawei Zurich Research Center; ACS Lab, Huawei Technologies. Li et al. (2023) Haonan Li, Yixuan Zhang, Fajri Koto, Yifei Yang, Hai Zhao, Yeyun Gong, Nan Duan, and Timothy Baldwin. 2023. CMMLU: Measuring massive multitask language understanding in chinese. arXiv:2306.09212. Moonshot AI (2025) Moonshot AI. 2025. Kimi linear: An expressive, efficient attention architecture. arXiv:2510.26692. Qwen Team (2025) Qwen Team. 2025. Qwen3 technical report. arXiv:2505.09388. Rafailov et al. (2023) Rafael Rafailov, Archit Sharma, Eric Mitchell, Stefano Ermon, Christopher D. Manning, and Chelsea Finn. 2023. Direct preference optimization: Your language model is secretly a reward model. In Proceedings of NeurIPS . Yang and Kautz (2024) Songlin Yang and Jan Kautz. 2024. Gated delta networks: Improving Mamba2 with delta rule. arXiv preprint arXiv:2412.06464 . Yang and Zhang (2024) Songlin Yang and Yu Zhang. 2024. fla: A triton-based library for hardware-efficient implementations of linear attention mechanism. https://github.com/fla-org/flash-linear-attention .",
+  "text_truncated": false,
+  "links": [
+    {
+      "text": "Skip to main content",
+      "url": "https://arxiv.org/html/2608.02689v1#infobox"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/IgnoreMe"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "Why HTML?",
+      "url": "https://info.arxiv.org/about/accessible_HTML.html"
+    },
+    {
+      "text": "Back to Abstract",
+      "url": "https://arxiv.org/abs/2608.02689v1"
+    },
+    {
+      "text": "Download PDF",
+      "url": "https://arxiv.org/pdf/2608.02689v1"
+    },
+    {
+      "text": "License: CC BY 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "https://github.com/Sisyphbaous-DT-Project/open-qingyi",
+      "url": "https://github.com/Sisyphbaous-DT-Project/open-qingyi"
+    },
+    {
+      "text": "Yang and Kautz, 2024",
+      "url": "https://arxiv.org/html/2608.02689v1#bib.bib12"
+    },
+    {
+      "text": "Moonshot AI, 2025",
+      "url": "https://arxiv.org/html/2608.02689v1#bib.bib9"
+    },
+    {
+      "text": "Kostelec and Guo, 2026",
+      "url": "https://arxiv.org/html/2608.02689v1#bib.bib7"
+    },
+    {
+      "text": "Chen et al., 2026",
+      "url": "https://arxiv.org/html/2608.02689v1#bib.bib1"
+    },
+    {
+      "text": "Katharopoulos et al., 2020",
+      "url": "https://arxiv.org/html/2608.02689v1#bib.bib6"
+    },
+    {
+      "text": "Yang and Zhang, 2024",
+      "url": "https://arxiv.org/html/2608.02689v1#bib.bib13"
+    },
+    {
+      "text": "Hinton et al., 2015",
+      "url": "https://arxiv.org/html/2608.02689v1#bib.bib4"
+    },
+    {
+      "text": "3.4",
+      "url": "https://arxiv.org/html/2608.02689v1#S3.SS4"
+    },
+    {
+      "text": "Rafailov et al., 2023",
+      "url": "https://arxiv.org/html/2608.02689v1#bib.bib11"
+    },
+    {
+      "text": "Qwen Team, 2025",
+      "url": "https://arxiv.org/html/2608.02689v1#bib.bib10"
+    },
+    {
+      "text": "Huang et al., 2023",
+      "url": "https://arxiv.org/html/2608.02689v1#bib.bib5"
+    },
+    {
+      "text": "Hendrycks et al., 2021",
+      "url": "https://arxiv.org/html/2608.02689v1#bib.bib3"
+    },
+    {
+      "text": "Li et al., 2023",
+      "url": "https://arxiv.org/html/2608.02689v1#bib.bib8"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2608.02689v1#S4.T1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2608.02689v1#S3.E2"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2608.02689v1#S5.T2"
+    },
+    {
+      "text": "Gao et al., 2024",
+      "url": "https://arxiv.org/html/2608.02689v1#bib.bib2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2608.02689v1#S8.T3"
+    },
+    {
+      "text": "https://zenodo.org/records/12608602",
+      "url": "https://zenodo.org/records/12608602"
+    },
+    {
+      "text": "https://github.com/fla-org/flash-linear-attention",
+      "url": "https://github.com/fla-org/flash-linear-attention"
+    }
+  ],
+  "matching_link_count": 28,
+  "links_truncated": false,
+  "invalid_links": []
+}

@@ -1,0 +1,748 @@
+{
+  "url": "https://arxiv.org/html/2608.20763v1",
+  "final_url": "https://arxiv.org/html/2608.20763v1",
+  "status": 200,
+  "title": "CARD: Diagnosing Belief-to-Action Routing Failuresin Vision–Language Models",
+  "metadata": {},
+  "paper": {
+    "title": "CARD: Diagnosing Belief-to-Action Routing Failures in Vision–Language Models",
+    "title_warning": null,
+    "abstract": "Abstract Linear probes and activation steering have uncovered that vision-language models (VLMs) internally represent mental states such as agents’ beliefs, knowledge, and intentions. However, it is unclear whether and how these representations\nare used by downstream predictions along these axes. To close this gap, we introduce Cross-Axis Routing Diagnostic (CARD), which steers activations along one axis while measuring the response of a different axis’s prediction.\nApplied to open-weight VLMs on Relay Chain – a new cooperative grid-world benchmark we propose – we diagnose a critical routing failure: models fail to incorporate belief representations into their next action prediction, effectively leaving valuable information about their partners unused.",
+    "authors": [
+      {
+        "name": "Souptik Majumdar",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Fabian Kögel",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Andreas Bulling",
+        "affiliations": [
+          "Affiliation: Universität Stuttgart",
+          "Affiliation: 70569, Stuttgart",
+          "Affiliation: Germany",
+          "Affiliation: souptik.majumdar, fabian.koegel, andreas.bulling @vis.uni-stuttgart.de"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Souptik Majumdar Fabian Kögel Andreas Bulling Affiliation: Universität Stuttgart Affiliation: 70569, Stuttgart Affiliation: Germany Affiliation: souptik.majumdar, fabian.koegel, andreas.bulling @vis.uni-stuttgart.de",
+    "arxiv_version": "2608.20763v1",
+    "arxiv_version_date": "2026-08-21",
+    "sections": [
+      {
+        "id": "S1",
+        "heading": "1 Introduction",
+        "level": 1,
+        "text": "Vision-language models (VLMs) are increasingly used in human-AI cooperation, such as embodied robots, AI coaches, or driving co-pilots, that require Theory of Mind (ToM; Premack and Woodruff, 1978 ) to infer what the interaction partner might see, know or want. To diagnose whether such models actually represent such mental states of their partners, two families of diagnostic tools have emerged: Linear probing tests if and where states are encoded in the models, while activation steering has primarliy been used to verify whether probed directions causally drive the model’s prediction and to control its outputs. However, they leave one question unanswered: Does the model’s internal representation of a partner’s mental state actually drive its actions? Existing behavioural benchmarks ( Gu et al., 2024 ; Bortoletto et al., 2025 ; Shi et al., 2025 ; Chen et al., 2024a ) score outputs along three axes, belief, knowledge and intentions but without inspecting and connecting their internal representations to the model predictions. Thus, they cannot discriminate wrong actions that reflect an absent representation from those that reflect an unused one. Alternatively, probes and prior work in activation steering ( Alain and Bengio, 2016 ; Belinkov, 2022 ; Hewitt and Liang, 2019 ; Elazar et al., 2021 ; Bortoletto et al., 2024 ; Räuker et al., 2023 ; Geiger et al., 2021 ; Wu et al., 2023b ) access internal representations but apply both read-out and intervention only to the same axis. For example, a probe might find a belief representation, and steering confirms its influence on next belief prediction (same-axis) but does not test its influence on action prediction (cross-axis). Thus, both approaches do not diagnose the routing of mental representations to predictions across axes. This matters especially in cooperative tasks, where the correct action depends on the mental state representation of the partner agent, which the VLM may encode internally, yet doesn’t use when predicting its next action. To address this limitation, we make the following contributions: 1. We introduce Cross-Axis Routing Diagnostic (CARD), a novel approach to diagnose how mental state representations influence model predictions across axes by steering representations in one axis and assessing the prediction of another. 2. To evaluate CARD, we propose Relay Chain , a new multi-agent cooperative grid-world benchmark that extends the grid-world format of GridToM ( Li et al., 2025 ) with a cooperative action axis. 3. Our experiments demonstrate critical routing failures across four open-weight VLM families, where the belief representation causally influences the belief and knowledge predictions but not the action prediction – despite the belief being linearly decodable at 78 78 – 94 % 94\\% from the same layer. Figure 1: Overview of CARD. For each axis a ∈ { belief, intent, knowledge } a\\in\\{\\text{belief, intent, knowledge}\\} a linear probe on paired True-Belief / False-Belief activations at layer L L yields a unit-norm direction v a v_{a} . At inference time, we hook the residual stream at the same layer and add α ​ v a \\alpha v_{a} (steering axis a a , α ∈ { − 10 , + 10 } \\alpha\\in\\{-10,+10\\} ), then read out the answer head for a different question axis b ≠ a b\\neq a . A causally-routed feature moves the cross-axis read-out; an encoded-but-unread feature does not. Within-axis cells ( a = b a=b , diagonal) serve as positive controls."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px1",
+        "heading": "Behavioural ToM benchmarks.",
+        "level": 4,
+        "text": "A large body of work evaluates ToM in foundation models through mental-state questions ( Gu et al., 2024 ; Bortoletto et al., 2025 ; Shi et al., 2025 ; Xu et al., 2024 ; Wu et al., 2023a ; Chen et al., 2024a ; Xiao et al., ; Chen et al., 2024c ; Jin et al., 2024 ; Kim et al., 2023 ; Zhang et al., 2025 ) . SimpleToM ( Gu et al., 2024 ) demonstrated a gap between explicit and applied ToM on text LLMs while ToM-SSI ( Bortoletto et al., 2025 ) extended to situated multi-agent interactions and reported a behavioural drop from percept to belief to intention. MindPower ( Zhang et al., 2025 ) showed that ToM-aware prompting improved cooperative success rates in embodied VLM settings. CARD complements these by testing whether a model’s internal mental-state representations actually drive its cooperative actions, not just whether its overall predictions are correct."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px2",
+        "heading": "Probes and activation steering.",
+        "level": 4,
+        "text": "Probes and standard (same-axis) activation steering to inspect models have a long history in text-only LLMs ( Alain and Bengio, 2016 ; Belinkov, 2022 ; Elazar et al., 2021 ; Bortoletto et al., 2024 ; Räuker et al., 2023 ) : A linear probe verifies that a feature is encoded in the residual stream, and steering amplifies the probe direction to test whether the model’s answer to the same feature shifts. GridToM ( Li et al., 2025 ) brought this protocol to multimodal grid-world ToM and was the closest prior multimodal-ToM work pairing probes with activation interventions. CARD extends the protocol from same-axis to a cross-axis matrix that tests whether a probe direction is read by a different prediction. Like Bortoletto et al. (2024) , we use linear probes with Hewitt–Liang random-label controls ( Hewitt and Liang, 2019 ) to verify that the recovered belief direction is structured rather than a probe-expressivity artefact."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px3",
+        "heading": "Studying routing in VLMs",
+        "level": 4,
+        "text": "Mechanistic interpretability tools to study full circuits from inputs to outputs that drive predictions include activation patching and causal mediation ( Vig et al., 2020 ; Meng et al., 2022 ) , activation-addition / steering vectors ( Turner et al., 2024 ; Li et al., 2023 ; Rimsky et al., 2024 ; Zou et al., 2023 ) , direct logit attribution ( Wang et al., 2022 ) , automated circuit discovery ( Conmy et al., 2023 ) , and linear-relation decoding ( Geva et al., 2023 ; Hernandez et al., 2024 ) . Recent work extended these to VLMs ( Yang et al., 2026 ; Liu et al., 2025 ; Häon et al., 2025 ) . Unlike distributed alignment search Geiger et al., 2021 ; Wu et al., 2023b , which gradient-searches a rotation aligning a high-level variable to a subspace, CARD uses a fixed pre-trained probe direction and conditions the read-out on a specific prediction. These techniques have largely targeted factual recall, refusal, or bias; CARD applies cross-axis routing diagnostics to mental-state representations in cooperative agents."
+      },
+      {
+        "id": "S3",
+        "heading": "3 Method",
+        "level": 1,
+        "text": "Our Cross-Axis Routing Diagnostic (CARD) takes three steps: (1) identify a steering vector for a mental representation in one axis, e.g. belief; (2) steer the model in its direction and measure the prediction of a different axis, e.g. action; (3) repeat the steering in the opposite direction as a control."
+      },
+      {
+        "id": "S3.SS0.SSS0.Px1",
+        "heading": "Paired-statement probe extraction.",
+        "level": 4,
+        "text": "For each axis A ∈ { belief, intent, knowledge } A\\in\\{\\text{belief, intent, knowledge}\\} and scenario s s , we present the VLM with the keyframe clip and a pair of statements ⟨ s A + , s A − ⟩ \\langle s_{A}^{+},s_{A}^{-}\\rangle : s A + s_{A}^{+} matches the ground-truth axis label (e.g. for belief, “the protagonist saw the traveller crossing” when the protagonist did see it) and s A − s_{A}^{-} is its negation. Let 𝐳 ℓ , h ​ ( s ) ∈ ℝ d h \\mathbf{z}^{\\ell,h}(s)\\in\\mathbb{R}^{d_{h}} denote the per-(layer, head) activation at the final input token under each statement. Per (layer, head), an L 2 L^{2} -regularised logistic regression is fit on the 2 ​ N 2N activations { 𝐳 ℓ , h ​ ( s A + ) , 𝐳 ℓ , h ​ ( s A − ) } s \\{\\mathbf{z}^{\\ell,h}(s_{A}^{+}),\\,\\mathbf{z}^{\\ell,h}(s_{A}^{-})\\}_{s} with binary labels (1 for s A + s_{A}^{+} , 0 for s A − s_{A}^{-} ), yielding a unit-norm probe direction u A ℓ , h ∈ ℝ d h u^{\\ell,h}_{A}\\in\\mathbb{R}^{d_{h}} that points from negated toward matched, plus a held-out accuracy. We use the top- K = 56 K{=}56 (layer, head) pair ranked by held-out accuracy as the steering pool ( ∼ \\sim 7% of L × H L\\!\\times\\!H heads, following the head-selection convention of Li et al., 2023 ). σ A ℓ , h \\sigma^{\\ell,h}_{A} is the per-head activation standard deviation along u A ℓ , h u^{\\ell,h}_{A} on the training set. For False-Belief scenarios the matched-class caption is taken from the protagonist’s view rather than the world state (see Appendix B.1 )."
+      },
+      {
+        "id": "S3.SS0.SSS0.Px2",
+        "heading": "Cross-Axis Routing Diagnostic (CARD).",
+        "level": 4,
+        "text": "Given the steering-axis probe set { ( u A ℓ , h , σ A ℓ , h ) } \\{(u^{\\ell,h}_{A},\\sigma^{\\ell,h}_{A})\\} over the top- K K pool, we register a forward hook on the self-attention output of every layer that contains at least one selected (layer, head) pair. The hook adds, at the last-token position only and only to the per-head slices of the selected pairs, a scaled multiple of the probe direction: 𝐳 ℓ , h ← 𝐳 ℓ , h + α ​ σ A ℓ , h ​ u A ℓ , h , α ∈ { − 10 , 0 , + 10 } , \\mathbf{z}_{\\ell,h}\\;\\leftarrow\\;\\mathbf{z}_{\\ell,h}\\,+\\,\\alpha\\,\\sigma^{\\ell,h}_{A}\\,u^{\\ell,h}_{A},\\;\\;\\alpha\\in\\{-10,\\,0,\\,+10\\}, (1) where α \\alpha is unit-free (the additive magnitude is | α | ​ σ |\\alpha|\\,\\sigma training-projection standard deviations) and remaining heads are left untouched. All K K heads are steered simultaneously, so the intervention is multi-direction by construction; the rest of the forward pass runs unchanged. The VLM then answers a question on a different axis B ≠ A B\\neq A , yielding a TB − - FB accuracy gap g B ​ ( α ) = acc B TB ​ ( α ) − acc B FB ​ ( α ) g_{B}(\\alpha)=\\mathrm{acc}_{B}^{\\mathrm{TB}}(\\alpha)-\\mathrm{acc}_{B}^{\\mathrm{FB}}(\\alpha) . Steering with α = + 10 \\alpha{=}{+}10 and α = − 10 \\alpha{=}{-}10 should move this gap in opposite directions if axis A A ’s direction causally influences the axis- B B prediction; we summarise the effect as the gap-shift – the change in g B g_{B} between the two steering polarities: M A , B = g B ​ ( + 10 ) − g B ​ ( − 10 ) . M_{A,B}\\;=\\;g_{B}(+10)-g_{B}(-10). (2) We additionally report a mean-accuracy shift M A , B acc = max α ∈ { ± 10 } ⁡ acc B ​ ( α ) − acc B ​ ( 0 ) M^{\\mathrm{acc}}_{A,B}=\\max_{\\alpha\\in\\{\\pm 10\\}}\\mathrm{acc}_{B}(\\alpha)-\\mathrm{acc}_{B}(0) to catch uniform answer modulations a signed gap-shift would miss. On Relay Chain we populate the 3 × 3 3{\\times}3 matrix with A , B ∈ { belief, intent, knowledge } A,B\\in\\{\\text{belief, intent, knowledge}\\} : same-axis entries ( A = B A=B ) serve as positive controls; off-diagonal entries test whether the linearly-decodable A A direction is used by the B B prediction. A column { M A , B ∗ } A ≈ 0 \\{M_{A,B^{*}}\\}_{A}\\approx 0 paired with at least one non-trivial row implies the B ∗ B^{*} prediction is decoupled from A A ’s linearly-decodable direction – the routing failure."
+      },
+      {
+        "id": "S3.SS0.SSS0.Px3",
+        "heading": "Four-tuple signature.",
+        "level": 4,
+        "text": "On the unified success+counter partition, for each (VLM, protagonist, question axis) we record the four-tuple ( acc succ TB , acc succ FB , acc cnt TB , acc cnt FB ) \\big(\\mathrm{acc}^{\\mathrm{TB}}_{\\rm succ},\\mathrm{acc}^{\\mathrm{FB}}_{\\rm succ},\\mathrm{acc}^{\\mathrm{TB}}_{\\rm cnt},\\mathrm{acc}^{\\mathrm{FB}}_{\\rm cnt}\\big) . This signature discriminates the three behaviours (constant-prior, world-state tracker, belief-conditional), which are indistinguishable on success-only data."
+      },
+      {
+        "id": "S3.SS0.SSS0.Px4",
+        "heading": "Projection-removal control.",
+        "level": 4,
+        "text": "As a negative-direction test, we subtract a scaled projection of the per-head residual along u A ℓ , h u^{\\ell,h}_{A} : 𝐳 ℓ , h ← 𝐳 ℓ , h − c ​ σ A ℓ , h ​ ( u A ℓ , h ⋅ 𝐳 ℓ , h ) ​ u A ℓ , h , c ∈ { 0.5 , 1 , 2 , 5 } . \\mathbf{z}_{\\ell,h}\\leftarrow\\mathbf{z}_{\\ell,h}-c\\,\\sigma^{\\ell,h}_{A}\\,(u^{\\ell,h}_{A}\\cdot\\mathbf{z}_{\\ell,h})\\,u^{\\ell,h}_{A},\\;\\;c\\in\\{0.5,1,2,5\\}. (3) c = 1 c{=}1 is canonical projection-removal; c > 1 c{>}1 over-subtracts."
+      },
+      {
+        "id": "S3.SS0.SSS0.Px5",
+        "heading": "Prompt-resistance test.",
+        "level": 4,
+        "text": "We ask whether prompt engineering alone can recover belief-conditional action. Twelve variants (cost framing, chain-of-thought, perception-first / rule-based, in-context exemplars; Appendix B.6 ) are evaluated across 192 192 cells. A variant passes on a lever-holder ( a 1 a_{1} or a 2 a_{2} ) if both acc TB > 50 % \\mathrm{acc}^{\\mathrm{TB}}>50\\% and acc FB > 50 % \\mathrm{acc}^{\\mathrm{FB}}>50\\% – correctly releases under TB and correctly holds under FB."
+      },
+      {
+        "id": "S3.SS0.SSS0.Px6",
+        "heading": "Evaluation protocol.",
+        "level": 4,
+        "text": "Each axis question is presented as a binary choice and parsed from JSON. Probes, top- K K selection, and CARD evaluation share the unified success+counter partition ( 444 444 scenarios), split 50 / 50 50/50 into a disjoint probe-set ( 222 222 scenarios; probe training and top- K K ranking) and eval-set ( 222 222 scenarios; CARD, projection-removal, behavioural baselines), stratified by protagonist × \\times world-state outcome (App. B.1 ). Accuracy is reported separately for TB vs FB and, where relevant, separated into success vs counter blocks."
+      },
+      {
+        "id": "S4.SS0.SSS0.Px1",
+        "heading": "Cooperative Relay Chain dataset.",
+        "level": 4,
+        "text": "We evaluate CARD ( section 3 ) on Relay Chain – a novel three-agent cooperative grid-world environment (see Figure 2 ). CARD’s diagnostic logic – steer one axis and read out a different prediction – requires a testbed in which a partner’s mental state causally drives an action prediction that is distinct from the belief prediction that it steers. While GridToM ( Li et al., 2025 ) pairs probes with activation interventions and supplies multi-agent scenarios and belief-attribution questions (first- and second-order beliefs), it does not offer a cooperative action axis: All questions only ask what an agent believes but not what the protagonist (the ego agent whose mental state we probe) should do given the partner’s belief. The belief-to-action CARD cell is therefore undefined – not because a partner is absent, but because there is no action prediction that depends on the partner’s mental state. In contrast, on the Relay Chain, two agents ( a 1 , a 2 a_{1},a_{2} ) each hold a lever that opens one gate; a traveller ( a 3 a_{3} ) must cross both gates in sequence to reach the goal. The cooperative structure is a relay : lever-operators must keep their gates open in sequence as the traveller passes through. Crucially, as no single agent can solve this task alone, the traveller’s optimal action is well-defined only relative to the partner’s perception, turning belief-to-action into a well-defined test of routing."
+      },
+      {
+        "id": "S4.SS0.SSS0.Px2",
+        "heading": "Formal task description.",
+        "level": 4,
+        "text": "We treat each scenario as a tuple s = ( w 0 , τ , a p ) s=(w_{0},\\tau,a_{p}) . w 0 w_{0} is the initial grid layout (agents, levers, gates, goal). τ = ( w 0 , w 1 , … , w T ) \\tau=(w_{0},w_{1},\\ldots,w_{T}) with T ∈ [ 16 , 32 ] T\\in[16,32] is the deterministic cooperative trajectory – the joint multi-agent state at each step. a p ∈ { a 1 , a 2 , a 3 } a_{p}\\in\\{a_{1},a_{2},a_{3}\\} is the protagonist – the ego agent whose mental state we probe. The VLM does not see τ \\tau directly: it receives a k k -frame visual rendering ( k ∈ [ 4 , 8 ] k\\in[4,8] ) subsampled at relay-phase boundaries ( a 1 a_{1} acquires lever, a 2 a_{2} acquires lever, a 3 a_{3} reaches goal) plus midpoints (see Appendix A.2 ). Belief variants. Each scenario appears in two layouts that hold τ \\tau and agent identities fixed and differ only in a p a_{p} ’s observation of the cooperative event ( a p a_{p} ’s partner releases/crosses): True-Belief ( s TB s^{\\mathrm{TB}} , event within a p a_{p} ’s field of view) and False-Belief( s FB s^{\\mathrm{FB}} , event in fog of war). Let e ∈ { 0 , 1 } e\\in\\{0,1\\} indicate whether the event in fact occurs in the world. The counter pair replaces s s with s ′ s^{\\prime} where e = 0 e=0 (the lever is never released, the gate never opens), preserving the same TB/FB perceptual structure. Questions and labels. For each axis A ∈ { belief , intent , knowledge } A\\in\\{\\text{belief},\\text{intent},\\text{knowledge}\\} we ask one binary question q A ​ ( a p ) q_{A}(a_{p}) whose ground-truth label y A ​ ( s , b ) ∈ { 0 , 1 } y_{A}(s,b)\\in\\{0,1\\} is a deterministic function of ( w 0 , τ , e , b ) (w_{0},\\tau,e,b) , where b ∈ { TB , FB } b\\in\\{\\mathrm{TB},\\mathrm{FB}\\} selects the belief variant. Belief asks whether the protagonist perceived the cooperative event; knowledge asks whether they can justify that it happened (perception plus integration of frame evidence); intent asks the next cooperative action. The VLM M M outputs a prediction y ^ M , A ​ ( s , b ) \\hat{y}_{M,A}(s,b) that we score against y A y_{A} . Per-axis label logic is in Appendix A.6 . Full construction details (scenario generator, paired layouts, counter-scenarios, per-axis ground-truth labels) can be found in Appendix A ."
+      },
+      {
+        "id": "S4.SS0.SSS0.Px3",
+        "heading": "Counter scenarios.",
+        "level": 4,
+        "text": "On success-only data (the typical ToM benchmark setup, where the cooperative event always occurs), a model that emits the safe default on every input – “don’t release” for lever-operators, “keep waiting” for the traveller – is correct on the majority of cells, so high accuracy is not evidence of belief-conditional reasoning. The counter pair ( e = 0 e=0 ) breaks this shortcut: the safe default becomes wrong precisely where it was right under success, so constant-prior and belief-conditional models produce visibly different accuracy patterns. Construction mechanics and per-axis counts can be found in Appendix A.5 , Table 3 . Figure 2 illustrates the overall layout. Figure 2: Relay Chain four-tuple discrimination layout. Panel elements: protagonist a 1 a_{1} (red, lever-operator) with field-of-view disk (radius 5 5 ); partner a 2 a_{2} (blue, lever-operator); traveller a 3 a_{3} (green); gates (green when open, dark-red when closed); levers L L ; goal G G . Top row: success (event occurs). Bottom row: counter (lever-operator never releases; gate stays closed). Left column: True-Belief (TB) – a 1 a_{1} ’s lever close enough to perceive the crossing. Right column: False-Belief (FB) – lever beyond a 1 a_{1} ’s view."
+      },
+      {
+        "id": "S4.SS0.SSS0.Px4",
+        "heading": "Three axes.",
+        "level": 4,
+        "text": "Building on the belief–desire–intention framework ( Bratman, 1987 ) and the percept–belief–intention (PBI) causal structure used in recent ToM benchmarks ( Bortoletto et al., 2025 ) , we instrument each scenario along three axes: belief – does the protagonist see the cooperative event (first-order PBI percept; what content the agent holds in mind?); intent – in the BDI sense of present-directed action-recommendation : should the protagonist take the cooperative action now (PBI intention); knowledge – does the protagonist know whether the cooperative event occurred separate from the propositional content of belief). Knowledge serves as a control: within counter scenarios (where the world did not change), it is the only axis whose label still flips between TB and FB – with observation alone, while belief and intent labels stay constant. Including knowledge in the probe-extraction pool forces the learned direction to track observation rather than the world-state outcome. Appendix D.1 verifies that the three probe directions are neither collinear nor orthogonal."
+      },
+      {
+        "id": "S4.SS0.SSS0.Px5",
+        "heading": "Models.",
+        "level": 4,
+        "text": "Four open-weight VLMs: Qwen2-VL-7B ( Yang et al., 2024a ) , Gemma-4-E4B-it ( Gemma Team, Google DeepMind, 2026 ) , LLaVA-NeXT-Video-7B-hf ( Zhang et al., 2024 ) , and InternVL2.5-8B ( Chen et al., 2024b ) . We used multi-frame inputs ( 4 4 – 8 8 keyframes per scenario)."
+      },
+      {
+        "id": "S5",
+        "heading": "5 Results",
+        "level": 1,
+        "text": "We conducted a series of experiments that together show a routing failure on the cooperative-action axis. First, we verify belief is linearly decodable and used on the belief question (positive control). We then establish a behavioural dissociation: the same model that reads belief on the belief question collapses to a constant per-protagonist prior on the intent question. CARD steering along the linearly-decodable belief direction substantially shifts the belief and knowledge predictions but leaves the cooperative-action prediction essentially unchanged – the mechanistic evidence. Three ablations close the natural alternative explanations: projection-removal rules out amplitude limitation, a prompt-resistance test rules out a prompting artefact, and CLEVR rules out a globally-broken steering hook."
+      },
+      {
+        "id": "S5.SS0.SSS0.Px1",
+        "heading": "Belief is decodable and used on the belief question.",
+        "level": 4,
+        "text": "We confirm belief is encoded and behaviourally used on the belief question – a binary read-out of whether the protagonist saw the cooperative event (“Does a p a_{p} see the partner release / cross?”). A linear probe on the TB-vs-FB activation difference reaches held-out accuracy well above chance on every VLM (see Table 1 ). We rule out spurious correlations with a Hewitt–Liang random-label control ( Hewitt and Liang, 2019 ) , which collapses probe accuracy to chance (see Table 11 in the Appendix). Behaviourally, every VLM answers the same question near ceiling on the TB layout and much lower on FB (see Table 1 ) – consistent with the prediction reading event occurrence but not gating by the protagonist’s field of view. We thus rule out the possibility that belief is simply not represented: any later failure on the intent question cannot be blamed on missing or unreadable belief. Model Probe acc. TB-acc. FB-acc. Qwen2-VL 81.5 ± 1.8 81.5\\pm 1.8 100.0 100.0 20.0 20.0 Gemma-4 94.5 ± 0.6 94.5\\pm 0.6 79.3 79.3 30.7 30.7 LLaVA-NeXT 78.1 ± 0.9 78.1\\pm 0.9 80.0 80.0 20.0 20.0 InternVL2.5 93.3 ± 0.5 93.3\\pm 0.5 89.3 89.3 2.0 2.0 Table 1: Positive control: linear-probe accuracy (mean ± \\pm std across three seeds; chance = 50 % =50\\% ) and behavioural TB/FB accuracy on the belief question."
+      },
+      {
+        "id": "S5.SS0.SSS0.Px2",
+        "heading": "Belief is used on belief and knowledge but ignored on intent questions.",
+        "level": 4,
+        "text": "We find a three-way behavioural dissociation on Relay Chain: the three axis questions, asked of the same model on the same scenarios with the same activations, produce qualitatively distinct accuracy patterns across all four VLMs (see the per-VLM matrix in Table 6 in the Appendix). On the belief question every VLM reproduces the world-state tracker signature: across the four (success/counter) × \\times (TB/FB) cells, the answer is correct on three (success-TB, counter-TB, counter-FB) and wrong only on success-FB, where the event occurred but outside the protagonist’s field of view (per-VLM breakdown in Table 6 in the Appendix). We read this as the prediction using event occurrence but not gating by observation. On the knowledge question the same models become behaviourally belief-conditional in the success block: TB is answered “knows” and FB is answered “doesn’t know”, correctly tracking the protagonist’s observation rather than the world state alone. We conclude observation is at least partially consulted for this question. On the intent question the same models collapse to a constant per-protagonist prior (“don’t release” on every cell, incorrect only on success-TB where releasing is the right action). The constant-prior signature is indistinguishable across the four VLMs – a striking convergence given otherwise divergent probe accuracies and architectures, and the strongest sign that intent answers are generated without consulting either event occurrence or observation. We thus observe three distinct signatures on the same model and the same activations: belief-Q reads world state, knowledge-Q reads observation, and intent-Q reads neither. The intent question alone is behaviourally belief-insensitive – the lonely outlier among the three axes. We next probe this dissociation mechanistically with CARD, asking whether the structural cause is upstream (belief unreachable from the intent prediction) rather than behavioural (belief read but ignored). Probe Belief Q (%) Intent Q (%) Epist. Q (%) Qwen2-VL belief 15.3 ± 6.2 15.3{\\pm 6.2} 0.0 0.0 29.2 ± 6.9 29.2{\\pm 6.9} intent 2.1 ± 2.8 2.1{\\pm 2.8} 0.0 0.0 0.0 0.0 knowledge 3.5 ± 3.5 3.5{\\pm 3.5} 0.0 0.0 0.0 0.0 Gemma-4 belief 33.3 ± 7.6 33.3{\\pm 7.6} 4.9 ± 3.5 4.9{\\pm 3.5} 29.9 ± 7.6 29.9{\\pm 7.6} intent 16.7 ± 6.2 16.7{\\pm 6.2} 0.0 0.0 19.4 ± 6.9 19.4{\\pm 6.9} knowledge 0.7 ± 1.4 0.7{\\pm 1.4} 0.0 0.0 6.2 ± 4.9 6.2{\\pm 4.9} LLaVA-NeXT belief 41.0 ± 8.3 41.0{\\pm 8.3} 0.0 0.0 40.3 ± 8.3 40.3{\\pm 8.3} intent 22.2 ± 6.9 22.2{\\pm 6.9} 0.0 0.0 67.4 ± 7.6 67.4{\\pm 7.6} knowledge 24.3 ± 7.6 24.3{\\pm 7.6} 0.0 0.0 60.4 ± 8.3 60.4{\\pm 8.3} InternVL2.5 belief 31.9 ± 7.6 31.9{\\pm 7.6} 5.6 ± 4.2 5.6{\\pm 4.2} 29.9 ± 7.6 29.9{\\pm 7.6} intent 1.4 ± 2.1 1.4{\\pm 2.1} 0.0 0.0 3.5 ± 3.5 3.5{\\pm 3.5} knowledge 35.4 ± 8.3 35.4{\\pm 8.3} 15.3 ± 6.2 15.3{\\pm 6.2} 20.1 ± 6.9 20.1{\\pm 6.9} Table 2: Per-scenario flip rate on a 1 a_{1} : of 144 144 scenarios, the fraction whose answer differs between α = + 10 \\alpha{=}{+}10 and α = − 10 \\alpha{=}{-}10 steering (i.e., whether steering moves the model at all , before changes average out). In the intent column (middle), 9 9 of 12 12 (VLM, probe) entries are exactly 0 0 ; only three are above zero (Gemma-4 and InternVL2.5 on the belief probe, InternVL2.5 on the knowledge probe; ≤ 15.3 % {\\leq}15.3\\% ), with direction-balanced flips that cancel in net accuracy ( Table 7 in the Appendix). The belief and knowledge columns flip many scenarios under the same hook. Figure 3: Steering improves accuracy on the belief and knowledge predictions, but never on the intent answer prediction, averaged across the three protagonists ( a 1 a_{1} , a 2 a_{2} , a 3 a_{3} ). For each (VLM, question axis) we report the mean TB/FB accuracy with no steering ( α = 0 \\alpha{=}0 , grey) and with the best-case steering ( α ∈ { − 10 , + 10 } \\alpha\\in\\{-10,+10\\} across all probe directions, in VLM color). Δ \\Delta on top is best − - baseline. Belief and knowledge improve by + 2.7 +2.7 to + 10.6 +10.6 pp; the intent Δ \\Delta is essentially 0 0 on every VLM. The identical intent baseline ( ∼ 66 % \\sim 66\\% ) across VLMs reflects the constant-prior signature. Per-protagonist breakdown in Figure 6 in the Appendix."
+      },
+      {
+        "id": "S5.SS0.SSS0.Px3",
+        "heading": "CARD intent column is uniformly null (routing failure).",
+        "level": 4,
+        "text": "We find a clean three-way dissociation under CARD steering. Across the full 4 × 3 × 3 = 36 4{\\times}3{\\times}3=36 -cell sweep (four VLMs × \\times three protagonists × \\times three probe directions; see Table 7 in the Appendix), the best- α \\alpha intent accuracy stays essentially at its no-steering baseline on nearly every cell, while the same steering hooks substantially shift the belief and knowledge predictions. Averaged across protagonists (see Figure 3 ), intent is flat on every VLM and the belief and knowledge axes move; the per-(VLM, protagonist) breakdown (see Figure 6 in the Appendix) shows the intent null holds across all 12 cells, not just the target lever-operator a 1 a_{1} . The gap-shift matrix on a 1 a_{1} (see Figure 4 ) tells the same story at the gap-shift level. We further show the null is per-scenario tight. On a 1 a_{1} the intent argmax is invariant to α = ± 10 \\alpha{=}{\\pm}10 steering on the overwhelming majority of scenarios across all four VLMs (see Table 2 ); the small fraction that do flip (InternVL2.5 and Gemma-4) are direction-balanced and cancel in net accuracy, while the belief and knowledge questions flip a substantial fraction of scenarios under the same hooks. We rule out the possibility that the intent answer was already pinned to one side before steering: without steering, the intent baseline distribution is mixed, so the null cannot be explained that way. Analysis confirms the null is statistically tight: across 108 108 intent measurements, the largest improvement in mean intent accuracy is bounded at 18.7 18.7 pp at 95 % 95\\% confidence, versus 22.9 22.9 pp on the belief positive control (Appendix C.5 ). We interpret this as a structural routing failure : the linearly-decodable belief direction is encoded, readable on the belief and knowledge predictions, but not used in the action prediction. Figure 4: CARD intent column on lever-operator a 1 a_{1} is uniformly null (red box) across four VLMs. Rows: probe axis being steered. Columns: question axis being asked. Cell value: | gap ​ ( α = + 10 ) − gap ​ ( α = − 10 ) | |\\text{gap}(\\alpha{=}+10)-\\text{gap}(\\alpha{=}-10)| in pp, mean ± \\pm std across three seeds. Non-intent columns shift by tens of pp under the same probe; the intent column does not move. Same steering hook, same scenarios, same protagonist – only the intent prediction fails to read from the belief direction."
+      },
+      {
+        "id": "S5.SS0.SSS0.Px4",
+        "heading": "Ablation studies.",
+        "level": 4,
+        "text": "We finally evaluated our findings against four alternative explanations: amplitude-limited steering (projection-removal control), a prompting artefact, cross-axis steering on a non-ToM task (CLEVR), and a last-token-locus artefact (distributed-token steering)."
+      },
+      {
+        "id": "S5.SS0.SSSx1",
+        "heading": "Projection-removal control",
+        "level": 3,
+        "text": "An alternative is that our additive steering simply does not push the belief subspace hard enough to register at the intent prediction, and a stronger or differently-shaped perturbation would. We test the opposite limit: instead of adding belief, we remove it from the residual stream entirely by subtracting its c ​ σ c\\,\\sigma -scaled projection from the per-head slice (Eq. 3 ) at c ∈ { 0.5 , 1 , 2 , 5 } c\\in\\{0.5,1,2,5\\} . The intent TB − - FB gap stays essentially flat at every c c on every VLM with a complete sweep, while the same removal shifts the belief -question gap toward chance as expected (positive control). The intent null survives both directions of perturbation, so it is structural, not a consequence of under-driving the belief subspace."
+      },
+      {
+        "id": "S5.SS0.SSSx2",
+        "heading": "No prompt achieves belief-conditional action",
+        "level": 3,
+        "text": "Another possibility is that the intent prediction routes belief only when scaffolded by the right prompt. We test this with a pre-registered sweep of 12 prompt variants (CoT, perception-first, rule-based, high-stakes cost, 1/2-shot in-context) × \\times four VLMs × \\times four protagonist conditions ( 192 192 total; Figure 11 in the Appendix). No prompt recovers belief-conditional action."
+      },
+      {
+        "id": "S5.SS0.SSSx3",
+        "heading": "Cross-axis Steering on Non-ToM task",
+        "level": 3,
+        "text": "Finally, the hook itself could be at fault – too weak to register anywhere. Applying the same hook to CLEVR on the same models ( Table 10 in the Appendix) yields substantial best- α \\alpha accuracy gains where there is headroom; the few flat cells reflect ceiling effects on shape and colour. The intent null is therefore a target-axis property, not a hook artefact."
+      },
+      {
+        "id": "S5.SS0.SSSx4",
+        "heading": "Distributed-token steering",
+        "level": 3,
+        "text": "A further possibility is that the intent prediction reads belief at a different token position than our last-token hook. We re-run CARD with the steering hook fired at two additional positions ( vision-end and a vision-plus-last slice covering both) in addition to the last-token target, using three probe sources: the paired-statement belief and intent probes plus a per-position condition probe trained at vision-end . Sweeping α ∈ { − 10 , + 10 } \\alpha\\in\\{-10,+10\\} yields 18 18 (probe-source × \\times target-position) measurements. Across all, the maximum intent | Δ acc | |\\Delta_{\\rm acc}| vs the α = 0 \\alpha{=}0 baseline is 0.3 0.3 pp; maximum shift is around 1 1 pp (see Figure 13 in the Appendix). The result is therefore not an artefact of the last-token hook position."
+      },
+      {
+        "id": "S5.SS0.SSSx4.Px1",
+        "heading": "Summary.",
+        "level": 4,
+        "text": "We established that belief is linearly decodable and used on the belief question, then a behavioural dissociation between belief- and intent-question signatures, then the causal dissociation under intervention, and finally closed the three alternative explanations (amplitude, prompt, hook). Belief direction is encoded, readable on the belief and knowledge predictions, and not used by the action prediction – a routing failure, not an absence."
+      },
+      {
+        "id": "S6",
+        "heading": "6 Discussion",
+        "level": 1,
+        "text": "The simplest account is that the cooperative-action prediction does not use the linear belief direction. Additive steering and projection-removal both shift the belief and knowledge predictions but leave the intent prediction essentially unchanged on every VLM and every protagonist; the same prediction defaults to a constant per-protagonist prior that the visual evidence does not modulate. Two observations rule out the simpler alternative that the prediction is just broken or saturated. First, the prediction does vary across inputs — its prior differs by protagonist (“don’t release” on a 1 , a 2 a_{1},a_{2} ; “go” on a 3 a_{3} ) — so it is not globally stuck on one answer. Second, the belief signal is present in the activations: the belief and knowledge predictions, exposed to the same residual stream, do use it. The prediction is therefore capable of varying and the information it would need is available; the failure to use belief is a routing fact specific to the intent prediction, not a general inability to respond."
+      },
+      {
+        "id": "S7",
+        "heading": "7 Conclusion and Future work",
+        "level": 1,
+        "text": "In this work we introduced CARD as a new cross-axis routing diagnostic that disambiguates \"feature absent\" from \"feature encoded but unused by the action prediction\". Using this new diagnostic we showed in a cooperative task that current VLMs encode a partner’s belief well enough to answer the belief question, yet none usefully use that belief when asked what to do. This represents a structural routing failure visible in current VLMs. One natural extension remains open: nonlinear probes would test whether the action prediction reads a subspace our linear probes miss. As such, our results suggest that verbal-ToM alignment does not imply action-ToM alignment: alignment training that updates only verbalised belief predictions, without an explicit objective on the action prediction, would leave this routing gap unaddressed."
+      },
+      {
+        "id": "Sx1",
+        "heading": "Limitations",
+        "level": 1,
+        "text": "We demonstrate the routing failure on one task family – Relay Chain, a 2D grid-world – and four open-weight VLMs. CARD and projection-removal require activation-stream access, so we cannot subject closed-source VLMs to the mechanistic arms; We do not claim generality to larger model scales ( 40 40 – 400 400 B, where applied-ToM behaviour is known to improve ( Gu et al., 2024 ; Bortoletto et al., 2024 ) ), non-cooperative ToM, or real-world video."
+      },
+      {
+        "id": "Sx2",
+        "heading": "Ethical considerations",
+        "level": 1,
+        "text": "The work uses publicly available open-weight VLMs and a synthetic grid-world task with no human subjects or personally-identifying data. CARD reports an internal property of the model and surfaces a limitation that deployers should be aware of; we see no direct misuse pathway. Datasets, prompts, and code will be released under permissive licenses."
+      },
+      {
+        "id": "bib",
+        "heading": "References",
+        "level": 1,
+        "text": "Alain and Bengio (2016) G. Alain and Y. Bengio Understanding intermediate layers using linear classifier probes . arXiv preprint arXiv:1610.01644 . Cited by: §1 , §2 . Belinkov (2022) Y. Belinkov Probing classifiers: promises, shortcomings, and advances . Computational Linguistics 48 ( 1 ), pp. 207–219 . Cited by: §1 , §2 . Bortoletto et al. (2025) M. Bortoletto, C. Ruhdorfer, and A. Bulling ToM-ssi: evaluating theory of mind in situated social interactions . In Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing , pp. 32252–32277 . Cited by: §1 , §2 , §4 . Bortoletto et al. (2024) M. Bortoletto, C. Ruhdorfer, L. Shi, and A. Bulling Brittle minds, fixable activations: understanding belief representations in language models . arXiv preprint arXiv:2406.17513 . Cited by: §D.3 , §1 , §2 , Limitations . Bratman (1987) M. E. Bratman Intention, plans, and practical reason . Harvard University Press , Cambridge, MA . Cited by: §4 . Chen et al. (2024a) H. Chen, H. Chen, M. Yan, W. Xu, G. Xing, W. Shen, X. Quan, C. Li, J. Zhang, and F. Huang Socialbench: sociality evaluation of role-playing conversational agents . In Findings of the Association for Computational Linguistics: ACL 2024 , pp. 2108–2126 . Cited by: §1 , §2 . Chen et al. (2024b) Z. Chen, W. Wang, Y. Cao, Y. Liu, Z. Gao, E. Cui, J. Zhu, S. Ye, H. Tian, Z. Liu, et al. Expanding performance boundaries of open-source multimodal models with model, data, and test-time scaling . arXiv preprint arXiv:2412.05271 . Cited by: Appendix E , §4 . Chen et al. (2024c) Z. Chen, J. Wu, J. Zhou, B. Wen, G. Bi, G. Jiang, Y. Cao, M. Hu, Y. Lai, Z. Xiong, et al. ToMBench: benchmarking theory of mind in large language models . In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pp. 15959–15983 . Cited by: §2 . Conmy et al. (2023) A. Conmy, A. N. Mavor-Parker, A. Lynch, S. Heimersheim, and A. Garriga-Alonso Towards automated circuit discovery for mechanistic interpretability . In Advances in Neural Information Processing Systems (NeurIPS) , External Links: Link Cited by: §2 . Elazar et al. (2021) Y. Elazar, S. Ravfogel, A. Jacovi, and Y. Goldberg Amnesic probing: behavioral explanation with amnesic counterfactuals . Transactions of the Association for Computational Linguistics 9 , pp. 160–175 . Cited by: §1 , §2 . Geiger et al. (2021) A. Geiger, H. Lu, T. Icard, and C. Potts Causal abstractions of neural networks . Advances in neural information processing systems 34 , pp. 9574–9586 . Cited by: §1 , §2 . Gemma Team, Google DeepMind (2026) Gemma Team, Google DeepMind Gemma 4: our most capable open models to date . Technical report Google DeepMind . Note: Accessed: May 2026 External Links: Link Cited by: Appendix E , §4 . Geva et al. (2023) M. Geva, J. Bastings, K. Filippova, and A. Globerson Dissecting recall of factual associations in auto-regressive language models . In Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing , pp. 12216–12235 . Cited by: §2 . Gu et al. (2024) Y. Gu, O. Tafjord, H. Kim, J. Moore, R. L. Bras, P. Clark, and Y. Choi Simpletom: exposing the gap between explicit tom inference and implicit tom application in llms . arXiv preprint arXiv:2410.13648 . Cited by: §1 , §2 , Limitations . Häon et al. (2025) B. Häon, K. Stocking, I. Chuang, and C. Tomlin Mechanistic interpretability for steering vision-language-action models . arXiv preprint arXiv:2509.00328 . Cited by: §2 . Hernandez et al. (2024) E. Hernandez, A. Sen Sharma, T. Haklay, K. Meng, M. Wattenberg, J. Andreas, Y. Belinkov, and D. Bau Linearity of relation decoding in transformer language models . In International Conference on Learning Representations , Vol. 2024 , pp. 10504–10526 . Cited by: §2 . Hewitt and Liang (2019) J. Hewitt and P. Liang Designing and interpreting probes with control tasks . In Proceedings of the 2019 conference on empirical methods in natural language processing and the 9th international joint conference on natural language processing (emnlp-ijcnlp) , pp. 2733–2743 . Cited by: §D.3 , Table 11 , §1 , §2 , §5 . Jin et al. (2024) C. Jin, Y. Wu, J. Cao, J. Xiang, Y. Kuo, Z. Hu, T. Ullman, A. Torralba, J. Tenenbaum, and T. Shu Mmtom-qa: multimodal theory of mind question answering . In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pp. 16077–16102 . Cited by: §2 . Johnson et al. (2017) J. Johnson, B. Hariharan, L. van der Maaten, L. Fei-Fei, C. L. Zitnick, and R. Girshick CLEVR: a diagnostic dataset for compositional language and elementary visual reasoning . In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR) , pp. 2901–2910 . External Links: Link Cited by: §E.1 . Kim et al. (2023) H. Kim, M. Sclar, X. Zhou, R. Bras, G. Kim, Y. Choi, and M. Sap FANToM: a benchmark for stress-testing machine theory of mind in interactions . In Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing , pp. 14397–14413 . Cited by: §2 . Li et al. (2023) K. Li, O. Patel, F. Viégas, H. Pfister, and M. Wattenberg Inference-time intervention: eliciting truthful answers from a language model . Advances in Neural Information Processing Systems 36 , pp. 41451–41530 . Cited by: §2 , §3 . Li et al. (2025) X. Li, S. Liu, B. Zou, J. Chen, and H. Ma From black boxes to transparent minds: evaluating and enhancing the theory of mind in multimodal large language models . arXiv preprint arXiv:2506.14224 . Cited by: §E.1 , item 2 , §2 , §4 . Liu et al. (2025) Y. Liu, Y. Zhang, and S. Yeung-Levy Mechanistic interpretability meets vision language models: insights and limitations . In The Fourth Blogpost Track at ICLR 2025 , Cited by: §2 . Marafioti et al. (2025) A. Marafioti, O. Zohar, M. Farré, M. Noyan, E. Bakouch, P. Cuenca, C. Zakka, L. B. Allal, A. Lozhkov, N. Tazi, et al. Smolvlm: redefining small and efficient multimodal models . arXiv preprint arXiv:2504.05299 . Cited by: Appendix E . Meng et al. (2022) K. Meng, D. Bau, A. Andonian, and Y. Belinkov Locating and editing factual associations in gpt . Advances in neural information processing systems 35 , pp. 17359–17372 . Cited by: §2 . Premack and Woodruff (1978) D. Premack and G. Woodruff Does the chimpanzee have a theory of mind? . Behavioral and Brain Sciences 1 ( 4 ), pp. 515–526 . External Links: Document Cited by: §1 . Räuker et al. (2023) T. Räuker, A. Ho, S. Casper, and D. Hadfield-Menell Toward transparent ai: a survey on interpreting the inner structures of deep neural networks . In 2023 ieee conference on secure and trustworthy machine learning (satml) , pp. 464–483 . Cited by: §1 , §2 . Rimsky et al. (2024) N. Rimsky, N. Gabrieli, J. Schulz, M. Tong, E. Hubinger, and A. Turner Steering llama 2 via contrastive activation addition . In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pp. 15504–15522 . Cited by: §2 . Shi et al. (2025) H. Shi, S. Ye, X. Fang, C. Jin, L. Isik, Y. Kuo, and T. Shu Muma-tom: multi-modal multi-agent theory of mind . In Proceedings of the AAAI Conference on Artificial Intelligence , Vol. 39 , pp. 1510–1519 . Cited by: §1 , §2 . Turner et al. (2024) A. M. Turner, L. Thiergart, G. Leech, D. Udell, U. Mini, and M. MacDiarmid Activation addition: steering language models without optimization . Cited by: §2 . Vig et al. (2020) J. Vig, S. Gehrmann, Y. Belinkov, S. Qian, D. Nevo, Y. Singer, and S. Shieber Investigating gender bias in language models using causal mediation analysis . Advances in neural information processing systems 33 , pp. 12388–12401 . Cited by: §2 . Wang et al. (2022) K. Wang, A. Variengien, A. Conmy, B. Shlegeris, and J. Steinhardt Interpretability in the wild: a circuit for indirect object identification in gpt-2 small . arXiv preprint arXiv:2211.00593 . Cited by: §2 . Wu et al. (2023a) Y. Wu, Y. He, Y. Jia, R. Mihalcea, Y. Chen, and N. Deng Hi-tom: a benchmark for evaluating higher-order theory of mind reasoning in large language models . In Findings of the Association for Computational Linguistics: EMNLP 2023 , pp. 10691–10706 . Cited by: §2 . Wu et al. (2023b) Z. Wu, A. Geiger, T. Icard, C. Potts, and N. Goodman Interpretability at scale: identifying causal mechanisms in alpaca . Advances in neural information processing systems 36 , pp. 78205–78226 . Cited by: §1 , §2 . [35] Y. Xiao, J. Wang, Q. Xu, C. Song, C. Xu, Y. Cheng, W. Li, and P. Liu TOMVALLEY: evaluating the theory of mind reasoning of llms in realistic social context . Cited by: §2 . Xu et al. (2024) H. Xu, R. Zhao, L. Zhu, J. Du, and Y. He OpenToM: a comprehensive benchmark for evaluating theory-of-mind reasoning capabilities of large language models . In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pp. 8593–8623 . Cited by: §2 . Yang et al. (2024a) A. Yang, B. Yang, B. Hui, B. Zheng, B. Yu, C. Zhou, C. Li, C. Li, D. Liu, F. Huang, G. Dong, H. Wei, H. Lin, J. Tang, J. Wang, J. Yang, J. Tu, J. Zhang, J. Ma, J. Xu, J. Zhou, J. Bai, J. He, J. Lin, K. Dang, K. Lu, K. Chen, K. Yang, M. Li, M. Xue, N. Ni, P. Zhang, P. Wang, R. Peng, R. Men, R. Gao, R. Lin, S. Wang, S. Bai, S. Tan, T. Zhu, T. Li, T. Liu, W. Ge, X. Deng, X. Zhou, X. Ren, X. Zhang, X. Wei, X. Ren, Y. Fan, Y. Yao, Y. Zhang, Y. Wan, Y. Chu, Z. Cui, Z. Zhang, and Z. Fan Qwen2 technical report . ArXiv abs/2407.10671 . External Links: Link Cited by: Appendix E , §4 . Yang et al. (2026) J. Yang, T. Xiong, S. Qian, K. Nahrstedt, and M. Wu Circuit tracing in vision-language models: understanding the internal mechanisms of multimodal thinking . arXiv preprint arXiv:2602.20330 . Cited by: §2 . Yang et al. (2024b) Q. A. Yang, B. Yang, B. Zhang, B. Hui, B. Zheng, B. Yu, C. Li, D. Liu, F. Huang, G. Dong, H. Wei, H. Lin, J. Yang, J. Tu, J. Zhang, J. Yang, J. Yang, J. Zhou, J. Lin, K. Dang, K. Lu, K. Bao, K. Yang, L. Yu, M. Li, M. Xue, P. Zhang, Q. Zhu, R. Men, R. Lin, T. Li, T. Xia, X. Ren, X. Ren, Y. Fan, Y. Su, Y. Zhang, Y. Wan, Y. Liu, Z. Cui, Z. Zhang, Z. Qiu, S. Quan, and Z. Wang Qwen2.5 technical report . ArXiv abs/2412.15115 . External Links: Link Cited by: Appendix E . Zhang et al. (2025) R. Zhang, Q. Zheng, Z. Zhou, Z. Liao, S. Wu, J. Jiang-Lin, B. Wen, H. Xie, J. Fu, and W. Cheng MindPower: enabling theory-of-mind reasoning in vlm-based embodied agents . arXiv preprint arXiv:2511.23055 . Cited by: §2 . Zhang et al. (2024) Y. Zhang, B. Li, h. Liu, Y. j. Lee, L. Gui, D. Fu, J. Feng, Z. Liu, and C. Li LLaVA-next: a strong zero-shot video understanding model . External Links: Link Cited by: Appendix E , §4 . Zou et al. (2023) A. Zou, L. Phan, S. Chen, J. Campbell, P. Guo, R. Ren, A. Pan, X. Yin, M. Mazeika, A. Dombrowski, et al. Representation engineering: a top-down approach to ai transparency . arXiv preprint arXiv:2310.01405 . Cited by: §2 ."
+      },
+      {
+        "id": "A1.SS1",
+        "heading": "A.1 Dataset breakdown",
+        "level": 2,
+        "text": "Relay Chain has 444 444 unique scenario bases distributed across three protagonist conditions ( a 1 , a 2 a_{1},a_{2} as lever-holders and a 3 a_{3} as traveller). We render each base in two layouts that preserve the trajectory but differ in the protagonist’s lever-to-gate Manhattan distance – True-Belief ( ≤ 5 \\leq 5 , lever within a p a_{p} ’s field of view of the gate) and False-Belief ( > 5 >5 , lever beyond) – yielding 888 888 evaluation cases per axis ( Table 3 ). Scenarios split into success blocks where the cooperative event happens and counter blocks where it is omitted, so the same protagonist appears once with and once without the cooperative outcome on identical perceptual access. The full 444 444 -scenario partition is split 50 / 50 50/50 into a disjoint probe-set and eval-set (App. B.1 ). Protagonist Role Success Counter Total a 1 a_{1} lever-operator 100 100 44 44 144 144 a 2 a_{2} lever-operator 100 100 50 50 150 150 a 3 a_{3} traveller 100 100 50 50 150 150 Total 𝟑𝟎𝟎 \\mathbf{300} 𝟏𝟒𝟒 \\mathbf{144} 𝟒𝟒𝟒 \\mathbf{444} Table 3: Relay Chain dataset breakdown by protagonist and world-state outcome. All three axes (belief, intent, knowledge) share the same scenario base; each entry is a multi-frame trajectory with 4 4 – 8 8 keyframes."
+      },
+      {
+        "id": "A1.SS2",
+        "heading": "A.2 Relay Chain scenario generator",
+        "level": 2,
+        "text": "We render scenarios as × 11 11\\!\\times\\!11 grids with three agents ( a 1 , a 2 , a 3 a_{1},a_{2},a_{3} ), two gates, and one goal cell. Each scenario is a 16 16 – 32 32 -step trajectory; we subsample 4 4 – 8 8 keyframes covering the cooperative event window. Keyframes anchor on four relay-phase boundaries: (i) episode start; (ii) a 1 a_{1} acquires lever A; (iii) a 2 a_{2} acquires lever B; (iv) a 3 a_{3} reaches the goal. We then insert midpoints between consecutive boundaries to yield up to 7 7 distinct frames per scenario, following GridToM’s keyframe helper. When a phase is never reached, the last available step is used as a fallback so the boundary list stays strictly monotonic. Agents move on Manhattan-distance shortest paths; lever-state transitions are scripted to produce the target cooperative chain. Random seeds are saved with each scenario for reproducibility."
+      },
+      {
+        "id": "A1.SS3",
+        "heading": "A.3 Perceptual-access minimal pair",
+        "level": 2,
+        "text": "For each scenario we generate two layouts that share trajectory and event sequence but differ in protagonist’s lever position relative to the gate it controls. TB: lever placed at Manhattan distance ≤ 5 \\leq 5 from the gate (within field of view). FB: lever at distance > 5 >5 . All other state (agent identities, gate positions, goal, traveller path) is identical. We verify pair matching by hashing the trajectory and confirming bit-exact agreement on the non-protagonist state slice."
+      },
+      {
+        "id": "A1.SS4",
+        "heading": "A.4 Example scenario layouts",
+        "level": 2,
+        "text": "Figure 5 shows one True-Belief and one False-Belief layout for each protagonist condition. For the lever-holders ( a 1 , a 2 a_{1},a_{2} ), TB places the protagonist’s own lever within Manhattan distance 5 5 of the gate it controls (inside the field-of-view disk); FB places it beyond. For the traveller ( a 3 a_{3} ), TB places the agent within view of the gate ahead so the gate-state is perceivable; FB places it beyond. All panels show the success block (both gates open), so the contrast across columns is purely perceptual. Figure 5: Relay Chain scenario layouts for each protagonist condition (rows: a 1 a_{1} and a 2 a_{2} lever-holders, a 3 a_{3} traveller) under True-Belief and False-Belief layouts (columns). The protagonist is highlighted with a red outline; the shaded disk shows their field of view (radius 5 5 cells; anything outside is fog of war and not perceptible). In TB the protagonist stands next to its gate-controlling lever or just before the gate ahead; in FB it stands at the far lever or in a corner, so the field-of-view disk shifts with it and the cooperative event falls outside. All panels show the success block (both gates open) so the contrast is purely perceptual."
+      },
+      {
+        "id": "A1.SS5",
+        "heading": "A.5 Counter-story generator",
+        "level": 2,
+        "text": "We construct the counter pair for each scenario by re-running the scripted trajectory but omitting the cooperative event: the lime traveller stalls 3 3 cells before the gate (it never crosses), or the pink lever-holder fails to release the lever at the cooperative deadline (the gate never opens for the cooperative crossing). We preserve the protagonist’s perceptual access (TB/FB layout), rewrite captions with the asymmetric oracle-vs-pov rule (§ 3 ), and recompute the binary correct answer by enumeration."
+      },
+      {
+        "id": "A1.SS6",
+        "heading": "A.6 Axis-specific ground-truth labels",
+        "level": 2,
+        "text": "We compute ground-truth labels deterministically from the layout and event-outcome pair. Belief: “does the protagonist see the event”. Intent: “should the protagonist take the cooperative action now”, mapped to release/keep-holding for lever-holders and continue/wait for the traveller. Knowledge: “does the protagonist have enough perceptual access to determine whether the cooperative event occurred” – for lever-holders this is “can the protagonist see the traveller”, for the traveller it is “can the protagonist see at least one lever-holder”. The knowledge label depends only on perceptual visibility, not on whether the event in fact occurred; success and counter blocks therefore share the same knowledge label on each layout (TB → \\to TRUE, FB → \\to FALSE), so a knowledge-conditional answer is forced to track perceptual access rather than the world-state outcome."
+      },
+      {
+        "id": "A2.SS1",
+        "heading": "B.1 Probe extraction",
+        "level": 2,
+        "text": "For each axis we extract per-(layer, head) activations at the final token under each paired statement. The difference Δ A = a ⁡ ( s A + ) − a ⁡ ( s A − ) \\Delta_{A}=a(s_{A}^{+})-a(s_{A}^{-}) is the training input for the linear probe; labels are ± 1 \\pm 1 for matched/mismatched statements. We use logistic regression with default L 2 L^{2} regularisation ( C = 1 C{=}1 )."
+      },
+      {
+        "id": "A2.SS1.SSS0.Px1",
+        "heading": "K-selection / CARD-eval protocol.",
+        "level": 4,
+        "text": "To prevent K-selection bias from probe training, top- K K ranking, and CARD evaluation sharing scenarios, we split the unified success+counter partition ( 444 444 scenarios) into a fully disjoint probe-set and eval-set stratified 50 / 50 50/50 by protagonist × \\times world-state outcome ( 222 222 scenarios each). The probe-set is used for probe training (single 75 / 25 75/25 stratified train/val split per (layer, head), seeded for reproducibility) and top- K = 56 K{=}56 cell ranking by held-out val accuracy; CARD is evaluated only on the disjoint eval-set. To quantify probe-training variance we re-run with three seeds { 42 , 43 , 44 } \\{42,43,44\\} for the internal 75 / 25 75/25 split and report the mean across seeds."
+      },
+      {
+        "id": "A2.SS2",
+        "heading": "B.2 CARD steering hook",
+        "level": 2,
+        "text": "We implement the steering hook as a forward hook on each chosen layer’s self-attention output: at the last-token position only, 𝐳 ℓ , h ← 𝐳 ℓ , h + α ​ σ A ℓ , h ​ u A ℓ , h \\mathbf{z}_{\\ell,h}\\leftarrow\\mathbf{z}_{\\ell,h}+\\alpha\\,\\sigma^{\\ell,h}_{A}\\,u^{\\ell,h}_{A} (Eq. 1 ), with u A ℓ , h u^{\\ell,h}_{A} the unit-norm probe direction at that (layer, head), σ A ℓ , h \\sigma^{\\ell,h}_{A} the training-set standard deviation of the scalar projection u A ℓ , h ⋅ 𝐳 ℓ , h ​ ( s A + ) u^{\\ell,h}_{A}\\cdot\\mathbf{z}_{\\ell,h}(s_{A}^{+}) , and α ∈ { − 10 , 0 , + 10 } \\alpha\\in\\{-10,0,+10\\} . We steer the top- 56 56 per-(layer, head) cells ranked by held-out probe accuracy (cells selected by argsort ⁡ ( val_acc ) \\operatorname{argsort}(\\text{val\\_acc}) descending), the same selection used by the canonical probe-extraction sweep. We do not normalise by sequence position or apply position-specific scaling."
+      },
+      {
+        "id": "A2.SS3",
+        "heading": "B.3 Projection-removal",
+        "level": 2,
+        "text": "At each (layer, head) we subtract c ​ σ A ℓ , h ​ ( u A ℓ , h ⋅ 𝐳 ℓ , h ) ​ u A ℓ , h c\\,\\sigma^{\\ell,h}_{A}\\,(u^{\\ell,h}_{A}\\cdot\\mathbf{z}_{\\ell,h})\\,u^{\\ell,h}_{A} from 𝐳 ℓ , h \\mathbf{z}_{\\ell,h} at the last-token position (Eq. 3 ), with c ∈ { 0.5 , 1 , 2 , 5 } c\\in\\{0.5,1,2,5\\} . σ A ℓ , h \\sigma^{\\ell,h}_{A} is the per-(layer, head) standard deviation of u A ℓ , h ⋅ 𝐳 ℓ , h ​ ( s A + ) u^{\\ell,h}_{A}\\cdot\\mathbf{z}_{\\ell,h}(s_{A}^{+}) across the unified-partition training set. Under projection-removal LLaVA-NeXT occasionally appends commentary tokens after the JSON answer; we extract the answer with a regex on the yes/no field in addition to the canonical JSON-parse path. Recomputed accuracies match the raw answer-token distribution and are reported in § 5 ."
+      },
+      {
+        "id": "A2.SS4",
+        "heading": "B.4 Temporal probe accuracy (Qwen2-VL)",
+        "level": 2,
+        "text": "We report linear-probe held-out accuracy at four trajectory fractions t ∈ { 0.25 , 0.5 , 0.75 , 1.0 } t\\in\\{0.25,0.5,0.75,1.0\\} on Qwen2-VL, for the three cooperative-ToM axes ( Table 4 ). Peak (best layer/head) accuracy is saturated at 100 % 100\\% from the earliest timestep; mean accuracy varies by axis but is stable to within ∼ 1 \\sim 1 pp. The representation is formed early. We restrict the temporal sweep to Qwen2-VL on compute-budget grounds (each timestep is a full per-(layer, head) probe-extraction pass over 444 444 scenarios); we treat it as a single-VLM ablation, not as a generality claim. Axis t = 0.25 t{=}0.25 t = 0.5 t{=}0.5 t = 0.75 t{=}0.75 t = 1.0 t{=}1.0 peak belief 69.9 69.9 69.1 69.1 69.3 69.3 69.3 69.3 100.0 100.0 intent 95.6 95.6 95.1 95.1 94.7 94.7 94.3 94.3 100.0 100.0 knowledge 91.9 91.9 91.2 91.2 90.8 90.8 90.4 90.4 100.0 100.0 Table 4: Linear-probe held-out accuracy (%) as a function of trajectory fraction t t on Qwen2-VL, for the three cooperative-ToM axes (belief, intent, knowledge). “Peak” = best (layer, head) probe; the remaining columns are means across all (layer, head) cells. The peak is saturated at 100 % 100\\% from t = 0.25 t{=}0.25 onward. Mean accuracy decreases very slightly ( ∼ 1 \\sim 1 pp) with t t : while the best head remains perfectly recoverable, fewer heads on average carry a clean axis-specific signal as later tokens accumulate downstream context. The relevant headline is the saturated peak: the feature is present from early in the trajectory."
+      },
+      {
+        "id": "A2.SS5",
+        "heading": "B.5 Pre-registration record",
+        "level": 2,
+        "text": "We pre-registered the T-A falsifier before running the V0–V11 sweep: a cell passes only if both TB and FB accuracy exceed 50 % 50\\% on a lever-holder. The hypothesis space (12 variants × \\times 4 VLMs × \\times 4 protagonist conditions) was fixed before any data was collected."
+      },
+      {
+        "id": "A2.SS6",
+        "heading": "B.6 T-A prompt variants",
+        "level": 2,
+        "text": "Table 5 summarises the 12 12 prompt variants used in the T-A pre-registered sweep, grouped into four families (cost framing, chain-of-thought, perception-first / rule-based, in-context exemplars). Each variant prepends a prefix to the canonical intent question; the verbatim prefix text for every variant is in § B.7 below. Variant Family Description V0 cost baseline; canonical intent question, no prefix V1 cost implicit consequences: “if released too early, gate closes on traveller; team fails.” V2 cost explicit numerical cost: release = = cost 2.0 2.0 if not crossed, hold = = cost 1.0 1.0 if crossed V3 cost utility framing: “what action MAXIMISES team success?” V4 CoT step-by-step: perception → \\to belief → \\to cost → \\to action V5 CoT high-stakes framing: “a wrong release may kill the team” V6 CoT V4 chain-of-thought + + V2 numerical costs V7 perception-rule “State what the protagonist can see, then answer.” V8 perception-rule explicit rule: “if you can see the crossing, release; else hold.” V9 perception-rule V7 perception-first + + V2 cost numbers V10 in-context one-shot worked example (Manhattan distance ≤ 5 \\leq 5 → \\to release; > 5 >5 → \\to hold) V11 in-context two-shot: V10 plus a second example of opposite polarity Table 5: The 12 12 T-A prompt variants used to evaluate prompt-resistance. Each variant prepends a prefix to the canonical intent question; in-context variants additionally include worked examples."
+      },
+      {
+        "id": "A2.SS7",
+        "heading": "B.7 T-A prompt prefixes (verbatim)",
+        "level": 2,
+        "text": "We reproduce here the exact prefix appended before the canonical intent question for each T-A variant. Variants whose prefix differs by protagonist role list both lever-holder and traveller text."
+      },
+      {
+        "id": "A2.SS7.SSS0.Px1",
+        "heading": "V0 (baseline).",
+        "level": 4,
+        "text": "No prefix. The canonical intent question is asked unchanged."
+      },
+      {
+        "id": "A2.SS7.SSS0.Px2",
+        "heading": "V1 (cost: implicit consequences).",
+        "level": 4,
+        "text": "Lever-holder: Reminder of cooperative consequences: if the lever-holder releases while the traveller has not yet crossed the gate, the gate closes on the traveller and the team fails the task. If the lever-holder keeps holding after the traveller has crossed, the team is delayed but does not fail. Traveller: Reminder of cooperative consequences: if the traveller continues toward a closed gate, it gets stuck and the team fails. If the traveller waits when the gate is open, the team is delayed but does not fail."
+      },
+      {
+        "id": "A2.SS7.SSS0.Px3",
+        "heading": "V2 (cost: explicit numerical).",
+        "level": 4,
+        "text": "Lever-holder: Cost framing: action ‘Yes’ (release/no-longer-hold) → \\to cost 2.0 2.0 if the traveller has not yet crossed, else cost 0 0 . Action ‘No’ (keep holding) → \\to cost 1.0 1.0 if the traveller has already crossed, else cost 0 0 . Choose the action that minimises expected cost given what the protagonist can observe. Traveller: Cost framing: action ‘Yes’ (continue toward gate) → \\to cost 2.0 2.0 if the gate is currently closed, else cost 0 0 . Action ‘No’ (stop and wait) → \\to cost 1.0 1.0 always (delay but no failure). Choose the action that minimises expected cost given what the protagonist can observe."
+      },
+      {
+        "id": "A2.SS7.SSS0.Px4",
+        "heading": "V3 (utility framing).",
+        "level": 4,
+        "text": "Question framing: what action would MAXIMISE the team’s chance of completing the cooperative task successfully, given what the protagonist can currently observe?"
+      },
+      {
+        "id": "A2.SS7.SSS0.Px5",
+        "heading": "V4 (chain-of-thought).",
+        "level": 4,
+        "text": "Think step by step: (1) FIRST identify what the protagonist can perceive given the protagonist’s position and fog-of-war range. (2) THEN consider what the optimal action is conditional on what the protagonist actually knows. (3) FINALLY produce a single Yes or No answer. The protagonist may be partly ignorant about events outside its fog. Only choose the answer the protagonist would optimally pick given its actual perceptual state."
+      },
+      {
+        "id": "A2.SS7.SSS0.Px6",
+        "heading": "V5 (high-stakes safety framing).",
+        "level": 4,
+        "text": "Safety-critical reminder: this is a cooperative team task in which a wrong action by the lever-holder may TRAP the traveller permanently (team failure), and a wrong action by the traveller may STRAND the agent in a closed-gate room (team failure). Only choose actions that minimise the risk of catastrophic failure given what the protagonist can actually observe."
+      },
+      {
+        "id": "A2.SS7.SSS0.Px7",
+        "heading": "V6.",
+        "level": 4,
+        "text": "V4 chain-of-thought prefix concatenated with the V2 explicit-cost prefix (lever-holder or traveller, by role)."
+      },
+      {
+        "id": "A2.SS7.SSS0.Px8",
+        "heading": "V7 (perception-first).",
+        "level": 4,
+        "text": "BEFORE answering, identify what the protagonist agent can actually perceive. The protagonist has a fog-of-war view of radius 5 5 cells from its current position; cells beyond that radius are NOT visible to the protagonist. The lever-holder’s view of the gate they control depends on the lever’s distance from the gate. If the lever sits next to the gate (Manhattan distance ≤ 5 \\leq 5 ), the lever-holder CAN see who crosses. If the lever sits far from the gate (Manhattan distance > 5 >5 ), the lever-holder CANNOT see who crosses. Use only what the protagonist actually observes to choose the answer."
+      },
+      {
+        "id": "A2.SS7.SSS0.Px9",
+        "heading": "V8 (rule-based).",
+        "level": 4,
+        "text": "Rule: a lever-holder should release its lever ONLY IF it can directly perceive that the agent it is enabling has finished crossing the gate. Otherwise it must keep holding. A traveller should continue toward a gate ONLY IF it can perceive that the gate is open. Apply this rule given what the protagonist actually observes (fog-of-war radius 5 5 )."
+      },
+      {
+        "id": "A2.SS7.SSS0.Px10",
+        "heading": "V9.",
+        "level": 4,
+        "text": "V7 perception-first prefix concatenated with the V2 explicit-cost prefix (by role)."
+      },
+      {
+        "id": "A2.SS7.SSS0.Px11",
+        "heading": "V10 (one-shot in-context).",
+        "level": 4,
+        "text": "EXAMPLE: a lever-holder agent’s lever sits 2 2 cells away from a gate (within fog-of-war radius 5 5 ). The lever-holder CAN see the gate. The lever-holder observes the traveller crossing the gate. Question: should the lever-holder release the lever now? Answer: Yes, because the lever-holder has perceived the traveller crossing and the gate is no longer needed. Now answer the following with the same belief-conditional reasoning. If the protagonist CAN perceive the relevant event, recommend the action that responds to that perception. If the protagonist CANNOT perceive the event, recommend the conservative action."
+      },
+      {
+        "id": "A2.SS7.SSS0.Px12",
+        "heading": "V11 (two-shot in-context).",
+        "level": 4,
+        "text": "EXAMPLE 1 (TrueBelief case): a lever-holder agent’s lever sits 2 2 cells away from a gate (within fog-of-war radius 5 5 ). The lever-holder CAN see the gate and observes the traveller crossing. Question: should the lever-holder release? Answer: Yes, because the protagonist perceived the crossing. EXAMPLE 2 (FalseBelief case): a lever-holder agent’s lever sits 10 10 cells away from a gate (beyond fog-of-war radius 5 5 ). The lever-holder CANNOT see the gate and does not know whether the traveller has crossed. Question: should the lever-holder release? Answer: No, because the protagonist has NOT perceived the crossing and releasing would risk trapping the traveller. Now answer the following with the same belief-conditional reasoning. Distinguish: does the protagonist actually perceive the event in question, or not? Choose the action that matches the protagonist’s actual perceptual access."
+      },
+      {
+        "id": "A3.SS1",
+        "heading": "C.1 Per-VLM, per-protagonist, per-axis behaviour matrix",
+        "level": 2,
+        "text": "We report the full per-cell behavioural accuracies that underlie the three-way dissociation in F2. The matrix covers 4 ​ VLMs × 3 ​ axes × 3 ​ protag × 2 ​ outcomes × 2 ​ beliefs 4\\text{ VLMs}\\times 3\\text{ axes}\\times 3\\text{ protag}\\times 2\\text{ outcomes}\\times 2\\text{ beliefs} = 144 144 cells ( Table 6 ). Readers should look for the shape contrast: belief-Q cells track the world-state outcome, knowledge-Q cells track TB/FB (perceptual access), intent-Q cells stay on the per-protagonist prior. VLM Axis Lever a 1 a_{1} Lever a 2 a_{2} Trav. a 3 a_{3} Qwen2-VL belief 100/0/100/100 100/50/100/100 100/0/100/100 intent 0/100/100/100 0/100/100/100 53/47/100/100 know. 100/100/48/100 100/69/72/100 53/100/44/98 Gemma-4 belief 100/0/100/100 69/52/100/100 100/4/100/100 intent 0/100/100/100 0/100/100/100 100/0/100/100 know. 100/100/59/100 100/100/58/100 0/100/44/100 LLaVA-NeXT belief 100/0/57/52 100/0/10/42 53/47/100/100 intent 0/100/100/100 0/100/100/100 53/47/100/100 know. 89/51/48/52 100/52/100/42 53/47/44/56 InternVL2.5 belief 84/0/95/100 75/4/100/100 100/0/94/98 intent 0/100/100/100 0/100/100/100 75/23/98/100 know. 99/89/0/93 98/87/0/92 2/100/0/100 Table 6: Full D2 four-tuple discrimination matrix (success-TB / success-FB / counter-TB / counter-FB) for every (VLM, axis, protagonist)."
+      },
+      {
+        "id": "A3.SS2",
+        "heading": "C.2 Intent Δ acc \\Delta_{\\rm acc} per (VLM, protag, probe)",
+        "level": 2,
+        "text": "For every ( VLM × protagonist × probe direction ) (\\text{VLM}\\times\\text{protagonist}\\times\\text{probe direction}) cell in the 4 × 3 × 3 = 36 4\\times 3\\times 3=36 -cell CARD sweep on the intent question, we report best- α \\alpha accuracy gain over the no-steering baseline ( Table 7 ). This is the load-bearing evidence for the generalised routing-failure claim in § 5 . VLM Protag. Probe = = belief Probe = = intent Probe = = knowledge Qwen2-VL a 1 a_{1} + 0.0 +0.0 + 0.0 +0.0 + 0.0 +0.0 a 2 a_{2} + 0.0 +0.0 + 0.0 +0.0 + 0.0 +0.0 a 3 a_{3} + 4.0 ± 2.9 +4.0\\pm 2.9 + 0.0 +0.0 + 0.0 +0.0 Gemma-4 a 1 a_{1} + 0.0 +0.0 + 0.0 +0.0 + 0.0 +0.0 a 2 a_{2} + 0.0 +0.0 + 0.0 +0.0 + 0.0 +0.0 a 3 a_{3} + 0.0 +0.0 + 0.0 +0.0 + 0.0 +0.0 LLaVA-NeXT a 1 a_{1} + 0.0 +0.0 + 0.0 +0.0 + 0.0 +0.0 a 2 a_{2} + 0.0 +0.0 + 4.0 ± 5.7 +4.0\\pm 5.7 + 0.0 +0.0 a 3 a_{3} + 0.0 +0.0 + 0.7 ± 0.5 +0.7\\pm 0.5 + 0.0 +0.0 InternVL2.5 a 1 a_{1} + 0.0 +0.0 + 0.0 +0.0 + 0.0 +0.0 a 2 a_{2} + 0.0 +0.0 + 0.0 +0.0 + 0.0 +0.0 a 3 a_{3} + 1.3 ± 0.5 +1.3\\pm 0.5 + 1.3 ± 1.1 +1.3\\pm 1.1 + 1.1 ± 0.8 +1.1\\pm 0.8 Table 7: Best- α \\alpha intent accuracy gain (pp) over the no-steering baseline ( α = 0 \\alpha{=}0 ) for every (VLM, protagonist, probe direction) cell, reported as mean ± \\pm std across three seeds (seeds { 42 , 43 , 44 } \\{42,43,44\\} ; the ± \\pm is dropped when the std rounds to 0.0 0.0 ). Most cells are exactly 0 0 on every seed; across the full multi-seed sweep, 95 / 108 95/108 cells are exactly 0 0 and the largest gain anywhere is + 12.00 +12.00 %. Compare with belief and knowledge accuracies, which improve by + 2.7 +2.7 to + 10.6 +10.6 pp on the across-protagonist mean under the same hooks ( Figure 3 ): the intent prediction does not use the belief direction usefully on any cell."
+      },
+      {
+        "id": "A3.SS3",
+        "heading": "C.3 CARD per-cell breakdown ( Δ gap \\Delta_{\\rm gap} and Δ acc \\Delta_{\\rm acc} )",
+        "level": 2,
+        "text": "For lever-holder a 1 a_{1} , we report both the gap shift and the mean-accuracy shift for every (probe, question, VLM) cell. Across the full 4 ​ VLMs × 3 ​ probes = 12 4\\text{ VLMs}\\times 3\\text{ probes}=12 intent-question cells, 9 9 are exactly 0.00 \\mathbf{0.00} on both metrics. The three nonzero cells: Gemma-4 under belief-direction steering ( | Δ gap | = 9.7 |\\Delta_{\\rm gap}|{=}9.7 pp, | Δ acc | = 4.9 |\\Delta_{\\rm acc}|{=}4.9 pp); InternVL2.5 under belief-direction steering ( | Δ gap | = 8.3 |\\Delta_{\\rm gap}|{=}8.3 pp, | Δ acc | = 5.6 |\\Delta_{\\rm acc}|{=}5.6 pp); and InternVL2.5 under knowledge-direction steering ( | Δ gap | = 25.0 |\\Delta_{\\rm gap}|{=}25.0 pp, | Δ acc | = 13.9 |\\Delta_{\\rm acc}|{=}13.9 pp, direction-balanced flips that cancel in net accuracy). This rules out both belief-conditional modulation and uniform answer-flip across the matrix. VLM Probe Question Δ gap \\Delta_{\\rm gap} (pp) Δ acc \\Delta_{\\rm acc} (pp) Qwen2-VL belief belief + 30.56 +30.56 − 15.28 -15.28 belief intent + 0.00 +0.00 + 0.00 +0.00 belief knowledge + 22.22 +22.22 + 11.11 +11.11 intent belief − 4.17 -4.17 + 2.08 +2.08 intent intent + 0.00 +0.00 + 0.00 +0.00 intent knowledge + 0.00 +0.00 + 0.00 +0.00 knowledge belief + 6.94 +6.94 − 3.47 -3.47 knowledge intent + 0.00 +0.00 + 0.00 +0.00 knowledge knowledge + 0.00 +0.00 + 0.00 +0.00 Gemma-4 belief belief + 66.67 +66.67 + 0.00 +0.00 belief intent − 9.72 -9.72 + 4.86 +4.86 belief knowledge + 59.72 +59.72 − 20.14 -20.14 intent belief + 33.33 +33.33 − 16.67 -16.67 intent intent + 0.00 +0.00 + 0.00 +0.00 intent knowledge + 22.22 +22.22 − 19.44 -19.44 knowledge belief + 1.39 +1.39 − 0.69 -0.69 knowledge intent + 0.00 +0.00 + 0.00 +0.00 knowledge knowledge + 12.50 +12.50 + 6.25 +6.25 LLaVA-NeXT belief belief + 20.83 +20.83 − 4.86 -4.86 belief intent + 0.00 +0.00 + 0.00 +0.00 belief knowledge − 13.89 -13.89 + 40.28 +40.28 intent belief + 8.33 +8.33 − 13.89 -13.89 intent intent + 0.00 +0.00 + 0.00 +0.00 intent knowledge + 9.72 +9.72 − 14.58 -14.58 knowledge belief − 12.50 -12.50 + 11.81 +11.81 knowledge intent + 0.00 +0.00 + 0.00 +0.00 knowledge knowledge − 23.61 -23.61 + 20.14 +20.14 InternVL2.5 belief belief − 31.94 -31.94 − 20.14 -20.14 belief intent + 8.33 +8.33 − 5.56 -5.56 belief knowledge + 2.78 +2.78 − 26.39 -26.39 intent belief + 0.00 +0.00 + 0.00 +0.00 intent intent + 0.00 +0.00 + 0.00 +0.00 intent knowledge − 2.78 -2.78 + 2.78 +2.78 knowledge belief + 31.94 +31.94 + 20.14 +20.14 knowledge intent − 25.00 -25.00 + 13.89 +13.89 knowledge knowledge − 4.17 -4.17 + 17.36 +17.36 Table 8: CARD per-cell breakdown on lever-holder a 1 a_{1} , reporting both the gap shift Δ gap = gap B ​ ( α = + 10 ) − gap B ​ ( α = − 10 ) \\Delta_{\\rm gap}={\\rm gap}_{B}(\\alpha{=}{+}10)-{\\rm gap}_{B}(\\alpha{=}{-}10) and the mean-accuracy shift Δ acc = acc ¯ B ​ ( α = + 10 ) − acc ¯ B ​ ( α = − 10 ) \\Delta_{\\rm acc}=\\overline{\\rm acc}_{B}(\\alpha{=}{+}10)-\\overline{\\rm acc}_{B}(\\alpha{=}{-}10) , where acc ¯ B = 1 2 ​ ( TB B + FB B ) \\overline{\\rm acc}_{B}=\\tfrac{1}{2}({\\rm TB}_{B}+{\\rm FB}_{B}) . Bold rows are the intent-question column: 9 9 of the 12 12 cells are 0.00 \\mathbf{0.00} on both metrics across the four VLMs (Qwen2-VL and LLaVA-NeXT all three probes; Gemma-4 and InternVL2.5 under intent and knowledge probes), and the remaining three (Gemma-4 and InternVL2.5 under belief steering, InternVL2.5 under knowledge steering) shift by at most | Δ gap | = 25.0 |\\Delta_{\\rm gap}|{=}25.0 pp / | Δ acc | = 13.9 |\\Delta_{\\rm acc}|{=}13.9 pp, ruling out both belief-conditional modulation ( Δ gap \\Delta_{\\rm gap} ) and any uniform answer-flip ( Δ acc \\Delta_{\\rm acc} ). Sibling columns (belief, knowledge) show non-trivial shifts under the same probe directions."
+      },
+      {
+        "id": "A3.SS4",
+        "heading": "C.4 Per-protagonist CARD breakdown",
+        "level": 2,
+        "text": "Figure 6 breaks down the protagonist-mean of Figure 3 into a 4 × 3 4\\times 3 grid over (VLM, protagonist). The intent column Δ \\Delta is essentially 0 0 in every cell, confirming that the routing failure is not protagonist-specific. Figure 6: Per-protagonist breakdown of Figure 3 . 4 × 3 4\\times 3 grid: rows are VLMs, columns are protagonists ( a 1 a_{1} , a 2 a_{2} lever-holders; a 3 a_{3} traveller). Each cell shows mean TB/FB accuracy at α = 0 \\alpha{=}0 (grey) vs the best α ∈ { − 10 , + 10 } \\alpha\\in\\{-10,+10\\} across probe directions (VLM color); Δ \\Delta on top is best − - baseline. The intent column Δ \\Delta is essentially 0 0 in every (VLM, protagonist) cell ( 12 / 12 12/12 ), while sibling answer heads (belief, knowledge) move on the protagonists that have headroom. The routing failure is therefore not protagonist-specific."
+      },
+      {
+        "id": "A3.SS5",
+        "heading": "C.5 CIs and Wilcoxon sign test on the intent null",
+        "level": 2,
+        "text": "Across all 108 108 intent measurements (4 VLMs × \\times 3 protagonists × \\times 3 probes × \\times 3 seeds), steering improves intent accuracy by at most 18.7 18.7 pp ( 95 % 95\\% paired-bootstrap upper bound), vs 22.9 22.9 pp on the belief control. The intent answer remains invariant to α \\alpha in 69 / 108 69/108 of these; the remainder skews toward the constant-prior default ( 27 27 vs 12 12 , Wilcoxon p = 0.009 p=0.009 ) – steering pushes intent toward its default, not toward belief-conditional behaviour."
+      },
+      {
+        "id": "A3.SS6",
+        "heading": "C.6 CARD × 3 3\\!\\times\\!3 heatmaps per VLM",
+        "level": 2,
+        "text": "For each VLM we show one panel per protagonist; each panel is a 3 × 3 3{\\times}3 grid in which rows are the direction we steered along (belief / intent / knowledge) and columns are the question we then asked. The cell number is how much the TB − - FB gap moves between α = + 10 \\alpha{=}{+}10 and α = − 10 \\alpha{=}{-}10 , in pp. A large cell value means the gap moved a lot – not that the model got more accurate: a TB-correct / FB-wrong pattern can flip to TB-wrong / FB-correct under steering, giving a large gap shift with mean accuracy unchanged. The intent column (red box) is the case we care about: even where it lights up, the companion accuracy-improvement matrix ( Table 7 ) is essentially zero on every cell. The largest values sit on the diagonal (steer-belief → \\to ask-belief, etc.) – these are the expected positive controls, where steering an axis strongly moves its own answer head. Figures 7 – 10 show all four VLMs. Figure 7: Qwen2-VL-7B – full CARD heatmap per protagonist. Red box = intent column. Figure 8: Gemma-4-E4B – full CARD heatmap per protagonist. Red box = intent column. Figure 9: LLaVA-NeXT-Video-7B – full CARD heatmap per protagonist. Red box = intent column. Figure 10: InternVL2.5-8B – full CARD heatmap per protagonist. Red box = intent column."
+      },
+      {
+        "id": "A3.SS7",
+        "heading": "C.7 T-A 192 192 -cell heatmap",
+        "level": 2,
+        "text": "For each (variant V0–V11, VLM, protag ∈ { overall, a1, a2, a3 } \\in\\{\\text{overall, a1, a2, a3}\\} ) we report TB accuracy, FB accuracy, and their gap (Figure 11 ). Readers should look for cells in which a lever-holder column exceeds the pre-registered { TB > 50 , FB > 50 } \\{\\text{TB}>50,\\text{FB}>50\\} threshold – no cell does. Figure 11: T-A prompt-resistance test. Each row is one of 12 12 prompt rewrites we tried (cost framing, chain-of-thought, perception-first, rule-based, 1 1 / 2 2 -shot examples. Each column is one (VLM, protagonist) cell. Cell colour encodes the TB − - FB accuracy gap – warm = model is more accurate when the protagonist can see the event, cold = the reverse. A star marks cells that cleared our pre-registered bar for “genuinely belief-conditional” (lever-holder, TB and FB accuracy both above 50 % 50\\% ). Only 5 5 cells star out of 192 192 , and only one points the right way (TB > > FB), with a margin an order of magnitude smaller than the same models’ gap on the canonical belief question – no prompt rewrite recovers belief-conditional action."
+      },
+      {
+        "id": "A3.SS8",
+        "heading": "C.8 Projection-removal per-VLM sweep",
+        "level": 2,
+        "text": "For each VLM and each α ∈ { 0.5 , 1 , 2 , 5 } ​ σ \\alpha\\in\\{0.5,1,2,5\\}\\sigma we report the intent TB − - FB gap on the unified partition (Figure 12 ). The flat curves – nearly horizontal across α \\alpha on every VLM – are the visual form of the A1 amplitude-invariance argument. Figure 12: Projection-removal α \\alpha sweep. x x -axis: α ∈ { 0.5 , 1 , 2 , 5 } ​ σ \\alpha\\in\\{0.5,1,2,5\\}\\sigma removal of the belief direction from the residual stream. y y -axis: intent TB − - FB gap. Three lines per VLM: a 1 a_{1} , a 2 a_{2} , a 3 a_{3} . The intent gap is constant across α \\alpha on every VLM and every protagonist."
+      },
+      {
+        "id": "A3.SS9",
+        "heading": "C.9 Vendor architecture and rigidity ordering",
+        "level": 2,
+        "text": "The four VLMs differ in text-decoder architecture and in their empirical resistance to prompt perturbation ( Table 9 ); the more rigid decoders are the ones whose intent answers were hardest to move under any T-A prompt in our sweep. VLM layers heads head_dim hidden rigidity Qwen2-VL-7B 28 28 128 3584 hardest LLaVA-NeXT-7B 32 32 128 4096 middle Gemma-4-E4B 34 8 320 2560 softest InternVL2.5-8B 32 32 128 4096 intermediate Table 9: Text-decoder architecture specs and empirical rigidity ordering of the four VLMs. Rigidity = resistance of the intent constant prior to prompt perturbation in the T-A sweep: Qwen2-VL is hardest (no V0–V11 cell breaks 30 / 100 30/100 on a 1 a_{1} ); LLaVA-NeXT is intermediate ; Gemma-4 is softest (V2 cost-explicit breaks the prior on a 2 a_{2} to 70 / 86 70/86 , though not toward belief-conditional behaviour). The ordering matches loosely with head dimensionality (Gemma’s 320 320 vs. 128 128 for the others), but the dataset ( 4 4 vendors) is too small to draw architectural conclusions; a quantitative regression of rigidity against pretraining mix and RLHF intensity is left to future work."
+      },
+      {
+        "id": "A4.SS1",
+        "heading": "D.1 Off-diagonal cosine measurements",
+        "level": 2,
+        "text": "Probe directions on the top- 56 56 (layer, head) cells are moderately aligned, not orthogonal. On the three steered axes (belief, intent, knowledge), pairwise cosines fall in 0.26 − − 0.58 0.26--0.58 across the four VLMs. The belief–intent cosine is 0.55 0.55 (Qwen2-VL), 0.38 0.38 (Gemma-4), 0.57 0.57 (LLaVA-NeXT), and 0.28 0.28 (InternVL2.5). This non-orthogonality is what makes the intent column’s null informative. Steering along belief is partially also steering along intent, yet the intent prediction does not move. If the two directions were nearly orthogonal, a null cross-axis effect on intent would be trivial; at the observed alignment, the null reflects that the intent prediction does not consume the shared subspace. The non-null sibling columns we observe in CARD (§ 5 ) confirm that the linear belief direction is causally usable by the belief and knowledge predictions, ruling out an “information-not-present” interpretation."
+      },
+      {
+        "id": "A4.SS2",
+        "heading": "D.2 CLEVR positive-control breakdown",
+        "level": 2,
+        "text": "Table 10 reports the full per-(VLM, question, probe) accuracy-gain matrix for the CLEVR positive control (§ 5 ). The sweep covers 100 100 scenarios per axis and three probe axes (count, shape, colour) on five VLMs: the four Relay Chain backbones plus SmolVLM-500M (Idefics-3 family). We added SmolVLM-500M explicitly because Qwen2-VL and InternVL2.5 sit at ceiling on shape and colour, and we wanted a backbone with abundant headroom on every axis. CLEVR’s True/False variants share the same correct answer by construction, so the gap-shift metric is uninformative here ( Δ gap = 0 \\Delta_{\\rm gap}=0 in every cell). The accuracy-shift metric is the right summary: it shows that the steering hook moves accuracy by up to + 60 +60 pp when the model has headroom. VLM Question Baseline P=count P=shape P=colour best Qwen2-VL count 86 86 + 6 +6 + 2 +2 + 6 +6 + 𝟔 \\mathbf{+6} shape 100 100 + 0 +0 + 0 +0 + 0 +0 + 0 +0 (ceil) colour 100 100 + 0 +0 + 0 +0 + 0 +0 + 0 +0 (ceil) Gemma-4 count 20 20 + 26 +26 + 60 +60 + 42 +42 + 𝟔𝟎 \\mathbf{+60} shape 30 30 + 24 +24 + 58 +58 + 52 +52 + 𝟓𝟖 \\mathbf{+58} colour 52 52 + 16 +16 + 26 +26 + 22 +22 + 𝟐𝟔 \\mathbf{+26} LLaVA-NeXT count 20 20 + 40 +40 + 6 +6 + 6 +6 + 𝟒𝟎 \\mathbf{+40} shape 0 0 + 8 +8 + 2 +2 + 0 +0 + 𝟖 \\mathbf{+8} colour 6 6 + 6 +6 + 8 +8 + 10 +10 + 𝟏𝟎 \\mathbf{+10} InternVL2.5 count 86 86 + 0 +0 + 14 +14 + 10 +10 + 𝟏𝟒 \\mathbf{+14} shape 100 100 + 0 +0 + 0 +0 + 0 +0 + 0 +0 (ceil) colour 96 96 + 0 +0 + 2 +2 + 2 +2 + 2 +2 (ceil) SmolVLM-500M count 12 12 + 6 +6 + 10 +10 + 26 +26 + 𝟐𝟔 \\mathbf{+26} shape 70 70 + 10 +10 + 2 +2 + 12 +12 + 𝟏𝟐 \\mathbf{+12} colour 64 64 + 0 +0 + 0 +0 + 10 +10 + 𝟏𝟎 \\mathbf{+10} Table 10: CARD positive control on CLEVR (single image, 100 100 scenarios per axis, seed 43 43 ). “Baseline” = mean accuracy at α = 0 \\alpha{=}0 on the corresponding within-axis cell; each probe column = best- α ∈ ± 10 \\alpha\\in\\pm 10 accuracy gain. Bold = the largest non-zero Δ acc \\Delta_{\\rm acc} per (VLM, question). At least one cross-axis cell shows ≥ + 14 \\geq+14 pp gain on every VLM that has headroom (Qwen and InternVL are at ≥ 96 % \\geq 96\\% on shape/colour; Gemma and LLaVA are well below ceiling on every axis and steering produces + 6 +6 to + 60 +60 pp gains). The steering hook is functional; the Relay Chain intent null in F3 is not a hook-broken artefact."
+      },
+      {
+        "id": "A4.SS3",
+        "heading": "D.3 Random-label probe control",
+        "level": 2,
+        "text": "Following Hewitt and Liang (2019) and Bortoletto et al. (2024) , we retrain logistic-regression probes on the same paired-statement activations with randomly permuted TB/FB labels. If the original probe is exploiting spurious correlations rather than capturing a structured belief representation, the permuted-label probe should also achieve high accuracy. Across all (VLM, axis) combinations ( Table 11 ), random-label probe accuracy is at chance ( 47.4 47.4 – 52.0 % 52.0\\% ) while true-label probe accuracy is 91.6 91.6 – 100 % 100\\% , giving selectivity ≥ 43.0 \\geq 43.0 pp on every cell. The probes are not exploiting superficial structure. VLM Axis True-label acc Random-label acc Selectivity Qwen2-VL belief 98.1 98.1 47.6 47.6 + 50.5 +50.5 intent 98.0 98.0 47.4 47.4 + 50.6 +50.6 knowledge 98.0 98.0 47.9 47.9 + 50.1 +50.1 Gemma-4 belief 100.0 100.0 50.7 50.7 + 49.3 +49.3 intent 100.0 100.0 52.0 52.0 + 48.0 +48.0 knowledge 100.0 100.0 50.5 50.5 + 49.5 +49.5 LLaVA-NeXT belief 91.6 91.6 48.6 48.6 + 43.0 +43.0 intent 91.6 91.6 48.0 48.0 + 43.6 +43.6 knowledge 91.7 91.7 47.6 47.6 + 44.1 +44.1 Table 11: Random-label probe control ( Hewitt and Liang, 2019 ) . For each (VLM, axis), we retrain logistic-regression probes on the same paired activations with randomly permuted labels and report mean held-out accuracy across the sampled (layer, head) cells. True-label probes attain 91.6 91.6 – 100 % 100\\% ; random-label probes are at chance ( 47.4 47.4 – 52.0 % 52.0\\% ), giving selectivity ≥ 43.0 \\geq 43.0 pp on every axis and every VLM. The top single-cell random-label accuracy across all sampled cells is 56.0 % 56.0\\% , well below the true-label minimum of 91.6 % 91.6\\% ."
+      },
+      {
+        "id": "A4.SS4",
+        "heading": "D.4 Lexical-ablation control",
+        "level": 2,
+        "text": "A linear probe trained on paired-statement activations could in principle latch onto three asymmetries that co-vary with belief: a lexical ignorance clause inserted into FB belief-true captions, a visual contrast between protagonist-POV (fog-occluded) and oracle frames, and a distributional gap between those two view sets. We re-train probes on three controlled ablation arms that selectively remove these confounds: Arm A (symmetric clause). We add a counterfactual “able-to-see” clause to FB belief-false captions, eliminating the lexical asymmetry while leaving views unchanged. Arm B (oracle-only). We use the oracle view and the original caption for both belief-true and belief-false activations, removing both lexical and visual asymmetries so the probe must rely on the belief-true vs. belief-false text contrast alone. Arm C (clause artefact). We inject the ignorance clause into TB captions only (no real perspective shift), measuring how much val accuracy a probe can achieve from the clause alone. On Arm B the top-cell probe accuracy stays within ± 2 \\pm 2 pp of the canonical extraction across all VLMs, so the probe is not riding the lexical or view confound. Arm C accuracy stays near chance, ruling out the clause-alone exploit. Figure 13: CS-CARD-T on Qwen2-VL: intent | Δ acc | |\\Delta_{\\rm acc}| vs steering target position, one line per probe source. All nine (source, position) entries sit at ≤ 0.3 \\leq 0.3 pp."
+      },
+      {
+        "id": "A4.SS5",
+        "heading": "D.5 Polarity-flip diagnostic",
+        "level": 2,
+        "text": "We ran a separate diagnostic in which the question polarity is flipped (“should the protagonist not release?” instead of “release?”). An oracle reasoner produces the same TB − - FB gap shape under the flip; a constant prior collapses. We report all (VLM, protagonist) cells in Table 12 ; the contrast between Qwen a 1 a_{1} (preserves the 100 → 100 100{\\to}100 pattern – oracle signature) and LLaVA a 2 a_{2} (collapses – constant-prior signature) is illustrative of the two regimes observed across the table. VLM overall orig (pp) overall flip (pp) sign-preserved? Qwen2-VL +86.5 +82.4 yes (oracle) Gemma-4 +73.0 +85.1 yes (oracle) LLaVA-NeXT +63.5 +35.1 weakened (drift) Table 12: D1 polarity-flip diagnostic. Original and flipped question polarity TB − - FB gap on the canonical 148 148 hold-out. An oracle-reasoning model preserves the sign and magnitude under flip; a constant-prior model collapses to a smaller or sign-flipped gap."
+      },
+      {
+        "id": "A4.SS6",
+        "heading": "D.6 Scale ablation: Qwen2.5-VL-32B",
+        "level": 2,
+        "text": "To check that the intent-column null is not specific to the 7 7 – 8 8 B Relay Chain backbones, we ran the same CARD pipeline on Qwen2.5-VL-32B ( ≈ 32 \\approx 32 B parameters; 64 64 layers, 40 40 heads, head_dim 128 128 ): identical probe extraction, top- 56 56 steering pool, and α ∈ { − 10 , 0 , + 10 } \\alpha\\in\\{-10,0,+10\\} sweep across the three probes. Peak held-out probe accuracy is 98.2 % 98.2\\% (belief), 95.9 % 95.9\\% (intent), 97.5 % 97.5\\% (knowledge) – on par with or above the 7 7 – 8 8 B backbones. On lever-operator a 1 a_{1} the intent answer is invariant to steering across all nine (probe, α \\alpha ) combinations: TB accuracy is 30.6 % 30.6\\% and FB accuracy is 100 % 100\\% at every α \\alpha on every probe direction – the same constant-prior signature observed at 7 7 – 8 8 B. The belief and knowledge questions move under the same hooks (e.g. belief-Q FB accuracy on a 3 a_{3} shifts from 96.7 % 96.7\\% at α = − 10 \\alpha{=}{-}10 to 98.7 % 98.7\\% at α = + 10 \\alpha{=}{+}10 on the belief probe). The routing failure does not vanish at 4 × 4\\times parameter scale, even though the probe recovers the belief direction at ceiling."
+      },
+      {
+        "id": "A5.SS0.SSS0.Px1",
+        "heading": "Models and parameter counts.",
+        "level": 4,
+        "text": "The four open-weight VLMs used in the main Relay Chain experiments span three vision-encoder lineages and three language-decoder lineages at the 4 4 – 8 8 B scale: Qwen2-VL-7B-Instruct ( ≈ 7.6 \\approx 7.6 B parameters; Yang et al., 2024a ), Gemma-4-E4B-it (effective ≈ 4 \\approx 4 B activated parameters in the E N N B mixture-of-experts variant; Gemma Team, Google DeepMind, 2026 ), LLaVA-NeXT-Video-7B-hf ( ≈ 7.1 \\approx 7.1 B; Zhang et al., 2024 ), and InternVL2.5-8B ( ≈ 8.1 \\approx 8.1 B; Chen et al., 2024b ). The CLEVR positive control additionally uses SmolVLM-500M ( ≈ 500 \\approx 500 M parameters, Idefics-3 family) Marafioti et al., 2025 . We also use Qwen2.5VL-32B-Instruct ( Yang et al., 2024b ) for a model scale ablation study on CARD."
+      },
+      {
+        "id": "A5.SS0.SSS0.Px2",
+        "heading": "Hardware.",
+        "level": 4,
+        "text": "All experiments ran on NVIDIA H100 NVL GPUs ( 96 96 GB HBM) on an internal SLURM-managed cluster. Each CARD, projection-removal, or T-A sweep occupies one GPU; multi-seed runs and the CLEVR chain were parallelised across up to four GPUs. Probe training is CPU-bound (logistic regression on saved activations)."
+      },
+      {
+        "id": "A5.SS0.SSS0.Px3",
+        "heading": "Compute budget.",
+        "level": 4,
+        "text": "End-to-end cost for the full pipeline – activation extraction, probe training, the CARD 3 × 3 3{\\times}3 sweep, and all ablations across the four open-weight VLMs – is approximately 25 25 GPU-hours on a single H100 NVL. In practice we parallelised across two H100 GPUs, so wall-clock time was about half a day."
+      },
+      {
+        "id": "A5.SS0.SSS0.Px4",
+        "heading": "Software.",
+        "level": 4,
+        "text": "VLM inference uses transformers v5.5 (Hugging Face) with bfloat16 weights and either flash-attention-2 or sdpa as the attention backend. Logistic-regression probes are trained with scikit-learn ( L 2 L^{2} regularisation, default solver) on saved activations. Paired bootstrap CIs, the binomial sign test, and the Wilcoxon signed-rank test are computed with scipy.stats ; the bootstrap RNG is fixed at seed 20260523 20260523 for reproducibility."
+      },
+      {
+        "id": "A5.SS1",
+        "heading": "E.1 Artifact licenses and intended use",
+        "level": 2,
+        "text": "All four open-weight VLMs we evaluate are publicly released: Qwen2-VL-7B under Apache 2.0, Gemma-4-E4B-it under the Gemma License Agreement, LLaVA-NeXT-Video-7B under Apache 2.0, and InternVL2.5-8B under MIT. CLEVR ( Johnson et al., 2017 ) , used as the positive-control auxiliary dataset, is distributed under CC BY 4.0. GridToM ( Li et al., 2025 ) , cited as the grid-world ToM format inspiration, is released by its authors for academic use. We use all models and datasets for non-commercial academic research, consistent with their intended use. Our CARD code and the Relay Chain dataset will be released under MIT (code) and CC BY 4.0 (data) upon acceptance."
+      }
+    ]
+  },
+  "text": "CARD: Diagnosing Belief-to-Action Routing Failuresin Vision–Language Models Skip to main content Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: Why HTML? Report Issue Back to Abstract Download PDF Contents Reading mode Colour theme License: CC BY 4.0 arXiv:2608.20763v1 [cs.CV] 21 Aug 2026 CARD: Diagnosing Belief-to-Action Routing Failures in Vision–Language Models Souptik Majumdar Fabian Kögel Andreas Bulling Affiliation: Universität Stuttgart Affiliation: 70569, Stuttgart Affiliation: Germany Affiliation: souptik.majumdar, fabian.koegel, andreas.bulling @vis.uni-stuttgart.de Abstract Linear probes and activation steering have uncovered that vision-language models (VLMs) internally represent mental states such as agents’ beliefs, knowledge, and intentions. However, it is unclear whether and how these representations are used by downstream predictions along these axes. To close this gap, we introduce Cross-Axis Routing Diagnostic (CARD), which steers activations along one axis while measuring the response of a different axis’s prediction. Applied to open-weight VLMs on Relay Chain – a new cooperative grid-world benchmark we propose – we diagnose a critical routing failure: models fail to incorporate belief representations into their next action prediction, effectively leaving valuable information about their partners unused. 1 Introduction Vision-language models (VLMs) are increasingly used in human-AI cooperation, such as embodied robots, AI coaches, or driving co-pilots, that require Theory of Mind (ToM; Premack and Woodruff, 1978 ) to infer what the interaction partner might see, know or want. To diagnose whether such models actually represent such mental states of their partners, two families of diagnostic tools have emerged: Linear probing tests if and where states are encoded in the models, while activation steering has primarliy been used to verify whether probed directions causally drive the model’s prediction and to control its outputs. However, they leave one question unanswered: Does the model’s internal representation of a partner’s mental state actually drive its actions? Existing behavioural benchmarks ( Gu et al., 2024 ; Bortoletto et al., 2025 ; Shi et al., 2025 ; Chen et al., 2024a ) score outputs along three axes, belief, knowledge and intentions but without inspecting and connecting their internal representations to the model predictions. Thus, they cannot discriminate wrong actions that reflect an absent representation from those that reflect an unused one. Alternatively, probes and prior work in activation steering ( Alain and Bengio, 2016 ; Belinkov, 2022 ; Hewitt and Liang, 2019 ; Elazar et al., 2021 ; Bortoletto et al., 2024 ; Räuker et al., 2023 ; Geiger et al., 2021 ; Wu et al., 2023b ) access internal representations but apply both read-out and intervention only to the same axis. For example, a probe might find a belief representation, and steering confirms its influence on next belief prediction (same-axis) but does not test its influence on action prediction (cross-axis). Thus, both approaches do not diagnose the routing of mental representations to predictions across axes. This matters especially in cooperative tasks, where the correct action depends on the mental state representation of the partner agent, which the VLM may encode internally, yet doesn’t use when predicting its next action. To address this limitation, we make the following contributions: 1. We introduce Cross-Axis Routing Diagnostic (CARD), a novel approach to diagnose how mental state representations influence model predictions across axes by steering representations in one axis and assessing the prediction of another. 2. To evaluate CARD, we propose Relay Chain , a new multi-agent cooperative grid-world benchmark that extends the grid-world format of GridToM ( Li et al., 2025 ) with a cooperative action axis. 3. Our experiments demonstrate critical routing failures across four open-weight VLM families, where the belief representation causally influences the belief and knowledge predictions but not the action prediction – despite the belief being linearly decodable at 78 78 – 94 % 94\\% from the same layer. Figure 1: Overview of CARD. For each axis a ∈ { belief, intent, knowledge } a\\in\\{\\text{belief, intent, knowledge}\\} a linear probe on paired True-Belief / False-Belief activations at layer L L yields a unit-norm direction v a v_{a} . At inference time, we hook the residual stream at the same layer and add α ​ v a \\alpha v_{a} (steering axis a a , α ∈ { − 10 , + 10 } \\alpha\\in\\{-10,+10\\} ), then read out the answer head for a different question axis b ≠ a b\\neq a . A causally-routed feature moves the cross-axis read-out; an encoded-but-unread feature does not. Within-axis cells ( a = b a=b , diagonal) serve as positive controls. 2 Related Work Behavioural ToM benchmarks. A large body of work evaluates ToM in foundation models through mental-state questions ( Gu et al., 2024 ; Bortoletto et al., 2025 ; Shi et al., 2025 ; Xu et al., 2024 ; Wu et al., 2023a ; Chen et al., 2024a ; Xiao et al., ; Chen et al., 2024c ; Jin et al., 2024 ; Kim et al., 2023 ; Zhang et al., 2025 ) . SimpleToM ( Gu et al., 2024 ) demonstrated a gap between explicit and applied ToM on text LLMs while ToM-SSI ( Bortoletto et al., 2025 ) extended to situated multi-agent interactions and reported a behavioural drop from percept to belief to intention. MindPower ( Zhang et al., 2025 ) showed that ToM-aware prompting improved cooperative success rates in embodied VLM settings. CARD complements these by testing whether a model’s internal mental-state representations actually drive its cooperative actions, not just whether its overall predictions are correct. Probes and activation steering. Probes and standard (same-axis) activation steering to inspect models have a long history in text-only LLMs ( Alain and Bengio, 2016 ; Belinkov, 2022 ; Elazar et al., 2021 ; Bortoletto et al., 2024 ; Räuker et al., 2023 ) : A linear probe verifies that a feature is encoded in the residual stream, and steering amplifies the probe direction to test whether the model’s answer to the same feature shifts. GridToM ( Li et al., 2025 ) brought this protocol to multimodal grid-world ToM and was the closest prior multimodal-ToM work pairing probes with activation interventions. CARD extends the protocol from same-axis to a cross-axis matrix that tests whether a probe direction is read by a different prediction. Like Bortoletto et al. (2024) , we use linear probes with Hewitt–Liang random-label controls ( Hewitt and Liang, 2019 ) to verify that the recovered belief direction is structured rather than a probe-expressivity artefact. Studying routing in VLMs Mechanistic interpretability tools to study full circuits from inputs to outputs that drive predictions include activation patching and causal mediation ( Vig et al., 2020 ; Meng et al., 2022 ) , activation-addition / steering vectors ( Turner et al., 2024 ; Li et al., 2023 ; Rimsky et al., 2024 ; Zou et al., 2023 ) , direct logit attribution ( Wang et al., 2022 ) , automated circuit discovery ( Conmy et al., 2023 ) , and linear-relation decoding ( Geva et al., 2023 ; Hernandez et al., 2024 ) . Recent work extended these to VLMs ( Yang et al., 2026 ; Liu et al., 2025 ; Häon et al., 2025 ) . Unlike distributed alignment search Geiger et al., 2021 ; Wu et al., 2023b , which gradient-searches a rotation aligning a high-level variable to a subspace, CARD uses a fixed pre-trained probe direction and conditions the read-out on a specific prediction. These techniques have largely targeted factual recall, refusal, or bias; CARD applies cross-axis routing diagnostics to mental-state representations in cooperative agents. 3 Method Our Cross-Axis Routing Diagnostic (CARD) takes three steps: (1) identify a steering vector for a mental representation in one axis, e.g. belief; (2) steer the model in its direction and measure the prediction of a different axis, e.g. action; (3) repeat the steering in the opposite direction as a control. Paired-statement probe extraction. For each axis A ∈ { belief, intent, knowledge } A\\in\\{\\text{belief, intent, knowledge}\\} and scenario s s , we present the VLM with the keyframe clip and a pair of statements ⟨ s A + , s A − ⟩ \\langle s_{A}^{+},s_{A}^{-}\\rangle : s A + s_{A}^{+} matches the ground-truth axis label (e.g. for belief, “the protagonist saw the traveller crossing” when the protagonist did see it) and s A − s_{A}^{-} is its negation. Let 𝐳 ℓ , h ​ ( s ) ∈ ℝ d h \\mathbf{z}^{\\ell,h}(s)\\in\\mathbb{R}^{d_{h}} denote the per-(layer, head) activation at the final input token under each statement. Per (layer, head), an L 2 L^{2} -regularised logistic regression is fit on the 2 ​ N 2N activations { 𝐳 ℓ , h ​ ( s A + ) , 𝐳 ℓ , h ​ ( s A − ) } s \\{\\mathbf{z}^{\\ell,h}(s_{A}^{+}),\\,\\mathbf{z}^{\\ell,h}(s_{A}^{-})\\}_{s} with binary labels (1 for s A + s_{A}^{+} , 0 for s A − s_{A}^{-} ), yielding a unit-norm probe direction u A ℓ , h ∈ ℝ d h u^{\\ell,h}_{A}\\in\\mathbb{R}^{d_{h}} that points from negated toward matched, plus a held-out accuracy. We use the top- K = 56 K{=}56 (layer, head) pair ranked by held-out accuracy as the steering pool ( ∼ \\sim 7% of L × H L\\!\\times\\!H heads, following the head-selection convention of Li et al., 2023 ). σ A ℓ , h \\sigma^{\\ell,h}_{A} is the per-head activation standard deviation along u A ℓ , h u^{\\ell,h}_{A} on the training set. For False-Belief scenarios the matched-class caption is taken from the protagonist’s view rather than the world state (see Appendix B.1 ). Cross-Axis Routing Diagnostic (CARD). Given the steering-axis probe set { ( u A ℓ , h , σ A ℓ , h ) } \\{(u^{\\ell,h}_{A},\\sigma^{\\ell,h}_{A})\\} over the top- K K pool, we register a forward hook on the self-attention output of every layer that contains at least one selected (layer, head) pair. The hook adds, at the last-token position only and only to the per-head slices of the selected pairs, a scaled multiple of the probe direction: 𝐳 ℓ , h ← 𝐳 ℓ , h + α ​ σ A ℓ , h ​ u A ℓ , h , α ∈ { − 10 , 0 , + 10 } , \\mathbf{z}_{\\ell,h}\\;\\leftarrow\\;\\mathbf{z}_{\\ell,h}\\,+\\,\\alpha\\,\\sigma^{\\ell,h}_{A}\\,u^{\\ell,h}_{A},\\;\\;\\alpha\\in\\{-10,\\,0,\\,+10\\}, (1) where α \\alpha is unit-free (the additive magnitude is | α | ​ σ |\\alpha|\\,\\sigma training-projection standard deviations) and remaining heads are left untouched. All K K heads are steered simultaneously, so the intervention is multi-direction by construction; the rest of the forward pass runs unchanged. The VLM then answers a question on a different axis B ≠ A B\\neq A , yielding a TB − - FB accuracy gap g B ​ ( α ) = acc B TB ​ ( α ) − acc B FB ​ ( α ) g_{B}(\\alpha)=\\mathrm{acc}_{B}^{\\mathrm{TB}}(\\alpha)-\\mathrm{acc}_{B}^{\\mathrm{FB}}(\\alpha) . Steering with α = + 10 \\alpha{=}{+}10 and α = − 10 \\alpha{=}{-}10 should move this gap in opposite directions if axis A A ’s direction causally influences the axis- B B prediction; we summarise the effect as the gap-shift – the change in g B g_{B} between the two steering polarities: M A , B = g B ​ ( + 10 ) − g B ​ ( − 10 ) . M_{A,B}\\;=\\;g_{B}(+10)-g_{B}(-10). (2) We additionally report a mean-accuracy shift M A , B acc = max α ∈ { ± 10 } ⁡ acc B ​ ( α ) − acc B ​ ( 0 ) M^{\\mathrm{acc}}_{A,B}=\\max_{\\alpha\\in\\{\\pm 10\\}}\\mathrm{acc}_{B}(\\alpha)-\\mathrm{acc}_{B}(0) to catch uniform answer modulations a signed gap-shift would miss. On Relay Chain we populate the 3 × 3 3{\\times}3 matrix with A , B ∈ { belief, intent, knowledge } A,B\\in\\{\\text{belief, intent, knowledge}\\} : same-axis entries ( A = B A=B ) serve as positive controls; off-diagonal entries test whether the linearly-decodable A A direction is used by the B B prediction. A column { M A , B ∗ } A ≈ 0 \\{M_{A,B^{*}}\\}_{A}\\approx 0 paired with at least one non-trivial row implies the B ∗ B^{*} prediction is decoupled from A A ’s linearly-decodable direction – the routing failure. Four-tuple signature. On the unified success+counter partition, for each (VLM, protagonist, question axis) we record the four-tuple ( acc succ TB , acc succ FB , acc cnt TB , acc cnt FB ) \\big(\\mathrm{acc}^{\\mathrm{TB}}_{\\rm succ},\\mathrm{acc}^{\\mathrm{FB}}_{\\rm succ},\\mathrm{acc}^{\\mathrm{TB}}_{\\rm cnt},\\mathrm{acc}^{\\mathrm{FB}}_{\\rm cnt}\\big) . This signature discriminates the three behaviours (constant-prior, world-state tracker, belief-conditional), which are indistinguishable on success-only data. Projection-removal control. As a negative-direction test, we subtract a scaled projection of the per-head residual along u A ℓ , h u^{\\ell,h}_{A} : 𝐳 ℓ , h ← 𝐳 ℓ , h − c ​ σ A ℓ , h ​ ( u A ℓ , h ⋅ 𝐳 ℓ , h ) ​ u A ℓ , h , c ∈ { 0.5 , 1 , 2 , 5 } . \\mathbf{z}_{\\ell,h}\\leftarrow\\mathbf{z}_{\\ell,h}-c\\,\\sigma^{\\ell,h}_{A}\\,(u^{\\ell,h}_{A}\\cdot\\mathbf{z}_{\\ell,h})\\,u^{\\ell,h}_{A},\\;\\;c\\in\\{0.5,1,2,5\\}. (3) c = 1 c{=}1 is canonical projection-removal; c > 1 c{>}1 over-subtracts. Prompt-resistance test. We ask whether prompt engineering alone can recover belief-conditional action. Twelve variants (cost framing, chain-of-thought, perception-first / rule-based, in-context exemplars; Appendix B.6 ) are evaluated across 192 192 cells. A variant passes on a lever-holder ( a 1 a_{1} or a 2 a_{2} ) if both acc TB > 50 % \\mathrm{acc}^{\\mathrm{TB}}>50\\% and acc FB > 50 % \\mathrm{acc}^{\\mathrm{FB}}>50\\% – correctly releases under TB and correctly holds under FB. Evaluation protocol. Each axis question is presented as a binary choice and parsed from JSON. Probes, top- K K selection, and CARD evaluation share the unified success+counter partition ( 444 444 scenarios), split 50 / 50 50/50 into a disjoint probe-set ( 222 222 scenarios; probe training and top- K K ranking) and eval-set ( 222 222 scenarios; CARD, projection-removal, behavioural baselines), stratified by protagonist × \\times world-state outcome (App. B.1 ). Accuracy is reported separately for TB vs FB and, where relevant, separated into success vs counter blocks. 4 Dataset and Task Cooperative Relay Chain dataset. We evaluate CARD ( section 3 ) on Relay Chain – a novel three-agent cooperative grid-world environment (see Figure 2 ). CARD’s diagnostic logic – steer one axis and read out a different prediction – requires a testbed in which a partner’s mental state causally drives an action prediction that is distinct from the belief prediction that it steers. While GridToM ( Li et al., 2025 ) pairs probes with activation interventions and supplies multi-agent scenarios and belief-attribution questions (first- and second-order beliefs), it does not offer a cooperative action axis: All questions only ask what an agent believes but not what the protagonist (the ego agent whose mental state we probe) should do given the partner’s belief. The belief-to-action CARD cell is therefore undefined – not because a partner is absent, but because there is no action prediction that depends on the partner’s mental state. In contrast, on the Relay Chain, two agents ( a 1 , a 2 a_{1},a_{2} ) each hold a lever that opens one gate; a traveller ( a 3 a_{3} ) must cross both gates in sequence to reach the goal. The cooperative structure is a relay : lever-operators must keep their gates open in sequence as the traveller passes through. Crucially, as no single agent can solve this task alone, the traveller’s optimal action is well-defined only relative to the partner’s perception, turning belief-to-action into a well-defined test of routing. Formal task description. We treat each scenario as a tuple s = ( w 0 , τ , a p ) s=(w_{0},\\tau,a_{p}) . w 0 w_{0} is the initial grid layout (agents, levers, gates, goal). τ = ( w 0 , w 1 , … , w T ) \\tau=(w_{0},w_{1},\\ldots,w_{T}) with T ∈ [ 16 , 32 ] T\\in[16,32] is the deterministic cooperative trajectory – the joint multi-agent state at each step. a p ∈ { a 1 , a 2 , a 3 } a_{p}\\in\\{a_{1},a_{2},a_{3}\\} is the protagonist – the ego agent whose mental state we probe. The VLM does not see τ \\tau directly: it receives a k k -frame visual rendering ( k ∈ [ 4 , 8 ] k\\in[4,8] ) subsampled at relay-phase boundaries ( a 1 a_{1} acquires lever, a 2 a_{2} acquires lever, a 3 a_{3} reaches goal) plus midpoints (see Appendix A.2 ). Belief variants. Each scenario appears in two layouts that hold τ \\tau and agent identities fixed and differ only in a p a_{p} ’s observation of the cooperative event ( a p a_{p} ’s partner releases/crosses): True-Belief ( s TB s^{\\mathrm{TB}} , event within a p a_{p} ’s field of view) and False-Belief( s FB s^{\\mathrm{FB}} , event in fog of war). Let e ∈ { 0 , 1 } e\\in\\{0,1\\} indicate whether the event in fact occurs in the world. The counter pair replaces s s with s ′ s^{\\prime} where e = 0 e=0 (the lever is never released, the gate never opens), preserving the same TB/FB perceptual structure. Questions and labels. For each axis A ∈ { belief , intent , knowledge } A\\in\\{\\text{belief},\\text{intent},\\text{knowledge}\\} we ask one binary question q A ​ ( a p ) q_{A}(a_{p}) whose ground-truth label y A ​ ( s , b ) ∈ { 0 , 1 } y_{A}(s,b)\\in\\{0,1\\} is a deterministic function of ( w 0 , τ , e , b ) (w_{0},\\tau,e,b) , where b ∈ { TB , FB } b\\in\\{\\mathrm{TB},\\mathrm{FB}\\} selects the belief variant. Belief asks whether the protagonist perceived the cooperative event; knowledge asks whether they can justify that it happened (perception plus integration of frame evidence); intent asks the next cooperative action. The VLM M M outputs a prediction y ^ M , A ​ ( s , b ) \\hat{y}_{M,A}(s,b) that we score against y A y_{A} . Per-axis label logic is in Appendix A.6 . Full construction details (scenario generator, paired layouts, counter-scenarios, per-axis ground-truth labels) can be found in Appendix A . Counter scenarios. On success-only data (the typical ToM benchmark setup, where the cooperative event always occurs), a model that emits the safe default on every input – “don’t release” for lever-operators, “keep waiting” for the traveller – is correct on the majority of cells, so high accuracy is not evidence of belief-conditional reasoning. The counter pair ( e = 0 e=0 ) breaks this shortcut: the safe default becomes wrong precisely where it was right under success, so constant-prior and belief-conditional models produce visibly different accuracy patterns. Construction mechanics and per-axis counts can be found in Appendix A.5 , Table 3 . Figure 2 illustrates the overall layout. Figure 2: Relay Chain four-tuple discrimination layout. Panel elements: protagonist a 1 a_{1} (red, lever-operator) with field-of-view disk (radius 5 5 ); partner a 2 a_{2} (blue, lever-operator); traveller a 3 a_{3} (green); gates (green when open, dark-red when closed); levers L L ; goal G G . Top row: success (event occurs). Bottom row: counter (lever-operator never releases; gate stays closed). Left column: True-Belief (TB) – a 1 a_{1} ’s lever close enough to perceive the crossing. Right column: False-Belief (FB) – lever beyond a 1 a_{1} ’s view. Three axes. Building on the belief–desire–intention framework ( Bratman, 1987 ) and the percept–belief–intention (PBI) causal structure used in recent ToM benchmarks ( Bortoletto et al., 2025 ) , we instrument each scenario along three axes: belief – does the protagonist see the cooperative event (first-order PBI percept; what content the agent holds in mind?); intent – in the BDI sense of present-directed action-recommendation : should the protagonist take the cooperative action now (PBI intention); knowledge – does the protagonist know whether the cooperative event occurred separate from the propositional content of belief). Knowledge serves as a control: within counter scenarios (where the world did not change), it is the only axis whose label still flips between TB and FB – with observation alone, while belief and intent labels stay constant. Including knowledge in the probe-extraction pool forces the learned direction to track observation rather than the world-state outcome. Appendix D.1 verifies that the three probe directions are neither collinear nor orthogonal. Models. Four open-weight VLMs: Qwen2-VL-7B ( Yang et al., 2024a ) , Gemma-4-E4B-it ( Gemma Team, Google DeepMind, 2026 ) , LLaVA-NeXT-Video-7B-hf ( Zhang et al., 2024 ) , and InternVL2.5-8B ( Chen et al., 2024b ) . We used multi-frame inputs ( 4 4 – 8 8 keyframes per scenario). 5 Results We conducted a series of experiments that together show a routing failure on the cooperative-action axis. First, we verify belief is linearly decodable and used on the belief question (positive control). We then establish a behavioural dissociation: the same model that reads belief on the belief question collapses to a constant per-protagonist prior on the intent question. CARD steering along the linearly-decodable belief direction substantially shifts the belief and knowledge predictions but leaves the cooperative-action prediction essentially unchanged – the mechanistic evidence. Three ablations close the natural alternative explanations: projection-removal rules out amplitude limitation, a prompt-resistance test rules out a prompting artefact, and CLEVR rules out a globally-broken steering hook. Belief is decodable and used on the belief question. We confirm belief is encoded and behaviourally used on the belief question – a binary read-out of whether the protagonist saw the cooperative event (“Does a p a_{p} see the partner release / cross?”). A linear probe on the TB-vs-FB activation difference reaches held-out accuracy well above chance on every VLM (see Table 1 ). We rule out spurious correlations with a Hewitt–Liang random-label control ( Hewitt and Liang, 2019 ) , which collapses probe accuracy to chance (see Table 11 in the Appendix). Behaviourally, every VLM answers the same question near ceiling on the TB layout and much lower on FB (see Table 1 ) – consistent with the prediction reading event occurrence but not gating by the protagonist’s field of view. We thus rule out the possibility that belief is simply not represented: any later failure on the intent question cannot be blamed on missing or unreadable belief. Model Probe acc. TB-acc. FB-acc. Qwen2-VL 81.5 ± 1.8 81.5\\pm 1.8 100.0 100.0 20.0 20.0 Gemma-4 94.5 ± 0.6 94.5\\pm 0.6 79.3 79.3 30.7 30.7 LLaVA-NeXT 78.1 ± 0.9 78.1\\pm 0.9 80.0 80.0 20.0 20.0 InternVL2.5 93.3 ± 0.5 93.3\\pm 0.5 89.3 89.3 2.0 2.0 Table 1: Positive control: linear-probe accuracy (mean ± \\pm std across three seeds; chance = 50 % =50\\% ) and behavioural TB/FB accuracy on the belief question. Belief is used on belief and knowledge but ignored on intent questions. We find a three-way behavioural dissociation on Relay Chain: the three axis questions, asked of the same model on the same scenarios with the same activations, produce qualitatively distinct accuracy patterns across all four VLMs (see the per-VLM matrix in Table 6 in the Appendix). On the belief question every VLM reproduces the world-state tracker signature: across the four (success/counter) × \\times (TB/FB) cells, the answer is correct on three (success-TB, counter-TB, counter-FB) and wrong only on success-FB, where the event occurred but outside the protagonist’s field of view (per-VLM breakdown in Table 6 in the Appendix). We read this as the prediction using event occurrence but not gating by observation. On the knowledge question the same models become behaviourally belief-conditional in the success block: TB is answered “knows” and FB is answered “doesn’t know”, correctly tracking the protagonist’s observation rather than the world state alone. We conclude observation is at least partially consulted for this question. On the intent question the same models collapse to a constant per-protagonist prior (“don’t release” on every cell, incorrect only on success-TB where releasing is the right action). The constant-prior signature is indistinguishable across the four VLMs – a striking convergence given otherwise divergent probe accuracies and architectures, and the strongest sign that intent answers are generated without consulting either event occurrence or observation. We thus observe three distinct signatures on the same model and the same activations: belief-Q reads world state, knowledge-Q reads observation, and intent-Q reads neither. The intent question alone is behaviourally belief-insensitive – the lonely outlier among the three axes. We next probe this dissociation mechanistically with CARD, asking whether the structural cause is upstream (belief unreachable from the intent prediction) rather than behavioural (belief read but ignored). Probe Belief Q (%) Intent Q (%) Epist. Q (%) Qwen2-VL belief 15.3 ± 6.2 15.3{\\pm 6.2} 0.0 0.0 29.2 ± 6.9 29.2{\\pm 6.9} intent 2.1 ± 2.8 2.1{\\pm 2.8} 0.0 0.0 0.0 0.0 knowledge 3.5 ± 3.5 3.5{\\pm 3.5} 0.0 0.0 0.0 0.0 Gemma-4 belief 33.3 ± 7.6 33.3{\\pm 7.6} 4.9 ± 3.5 4.9{\\pm 3.5} 29.9 ± 7.6 29.9{\\pm 7.6} intent 16.7 ± 6.2 16.7{\\pm 6.2} 0.0 0.0 19.4 ± 6.9 19.4{\\pm 6.9} knowledge 0.7 ± 1.4 0.7{\\pm 1.4} 0.0 0.0 6.2 ± 4.9 6.2{\\pm 4.9} LLaVA-NeXT belief 41.0 ± 8.3 41.0{\\pm 8.3} 0.0 0.0 40.3 ± 8.3 40.3{\\pm 8.3} intent 22.2 ± 6.9 22.2{\\pm 6.9} 0.0 0.0 67.4 ± 7.6 67.4{\\pm 7.6} knowledge 24.3 ± 7.6 24.3{\\pm 7.6} 0.0 0.0 60.4 ± 8.3 60.4{\\pm 8.3} InternVL2.5 belief 31.9 ± 7.6 31.9{\\pm 7.6} 5.6 ± 4.2 5.6{\\pm 4.2} 29.9 ± 7.6 29.9{\\pm 7.6} intent 1.4 ± 2.1 1.4{\\pm 2.1} 0.0 0.0 3.5 ± 3.5 3.5{\\pm 3.5} knowledge 35.4 ± 8.3 35.4{\\pm 8.3} 15.3 ± 6.2 15.3{\\pm 6.2} 20.1 ± 6.9 20.1{\\pm 6.9} Table 2: Per-scenario flip rate on a 1 a_{1} : of 144 144 scenarios, the fraction whose answer differs between α = + 10 \\alpha{=}{+}10 and α = − 10 \\alpha{=}{-}10 steering (i.e., whether steering moves the model at all , before changes average out). In the intent column (middle), 9 9 of 12 12 (VLM, probe) entries are exactly 0 0 ; only three are above zero (Gemma-4 and InternVL2.5 on the belief probe, InternVL2.5 on the knowledge probe; ≤ 15.3 % {\\leq}15.3\\% ), with direction-balanced flips that cancel in net accuracy ( Table 7 in the Appendix). The belief and knowledge columns flip many scenarios under the same hook. Figure 3: Steering improves accuracy on the belief and knowledge predictions, but never on the intent answer prediction, averaged across the three protagonists ( a 1 a_{1} , a 2 a_{2} , a 3 a_{3} ). For each (VLM, question axis) we report the mean TB/FB accuracy with no steering ( α = 0 \\alpha{=}0 , grey) and with the best-case steering ( α ∈ { − 10 , + 10 } \\alpha\\in\\{-10,+10\\} across all probe directions, in VLM color). Δ \\Delta on top is best − - baseline. Belief and knowledge improve by + 2.7 +2.7 to + 10.6 +10.6 pp; the intent Δ \\Delta is essentially 0 0 on every VLM. The identical intent baseline ( ∼ 66 % \\sim 66\\% ) across VLMs reflects the constant-prior signature. Per-protagonist breakdown in Figure 6 in the Appendix. CARD intent column is uniformly null (routing failure). We find a clean three-way dissociation under CARD steering. Across the full 4 × 3 × 3 = 36 4{\\times}3{\\times}3=36 -cell sweep (four VLMs × \\times three protagonists × \\times three probe directions; see Table 7 in the Appendix), the best- α \\alpha intent accuracy stays essentially at its no-steering baseline on nearly every cell, while the same steering hooks substantially shift the belief and knowledge predictions. Averaged across protagonists (see Figure 3 ), intent is flat on every VLM and the belief and knowledge axes move; the per-(VLM, protagonist) breakdown (see Figure 6 in the Appendix) shows the intent null holds across all 12 cells, not just the target lever-operator a 1 a_{1} . The gap-shift matrix on a 1 a_{1} (see Figure 4 ) tells the same story at the gap-shift level. We further show the null is per-scenario tight. On a 1 a_{1} the intent argmax is invariant to α = ± 10 \\alpha{=}{\\pm}10 steering on the overwhelming majority of scenarios across all four VLMs (see Table 2 ); the small fraction that do flip (InternVL2.5 and Gemma-4) are direction-balanced and cancel in net accuracy, while the belief and knowledge questions flip a substantial fraction of scenarios under the same hooks. We rule out the possibility that the intent answer was already pinned to one side before steering: without steering, the intent baseline distribution is mixed, so the null cannot be explained that way. Analysis confirms the null is statistically tight: across 108 108 intent measurements, the largest improvement in mean intent accuracy is bounded at 18.7 18.7 pp at 95 % 95\\% confidence, versus 22.9 22.9 pp on the belief positive control (Appendix C.5 ). We interpret this as a structural routing failure : the linearly-decodable belief direction is encoded, readable on the belief and knowledge predictions, but not used in the action prediction. Figure 4: CARD intent column on lever-operator a 1 a_{1} is uniformly null (red box) across four VLMs. Rows: probe axis being steered. Columns: question axis being asked. Cell value: | gap ​ ( α = + 10 ) − gap ​ ( α = − 10 ) | |\\text{gap}(\\alpha{=}+10)-\\text{gap}(\\alpha{=}-10)| in pp, mean ± \\pm std across three seeds. Non-intent columns shift by tens of pp under the same probe; the intent column does not move. Same steering hook, same scenarios, same protagonist – only the intent prediction fails to read from the belief direction. Ablation studies. We finally evaluated our findings against four alternative explanations: amplitude-limited steering (projection-removal control), a prompting artefact, cross-axis steering on a non-ToM task (CLEVR), and a last-token-locus artefact (distributed-token steering). Projection-removal control An alternative is that our additive steering simply does not push the belief subspace hard enough to register at the intent prediction, and a stronger or differently-shaped perturbation would. We test the opposite limit: instead of adding belief, we remove it from the residual stream entirely by subtracting its c ​ σ c\\,\\sigma -scaled projection from the per-head slice (Eq. 3 ) at c ∈ { 0.5 , 1 , 2 , 5 } c\\in\\{0.5,1,2,5\\} . The intent TB − - FB gap stays essentially flat at every c c on every VLM with a complete sweep, while the same removal shifts the belief -question gap toward chance as expected (positive control). The intent null survives both directions of perturbation, so it is structural, not a consequence of under-driving the belief subspace. No prompt achieves belief-conditional action Another possibility is that the intent prediction routes belief only when scaffolded by the right prompt. We test this with a pre-registered sweep of 12 prompt variants (CoT, perception-first, rule-based, high-stakes cost, 1/2-shot in-context) × \\times four VLMs × \\times four protagonist conditions ( 192 192 total; Figure 11 in the Appendix). No prompt recovers belief-conditional action. Cross-axis Steering on Non-ToM task Finally, the hook itself could be at fault – too weak to register anywhere. Applying the same hook to CLEVR on the same models ( Table 10 in the Appendix) yields substantial best- α \\alpha accuracy gains where there is headroom; the few flat cells reflect ceiling effects on shape and colour. The intent null is therefore a target-axis property, not a hook artefact. Distributed-token steering A further possibility is that the intent prediction reads belief at a different token position than our last-token hook. We re-run CARD with the steering hook fired at two additional positions ( vision-end and a vision-plus-last slice covering both) in addition to the last-token target, using three probe sources: the paired-statement belief and intent probes plus a per-position condition probe trained at vision-end . Sweeping α ∈ { − 10 , + 10 } \\alpha\\in\\{-10,+10\\} yields 18 18 (probe-source × \\times target-position) measurements. Across all, the maximum intent | Δ acc | |\\Delta_{\\rm acc}| vs the α = 0 \\alpha{=}0 baseline is 0.3 0.3 pp; maximum shift is around 1 1 pp (see Figure 13 in the Appendix). The result is therefore not an artefact of the last-token hook position. Summary. We established that belief is linearly decodable and used on the belief question, then a behavioural dissociation between belief- and intent-question signatures, then the causal dissociation under intervention, and finally closed the three alternative explanations (amplitude, prompt, hook). Belief direction is encoded, readable on the belief and knowledge predictions, and not used by the action prediction – a routing failure, not an absence. 6 Discussion The simplest account is that the cooperative-action prediction does not use the linear belief direction. Additive steering and projection-removal both shift the belief and knowledge predictions but leave the intent prediction essentially unchanged on every VLM and every protagonist; the same prediction defaults to a constant per-protagonist prior that the visual evidence does not modulate. Two observations rule out the simpler alternative that the prediction is just broken or saturated. First, the prediction does vary across inputs — its prior differs by protagonist (“don’t release” on a 1 , a 2 a_{1},a_{2} ; “go” on a 3 a_{3} ) — so it is not globally stuck on one answer. Second, the belief signal is present in the activations: the belief and knowledge predictions, exposed to the same residual stream, do use it. The prediction is therefore capable of varying and the information it would need is available; the failure to use belief is a routing fact specific to the intent prediction, not a general inability to respond. 7 Conclusion and Future work In this work we introduced CARD as a new cross-axis routing diagnostic that disambiguates \"feature absent\" from \"feature encoded but unused by the action prediction\". Using this new diagnostic we showed in a cooperative task that current VLMs encode a partner’s belief well enough to answer the belief question, yet none usefully use that belief when asked what to do. This represents a structural routing failure visible in current VLMs. One natural extension remains open: nonlinear probes would test whether the action prediction reads a subspace our linear probes miss. As such, our results suggest that verbal-ToM alignment does not imply action-ToM alignment: alignment training that updates only verbalised belief predictions, without an explicit objective on the action prediction, would leave this routing gap unaddressed. Limitations We demonstrate the routing failure on one task family – Relay Chain, a 2D grid-world – and four open-weight VLMs. CARD and projection-removal require activation-stream access, so we cannot subject closed-source VLMs to the mechanistic arms; We do not claim generality to larger model scales ( 40 40 – 400 400 B, where applied-ToM behaviour is known to improve ( Gu et al., 2024 ; Bortoletto et al., 2024 ) ), non-cooperative ToM, or real-world video. Ethical considerations The work uses publicly available open-weight VLMs and a synthetic grid-world task with no human subjects or personally-identifying data. CARD reports an internal property of the model and surfaces a limitation that deployers should be aware of; we see no direct misuse pathway. Datasets, prompts, and code will be released under permissive licenses. References Alain and Bengio (2016) G. Alain and Y. Bengio Understanding intermediate layers using linear classifier probes . arXiv preprint arXiv:1610.01644 . Cited by: §1 , §2 . Belinkov (2022) Y. Belinkov Probing classifiers: promises, shortcomings, and advances . Computational Linguistics 48 ( 1 ), pp. 207–219 . Cited by: §1 , §2 . Bortoletto et al. (2025) M. Bortoletto, C. Ruhdorfer, and A. Bulling ToM-ssi: evaluating theory of mind in situated social interactions . In Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing , pp. 32252–32277 . Cited by: §1 , §2 , §4 . Bortoletto et al. (2024) M. Bortoletto, C. Ruhdorfer, L. Shi, and A. Bulling Brittle minds, fixable activations: understanding belief representations in language models . arXiv preprint arXiv:2406.17513 . Cited by: §D.3 , §1 , §2 , Limitations . Bratman (1987) M. E. Bratman Intention, plans, and practical reason . Harvard University Press , Cambridge, MA . Cited by: §4 . Chen et al. (2024a) H. Chen, H. Chen, M. Yan, W. Xu, G. Xing, W. Shen, X. Quan, C. Li, J. Zhang, and F. Huang Socialbench: sociality evaluation of role-playing conversational agents . In Findings of the Association for Computational Linguistics: ACL 2024 , pp. 2108–2126 . Cited by: §1 , §2 . Chen et al. (2024b) Z. Chen, W. Wang, Y. Cao, Y. Liu, Z. Gao, E. Cui, J. Zhu, S. Ye, H. Tian, Z. Liu, et al. Expanding performance boundaries of open-source multimodal models with model, data, and test-time scaling . arXiv preprint arXiv:2412.05271 . Cited by: Appendix E , §4 . Chen et al. (2024c) Z. Chen, J. Wu, J. Zhou, B. Wen, G. Bi, G. Jiang, Y. Cao, M. Hu, Y. Lai, Z. Xiong, et al. ToMBench: benchmarking theory of mind in large language models . In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pp. 15959–15983 . Cited by: §2 . Conmy et al. (2023) A. Conmy, A. N. Mavor-Parker, A. Lynch, S. Heimersheim, and A. Garriga-Alonso Towards automated circuit discovery for mechanistic interpretability . In Advances in Neural Information Processing Systems (NeurIPS) , External Links: Link Cited by: §2 . Elazar et al. (2021) Y. Elazar, S. Ravfogel, A. Jacovi, and Y. Goldberg Amnesic probing: behavioral explanation with amnesic counterfactuals . Transactions of the Association for Computational Linguistics 9 , pp. 160–175 . Cited by: §1 , §2 . Geiger et al. (2021) A. Geiger, H. Lu, T. Icard, and C. Potts Causal abstractions of neural networks . Advances in neural information processing systems 34 , pp. 9574–9586 . Cited by: §1 , §2 . Gemma Team, Google DeepMind (2026) Gemma Team, Google DeepMind Gemma 4: our most capable open models to date . Technical report Google DeepMind . Note: Accessed: May 2026 External Links: Link Cited by: Appendix E , §4 . Geva et al. (2023) M. Geva, J. Bastings, K. Filippova, and A. Globerson Dissecting recall of factual associations in auto-regressive language models . In Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing , pp. 12216–12235 . Cited by: §2 . Gu et al. (2024) Y. Gu, O. Tafjord, H. Kim, J. Moore, R. L. Bras, P. Clark, and Y. Choi Simpletom: exposing the gap between explicit tom inference and implicit tom application in llms . arXiv preprint arXiv:2410.13648 . Cited by: §1 , §2 , Limitations . Häon et al. (2025) B. Häon, K. Stocking, I. Chuang, and C. Tomlin Mechanistic interpretability for steering vision-language-action models . arXiv preprint arXiv:2509.00328 . Cited by: §2 . Hernandez et al. (2024) E. Hernandez, A. Sen Sharma, T. Haklay, K. Meng, M. Wattenberg, J. Andreas, Y. Belinkov, and D. Bau Linearity of relation decoding in transformer language models . In International Conference on Learning Representations , Vol. 2024 , pp. 10504–10526 . Cited by: §2 . Hewitt and Liang (2019) J. Hewitt and P. Liang Designing and interpreting probes with control tasks . In Proceedings of the 2019 conference on empirical methods in natural language processing and the 9th international joint conference on natural language processing (emnlp-ijcnlp) , pp. 2733–2743 . Cited by: §D.3 , Table 11 , §1 , §2 , §5 . Jin et al. (2024) C. Jin, Y. Wu, J. Cao, J. Xiang, Y. Kuo, Z. Hu, T. Ullman, A. Torralba, J. Tenenbaum, and T. Shu Mmtom-qa: multimodal theory of mind question answering . In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pp. 16077–16102 . Cited by: §2 . Johnson et al. (2017) J. Johnson, B. Hariharan, L. van der Maaten, L. Fei-Fei, C. L. Zitnick, and R. Girshick CLEVR: a diagnostic dataset for compositional language and elementary visual reasoning . In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR) , pp. 2901–2910 .",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Skip to main content",
+      "url": "https://arxiv.org/html/2608.20763v1#infobox"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/IgnoreMe"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "Why HTML?",
+      "url": "https://info.arxiv.org/about/accessible_HTML.html"
+    },
+    {
+      "text": "Back to Abstract",
+      "url": "https://arxiv.org/abs/2608.20763v1"
+    },
+    {
+      "text": "Download PDF",
+      "url": "https://arxiv.org/pdf/2608.20763v1"
+    },
+    {
+      "text": "License: CC BY 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "Premack and Woodruff, 1978",
+      "url": "https://arxiv.org/html/2608.20763v1#bib.bib2"
+    },
+    {
+      "text": "Gu et al., 2024",
+      "url": "https://arxiv.org/html/2608.20763v1#bib.bib27"
+    },
+    {
+      "text": "Bortoletto et al., 2025",
+      "url": "https://arxiv.org/html/2608.20763v1#bib.bib3"
+    },
+    {
+      "text": "Shi et al., 2025",
+      "url": "https://arxiv.org/html/2608.20763v1#bib.bib28"
+    },
+    {
+      "text": "Chen et al., 2024a",
+      "url": "https://arxiv.org/html/2608.20763v1#bib.bib34"
+    },
+    {
+      "text": "Alain and Bengio, 2016",
+      "url": "https://arxiv.org/html/2608.20763v1#bib.bib36"
+    },
+    {
+      "text": "Belinkov, 2022",
+      "url": "https://arxiv.org/html/2608.20763v1#bib.bib21"
+    },
+    {
+      "text": "Hewitt and Liang, 2019",
+      "url": "https://arxiv.org/html/2608.20763v1#bib.bib20"
+    },
+    {
+      "text": "Elazar et al., 2021",
+      "url": "https://arxiv.org/html/2608.20763v1#bib.bib22"
+    },
+    {
+      "text": "Bortoletto et al., 2024",
+      "url": "https://arxiv.org/html/2608.20763v1#bib.bib4"
+    },
+    {
+      "text": "Räuker et al., 2023",
+      "url": "https://arxiv.org/html/2608.20763v1#bib.bib5"
+    },
+    {
+      "text": "Geiger et al., 2021",
+      "url": "https://arxiv.org/html/2608.20763v1#bib.bib17"
+    },
+    {
+      "text": "Wu et al., 2023b",
+      "url": "https://arxiv.org/html/2608.20763v1#bib.bib16"
+    },
+    {
+      "text": "Li et al., 2025",
+      "url": "https://arxiv.org/html/2608.20763v1#bib.bib26"
+    },
+    {
+      "text": "Xu et al., 2024",
+      "url": "https://arxiv.org/html/2608.20763v1#bib.bib30"
+    },
+    {
+      "text": "Wu et al., 2023a",
+      "url": "https://arxiv.org/html/2608.20763v1#bib.bib31"
+    },
+    {
+      "text": "Xiao et al.,",
+      "url": "https://arxiv.org/html/2608.20763v1#bib.bib35"
+    },
+    {
+      "text": "Chen et al., 2024c",
+      "url": "https://arxiv.org/html/2608.20763v1#bib.bib33"
+    },
+    {
+      "text": "Jin et al., 2024",
+      "url": "https://arxiv.org/html/2608.20763v1#bib.bib29"
+    },
+    {
+      "text": "Kim et al., 2023",
+      "url": "https://arxiv.org/html/2608.20763v1#bib.bib32"
+    },
+    {
+      "text": "Zhang et al., 2025",
+      "url": "https://arxiv.org/html/2608.20763v1#bib.bib11"
+    },
+    {
+      "text": "Vig et al., 2020",
+      "url": "https://arxiv.org/html/2608.20763v1#bib.bib6"
+    },
+    {
+      "text": "Meng et al., 2022",
+      "url": "https://arxiv.org/html/2608.20763v1#bib.bib10"
+    },
+    {
+      "text": "Turner et al., 2024",
+      "url": "https://arxiv.org/html/2608.20763v1#bib.bib12"
+    },
+    {
+      "text": "Li et al., 2023",
+      "url": "https://arxiv.org/html/2608.20763v1#bib.bib13"
+    },
+    {
+      "text": "Rimsky et al., 2024",
+      "url": "https://arxiv.org/html/2608.20763v1#bib.bib14"
+    },
+    {
+      "text": "Zou et al., 2023",
+      "url": "https://arxiv.org/html/2608.20763v1#bib.bib15"
+    },
+    {
+      "text": "Wang et al., 2022",
+      "url": "https://arxiv.org/html/2608.20763v1#bib.bib18"
+    },
+    {
+      "text": "Conmy et al., 2023",
+      "url": "https://arxiv.org/html/2608.20763v1#bib.bib23"
+    },
+    {
+      "text": "Geva et al., 2023",
+      "url": "https://arxiv.org/html/2608.20763v1#bib.bib24"
+    },
+    {
+      "text": "Hernandez et al., 2024",
+      "url": "https://arxiv.org/html/2608.20763v1#bib.bib25"
+    },
+    {
+      "text": "Yang et al., 2026",
+      "url": "https://arxiv.org/html/2608.20763v1#bib.bib7"
+    },
+    {
+      "text": "Liu et al., 2025",
+      "url": "https://arxiv.org/html/2608.20763v1#bib.bib8"
+    },
+    {
+      "text": "Häon et al., 2025",
+      "url": "https://arxiv.org/html/2608.20763v1#bib.bib9"
+    },
+    {
+      "text": "B.1",
+      "url": "https://arxiv.org/html/2608.20763v1#A2.SS1"
+    },
+    {
+      "text": "B.6",
+      "url": "https://arxiv.org/html/2608.20763v1#A2.SS6"
+    },
+    {
+      "text": "section 3",
+      "url": "https://arxiv.org/html/2608.20763v1#S3"
+    },
+    {
+      "text": "Figure 2",
+      "url": "https://arxiv.org/html/2608.20763v1#S4.F2"
+    },
+    {
+      "text": "A.2",
+      "url": "https://arxiv.org/html/2608.20763v1#A1.SS2"
+    },
+    {
+      "text": "A.6",
+      "url": "https://arxiv.org/html/2608.20763v1#A1.SS6"
+    },
+    {
+      "text": "A",
+      "url": "https://arxiv.org/html/2608.20763v1#A1"
+    },
+    {
+      "text": "A.5",
+      "url": "https://arxiv.org/html/2608.20763v1#A1.SS5"
+    },
+    {
+      "text": "Table 3",
+      "url": "https://arxiv.org/html/2608.20763v1#A1.T3"
+    },
+    {
+      "text": "Bratman, 1987",
+      "url": "https://arxiv.org/html/2608.20763v1#bib.bib1"
+    },
+    {
+      "text": "D.1",
+      "url": "https://arxiv.org/html/2608.20763v1#A4.SS1"
+    },
+    {
+      "text": "Yang et al., 2024a",
+      "url": "https://arxiv.org/html/2608.20763v1#bib.bib37"
+    },
+    {
+      "text": "Gemma Team, Google DeepMind, 2026",
+      "url": "https://arxiv.org/html/2608.20763v1#bib.bib38"
+    },
+    {
+      "text": "Zhang et al., 2024",
+      "url": "https://arxiv.org/html/2608.20763v1#bib.bib39"
+    },
+    {
+      "text": "Chen et al., 2024b",
+      "url": "https://arxiv.org/html/2608.20763v1#bib.bib40"
+    },
+    {
+      "text": "Table 1",
+      "url": "https://arxiv.org/html/2608.20763v1#S5.T1"
+    },
+    {
+      "text": "Table 11",
+      "url": "https://arxiv.org/html/2608.20763v1#A4.T11"
+    },
+    {
+      "text": "Table 6",
+      "url": "https://arxiv.org/html/2608.20763v1#A3.T6"
+    },
+    {
+      "text": "Table 7",
+      "url": "https://arxiv.org/html/2608.20763v1#A3.T7"
+    }
+  ],
+  "matching_link_count": 107,
+  "links_truncated": true,
+  "invalid_links": []
+}

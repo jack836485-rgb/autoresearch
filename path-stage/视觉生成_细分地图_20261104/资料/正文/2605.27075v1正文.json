@@ -1,0 +1,472 @@
+{
+  "url": "https://arxiv.org/html/2605.27075v1",
+  "final_url": "https://arxiv.org/html/2605.27075v1",
+  "status": 200,
+  "title": "SoftCap: Soft-Budget Control for Diffusion Transformer Acceleration",
+  "metadata": {},
+  "paper": {
+    "title": "SoftCap: Soft-Budget Control for Diffusion Transformer Acceleration",
+    "title_warning": null,
+    "abstract": "Abstract Diffusion Transformers (DiTs) achieve strong visual quality, but their iterative denoising process requires many costly Transformer evaluations. Training-free acceleration methods reduce this cost by caching, forecasting, or verifying intermediate features, yet the runtime decision of when to execute a Full step is often driven by fixed schedules or hand-tuned thresholds. We propose SoftCap , a training-free control layer for cache-based DiT inference. SoftCap couples a Trajectory Drift Observer, which estimates local cache risk from lightweight hidden-state statistics, with a Soft-Budget PI Controller, which adjusts the Full-triggering threshold from realized compute relative to a fixed reference profile. The budget is a soft ceiling: it shapes the threshold but does not require a run to spend a prescribed number of Full evaluations. On FLUX.1-dev, SoftCap improves over SpeCa at a comparable middle-compute operating point, raising ImageReward from 0.967 to 0.981 and reducing LPIPS-Full from 0.518 to 0.498 at nearly identical FLOPs, while target-sweep diagnostics show the intended soft-ceiling behavior as the budget is relaxed.",
+    "authors": [
+      {
+        "name": "Yuhang Zhang",
+        "affiliations": [
+          "Affiliation: Hefei University of Technology"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Junxiang Qiu",
+        "affiliations": [
+          "Affiliation: University of Science and Technology of China"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Huixia Ben",
+        "affiliations": [
+          "Affiliation: Anhui University of Science and Technology"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Zhenhua Tang",
+        "affiliations": [
+          "Affiliation: University of Macau. 2023210023@mail.hfut.edu.cn,\nqiujx@mail.ustc.edu.cn,\n{huixiaben, shuowang.edu}@gmail.com,\nhaoyanbin@hfut.edu.cn"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Shuo Wang",
+        "affiliations": [
+          "Affiliation: University of Science and Technology of China"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Yanbin Hao",
+        "affiliations": [
+          "Affiliation: Hefei University of Technology"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Yuhang Zhang Affiliation: Hefei University of Technology Junxiang Qiu Affiliation: University of Science and Technology of China Huixia Ben Affiliation: Anhui University of Science and Technology Zhenhua Tang Affiliation: University of Macau. 2023210023@mail.hfut.edu.cn,\nqiujx@mail.ustc.edu.cn,\n{huixiaben, shuowang.edu}@gmail.com,\nhaoyanbin@hfut.edu.cn Shuo Wang Affiliation: University of Science and Technology of China Yanbin Hao Affiliation: Hefei University of Technology",
+    "arxiv_version": "2605.27075v1",
+    "arxiv_version_date": "2026-05-26",
+    "sections": [
+      {
+        "id": "S1",
+        "heading": "1 Introduction",
+        "level": 1,
+        "text": "Diffusion Transformers (DiTs) have become a central backbone for high-fidelity visual generation, but their inference cost remains high. A single sample requires many denoising evaluations, and each evaluation runs a large Transformer network over high-dimensional latent tokens. This cost is especially visible in recent text-to-image and video systems, where generation latency and serving throughput are constrained not only by the number of sampling steps but also by the per-step cost of attention and feed-forward blocks. Reducing this cost without retraining the base model is therefore a practical requirement for deploying large DiTs. Training-free feature caching has emerged as a practical way to reduce the per-step cost of diffusion inference. Rather than executing all Transformer blocks at every denoising step, cache-based methods reuse or approximate intermediate features. Representative examples include DeepCache-style feature reuse and TaylorSeer-style trajectory forecasting ( Ma et al., 2024 ; Liu et al., 2025c ) ; speculative feature caching further studies when a predicted feature should be accepted ( Liu et al., 2025d ) . Together, these methods show that diffusion trajectories contain substantial temporal redundancy and have advanced the design of cache engines and feature predictors. The remaining question is when a runtime system should trust a cached approximation. Many Full/Cache policies still rely on static schedules, fixed thresholds, or manually selected acceptance rules. Such open-loop policies miss an important asymmetry: the value of a Full evaluation depends on both local approximation risk and the amount of computation already spent along the current sample trajectory. When the run is close to its compute ceiling, a moderate-risk cached approximation may be acceptable; when the run has spent less compute than expected, a high-risk step may justify a Full evaluation. Conversely, if the trajectory remains stable, executing additional Full steps only to meet a nominal target may bring little marginal benefit. DiT acceleration therefore needs a policy layer that regulates Full evaluations under a compute ceiling, in addition to a cache engine that approximates features. We propose SoftCap, a training-free soft-budget control framework for accelerating DiTs. SoftCap treats Full/Cache selection as a feedback-controlled decision rather than a fixed caching schedule. It combines a Trajectory Drift Observer (TDO), which estimates the risk of continuing cached approximation from lightweight drift cues, with a Soft-Budget PI Controller, which adapts the Full-triggering threshold according to realized compute. A final Risk-Gated Full/Cache Decision compares the observer risk with the controller threshold and selects either a Full evaluation or the underlying cache engine. The design deliberately separates local trajectory risk from global compute state: the observer asks whether the current approximation looks risky, while the controller asks how strict the risk gate should be under the current soft budget. A key property of SoftCap is that its budget parameter is a soft computational ceiling , not a required spending target. The controller can make Full evaluations easier or harder to trigger, but it does not force the system to spend computation when the observed trajectory risk remains low. This behavior is useful for deployment: a user-specified compute limit should shape latency without requiring unnecessary model evaluations. We evaluate SoftCap on FLUX.1-dev with a 200-prompt text-to-image benchmark. Under a consistent generated-vs-full evaluation protocol, SoftCap provides a competitive quality-efficiency tradeoff against representative caching, forecasting, and speculative baselines. Target-sweep diagnostics further support the soft-ceiling interpretation: relaxing the budget raises the allowed compute, but the realized number of Full evaluations saturates when the observer does not identify enough high-risk steps. Detailed metrics and matched-compute comparisons are provided in the experimental section. Our contributions are: • We formulate DiT Full/Cache scheduling as a soft-budget feedback control problem and introduce SoftCap, a training-free control layer for feature caching. • We design a Trajectory Drift Observer that estimates caching risk from low-cost magnitude, direction, anchor-deviation, and temporal-volatility cues. • We introduce a Soft-Budget PI Controller that adapts the Full-triggering threshold from realized compute relative to a fixed reference budget profile. • We provide FLUX.1-dev evidence showing that SoftCap yields a competitive quality-efficiency tradeoff and that its budget parameter behaves as a soft computational ceiling rather than a required number of Full evaluations. Figure 1: Overview of SoftCap for cache-based DiT acceleration. A Taylor cache engine proposes inexpensive cached features, the Trajectory Drift Observer estimates trajectory-dependent cache risk s t s_{t} , the Soft-Budget PI Controller produces a dynamic threshold τ t \\tau_{t} from realized Full usage, and the Risk-Gated Decision selects Full or Cache at each denoising step."
+      },
+      {
+        "id": "S2.SS1",
+        "heading": "2.1 Efficient Diffusion and DiT Inference",
+        "level": 2,
+        "text": "Diffusion models generate samples through iterative denoising, which makes inference more expensive than single-pass generative models. DiTs further increase the per-step cost because their denoising networks rely on Transformer blocks with attention and feed-forward computation over many latent tokens ( Peebles and Xie, 2023 ) . Existing acceleration methods reduce either the number of denoising evaluations or the cost of each evaluation. Step-reduction methods include improved numerical solvers, distillation, consistency-style modeling, and consistency transfer for multimodal diffusion systems ( Qiu et al., 2025b ) , but they may require a different sampler or additional training. SoftCap focuses on the complementary setting: the sampling schedule and base model are kept intact, and the per-step network cost is reduced by training-free feature caching."
+      },
+      {
+        "id": "S2.SS2",
+        "heading": "2.2 Feature Caching and Forecasting",
+        "level": 2,
+        "text": "Feature caching exploits temporal redundancy across nearby denoising steps. Early cache-based methods reuse intermediate activations from previous steps to skip parts of the denoising network ( Ma et al., 2024 ; Selvaraju et al., 2024 ; Liu et al., 2025a ) . This strategy is attractive because it can be applied as an inference-time wrapper, but direct reuse becomes less reliable when the cache horizon grows. Forecasting-based methods address this issue by predicting the current feature from historical states. TaylorSeer models feature trajectories with finite differences and Taylor expansion ( Liu et al., 2025c ) ; PrediT uses linear multistep forecasting with a corrector for high-dynamics regions ( Cui et al., 2026 ) ; FoCa interprets hidden-feature evolution through an ODE lens and combines forecasting with calibration ( Zheng et al., 2026 ) . Other work decomposes the feature space itself. FreqCa separates low- and high-frequency feature dynamics ( Liu et al., 2025b ) , while SVD-Cache uses a subspace-aware decomposition to stabilize principal and residual components ( Chen et al., 2026 ) . A related branch explicitly compensates cache-induced approximation error: Error-Optimized Cache introduces prior-knowledge-based correction for reused modules, and Gradient-Optimized Cache propagates cached feature differences to reduce positional drift in skipped computations ( Qiu et al., 2025c ; Qiu et al., 2025a ) . These methods primarily improve the approximation mechanism: how cached features are reused, forecasted, decomposed, or corrected. SoftCap addresses a different layer of the acceleration pipeline. Given a cache engine that can produce an approximate hidden state, SoftCap controls when the approximation should be accepted under the current risk and compute state."
+      },
+      {
+        "id": "S2.SS3",
+        "heading": "2.3 Adaptive Caching and Verification Policies",
+        "level": 2,
+        "text": "Several recent methods improve caching by making the decision more adaptive. ToCa observes that tokens have different sensitivity to cached approximation and applies token-wise feature caching ( Zou et al., 2024 ) . TAP uses a low-cost probe to select token-level predictors ( Zhu et al., 2026 ) . ClusCa clusters spatial tokens and computes representative tokens within each cluster ( Zheng et al., 2025 ) . RFC estimates output-feature changes from input-output relations and uses relational cache scheduling to trigger recomputation when expected changes are large ( Son et al., 2026 ) . Hybrid-grained caching further shows that cache granularity can differ across model components, such as block-level and prompt-level reuse in controllable generation ( Liu et al., 2026 ) . These works show that uniform caching policies are often insufficient because approximation risk varies across tokens, layers, samples, denoising stages, and model components. Speculative verification offers another perspective on the Full/Cache decision. SpeCa, for example, predicts intermediate features with a lightweight draft mechanism and verifies whether the drafted features should be accepted ( Liu et al., 2025d ) . This line of work studies the reliability of a proposed approximation. SoftCap uses a different abstraction: it does not introduce a draft-and-verify pipeline, but places a feedback policy around a cache engine. Its observer summarizes runtime trajectory state through drift cues, and its controller adjusts the Full-triggering threshold according to realized compute. This shifts the policy question from only “is this approximation reliable?” to “how strict should the risk gate be under a soft compute ceiling?”"
+      },
+      {
+        "id": "S2.SS4",
+        "heading": "2.4 Budget-Aware Compute Allocation",
+        "level": 2,
+        "text": "The most relevant distinction of SoftCap is its treatment of compute allocation. Existing caching methods often report results at different acceleration ratios, but the runtime policy is rarely formulated as a closed-loop budget controller. SoftCap maintains a soft budget ceiling, a fixed reference progress profile, and the realized number of Full evaluations. The discrepancy between the reference and realized compute controls the risk threshold, while the Trajectory Drift Observer supplies the local approximation-risk signal. This decoupling makes the role of each component explicit: the observer estimates trajectory-dependent risk, the controller regulates how strict the decision should be under the current compute state, and the final gate converts risk crossings into Full evaluations. SoftCap therefore acts as a control layer for cache-based DiT acceleration rather than a replacement for existing cache engines or feature predictors."
+      },
+      {
+        "id": "S3.SS1.SSS0.Px1",
+        "heading": "Diffusion Transformer inference.",
+        "level": 3,
+        "text": "A diffusion model generates a sample by iteratively denoising a noisy latent. At each denoising step, a neural denoiser predicts an update direction and the sampler advances the latent to the next noise level. In DiTs, the denoiser is implemented as a stack of Transformer blocks over latent tokens. Let 𝐡 t l \\mathbf{h}^{l}_{t} denote the hidden feature at layer or module l l and denoising step t t . A standard DiT inference pass evaluates all relevant blocks at every step, which makes the total cost scale with both the number of denoising steps and the per-step Transformer computation."
+      },
+      {
+        "id": "S3.SS1.SSS0.Px2",
+        "heading": "Feature caching.",
+        "level": 3,
+        "text": "Training-free caching reduces this cost by reusing or approximating hidden features at selected steps. A cache engine stores an anchor feature from a recent Full evaluation and uses it to approximate later features. If the approximation is accepted, expensive downstream block computation can be skipped; if it is rejected, the model performs a Full evaluation and refreshes the cache state. SoftCap operates in this cached-inference setting. It is cache-engine agnostic in principle, and we instantiate it with a Taylor-based cache engine in our experiments."
+      },
+      {
+        "id": "S3.SS2",
+        "heading": "3.2 SoftCap Overview",
+        "level": 2,
+        "text": "SoftCap introduces a feedback-controlled Full/Cache policy for cached DiT inference. Figure 1 summarizes the overall pipeline. At each step, the system chooses a t ∈ { Full , Cache } . a_{t}\\in\\{\\mathrm{Full},\\mathrm{Cache}\\}. (1) A Full action executes the original model computation for the selected modules and refreshes the cache anchor. A Cache action uses the underlying cache engine to approximate the corresponding hidden features and skip expensive block computation. The central design is to separate local trajectory risk from global compute state. The Trajectory Drift Observer estimates a risk score s t s_{t} from lightweight drift cues. The Soft-Budget PI Controller converts the realized compute state into a dynamic threshold τ t \\tau_{t} . The Risk-Gated Full/Cache Decision then applies a t = { Full , s t ≥ τ t , Cache , s t < τ t . a_{t}=\\begin{cases}\\mathrm{Full},&s_{t}\\geq\\tau_{t},\\\\ \\mathrm{Cache},&s_{t}<\\tau_{t}.\\end{cases} (2) Here s t s_{t} measures the risk of continuing along the cached trajectory, while τ t \\tau_{t} controls how much risk is required to justify a Full evaluation under the current soft budget."
+      },
+      {
+        "id": "S3.SS3",
+        "heading": "3.3 Taylor Cache Engine",
+        "level": 2,
+        "text": "We use a Taylor-based cache engine as the underlying approximation mechanism. Let a a denote the most recent Full anchor step. At a Full step, the engine stores the hidden state and finite-difference terms at a selected layer or module, { 𝐡 a l , Δ ( 1 ) ​ 𝐡 a l , … , Δ ( m ) ​ 𝐡 a l } . \\left\\{\\mathbf{h}^{l}_{a},\\Delta^{(1)}\\mathbf{h}^{l}_{a},\\ldots,\\Delta^{(m)}\\mathbf{h}^{l}_{a}\\right\\}. (3) When a later step is assigned to Cache, the engine estimates the hidden feature with a finite-order Taylor approximation, 𝐡 ^ t l = 𝐡 a l + ∑ r = 1 m α r ​ ( t , a ) ​ Δ ( r ) ​ 𝐡 a l , \\widehat{\\mathbf{h}}^{l}_{t}=\\mathbf{h}^{l}_{a}+\\sum_{r=1}^{m}\\alpha_{r}(t,a)\\Delta^{(r)}\\mathbf{h}^{l}_{a}, (4) where α r ​ ( t , a ) \\alpha_{r}(t,a) denotes the coefficient determined by the cache engine from the step distance and finite-difference convention. If the current step is assigned to Full, the true forward computation is executed and the anchor state is refreshed. SoftCap only requires the cache engine to provide an approximate feature and maintain its anchor state; the controller described below is independent of the specific Taylor coefficient parameterization."
+      },
+      {
+        "id": "S3.SS4",
+        "heading": "3.4 Trajectory Drift Observer",
+        "level": 2,
+        "text": "The Trajectory Drift Observer (TDO) estimates whether the current cached trajectory has drifted away from the latest Full anchor. Let 𝐱 t , l in \\mathbf{x}^{\\mathrm{in}}_{t,l} be the input hidden state at the monitored DiT layer l l and step t t , and let 𝐱 a , l in \\mathbf{x}^{\\mathrm{in}}_{a,l} be the corresponding input stored at the latest Full anchor. TDO uses four low-cost drift cues."
+      },
+      {
+        "id": "S3.SS4.SSS0.Px1",
+        "heading": "Magnitude Drift.",
+        "level": 3,
+        "text": "Magnitude Drift measures relative amplitude change from the anchor: f mag ​ ( t ) = ‖ 𝐱 t , l in − 𝐱 a , l in ‖ 1 ‖ 𝐱 t , l in ‖ 1 + ϵ . f_{\\mathrm{mag}}(t)=\\frac{\\left\\|\\mathbf{x}^{\\mathrm{in}}_{t,l}-\\mathbf{x}^{\\mathrm{in}}_{a,l}\\right\\|_{1}}{\\left\\|\\mathbf{x}^{\\mathrm{in}}_{t,l}\\right\\|_{1}+\\epsilon}. (5)"
+      },
+      {
+        "id": "S3.SS4.SSS0.Px2",
+        "heading": "Directional Drift.",
+        "level": 3,
+        "text": "Directional Drift measures angular deviation after vectorizing the layer input: f dir ​ ( t ) = 1 − ⟨ vec ⁡ ( 𝐱 t , l in ) , vec ⁡ ( 𝐱 a , l in ) ⟩ ‖ vec ⁡ ( 𝐱 t , l in ) ‖ 2 ​ ‖ vec ⁡ ( 𝐱 a , l in ) ‖ 2 + ϵ . f_{\\mathrm{dir}}(t)=1-\\frac{\\left\\langle\\mathrm{vec}(\\mathbf{x}^{\\mathrm{in}}_{t,l}),\\mathrm{vec}(\\mathbf{x}^{\\mathrm{in}}_{a,l})\\right\\rangle}{\\left\\|\\mathrm{vec}(\\mathbf{x}^{\\mathrm{in}}_{t,l})\\right\\|_{2}\\left\\|\\mathrm{vec}(\\mathbf{x}^{\\mathrm{in}}_{a,l})\\right\\|_{2}+\\epsilon}. (6)"
+      },
+      {
+        "id": "S3.SS4.SSS0.Px3",
+        "heading": "Anchor Deviation.",
+        "level": 3,
+        "text": "Anchor Deviation tracks the normalized cache distance from the latest Full anchor, f anc ​ ( t ) = min ⁡ ( d ⁡ ( t , a ) D max , 1 ) , f_{\\mathrm{anc}}(t)=\\min\\left(\\frac{d(t,a)}{D_{\\max}},1\\right), (7) where d ⁡ ( t , a ) d(t,a) is the cache distance from the current step to the anchor and D max D_{\\max} is the configured maximum skip distance."
+      },
+      {
+        "id": "S3.SS4.SSS0.Px4",
+        "heading": "Temporal Volatility.",
+        "level": 3,
+        "text": "Temporal Volatility reuses the first-order difference term maintained by the cache engine: f vol ​ ( t ) = 1 n ​ ‖ Δ ( 1 ) ​ 𝐡 a l ‖ 2 2 , f_{\\mathrm{vol}}(t)=\\sqrt{\\frac{1}{n}\\left\\|\\Delta^{(1)}\\mathbf{h}^{l}_{a}\\right\\|_{2}^{2}}, (8) where n n is the number of feature elements. This term captures local feature dynamics around the anchor. The four cues are normalized and clipped, ϕ i ​ ( t ) = clip ⁡ ( f i ​ ( t ) c i , 0 , 1 ) , \\phi_{i}(t)=\\operatorname{clip}\\left(\\frac{f_{i}(t)}{c_{i}},0,1\\right), (9) and then combined into a base risk score, s t base = ∑ i w i ​ ϕ i ​ ( t ) . s^{\\mathrm{base}}_{t}=\\sum_{i}w_{i}\\phi_{i}(t). (10) In our main experiments, the normalization constants for Magnitude Drift, Directional Drift, Anchor Deviation, and Temporal Volatility are fixed to ( 0.5 , 0.08 , 0.5 , 4.0 ) (0.5,0.08,0.5,4.0) , and the weights are fixed to ( 0.45 , 0.25 , 0.15 , 0.15 ) (0.45,0.25,0.15,0.15) . These values are calibrated once and are not tuned per prompt, random seed, or budget setting. TDO also supports a lightweight positive increment option: Δ ​ s t = max ⁡ ( 0 , s t base − s t − 1 base ) , \\Delta s_{t}=\\max(0,s^{\\mathrm{base}}_{t}-s^{\\mathrm{base}}_{t-1}), (11) s t = clip ⁡ ( s t base + γ t ​ Δ ​ s t , 0 , 1 ) . s_{t}=\\operatorname{clip}\\left(s^{\\mathrm{base}}_{t}+\\gamma_{t}\\Delta s_{t},0,1\\right). (12) This term amplifies abrupt increases in risk while leaving risk decreases unchanged. It is an optional observer switch rather than a separate trained component. Setting γ t = 0 \\gamma_{t}=0 disables the increment and reduces TDO to the base weighted score; enabling it provides a lightweight calibration for settings where upward risk changes should be emphasized. Table 1: Quantitative comparison in text-to-image generation on FLUX. SoftCap rows are highlighted. FLOPs are averaged per image in tera-FLOPs, and FLOPs speedup is computed against the Full FLUX 50-step baseline. Full-referenced metrics compare accelerated outputs with Full FLUX outputs generated from the same prompts. Method Efficient Acceleration Semantic Quality Full-Referenced Fidelity FLUX.1-dev Attention FLOPs(T) ↓ \\downarrow FLOPs Speed ↑ \\uparrow ImageReward ↑ \\uparrow CLIPScore ↑ \\uparrow FID ↓ \\downarrow PSNR ↑ \\uparrow SSIM ↑ \\uparrow LPIPS ↓ \\downarrow Full FLUX, 50 steps ✔ 3719.50 1.00 × \\times 0.996 27.765 0.00 ∞ \\infty 1.000 0.000 FLUX, 25 steps ✔ 1859.75 2.00 × \\times 0.975 27.696 86.14 13.957 0.550 0.485 FLUX, 10 steps ✔ 743.90 5.00 × \\times 0.821 27.592 107.67 12.775 0.501 0.568 SpeCa ✔ 967.75 3.84 × \\times 0.986 27.735 86.95 13.705 0.539 0.492 TaylorSeer ✔ 967.07 3.85 × \\times 0.941 27.808 101.16 12.884 0.509 0.541 FORA ( N = 4 N=4 ) ✔ 967.07 3.85 × \\times 0.870 27.613 111.21 11.118 0.449 0.654 SoftCap ✔ 917.39 4.05 × \\times 0.995 27.710 87.74 13.707 0.536 0.493 SpeCa ✔ 725.58 5.13 × \\times 0.967 27.652 90.52 13.311 0.513 0.518 TaylorSeer ( O = 2 O=2 ) ✔ 743.90 5.00 × \\times 0.980 27.709 114.54 10.204 0.390 0.688 FORA ( N = 5 N=5 ) ✔ 743.90 5.00 × \\times 0.809 27.624 114.08 11.252 0.446 0.657 SoftCap ✔ 724.62 5.13 × \\times 0.981 27.815 89.29 13.677 0.530 0.498 SpeCa ✔ 603.44 6.16 × \\times 0.964 28.124 96.82 12.919 0.483 0.550 TaylorSeer ( O = 2 O=2 ) ✔ 595.12 6.25 × \\times 0.876 27.489 120.66 10.019 0.366 0.715 FORA ( N = 7 N=7 ) ✔ 595.12 6.25 × \\times 0.663 27.225 120.53 11.468 0.451 0.671 SoftCap ✔ 614.55 6.05 × \\times 0.987 27.879 89.82 13.598 0.517 0.508"
+      },
+      {
+        "id": "S3.SS5",
+        "heading": "3.5 Soft-Budget PI Controller",
+        "level": 2,
+        "text": "The controller converts a soft compute ceiling into a dynamic threshold. Let N cap N_{\\mathrm{cap}} be the user-specified ceiling on Full evaluations. SoftCap also uses a fixed, non-decreasing reference profile C ⁡ ( t ) ∈ [ 0 , 1 ] C(t)\\in[0,1] over denoising progress. In our experiments, C ⁡ ( t ) C(t) is a lookup table that tabulates the cumulative Full-step fraction of a fixed-threshold reference policy as a function of normalized denoising progress. The table is constructed once before evaluation and then held fixed for all prompts, seeds, and budget ceilings; feedback changes N actual ​ ( t ) N_{\\mathrm{actual}}(t) and τ t \\tau_{t} , not the reference profile itself. At step t t , the controller computes the reference cumulative Full count N ref ​ ( t ) = C ⁡ ( t ) ​ N cap . N_{\\mathrm{ref}}(t)=C(t)N_{\\mathrm{cap}}. (13) Let N actual ​ ( t ) N_{\\mathrm{actual}}(t) be the number of Full evaluations that have actually occurred before the current decision. The budget-tracking error is e t = N actual ​ ( t ) − N ref ​ ( t ) . e_{t}=N_{\\mathrm{actual}}(t)-N_{\\mathrm{ref}}(t). (14) Positive tracking error means that realized compute is ahead of the reference profile. Negative tracking error means that realized compute is below it. SoftCap maintains a clamped integral state, I t = clip ⁡ ( I t − 1 + e t , I min , I max ) , I_{t}=\\operatorname{clip}(I_{t-1}+e_{t},I_{\\min},I_{\\max}), (15) and updates the threshold with a PI rule, τ t = clip ⁡ ( τ 0 + K p ​ e t + K i ​ I t , τ min , τ max ) . \\tau_{t}=\\operatorname{clip}\\left(\\tau_{0}+K_{p}e_{t}+K_{i}I_{t},\\tau_{\\min},\\tau_{\\max}\\right). (16) Since Full is triggered by s t ≥ τ t s_{t}\\geq\\tau_{t} , overspending raises the threshold and makes Full less likely, while underspending lowers the threshold and makes Full easier to trigger. The controller therefore regulates the acceptance threshold rather than directly forcing a fixed number of Full evaluations."
+      },
+      {
+        "id": "S3.SS6",
+        "heading": "3.6 Risk-Gated Decision and State Update",
+        "level": 2,
+        "text": "After computing s t s_{t} and τ t \\tau_{t} , SoftCap applies Eq. 2 . The realized Full counter is then updated as N actual ​ ( t + 1 ) = { N actual ​ ( t ) + 1 , a t = Full , N actual ​ ( t ) , a t = Cache . N_{\\mathrm{actual}}(t+1)=\\begin{cases}N_{\\mathrm{actual}}(t)+1,&a_{t}=\\mathrm{Full},\\\\ N_{\\mathrm{actual}}(t),&a_{t}=\\mathrm{Cache}.\\end{cases} (17) This updated counter is fed back into the next step. In the implementation, standard warmup and cache-distance guard paths are evaluated before the risk gate to initialize and protect the cache state. These structural Full evaluations are counted in N actual ​ ( t ) N_{\\mathrm{actual}}(t) because they consume full model computation. The soft-ceiling interpretation follows from this update structure. N cap N_{\\mathrm{cap}} affects the threshold through N ref ​ ( t ) N_{\\mathrm{ref}}(t) , but it does not force Full evaluations when the observed risk remains below threshold. Thus, SoftCap can naturally realize fewer Full evaluations than the ceiling when the trajectory is stable."
+      },
+      {
+        "id": "S3.SS7",
+        "heading": "3.7 Complexity",
+        "level": 2,
+        "text": "Let C full C_{\\mathrm{full}} be the cost of a Full step and C cache C_{\\mathrm{cache}} the cost of a Cache step, with C cache ≪ C full C_{\\mathrm{cache}}\\ll C_{\\mathrm{full}} . Let C obs C_{\\mathrm{obs}} and C ctrl C_{\\mathrm{ctrl}} denote the small overheads of TDO and the PI controller. If a run uses N full N_{\\mathrm{full}} Full evaluations, its cost is approximately 𝒞 SoftCap = \\displaystyle\\mathcal{C}_{\\mathrm{SoftCap}}={} N full ​ C full + ( T − N full ) ​ C cache \\displaystyle N_{\\mathrm{full}}C_{\\mathrm{full}}+(T-N_{\\mathrm{full}})C_{\\mathrm{cache}} (18) + T ⁡ ( C obs + C ctrl ) . \\displaystyle+T(C_{\\mathrm{obs}}+C_{\\mathrm{ctrl}}). The observer and controller use only tensor statistics and scalar updates, so the dominant factor is the realized number of Full evaluations. SoftCap improves efficiency by reducing Full evaluations and concentrating them at risk-gated points of the trajectory."
+      },
+      {
+        "id": "S4",
+        "heading": "4 Experiments",
+        "level": 1,
+        "text": "Figure 2: Comparison of Samples generated by different methods."
+      },
+      {
+        "id": "S4.SS1",
+        "heading": "4.1 Experimental Setup",
+        "level": 2,
+        "text": "We evaluate SoftCap on FLUX.1-dev text-to-image generation. The main benchmark contains 200 prompts, and all accelerated outputs are compared with images generated by the Full FLUX baseline under the same prompts and 1024 × 1024 1024\\times 1024 resolution. SoftCap is instantiated with the Taylor cache engine described in Section 3. Unless otherwise noted, the main comparison uses the base weighted TDO score, while the optional positive-increment switch is evaluated separately. We compare against representative training-free acceleration baselines, including SpeCa ( Liu et al., 2025d ) , TaylorSeer ( Liu et al., 2025c ) , and FORA ( Selvaraju et al., 2024 ) . The primary efficiency evidence in our comparison is the measured average FLOPs in tera-FLOPs (TF), with speedup computed relative to the Full FLUX baseline. For quality, we report ImageReward and CLIPScore as semantic preference and text-image alignment metrics. We also report internal Full-referenced fidelity metrics, including FID-Full, PSNR-Full, SSIM-Full, and LPIPS-Full. These Full-referenced metrics compare each method’s generated images against the Full FLUX outputs on the same prompts. They are therefore useful for same-protocol relative comparison, but should not be interpreted as dataset-FID or as universal perceptual scores."
+      },
+      {
+        "id": "S4.SS2",
+        "heading": "4.2 Main Results",
+        "level": 2,
+        "text": "Table 1 summarizes the 200-prompt results. SoftCap provides the clearest advantage in the middle compute regime: it uses nearly the same FLOPs as SpeCa, while improving ImageReward from 0.967 to 0.981, CLIPScore from 27.652 to 27.815, and LPIPS-Full from 0.518 to 0.498. In the higher-FLOPs regime, SoftCap reduces FLOPs relative to SpeCa and obtains the best ImageReward among accelerated methods, although SpeCa remains slightly stronger on several Full-referenced fidelity metrics and TaylorSeer gives the highest CLIPScore. In the lower-FLOPs regime, SoftCap spends slightly more FLOPs than the most aggressive TaylorSeer and FORA settings, but those settings show substantial fidelity degradation. Under this quality-efficiency tradeoff, SoftCap preserves markedly stronger ImageReward and Full-referenced fidelity."
+      },
+      {
+        "id": "S4.SS3",
+        "heading": "4.3 Positive-Increment Switch",
+        "level": 2,
+        "text": "Table 2 isolates the optional positive-increment term in the Trajectory Drift Observer. The switch is not a separate method; it only changes how the observer responds to upward changes in the base risk score. At the middle and lower compute settings, enabling the switch improves several Full-referenced fidelity metrics and ImageReward, with small or moderate FLOPs changes. At the higher-FLOPs setting, the base score is preferable on most semantic and efficiency metrics. We therefore report the base TDO score in the main comparison and treat the positive increment as an optional calibration knob for settings where stronger response to abrupt risk increases is desired. Table 2: Effect of the optional positive-increment switch in TDO. “Off” uses the base weighted drift score. “On” adds the positive-increment term, which amplifies upward changes in the observer risk. Setting Increment Acceleration Semantic Quality Full-Referenced Fidelity Switch FLOPs(T) ↓ \\downarrow FLOPs Speed ↑ \\uparrow ImageReward ↑ \\uparrow CLIPScore ↑ \\uparrow FID ↓ \\downarrow PSNR ↑ \\uparrow SSIM ↑ \\uparrow LPIPS ↓ \\downarrow SoftCap Off 917.39 4.05 × \\times 0.995 27.710 87.74 13.707 0.536 0.493 SoftCap On 920.37 4.04 × \\times 0.979 27.686 87.85 13.717 0.536 0.493 SoftCap Off 724.62 5.13 × \\times 0.981 27.815 89.29 13.677 0.530 0.498 SoftCap On 724.62 5.13 × \\times 0.982 27.731 88.64 13.687 0.530 0.497 SoftCap Off 614.55 6.05 × \\times 0.987 27.879 89.82 13.598 0.517 0.508 SoftCap On 627.05 5.93 × \\times 0.989 27.877 89.53 13.611 0.520 0.506"
+      },
+      {
+        "id": "S4.SS4",
+        "heading": "4.4 Soft-Ceiling Diagnostic",
+        "level": 2,
+        "text": "The main table evaluates quality and efficiency, but it does not by itself show whether N cap N_{\\mathrm{cap}} behaves as a soft ceiling. We therefore run a five-prompt target-sweep diagnostic in which the SoftCap budget ceiling is varied while the rest of the policy is kept fixed. This diagnostic is smaller than the main benchmark and should be read as mechanism evidence rather than as a standalone quality benchmark. Table 3: SoftCap target-sweep diagnostic. The realized number of Full evaluations saturates even as the soft ceiling increases, supporting the interpretation of N cap N_{\\mathrm{cap}} as a ceiling rather than a required spending target. N cap N_{\\mathrm{cap}} Actual Full Crossing Full Warmup 8 10 43 10 12 11 47 10 16 11 49 10 20 12 49 10 24 12 50 10 28 12 52 10 32 12 55 10 40 13 57 10 Table 3 shows the result. Increasing N cap N_{\\mathrm{cap}} from 8 to 40 raises the allowed compute envelope by a factor of five, but the realized Full count increases only from 10 to 13. This is the intended behavior. The controller changes the threshold, but Full evaluations still require trajectory-risk crossings. When the observer does not identify enough high-risk steps, the run can remain below the ceiling instead of spending extra computation simply because the ceiling is available. In this diagnostic, the risk crossings are converted into Full evaluations, so the plateau is not caused by a downstream eligibility failure. Additional platform diagnostics support this interpretation. Risk crossings are converted into Full evaluations in the checked runs, and neither forced Full paths nor max-skip guards explain the saturation pattern. The plateau therefore appears to come from limited natural risk crossings, not from a downstream eligibility bottleneck. This distinction matters: SoftCap is designed to regulate the strictness of the risk gate, not to force the realized compute to hit a prescribed target."
+      },
+      {
+        "id": "S4.SS5",
+        "heading": "4.5 Visualization",
+        "level": 2,
+        "text": "As shown in Figure 2 , our method achieves a 6.05× inference speedup, outperforming Fora and Taylorseer’s 5× and approaching Speca’s 6.16×, while excelling in detail restoration and generation quality. It accurately renders the orange cat Otto von Garfield holding a fork to eat lasagna with his Prussian Pickelhaube helmet, correctly generates four dogs on the street, and perfectly reproduces the New York skyline with \"Diffusion\" fireworks and the correctly spelled \"Google Brain Toronto\" sign, eliminating the prevalent spelling errors in baselines. Our method produces clear, coherent images with natural subject-background integration and superior semantic consistency, achieving the optimal balance between inference speed and generation accuracy."
+      },
+      {
+        "id": "S5",
+        "heading": "5 Conclusion",
+        "level": 1,
+        "text": "In this paper, We presented SoftCap, a training-free soft-budget control framework for cache-based DiT acceleration. Instead of treating Full/Cache scheduling as a fixed schedule or a manually selected threshold, SoftCap separates two decisions that are often conflated: whether the current cached trajectory appears risky, and how strict the Full-triggering gate should be under the realized compute state. The Trajectory Drift Observer estimates local cache risk from lightweight drift statistics, while the Soft-Budget PI Controller adjusts the dynamic threshold using a fixed reference budget profile and the realized number of Full evaluations. Experiments on FLUX.1-dev show that SoftCap provides competitive quality-efficiency tradeoffs under the same evaluation protocol, with its clearest matched-compute gain in the middle FLOPs regime. Mechanism diagnostics further support the soft-ceiling interpretation: increasing the budget ceiling changes the decision threshold, but it does not require the run to execute additional Full evaluations when the observer does not find enough high-risk steps. This makes SoftCap a policy layer for regulating cache-based acceleration, rather than a replacement for cache engines themselves. Future work can extend this control view to additional cache mechanisms, denoising horizons, and multimodal generation backbones."
+      },
+      {
+        "id": "Sx1",
+        "heading": "Limitations",
+        "level": 1,
+        "text": "Although SoftCap demonstrates promising performance, there can sometimes be a substantial gap between the actual number of Full steps executed and the predefined target budget. In future work, we will explore adaptive reference accumulation curves to achieve more precise alignment with the computational budget, thereby maximizing generation quality under a given computational quota."
+      },
+      {
+        "id": "bib",
+        "heading": "References",
+        "level": 1,
+        "text": "Chen et al. (2026) G. Chen, S. Zheng, Y. Lin, and L. Zhang Forecast the principal, stabilize the residual: subspace-aware feature caching for efficient diffusion transformers . arXiv preprint arXiv:2601.07396 . Cited by: §2.2 . Cui et al. (2026) H. Cui, Z. Tang, Q. Ma, Z. Yao, and W. Jia Predict to skip: linear multistep feature forecasting for efficient diffusion transformers . arXiv preprint arXiv:2602.18093 . Cited by: §2.2 . Liu et al. (2025a) F. Liu, S. Zhang, X. Wang, Y. Wei, H. Qiu, Y. Zhao, Y. Zhang, Q. Ye, and F. Wan Timestep embedding tells: it’s time to cache for video diffusion model . In Proceedings of the Computer Vision and Pattern Recognition Conference , pp. 7353–7363 . External Links: Document Cited by: §2.2 . Liu et al. (2025b) J. Liu, P. Cai, Q. Zhou, Y. Lin, D. Kong, B. Huang, Y. Pan, H. Xu, C. Zou, J. Tang, et al. Freqca: accelerating diffusion models via frequency-aware caching . arXiv preprint arXiv:2510.08669 . Cited by: §2.2 . Liu et al. (2025c) J. Liu, C. Zou, Y. Lyu, J. Chen, and L. Zhang From reusing to forecasting: accelerating diffusion models with taylorseers . In Proceedings of the IEEE/CVF International Conference on Computer Vision , pp. 15853–15863 . External Links: Document Cited by: §1 , §2.2 , §4.1 . Liu et al. (2025d) J. Liu, C. Zou, Y. Lyu, F. Ren, S. Wang, K. Li, and L. Zhang Speca: accelerating diffusion transformers with speculative feature caching . In Proceedings of the 33rd ACM International Conference on Multimedia , pp. 10024–10033 . External Links: Document Cited by: §1 , §2.3 , §4.1 . Liu et al. (2026) L. Liu, H. Ben, S. Wang, J. Lu, J. Qiu, S. Tang, and Y. Hao Accelerating controllable generation via hybrid-grained cache . In Proceedings of the AAAI Conference on Artificial Intelligence , Vol. 40 , pp. 7215–7223 . External Links: Document Cited by: §2.3 . Ma et al. (2024) X. Ma, G. Fang, and X. Wang Deepcache: accelerating diffusion models for free . In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pp. 15762–15772 . External Links: Document Cited by: §1 , §2.2 . Peebles and Xie (2023) W. Peebles and S. Xie Scalable diffusion models with transformers . In Proceedings of the IEEE/CVF international conference on computer vision , pp. 4195–4205 . External Links: Document Cited by: §2.1 . Qiu et al. (2025a) J. Qiu, L. Liu, S. Wang, J. Lu, K. Chen, and Y. Hao Accelerating diffusion transformer via gradient-optimized cache . In Proceedings of the IEEE/CVF International Conference on Computer Vision , pp. 17608–17617 . External Links: Document Cited by: §2.2 . Qiu et al. (2025b) J. Qiu, J. Lu, and S. Wang Multimodal generation with consistency transferring . In Findings of the Association for Computational Linguistics: NAACL 2025 , pp. 504–513 . External Links: Document Cited by: §2.1 . Qiu et al. (2025c) J. Qiu, S. Wang, J. Lu, L. Liu, H. Jiang, X. Zhu, and Y. Hao Accelerating diffusion transformer via error-optimized cache . In Proceedings of the 33rd ACM International Conference on Multimedia , pp. 9588–9597 . External Links: Document Cited by: §2.2 . Selvaraju et al. (2024) P. Selvaraju, T. Ding, T. Chen, I. Zharkov, and L. Liang Fora: fast-forward caching in diffusion transformer acceleration . arXiv preprint arXiv:2407.01425 . Cited by: §2.2 , §4.1 . Son et al. (2026) B. Son, J. Jeon, J. Choi, and B. Ham Relational feature caching for accelerating diffusion transformers . arXiv preprint arXiv:2602.19506 . Cited by: §2.3 . Zheng et al. (2026) S. Zheng, L. Feng, X. Wang, Q. Zhou, P. Cai, C. Zou, J. Liu, Y. Lin, J. Chen, Y. Ma, et al. Forecast then calibrate: feature caching as ode for efficient diffusion transformers . In Proceedings of the AAAI Conference on Artificial Intelligence , Vol. 40 , pp. 13449–13457 . External Links: Document Cited by: §2.2 . Zheng et al. (2025) Z. Zheng, X. Wang, C. Zou, S. Wang, and L. Zhang Compute only 16 tokens in one timestep: accelerating diffusion transformers with cluster-driven feature caching . In Proceedings of the 33rd ACM International Conference on Multimedia , pp. 10181–10189 . External Links: Document Cited by: §2.3 . Zhu et al. (2026) H. Zhu, T. Huang, X. Wang, T. Zhao, J. Wang, W. Chen, X. Peng, F. Chen, J. Yong, and B. Wang Tap: a token-adaptive predictor framework for training-free diffusion acceleration . arXiv preprint arXiv:2603.03792 . Cited by: §2.3 . Zou et al. (2024) C. Zou, X. Liu, T. Liu, S. Huang, and L. Zhang Accelerating diffusion transformers with token-wise feature caching . arXiv preprint arXiv:2410.05317 . Cited by: §2.3 ."
+      },
+      {
+        "id": "A1",
+        "heading": "Appendix A Additional Ablation Studies",
+        "level": 1,
+        "text": "This appendix provides additional ablations for the three design choices in SoftCap: the soft-budget controller, the Trajectory Drift Observer (TDO), and the monitored layer used to compute drift. All image-quality metrics in this section are computed against the Full FLUX output generated from the same prompt and seed. Therefore, FID-Full, PSNR-Full, SSIM-Full, and LPIPS-Full should be read as internal generated-vs-Full fidelity metrics rather than dataset-level FID."
+      },
+      {
+        "id": "A1.SS0.SSS0.Px1",
+        "heading": "Soft-budget controller.",
+        "level": 3,
+        "text": "Figure 3 compares fixed-threshold decision rules with PI-based threshold control on the 200-prompt FLUX.1-dev ablation run. The fixed threshold variant uses a static risk threshold, while the PI controller adapts the threshold according to the gap between realized and reference Full usage. The PI controller reduces FID-Full from 84.19 to 83.15 and LPIPS-Full from 0.313 to 0.310, with a moderate increase in average FLOPs from 557.44T to 574.09T. Adding the temporal cue further improves FID-Full to 82.98 and LPIPS-Full to 0.309. These results support the controller role of SoftCap: it does not simply spend a fixed number of Full evaluations, but adjusts cache acceptance according to online budget state. Figure 3: Controller ablation on FLUX.1-dev. PI-based policies trade a small amount of computation for improved Full-referenced fidelity relative to fixed-threshold rules. FID-Full and LPIPS-Full are internal generated-vs-Full metrics."
+      },
+      {
+        "id": "A1.SS0.SSS0.Px2",
+        "heading": "TDO cue ablation.",
+        "level": 3,
+        "text": "Figure 4 ablates the four low-cost cues in the Trajectory Drift Observer. Removing magnitude drift causes the largest degradation among leave-one-out variants, increasing FID-Full by 7.78 and LPIPS-Full by 0.021 relative to the full TDO. Using temporal volatility alone is also insufficient: it reaches a higher apparent speedup but substantially degrades ImageReward, FID-Full, and LPIPS-Full. These results indicate that TDO benefits from combining magnitude, directional, anchor-distance, and temporal-volatility signals instead of relying on a single proxy. Figure 4: TDO cue ablation. The complete observer combines complementary drift signals; removing or isolating cues can reduce Full-referenced fidelity, especially when magnitude drift is omitted or temporal volatility is used alone."
+      },
+      {
+        "id": "A1.SS0.SSS0.Px3",
+        "heading": "TDO weight sensitivity.",
+        "level": 3,
+        "text": "Figure 5 evaluates several TDO score weight settings, where the tuple denotes the weights for magnitude, direction, anchor deviation, and temporal volatility. The tested settings remain in a narrow fidelity range: FID-Full varies around 103.7–104.7 and LPIPS-Full around 0.401–0.405 while FLOPs range from 577.07T to 630.02T. The selected weighting ( 0.45 , 0.25 , 0.15 , 0.15 ) (0.45,0.25,0.15,0.15) lies in this stable region and is not an isolated optimum. Figure 5: Sensitivity to TDO score weights. The selected weighting lies in a stable region of the fidelity-compute trade-off rather than relying on a single isolated configuration."
+      },
+      {
+        "id": "A1.SS0.SSS0.Px4",
+        "heading": "Monitored layer.",
+        "level": 3,
+        "text": "Figure 6 studies the DiT layer used by TDO to monitor hidden-state drift. We sweep layers 1, 7, 13, 19, 25, 31, and 37 on 50 prompts. Later layers produce stronger drift separation: layer 37 has the largest early-late L1 gap (0.202) and cosine gap (0.024), and also gives the best Full-referenced fidelity in this sweep, with FID-Full 143.71, PSNR-Full 16.05, SSIM-Full 0.628, and LPIPS-Full 0.315. This supports using an explicitly validated monitored layer rather than treating the layer index as arbitrary. Figure 6: Monitored-layer sweep for the Trajectory Drift Observer. The layer choice affects both Full-referenced fidelity and drift separation; in this sweep, the late monitored layer provides the strongest separation and best LPIPS-Full."
+      },
+      {
+        "id": "A1.SS0.SSS0.Px5",
+        "heading": "Soft ceiling behavior.",
+        "level": 3,
+        "text": "We also include the soft-ceiling diagnostic in Figure 7 . Increasing N c ​ a ​ p N_{cap} from 8 to 40 expands the allowed compute envelope, but the realized number of Full evaluations only grows from about 10 to 13. At the same time, observed risk crossings are converted into Full evaluations. Thus the compute plateau is caused by limited high-risk crossings rather than a downstream eligibility bottleneck. This supports the interpretation of N c ​ a ​ p N_{cap} as a soft computational ceiling instead of a hard Full-evaluation target. Figure 7: Soft-ceiling diagnostic on a five-prompt target sweep. Increasing N c ​ a ​ p N_{cap} enlarges the allowed compute envelope, but realized Full evaluations saturate when the observer does not produce enough high-risk crossings."
+      }
+    ]
+  },
+  "text": "SoftCap: Soft-Budget Control for Diffusion Transformer Acceleration Skip to main content Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: Why HTML? Report Issue Back to Abstract Download PDF Contents Reading mode Colour theme License: arXiv.org perpetual non-exclusive license arXiv:2605.27075v1 [cs.CV] 26 May 2026 SoftCap: Soft-Budget Control for Diffusion Transformer Acceleration Yuhang Zhang Affiliation: Hefei University of Technology Junxiang Qiu Affiliation: University of Science and Technology of China Huixia Ben Affiliation: Anhui University of Science and Technology Zhenhua Tang Affiliation: University of Macau. 2023210023@mail.hfut.edu.cn, qiujx@mail.ustc.edu.cn, {huixiaben, shuowang.edu}@gmail.com, haoyanbin@hfut.edu.cn Shuo Wang Affiliation: University of Science and Technology of China Yanbin Hao Affiliation: Hefei University of Technology Abstract Diffusion Transformers (DiTs) achieve strong visual quality, but their iterative denoising process requires many costly Transformer evaluations. Training-free acceleration methods reduce this cost by caching, forecasting, or verifying intermediate features, yet the runtime decision of when to execute a Full step is often driven by fixed schedules or hand-tuned thresholds. We propose SoftCap , a training-free control layer for cache-based DiT inference. SoftCap couples a Trajectory Drift Observer, which estimates local cache risk from lightweight hidden-state statistics, with a Soft-Budget PI Controller, which adjusts the Full-triggering threshold from realized compute relative to a fixed reference profile. The budget is a soft ceiling: it shapes the threshold but does not require a run to spend a prescribed number of Full evaluations. On FLUX.1-dev, SoftCap improves over SpeCa at a comparable middle-compute operating point, raising ImageReward from 0.967 to 0.981 and reducing LPIPS-Full from 0.518 to 0.498 at nearly identical FLOPs, while target-sweep diagnostics show the intended soft-ceiling behavior as the budget is relaxed. 1 Introduction Diffusion Transformers (DiTs) have become a central backbone for high-fidelity visual generation, but their inference cost remains high. A single sample requires many denoising evaluations, and each evaluation runs a large Transformer network over high-dimensional latent tokens. This cost is especially visible in recent text-to-image and video systems, where generation latency and serving throughput are constrained not only by the number of sampling steps but also by the per-step cost of attention and feed-forward blocks. Reducing this cost without retraining the base model is therefore a practical requirement for deploying large DiTs. Training-free feature caching has emerged as a practical way to reduce the per-step cost of diffusion inference. Rather than executing all Transformer blocks at every denoising step, cache-based methods reuse or approximate intermediate features. Representative examples include DeepCache-style feature reuse and TaylorSeer-style trajectory forecasting ( Ma et al., 2024 ; Liu et al., 2025c ) ; speculative feature caching further studies when a predicted feature should be accepted ( Liu et al., 2025d ) . Together, these methods show that diffusion trajectories contain substantial temporal redundancy and have advanced the design of cache engines and feature predictors. The remaining question is when a runtime system should trust a cached approximation. Many Full/Cache policies still rely on static schedules, fixed thresholds, or manually selected acceptance rules. Such open-loop policies miss an important asymmetry: the value of a Full evaluation depends on both local approximation risk and the amount of computation already spent along the current sample trajectory. When the run is close to its compute ceiling, a moderate-risk cached approximation may be acceptable; when the run has spent less compute than expected, a high-risk step may justify a Full evaluation. Conversely, if the trajectory remains stable, executing additional Full steps only to meet a nominal target may bring little marginal benefit. DiT acceleration therefore needs a policy layer that regulates Full evaluations under a compute ceiling, in addition to a cache engine that approximates features. We propose SoftCap, a training-free soft-budget control framework for accelerating DiTs. SoftCap treats Full/Cache selection as a feedback-controlled decision rather than a fixed caching schedule. It combines a Trajectory Drift Observer (TDO), which estimates the risk of continuing cached approximation from lightweight drift cues, with a Soft-Budget PI Controller, which adapts the Full-triggering threshold according to realized compute. A final Risk-Gated Full/Cache Decision compares the observer risk with the controller threshold and selects either a Full evaluation or the underlying cache engine. The design deliberately separates local trajectory risk from global compute state: the observer asks whether the current approximation looks risky, while the controller asks how strict the risk gate should be under the current soft budget. A key property of SoftCap is that its budget parameter is a soft computational ceiling , not a required spending target. The controller can make Full evaluations easier or harder to trigger, but it does not force the system to spend computation when the observed trajectory risk remains low. This behavior is useful for deployment: a user-specified compute limit should shape latency without requiring unnecessary model evaluations. We evaluate SoftCap on FLUX.1-dev with a 200-prompt text-to-image benchmark. Under a consistent generated-vs-full evaluation protocol, SoftCap provides a competitive quality-efficiency tradeoff against representative caching, forecasting, and speculative baselines. Target-sweep diagnostics further support the soft-ceiling interpretation: relaxing the budget raises the allowed compute, but the realized number of Full evaluations saturates when the observer does not identify enough high-risk steps. Detailed metrics and matched-compute comparisons are provided in the experimental section. Our contributions are: • We formulate DiT Full/Cache scheduling as a soft-budget feedback control problem and introduce SoftCap, a training-free control layer for feature caching. • We design a Trajectory Drift Observer that estimates caching risk from low-cost magnitude, direction, anchor-deviation, and temporal-volatility cues. • We introduce a Soft-Budget PI Controller that adapts the Full-triggering threshold from realized compute relative to a fixed reference budget profile. • We provide FLUX.1-dev evidence showing that SoftCap yields a competitive quality-efficiency tradeoff and that its budget parameter behaves as a soft computational ceiling rather than a required number of Full evaluations. Figure 1: Overview of SoftCap for cache-based DiT acceleration. A Taylor cache engine proposes inexpensive cached features, the Trajectory Drift Observer estimates trajectory-dependent cache risk s t s_{t} , the Soft-Budget PI Controller produces a dynamic threshold τ t \\tau_{t} from realized Full usage, and the Risk-Gated Decision selects Full or Cache at each denoising step. 2 Related Work 2.1 Efficient Diffusion and DiT Inference Diffusion models generate samples through iterative denoising, which makes inference more expensive than single-pass generative models. DiTs further increase the per-step cost because their denoising networks rely on Transformer blocks with attention and feed-forward computation over many latent tokens ( Peebles and Xie, 2023 ) . Existing acceleration methods reduce either the number of denoising evaluations or the cost of each evaluation. Step-reduction methods include improved numerical solvers, distillation, consistency-style modeling, and consistency transfer for multimodal diffusion systems ( Qiu et al., 2025b ) , but they may require a different sampler or additional training. SoftCap focuses on the complementary setting: the sampling schedule and base model are kept intact, and the per-step network cost is reduced by training-free feature caching. 2.2 Feature Caching and Forecasting Feature caching exploits temporal redundancy across nearby denoising steps. Early cache-based methods reuse intermediate activations from previous steps to skip parts of the denoising network ( Ma et al., 2024 ; Selvaraju et al., 2024 ; Liu et al., 2025a ) . This strategy is attractive because it can be applied as an inference-time wrapper, but direct reuse becomes less reliable when the cache horizon grows. Forecasting-based methods address this issue by predicting the current feature from historical states. TaylorSeer models feature trajectories with finite differences and Taylor expansion ( Liu et al., 2025c ) ; PrediT uses linear multistep forecasting with a corrector for high-dynamics regions ( Cui et al., 2026 ) ; FoCa interprets hidden-feature evolution through an ODE lens and combines forecasting with calibration ( Zheng et al., 2026 ) . Other work decomposes the feature space itself. FreqCa separates low- and high-frequency feature dynamics ( Liu et al., 2025b ) , while SVD-Cache uses a subspace-aware decomposition to stabilize principal and residual components ( Chen et al., 2026 ) . A related branch explicitly compensates cache-induced approximation error: Error-Optimized Cache introduces prior-knowledge-based correction for reused modules, and Gradient-Optimized Cache propagates cached feature differences to reduce positional drift in skipped computations ( Qiu et al., 2025c ; Qiu et al., 2025a ) . These methods primarily improve the approximation mechanism: how cached features are reused, forecasted, decomposed, or corrected. SoftCap addresses a different layer of the acceleration pipeline. Given a cache engine that can produce an approximate hidden state, SoftCap controls when the approximation should be accepted under the current risk and compute state. 2.3 Adaptive Caching and Verification Policies Several recent methods improve caching by making the decision more adaptive. ToCa observes that tokens have different sensitivity to cached approximation and applies token-wise feature caching ( Zou et al., 2024 ) . TAP uses a low-cost probe to select token-level predictors ( Zhu et al., 2026 ) . ClusCa clusters spatial tokens and computes representative tokens within each cluster ( Zheng et al., 2025 ) . RFC estimates output-feature changes from input-output relations and uses relational cache scheduling to trigger recomputation when expected changes are large ( Son et al., 2026 ) . Hybrid-grained caching further shows that cache granularity can differ across model components, such as block-level and prompt-level reuse in controllable generation ( Liu et al., 2026 ) . These works show that uniform caching policies are often insufficient because approximation risk varies across tokens, layers, samples, denoising stages, and model components. Speculative verification offers another perspective on the Full/Cache decision. SpeCa, for example, predicts intermediate features with a lightweight draft mechanism and verifies whether the drafted features should be accepted ( Liu et al., 2025d ) . This line of work studies the reliability of a proposed approximation. SoftCap uses a different abstraction: it does not introduce a draft-and-verify pipeline, but places a feedback policy around a cache engine. Its observer summarizes runtime trajectory state through drift cues, and its controller adjusts the Full-triggering threshold according to realized compute. This shifts the policy question from only “is this approximation reliable?” to “how strict should the risk gate be under a soft compute ceiling?” 2.4 Budget-Aware Compute Allocation The most relevant distinction of SoftCap is its treatment of compute allocation. Existing caching methods often report results at different acceleration ratios, but the runtime policy is rarely formulated as a closed-loop budget controller. SoftCap maintains a soft budget ceiling, a fixed reference progress profile, and the realized number of Full evaluations. The discrepancy between the reference and realized compute controls the risk threshold, while the Trajectory Drift Observer supplies the local approximation-risk signal. This decoupling makes the role of each component explicit: the observer estimates trajectory-dependent risk, the controller regulates how strict the decision should be under the current compute state, and the final gate converts risk crossings into Full evaluations. SoftCap therefore acts as a control layer for cache-based DiT acceleration rather than a replacement for existing cache engines or feature predictors. 3 Method 3.1 Preliminaries Diffusion Transformer inference. A diffusion model generates a sample by iteratively denoising a noisy latent. At each denoising step, a neural denoiser predicts an update direction and the sampler advances the latent to the next noise level. In DiTs, the denoiser is implemented as a stack of Transformer blocks over latent tokens. Let 𝐡 t l \\mathbf{h}^{l}_{t} denote the hidden feature at layer or module l l and denoising step t t . A standard DiT inference pass evaluates all relevant blocks at every step, which makes the total cost scale with both the number of denoising steps and the per-step Transformer computation. Feature caching. Training-free caching reduces this cost by reusing or approximating hidden features at selected steps. A cache engine stores an anchor feature from a recent Full evaluation and uses it to approximate later features. If the approximation is accepted, expensive downstream block computation can be skipped; if it is rejected, the model performs a Full evaluation and refreshes the cache state. SoftCap operates in this cached-inference setting. It is cache-engine agnostic in principle, and we instantiate it with a Taylor-based cache engine in our experiments. 3.2 SoftCap Overview SoftCap introduces a feedback-controlled Full/Cache policy for cached DiT inference. Figure 1 summarizes the overall pipeline. At each step, the system chooses a t ∈ { Full , Cache } . a_{t}\\in\\{\\mathrm{Full},\\mathrm{Cache}\\}. (1) A Full action executes the original model computation for the selected modules and refreshes the cache anchor. A Cache action uses the underlying cache engine to approximate the corresponding hidden features and skip expensive block computation. The central design is to separate local trajectory risk from global compute state. The Trajectory Drift Observer estimates a risk score s t s_{t} from lightweight drift cues. The Soft-Budget PI Controller converts the realized compute state into a dynamic threshold τ t \\tau_{t} . The Risk-Gated Full/Cache Decision then applies a t = { Full , s t ≥ τ t , Cache , s t < τ t . a_{t}=\\begin{cases}\\mathrm{Full},&s_{t}\\geq\\tau_{t},\\\\ \\mathrm{Cache},&s_{t}<\\tau_{t}.\\end{cases} (2) Here s t s_{t} measures the risk of continuing along the cached trajectory, while τ t \\tau_{t} controls how much risk is required to justify a Full evaluation under the current soft budget. 3.3 Taylor Cache Engine We use a Taylor-based cache engine as the underlying approximation mechanism. Let a a denote the most recent Full anchor step. At a Full step, the engine stores the hidden state and finite-difference terms at a selected layer or module, { 𝐡 a l , Δ ( 1 ) ​ 𝐡 a l , … , Δ ( m ) ​ 𝐡 a l } . \\left\\{\\mathbf{h}^{l}_{a},\\Delta^{(1)}\\mathbf{h}^{l}_{a},\\ldots,\\Delta^{(m)}\\mathbf{h}^{l}_{a}\\right\\}. (3) When a later step is assigned to Cache, the engine estimates the hidden feature with a finite-order Taylor approximation, 𝐡 ^ t l = 𝐡 a l + ∑ r = 1 m α r ​ ( t , a ) ​ Δ ( r ) ​ 𝐡 a l , \\widehat{\\mathbf{h}}^{l}_{t}=\\mathbf{h}^{l}_{a}+\\sum_{r=1}^{m}\\alpha_{r}(t,a)\\Delta^{(r)}\\mathbf{h}^{l}_{a}, (4) where α r ​ ( t , a ) \\alpha_{r}(t,a) denotes the coefficient determined by the cache engine from the step distance and finite-difference convention. If the current step is assigned to Full, the true forward computation is executed and the anchor state is refreshed. SoftCap only requires the cache engine to provide an approximate feature and maintain its anchor state; the controller described below is independent of the specific Taylor coefficient parameterization. 3.4 Trajectory Drift Observer The Trajectory Drift Observer (TDO) estimates whether the current cached trajectory has drifted away from the latest Full anchor. Let 𝐱 t , l in \\mathbf{x}^{\\mathrm{in}}_{t,l} be the input hidden state at the monitored DiT layer l l and step t t , and let 𝐱 a , l in \\mathbf{x}^{\\mathrm{in}}_{a,l} be the corresponding input stored at the latest Full anchor. TDO uses four low-cost drift cues. Magnitude Drift. Magnitude Drift measures relative amplitude change from the anchor: f mag ​ ( t ) = ‖ 𝐱 t , l in − 𝐱 a , l in ‖ 1 ‖ 𝐱 t , l in ‖ 1 + ϵ . f_{\\mathrm{mag}}(t)=\\frac{\\left\\|\\mathbf{x}^{\\mathrm{in}}_{t,l}-\\mathbf{x}^{\\mathrm{in}}_{a,l}\\right\\|_{1}}{\\left\\|\\mathbf{x}^{\\mathrm{in}}_{t,l}\\right\\|_{1}+\\epsilon}. (5) Directional Drift. Directional Drift measures angular deviation after vectorizing the layer input: f dir ​ ( t ) = 1 − ⟨ vec ⁡ ( 𝐱 t , l in ) , vec ⁡ ( 𝐱 a , l in ) ⟩ ‖ vec ⁡ ( 𝐱 t , l in ) ‖ 2 ​ ‖ vec ⁡ ( 𝐱 a , l in ) ‖ 2 + ϵ . f_{\\mathrm{dir}}(t)=1-\\frac{\\left\\langle\\mathrm{vec}(\\mathbf{x}^{\\mathrm{in}}_{t,l}),\\mathrm{vec}(\\mathbf{x}^{\\mathrm{in}}_{a,l})\\right\\rangle}{\\left\\|\\mathrm{vec}(\\mathbf{x}^{\\mathrm{in}}_{t,l})\\right\\|_{2}\\left\\|\\mathrm{vec}(\\mathbf{x}^{\\mathrm{in}}_{a,l})\\right\\|_{2}+\\epsilon}. (6) Anchor Deviation. Anchor Deviation tracks the normalized cache distance from the latest Full anchor, f anc ​ ( t ) = min ⁡ ( d ⁡ ( t , a ) D max , 1 ) , f_{\\mathrm{anc}}(t)=\\min\\left(\\frac{d(t,a)}{D_{\\max}},1\\right), (7) where d ⁡ ( t , a ) d(t,a) is the cache distance from the current step to the anchor and D max D_{\\max} is the configured maximum skip distance. Temporal Volatility. Temporal Volatility reuses the first-order difference term maintained by the cache engine: f vol ​ ( t ) = 1 n ​ ‖ Δ ( 1 ) ​ 𝐡 a l ‖ 2 2 , f_{\\mathrm{vol}}(t)=\\sqrt{\\frac{1}{n}\\left\\|\\Delta^{(1)}\\mathbf{h}^{l}_{a}\\right\\|_{2}^{2}}, (8) where n n is the number of feature elements. This term captures local feature dynamics around the anchor. The four cues are normalized and clipped, ϕ i ​ ( t ) = clip ⁡ ( f i ​ ( t ) c i , 0 , 1 ) , \\phi_{i}(t)=\\operatorname{clip}\\left(\\frac{f_{i}(t)}{c_{i}},0,1\\right), (9) and then combined into a base risk score, s t base = ∑ i w i ​ ϕ i ​ ( t ) . s^{\\mathrm{base}}_{t}=\\sum_{i}w_{i}\\phi_{i}(t). (10) In our main experiments, the normalization constants for Magnitude Drift, Directional Drift, Anchor Deviation, and Temporal Volatility are fixed to ( 0.5 , 0.08 , 0.5 , 4.0 ) (0.5,0.08,0.5,4.0) , and the weights are fixed to ( 0.45 , 0.25 , 0.15 , 0.15 ) (0.45,0.25,0.15,0.15) . These values are calibrated once and are not tuned per prompt, random seed, or budget setting. TDO also supports a lightweight positive increment option: Δ ​ s t = max ⁡ ( 0 , s t base − s t − 1 base ) , \\Delta s_{t}=\\max(0,s^{\\mathrm{base}}_{t}-s^{\\mathrm{base}}_{t-1}), (11) s t = clip ⁡ ( s t base + γ t ​ Δ ​ s t , 0 , 1 ) . s_{t}=\\operatorname{clip}\\left(s^{\\mathrm{base}}_{t}+\\gamma_{t}\\Delta s_{t},0,1\\right). (12) This term amplifies abrupt increases in risk while leaving risk decreases unchanged. It is an optional observer switch rather than a separate trained component. Setting γ t = 0 \\gamma_{t}=0 disables the increment and reduces TDO to the base weighted score; enabling it provides a lightweight calibration for settings where upward risk changes should be emphasized. Table 1: Quantitative comparison in text-to-image generation on FLUX. SoftCap rows are highlighted. FLOPs are averaged per image in tera-FLOPs, and FLOPs speedup is computed against the Full FLUX 50-step baseline. Full-referenced metrics compare accelerated outputs with Full FLUX outputs generated from the same prompts. Method Efficient Acceleration Semantic Quality Full-Referenced Fidelity FLUX.1-dev Attention FLOPs(T) ↓ \\downarrow FLOPs Speed ↑ \\uparrow ImageReward ↑ \\uparrow CLIPScore ↑ \\uparrow FID ↓ \\downarrow PSNR ↑ \\uparrow SSIM ↑ \\uparrow LPIPS ↓ \\downarrow Full FLUX, 50 steps ✔ 3719.50 1.00 × \\times 0.996 27.765 0.00 ∞ \\infty 1.000 0.000 FLUX, 25 steps ✔ 1859.75 2.00 × \\times 0.975 27.696 86.14 13.957 0.550 0.485 FLUX, 10 steps ✔ 743.90 5.00 × \\times 0.821 27.592 107.67 12.775 0.501 0.568 SpeCa ✔ 967.75 3.84 × \\times 0.986 27.735 86.95 13.705 0.539 0.492 TaylorSeer ✔ 967.07 3.85 × \\times 0.941 27.808 101.16 12.884 0.509 0.541 FORA ( N = 4 N=4 ) ✔ 967.07 3.85 × \\times 0.870 27.613 111.21 11.118 0.449 0.654 SoftCap ✔ 917.39 4.05 × \\times 0.995 27.710 87.74 13.707 0.536 0.493 SpeCa ✔ 725.58 5.13 × \\times 0.967 27.652 90.52 13.311 0.513 0.518 TaylorSeer ( O = 2 O=2 ) ✔ 743.90 5.00 × \\times 0.980 27.709 114.54 10.204 0.390 0.688 FORA ( N = 5 N=5 ) ✔ 743.90 5.00 × \\times 0.809 27.624 114.08 11.252 0.446 0.657 SoftCap ✔ 724.62 5.13 × \\times 0.981 27.815 89.29 13.677 0.530 0.498 SpeCa ✔ 603.44 6.16 × \\times 0.964 28.124 96.82 12.919 0.483 0.550 TaylorSeer ( O = 2 O=2 ) ✔ 595.12 6.25 × \\times 0.876 27.489 120.66 10.019 0.366 0.715 FORA ( N = 7 N=7 ) ✔ 595.12 6.25 × \\times 0.663 27.225 120.53 11.468 0.451 0.671 SoftCap ✔ 614.55 6.05 × \\times 0.987 27.879 89.82 13.598 0.517 0.508 3.5 Soft-Budget PI Controller The controller converts a soft compute ceiling into a dynamic threshold. Let N cap N_{\\mathrm{cap}} be the user-specified ceiling on Full evaluations. SoftCap also uses a fixed, non-decreasing reference profile C ⁡ ( t ) ∈ [ 0 , 1 ] C(t)\\in[0,1] over denoising progress. In our experiments, C ⁡ ( t ) C(t) is a lookup table that tabulates the cumulative Full-step fraction of a fixed-threshold reference policy as a function of normalized denoising progress. The table is constructed once before evaluation and then held fixed for all prompts, seeds, and budget ceilings; feedback changes N actual ​ ( t ) N_{\\mathrm{actual}}(t) and τ t \\tau_{t} , not the reference profile itself. At step t t , the controller computes the reference cumulative Full count N ref ​ ( t ) = C ⁡ ( t ) ​ N cap . N_{\\mathrm{ref}}(t)=C(t)N_{\\mathrm{cap}}. (13) Let N actual ​ ( t ) N_{\\mathrm{actual}}(t) be the number of Full evaluations that have actually occurred before the current decision. The budget-tracking error is e t = N actual ​ ( t ) − N ref ​ ( t ) . e_{t}=N_{\\mathrm{actual}}(t)-N_{\\mathrm{ref}}(t). (14) Positive tracking error means that realized compute is ahead of the reference profile. Negative tracking error means that realized compute is below it. SoftCap maintains a clamped integral state, I t = clip ⁡ ( I t − 1 + e t , I min , I max ) , I_{t}=\\operatorname{clip}(I_{t-1}+e_{t},I_{\\min},I_{\\max}), (15) and updates the threshold with a PI rule, τ t = clip ⁡ ( τ 0 + K p ​ e t + K i ​ I t , τ min , τ max ) . \\tau_{t}=\\operatorname{clip}\\left(\\tau_{0}+K_{p}e_{t}+K_{i}I_{t},\\tau_{\\min},\\tau_{\\max}\\right). (16) Since Full is triggered by s t ≥ τ t s_{t}\\geq\\tau_{t} , overspending raises the threshold and makes Full less likely, while underspending lowers the threshold and makes Full easier to trigger. The controller therefore regulates the acceptance threshold rather than directly forcing a fixed number of Full evaluations. 3.6 Risk-Gated Decision and State Update After computing s t s_{t} and τ t \\tau_{t} , SoftCap applies Eq. 2 . The realized Full counter is then updated as N actual ​ ( t + 1 ) = { N actual ​ ( t ) + 1 , a t = Full , N actual ​ ( t ) , a t = Cache . N_{\\mathrm{actual}}(t+1)=\\begin{cases}N_{\\mathrm{actual}}(t)+1,&a_{t}=\\mathrm{Full},\\\\ N_{\\mathrm{actual}}(t),&a_{t}=\\mathrm{Cache}.\\end{cases} (17) This updated counter is fed back into the next step. In the implementation, standard warmup and cache-distance guard paths are evaluated before the risk gate to initialize and protect the cache state. These structural Full evaluations are counted in N actual ​ ( t ) N_{\\mathrm{actual}}(t) because they consume full model computation. The soft-ceiling interpretation follows from this update structure. N cap N_{\\mathrm{cap}} affects the threshold through N ref ​ ( t ) N_{\\mathrm{ref}}(t) , but it does not force Full evaluations when the observed risk remains below threshold. Thus, SoftCap can naturally realize fewer Full evaluations than the ceiling when the trajectory is stable. 3.7 Complexity Let C full C_{\\mathrm{full}} be the cost of a Full step and C cache C_{\\mathrm{cache}} the cost of a Cache step, with C cache ≪ C full C_{\\mathrm{cache}}\\ll C_{\\mathrm{full}} . Let C obs C_{\\mathrm{obs}} and C ctrl C_{\\mathrm{ctrl}} denote the small overheads of TDO and the PI controller. If a run uses N full N_{\\mathrm{full}} Full evaluations, its cost is approximately 𝒞 SoftCap = \\displaystyle\\mathcal{C}_{\\mathrm{SoftCap}}={} N full ​ C full + ( T − N full ) ​ C cache \\displaystyle N_{\\mathrm{full}}C_{\\mathrm{full}}+(T-N_{\\mathrm{full}})C_{\\mathrm{cache}} (18) + T ⁡ ( C obs + C ctrl ) . \\displaystyle+T(C_{\\mathrm{obs}}+C_{\\mathrm{ctrl}}). The observer and controller use only tensor statistics and scalar updates, so the dominant factor is the realized number of Full evaluations. SoftCap improves efficiency by reducing Full evaluations and concentrating them at risk-gated points of the trajectory. 4 Experiments Figure 2: Comparison of Samples generated by different methods. 4.1 Experimental Setup We evaluate SoftCap on FLUX.1-dev text-to-image generation. The main benchmark contains 200 prompts, and all accelerated outputs are compared with images generated by the Full FLUX baseline under the same prompts and 1024 × 1024 1024\\times 1024 resolution. SoftCap is instantiated with the Taylor cache engine described in Section 3. Unless otherwise noted, the main comparison uses the base weighted TDO score, while the optional positive-increment switch is evaluated separately. We compare against representative training-free acceleration baselines, including SpeCa ( Liu et al., 2025d ) , TaylorSeer ( Liu et al., 2025c ) , and FORA ( Selvaraju et al., 2024 ) . The primary efficiency evidence in our comparison is the measured average FLOPs in tera-FLOPs (TF), with speedup computed relative to the Full FLUX baseline. For quality, we report ImageReward and CLIPScore as semantic preference and text-image alignment metrics. We also report internal Full-referenced fidelity metrics, including FID-Full, PSNR-Full, SSIM-Full, and LPIPS-Full. These Full-referenced metrics compare each method’s generated images against the Full FLUX outputs on the same prompts. They are therefore useful for same-protocol relative comparison, but should not be interpreted as dataset-FID or as universal perceptual scores. 4.2 Main Results Table 1 summarizes the 200-prompt results. SoftCap provides the clearest advantage in the middle compute regime: it uses nearly the same FLOPs as SpeCa, while improving ImageReward from 0.967 to 0.981, CLIPScore from 27.652 to 27.815, and LPIPS-Full from 0.518 to 0.498. In the higher-FLOPs regime, SoftCap reduces FLOPs relative to SpeCa and obtains the best ImageReward among accelerated methods, although SpeCa remains slightly stronger on several Full-referenced fidelity metrics and TaylorSeer gives the highest CLIPScore. In the lower-FLOPs regime, SoftCap spends slightly more FLOPs than the most aggressive TaylorSeer and FORA settings, but those settings show substantial fidelity degradation. Under this quality-efficiency tradeoff, SoftCap preserves markedly stronger ImageReward and Full-referenced fidelity. 4.3 Positive-Increment Switch Table 2 isolates the optional positive-increment term in the Trajectory Drift Observer. The switch is not a separate method; it only changes how the observer responds to upward changes in the base risk score. At the middle and lower compute settings, enabling the switch improves several Full-referenced fidelity metrics and ImageReward, with small or moderate FLOPs changes. At the higher-FLOPs setting, the base score is preferable on most semantic and efficiency metrics. We therefore report the base TDO score in the main comparison and treat the positive increment as an optional calibration knob for settings where stronger response to abrupt risk increases is desired. Table 2: Effect of the optional positive-increment switch in TDO. “Off” uses the base weighted drift score. “On” adds the positive-increment term, which amplifies upward changes in the observer risk. Setting Increment Acceleration Semantic Quality Full-Referenced Fidelity Switch FLOPs(T) ↓ \\downarrow FLOPs Speed ↑ \\uparrow ImageReward ↑ \\uparrow CLIPScore ↑ \\uparrow FID ↓ \\downarrow PSNR ↑ \\uparrow SSIM ↑ \\uparrow LPIPS ↓ \\downarrow SoftCap Off 917.39 4.05 × \\times 0.995 27.710 87.74 13.707 0.536 0.493 SoftCap On 920.37 4.04 × \\times 0.979 27.686 87.85 13.717 0.536 0.493 SoftCap Off 724.62 5.13 × \\times 0.981 27.815 89.29 13.677 0.530 0.498 SoftCap On 724.62 5.13 × \\times 0.982 27.731 88.64 13.687 0.530 0.497 SoftCap Off 614.55 6.05 × \\times 0.987 27.879 89.82 13.598 0.517 0.508 SoftCap On 627.05 5.93 × \\times 0.989 27.877 89.53 13.611 0.520 0.506 4.4 Soft-Ceiling Diagnostic The main table evaluates quality and efficiency, but it does not by itself show whether N cap N_{\\mathrm{cap}} behaves as a soft ceiling. We therefore run a five-prompt target-sweep diagnostic in which the SoftCap budget ceiling is varied while the rest of the policy is kept fixed. This diagnostic is smaller than the main benchmark and should be read as mechanism evidence rather than as a standalone quality benchmark. Table 3: SoftCap target-sweep diagnostic. The realized number of Full evaluations saturates even as the soft ceiling increases, supporting the interpretation of N cap N_{\\mathrm{cap}} as a ceiling rather than a required spending target. N cap N_{\\mathrm{cap}} Actual Full Crossing Full Warmup 8 10 43 10 12 11 47 10 16 11 49 10 20 12 49 10 24 12 50 10 28 12 52 10 32 12 55 10 40 13 57 10 Table 3 shows the result. Increasing N cap N_{\\mathrm{cap}} from 8 to 40 raises the allowed compute envelope by a factor of five, but the realized Full count increases only from 10 to 13. This is the intended behavior. The controller changes the threshold, but Full evaluations still require trajectory-risk crossings. When the observer does not identify enough high-risk steps, the run can remain below the ceiling instead of spending extra computation simply because the ceiling is available. In this diagnostic, the risk crossings are converted into Full evaluations, so the plateau is not caused by a downstream eligibility failure. Additional platform diagnostics support this interpretation. Risk crossings are converted into Full evaluations in the checked runs, and neither forced Full paths nor max-skip guards explain the saturation pattern. The plateau therefore appears to come from limited natural risk crossings, not from a downstream eligibility bottleneck. This distinction matters: SoftCap is designed to regulate the strictness of the risk gate, not to force the realized compute to hit a prescribed target. 4.5 Visualization As shown in Figure 2 , our method achieves a 6.05× inference speedup, outperforming Fora and Taylorseer’s 5× and approaching Speca’s 6.16×, while excelling in detail restoration and generation quality. It accurately renders the orange cat Otto von Garfield holding a fork to eat lasagna with his Prussian Pickelhaube helmet, correctly generates four dogs on the street, and perfectly reproduces the New York skyline with \"Diffusion\" fireworks and the correctly spelled \"Google Brain Toronto\" sign, eliminating the prevalent spelling errors in baselines. Our method produces clear, coherent images with natural subject-background integration and superior semantic consistency, achieving the optimal balance between inference speed and generation accuracy. 5 Conclusion In this paper, We presented SoftCap, a training-free soft-budget control framework for cache-based DiT acceleration. Instead of treating Full/Cache scheduling as a fixed schedule or a manually selected threshold, SoftCap separates two decisions that are often conflated: whether the current cached trajectory appears risky, and how strict the Full-triggering gate should be under the realized compute state. The Trajectory Drift Observer estimates local cache risk from lightweight drift statistics, while the Soft-Budget PI Controller adjusts the dynamic threshold using a fixed reference budget profile and the realized number of Full evaluations. Experiments on FLUX.1-dev show that SoftCap provides competitive quality-efficiency tradeoffs under the same evaluation protocol, with its clearest matched-compute gain in the middle FLOPs regime. Mechanism diagnostics further support the soft-ceiling interpretation: increasing the budget ceiling changes the decision threshold, but it does not require the run to execute additional Full evaluations when the observer does not find enough high-risk steps. This makes SoftCap a policy layer for regulating cache-based acceleration, rather than a replacement for cache engines themselves. Future work can extend this control view to additional cache mechanisms, denoising horizons, and multimodal generation backbones. Limitations Although SoftCap demonstrates promising performance, there can sometimes be a substantial gap between the actual number of Full steps executed and the predefined target budget. In future work, we will explore adaptive reference accumulation curves to achieve more precise alignment with the computational budget, thereby maximizing generation quality under a given computational quota. References Chen et al. (2026) G. Chen, S. Zheng, Y. Lin, and L. Zhang Forecast the principal, stabilize the residual: subspace-aware feature caching for efficient diffusion transformers . arXiv preprint arXiv:2601.07396 . Cited by: §2.2 . Cui et al. (2026) H. Cui, Z. Tang, Q. Ma, Z. Yao, and W. Jia Predict to skip: linear multistep feature forecasting for efficient diffusion transformers . arXiv preprint arXiv:2602.18093 . Cited by: §2.2 . Liu et al. (2025a) F. Liu, S. Zhang, X. Wang, Y. Wei, H. Qiu, Y. Zhao, Y. Zhang, Q. Ye, and F. Wan Timestep embedding tells: it’s time to cache for video diffusion model . In Proceedings of the Computer Vision and Pattern Recognition Conference , pp. 7353–7363 . External Links: Document Cited by: §2.2 . Liu et al. (2025b) J. Liu, P. Cai, Q. Zhou, Y. Lin, D. Kong, B. Huang, Y. Pan, H. Xu, C. Zou, J. Tang, et al. Freqca: accelerating diffusion models via frequency-aware caching . arXiv preprint arXiv:2510.08669 . Cited by: §2.2 . Liu et al. (2025c) J. Liu, C. Zou, Y. Lyu, J. Chen, and L. Zhang From reusing to forecasting: accelerating diffusion models with taylorseers . In Proceedings of the IEEE/CVF International Conference on Computer Vision , pp. 15853–15863 . External Links: Document Cited by: §1 , §2.2 , §4.1 . Liu et al. (2025d) J. Liu, C. Zou, Y. Lyu, F. Ren, S. Wang, K. Li, and L. Zhang Speca: accelerating diffusion transformers with speculative feature caching . In Proceedings of the 33rd ACM International Conference on Multimedia , pp. 10024–10033 . External Links: Document Cited by: §1 , §2.3 , §4.1 . Liu et al. (2026) L. Liu, H. Ben, S. Wang, J. Lu, J. Qiu, S. Tang, and Y. Hao Accelerating controllable generation via hybrid-grained cache . In Proceedings of the AAAI Conference on Artificial Intelligence , Vol. 40 , pp. 7215–7223 . External Links: Document Cited by: §2.3 . Ma et al. (2024) X. Ma, G. Fang, and X. Wang Deepcache: accelerating diffusion models for free . In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pp. 15762–15772 . External Links: Document Cited by: §1 , §2.2 . Peebles and Xie (2023) W. Peebles and S. Xie Scalable diffusion models with transformers . In Proceedings of the IEEE/CVF international conference on computer vision , pp. 4195–4205 . External Links: Document Cited by: §2.1 . Qiu et al. (2025a) J. Qiu, L. Liu, S. Wang, J. Lu, K. Chen, and Y. Hao Accelerating diffusion transformer via gradient-optimized cache . In Proceedings of the IEEE/CVF International Conference on Computer Vision , pp. 17608–17617 . External Links: Document Cited by: §2.2 . Qiu et al. (2025b) J. Qiu, J. Lu, and S. Wang Multimodal generation with consistency transferring . In Findings of the Association for Computational Linguistics: NAACL 2025 , pp. 504–513 . External Links: Document Cited by: §2.1 . Qiu et al. (2025c) J. Qiu, S. Wang, J. Lu, L. Liu, H. Jiang, X. Zhu, and Y. Hao Accelerating diffusion transformer via error-optimized cache . In Proceedings of the 33rd ACM International Conference on Multimedia , pp. 9588–9597 . External Links: Document Cited by: §2.2 . Selvaraju et al. (2024) P. Selvaraju, T. Ding, T. Chen, I. Zharkov, and L. Liang Fora: fast-forward caching in diffusion transformer acceleration . arXiv preprint arXiv:2407.01425 . Cited by: §2.2 , §4.1 . Son et al. (2026) B. Son, J. Jeon, J. Choi, and B. Ham Relational feature caching for accelerating diffusion transformers . arXiv preprint arXiv:2602.19506 . Cited by: §2.3 . Zheng et al. (2026) S. Zheng, L. Feng, X. Wang, Q. Zhou, P. Cai, C. Zou, J. Liu, Y. Lin, J. Chen, Y. Ma, et al. Forecast then calibrate: feature caching as ode for efficient diffusion transformers . In Proceedings of the AAAI Conference on Artificial Intelligence , Vol. 40 , pp. 13449–13457 . External Links: Document Cited by: §2.2 . Zheng et al. (2025) Z. Zheng, X. Wang, C. Zou, S. Wang, and L. Zhang Compute only 16 tokens in one timestep: accelerating diffusion transformers with cluster-driven feature caching . In Proceedings of the 33rd ACM International Conference on Multimedia , pp. 10181–10189 . External Links: Document Cited by: §2.3 . Zhu et al. (2026) H. Zhu, T. Huang, X. Wang, T. Zhao, J. Wang, W. Chen, X. Peng, F. Chen, J. Yong, and B. Wang Tap: a token-adaptive predictor framework for training-free diffusion acceleration . arXiv preprint arXiv:2603.03792 . Cited by: §2.3 . Zou et al. (2024) C. Zou, X. Liu, T. Liu, S. Huang, and L. Zhang Accelerating diffusion transformers with token-wise feature caching . arXiv preprint arXiv:2410.05317 . Cited by: §2.3 . Appendix Appendix A Additional Ablation Studies This appendix provides additional ablations for the three design choices in SoftCap: the soft-budget controller, the Trajectory Drift Observer (TDO), and the monitored layer used to compute drift. All image-quality metrics in this section are computed against the Full FLUX output generated from the same prompt and seed. Therefore, FID-Full, PSNR-Full, SSIM-Full, and LPIPS-Full should be read as internal generated-vs-Full fidelity metrics rather than dataset-level FID. Soft-budget controller. Figure 3 compares fixed-threshold decision rules with PI-based threshold control on the 200-prompt FLUX.1-dev ablation run. The fixed threshold variant uses a static risk threshold, while the PI controller adapts the threshold according to the gap between realized and reference Full usage. The PI controller reduces FID-Full from 84.19 to 83.15 and LPIPS-Full from 0.313 to 0.310, with a moderate increase in average FLOPs from 557.44T to 574.09T. Adding the temporal cue further improves FID-Full to 82.98 and LPIPS-Full to 0.309. These results support the controller role of SoftCap: it does not simply spend a fixed number of Full evaluations, but adjusts cache acceptance according to online budget state. Figure 3: Controller ablation on FLUX.1-dev. PI-based policies trade a small amount of computation for improved Full-referenced fidelity relative to fixed-threshold rules. FID-Full and LPIPS-Full are internal generated-vs-Full metrics. TDO cue ablation. Figure 4 ablates the four low-cost cues in the Trajectory Drift Observer. Removing magnitude drift causes the largest degradation among leave-one-out variants, increasing FID-Full",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Skip to main content",
+      "url": "https://arxiv.org/html/2605.27075v1#infobox"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/IgnoreMe"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "Why HTML?",
+      "url": "https://info.arxiv.org/about/accessible_HTML.html"
+    },
+    {
+      "text": "Back to Abstract",
+      "url": "https://arxiv.org/abs/2605.27075v1"
+    },
+    {
+      "text": "Download PDF",
+      "url": "https://arxiv.org/pdf/2605.27075v1"
+    },
+    {
+      "text": "License: arXiv.org perpetual non-exclusive license",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "Ma et al., 2024",
+      "url": "https://arxiv.org/html/2605.27075v1#bib.bib2"
+    },
+    {
+      "text": "Liu et al., 2025c",
+      "url": "https://arxiv.org/html/2605.27075v1#bib.bib5"
+    },
+    {
+      "text": "Liu et al., 2025d",
+      "url": "https://arxiv.org/html/2605.27075v1#bib.bib14"
+    },
+    {
+      "text": "Peebles and Xie, 2023",
+      "url": "https://arxiv.org/html/2605.27075v1#bib.bib1"
+    },
+    {
+      "text": "Qiu et al., 2025b",
+      "url": "https://arxiv.org/html/2605.27075v1#bib.bib18"
+    },
+    {
+      "text": "Selvaraju et al., 2024",
+      "url": "https://arxiv.org/html/2605.27075v1#bib.bib3"
+    },
+    {
+      "text": "Liu et al., 2025a",
+      "url": "https://arxiv.org/html/2605.27075v1#bib.bib4"
+    },
+    {
+      "text": "Cui et al., 2026",
+      "url": "https://arxiv.org/html/2605.27075v1#bib.bib13"
+    },
+    {
+      "text": "Zheng et al., 2026",
+      "url": "https://arxiv.org/html/2605.27075v1#bib.bib8"
+    },
+    {
+      "text": "Liu et al., 2025b",
+      "url": "https://arxiv.org/html/2605.27075v1#bib.bib9"
+    },
+    {
+      "text": "Chen et al., 2026",
+      "url": "https://arxiv.org/html/2605.27075v1#bib.bib12"
+    },
+    {
+      "text": "Qiu et al., 2025c",
+      "url": "https://arxiv.org/html/2605.27075v1#bib.bib16"
+    },
+    {
+      "text": "Qiu et al., 2025a",
+      "url": "https://arxiv.org/html/2605.27075v1#bib.bib15"
+    },
+    {
+      "text": "Zou et al., 2024",
+      "url": "https://arxiv.org/html/2605.27075v1#bib.bib6"
+    },
+    {
+      "text": "Zhu et al., 2026",
+      "url": "https://arxiv.org/html/2605.27075v1#bib.bib7"
+    },
+    {
+      "text": "Zheng et al., 2025",
+      "url": "https://arxiv.org/html/2605.27075v1#bib.bib11"
+    },
+    {
+      "text": "Son et al., 2026",
+      "url": "https://arxiv.org/html/2605.27075v1#bib.bib10"
+    },
+    {
+      "text": "Liu et al., 2026",
+      "url": "https://arxiv.org/html/2605.27075v1#bib.bib17"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2605.27075v1#S1.F1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2605.27075v1#S3.E2"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2605.27075v1#S3.T1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2605.27075v1#S4.T2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2605.27075v1#S4.T3"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2605.27075v1#S4.F2"
+    },
+    {
+      "text": "§2.2",
+      "url": "https://arxiv.org/html/2605.27075v1#S2.SS2.p1.1"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.1109/CVPR52734.2025.00689"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.1109/ICCV51701.2025.01471"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2605.27075v1#S1.p2.1"
+    },
+    {
+      "text": "§4.1",
+      "url": "https://arxiv.org/html/2605.27075v1#S4.SS1.p2.1"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.1145/3746027.3755331"
+    },
+    {
+      "text": "§2.3",
+      "url": "https://arxiv.org/html/2605.27075v1#S2.SS3.p2.1"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.1609/aaai.v40i9.37658"
+    },
+    {
+      "text": "§2.3",
+      "url": "https://arxiv.org/html/2605.27075v1#S2.SS3.p1.1"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.1109/CVPR52733.2024.01492"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.1109/ICCV51070.2023.00387"
+    },
+    {
+      "text": "§2.1",
+      "url": "https://arxiv.org/html/2605.27075v1#S2.SS1.p1.1"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.1109/ICCV51701.2025.01636"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.18653/v1/2025.findings-naacl.31"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.1145/3746027.3755009"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.1609/aaai.v40i16.38349"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.1145/3746027.3755479"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2605.27075v1#A1.F3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2605.27075v1#A1.F4"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2605.27075v1#A1.F5"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2605.27075v1#A1.F6"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2605.27075v1#A1.F7"
+    }
+  ],
+  "matching_link_count": 53,
+  "links_truncated": false,
+  "invalid_links": []
+}

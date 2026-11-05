@@ -1,0 +1,659 @@
+{
+  "url": "https://arxiv.org/html/2609.22591v1",
+  "final_url": "https://arxiv.org/html/2609.22591v1",
+  "status": 200,
+  "title": "REBOOT: From Failure to Recovery – A Dataset and Benchmark for Precision Assembly",
+  "metadata": {},
+  "paper": {
+    "title": "REBOOT: From Failure to Recovery – A Dataset and Benchmark for Precision Assembly",
+    "title_warning": null,
+    "abstract": "Abstract Robot learning policies fail in characterizable ways: they stall at high-uncertainty states, drift during contact-rich alignment, and miss targets by millimetres on precision tasks. Yet training datasets consist almost exclusively of successful demonstrations, and real-world benchmarks typically collapse performance into binary success. This disconnect leaves policies without supervision for recovery behaviours and leaves researchers without the resolution needed to localize and analyze failure over long horizons.\nWe introduce REBOOT (Recovery Episode Benchmark for Off-nominal Trajectories), the first robot manipulation benchmark designed around failure as a first-class signal. REBOOT comprises 2,160 demonstrations across 18 precision assembly tasks, each decomposed into a shared five-phase sequence — Align(pick) → Engage(pick) → Transport → Align(place) → Engage(place) — enabling per-phase progress evaluation beyond terminal success. Failures are systematically introduced at each phase and paired with expert recovery trajectories that return the system to a valid continuation state. Each task is annotated with structured metadata encoding mechanical sources of difficulty: mating interfaces are labelled by rotational symmetry class (continuous, C2, or C1), geometric precision tier based on engagement clearance, and assembly direction via matched install–remove pairs. Failure episodes are annotated by phase of occurrence and categorical failure mode (e.g., misalignment, jamming, premature release), enabling fine-grained attribution of failure to kinematic phase and tolerance violation. All data are collected with synchronized RGB-D observations from four fixed camera viewpoints. Each phase is further accompanied by grounded natural-language outcome descriptions characterizing both success and failure conditions (e.g., stalling in free space, misaligned grasp, insertion jamming), providing supervision for vision-language recovery policies. Half the dataset consists of expert demonstrations; the other half consists of recovery-from-failure demonstrations sampled to match the empirical failure distribution of imitation-learned policy rollouts. We benchmark action-chunked transformer, diffusion, and π 0 \\pi_{0} -FAST policies using per-phase completion rates, revealing architecture-specific failure points invisible under binary evaluation. Datasets and code are available at https://nanayawoa.github.io/REBOOT .",
+    "authors": [
+      {
+        "name": "Nana Yaw Owusu Ofori-Ampofo",
+        "affiliations": [
+          "Affiliation: University of Calgary"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Samira Ebrahimi Kahou",
+        "affiliations": [
+          "Affiliation: University of Calgary, Mila"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Joseph Thekinen",
+        "affiliations": [
+          "Affiliation: University of Calgary"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Nana Yaw Owusu Ofori-Ampofo Affiliation: University of Calgary Email: nana.oforiampofo@ucalgary.ca Samira Ebrahimi Kahou Affiliation: University of Calgary, Mila Email: samira.ebrahimikahou@ucalgary.ca Joseph Thekinen Affiliation: University of Calgary Email: joseph.thekinen@ucalgary.ca",
+    "arxiv_version": "2609.22591v1",
+    "arxiv_version_date": "2026-09-18",
+    "sections": [
+      {
+        "id": "S1",
+        "heading": "1 Introduction",
+        "level": 1,
+        "text": "Imitation learning on human teleportation data has become the dominant paradigm in robot manipulation, with recent academic and industrial efforts betting on massive data scaling as a path to generalist robot policies [ 1 , 2 , 3 ] . Yet results increasingly suggest this approach is hitting a performance ceiling well below reliable task completion. Even with thousands of demonstrations, state-of-the-art models plateau at 70–80% success on seemingly simple tasks, and performance gains from additional data exhibit diminishing returns. Demonstrations are systematically biased toward clean, successful trajectories. But real deployment demands behaviours for handling compounding errors, stochasticity, and recovery from partial failure, which are behaviours absent from success-only training data. This limitation is especially stark in precision assembly. Consider inserting a USB-A connector (0.62 mm of engagement clearance) requiring a sequence of kinematic phases: grasp, transport, align, and mate. A policy trained only on successes has no exposure to mid-task deviation: arriving at alignment with a lateral offset exceeding the port clearance, it drives forward rather than retracting. The housing catches on the port rim, yaws under contact force, and jams irreversibly. What the policy needed, but was never shown, is a recovery trajectory: retract, re-align, re-approach. As shown in Figure 1 , the same kinematic phase produces qualitatively different outcomes depending on whether the policy has seen failure and recovery there. Figure 1 : Overview of REBOOT. Each precision-assembly task is decomposed into five kinematic phases— Align(pick) , Engage(pick) , Transport , Align(place) , and Engage(place) —shown vertically on the left. The first column illustrates successful task execution with natural language annotations at each phase. The second column shows some failure modes that arise at each phase during autonomous policy rollouts, paired with the expert recovery trajectories that return the system to a valid continuation state. REBOOT treats both columns as first-class supervision signal. As summarized in Table 1 , existing datasets either contain minimal failure data or lack structured recovery annotations. Recent efforts to close this gap through human-in-the-loop correction [ 4 , 5 ] , targeted data augmentation [ 6 ] , and failure-annotated datasets [ 7 ] represent meaningful progress, but share a common limitation: failures are organized by semantic category (wrong object, grasp miss) rather than by the kinematic phase in which they occur or the mechanical tolerance that was violated. This coarse vocabulary treats a sub-millimetre alignment drift and a multi-millimetre one as identical events, and provides no signal about where in a long-horizon task the policy began to diverge—resolution that is essential when tight clearances convert small errors into unrecoverable jamming. Table 1: Robot manipulation datasets reporting explicit failure or recovery episode counts. Counts are taken verbatim from the primary source (paper text and dataset cards). REBOOT is the only real-robot dataset with a 50% failure rate and structured per-phase recovery annotations. Dataset Domain # of demos % Failure Recovery - Yes/No REFLECT [ 8 ] Sim+Real 130 100.0% No RoboFAC [ 7 ] Sim+Real 10,722 88.0% No RaC [ 4 ] Sim+Real N/A † N/A † Yes DROID [ 2 ] Real ≈ \\approx 92,000 ≈ \\approx 17.4% Yes (3.68%) REASSEMBLE [ 9 ] Real 4,551 11.3% No FurnitureBench [ 10 ] Sim+Real 5,100 0% No RH20T [ 11 ] Real ≈ \\approx 110,000 ≈ \\approx 9.1% No RoboMIND [ 12 ] Real 112,000 4.5% No Ours Real 2,160 50% Yes † RaC reports data scale in hours of teleoperation (5h for shirt-hanging) and recovery-to-correction frame ratios (1:1 to 1:2), not as a fixed demonstration count. We introduce REBOOT (Recovery Episode Benchmark for Off-nominal Trajectories), the first precision manipulation benchmark designed around failure as a first-class signal in the precision assembly regime, with a standardized phase decomposition and failure vocabulary that makes cross-task recovery analysis tractable for the first time. REBOOT contributes the following: 1. Open multi-sensor manipulation benchmark with paired failure data. 2,160 real-robot trajectories across 18 precision connector mating tasks [ 13 ] , spanning 0 to 2.73 mm engagement clearance: 1,080 expert demonstrations paired with 1,080 recovery episodes whose per-phase failure distribution is calibrated to match autonomous policy rollouts. Each recovery episode is annotated with the phase of failure induction and a categorical failure mode (misalignment, jamming, premature release, off-axis collision). 2. A shared phase decomposition for assembly and disassembly. A common five-phase sequence— Align(pick) → \\rightarrow Engage(pick) → \\rightarrow Transport → \\rightarrow Align(place) → \\rightarrow Engage(place) —with annotated phase boundaries across all 18 tasks. This unified structure enables cross-task failure analysis and recovery transfer for the first time. 3. Structured mechanical metadata for failure attribution. Each task is annotated with rotational symmetry class, engagement clearance tier, and matched install–remove pairs. 4. Grounded natural-language outcome descriptions. Per-phase natural-language annotations characterizing success and failure conditions provide supervision for vision-language recovery policies. 5. Empirical failure distributions across three policy families. We systematically record at which phase and how precision-assembly policies fail in practice for various policy classes and use that to calibrate success-recovery proportions in the dataset. We train and rollout three policy families Action Chunking with Transformers [ 14 ] , Diffusion Policy [ 15 ] , and π 0 \\pi_{0} -FAST [ 16 ] to calibrate the dataset. We systematically record the phase and failure mode at which policies fail in practice across all 18 tasks, to set the expert-to-recovery ratio in REBOOT rather than assuming a uniform mix. Benchmarking these three policy families using per-phase completion rates reveals architecture-specific failure concentrations in contact-rich engagement phases that are invisible under binary evaluation. REBOOT dataset is publicly released at https://huggingface.co/REBOOT26/datasets ."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px1",
+        "heading": "Benchmarks and evaluation for robotic assembly.",
+        "level": 3,
+        "text": "Robotic manipulation benchmarks span simulation and real-world settings. Simulation benchmarks such as RLBench [ 17 ] and ManiSkill2 [ 18 ] provide broad task suites but face a sim-to-real gap on contact-rich tasks. Real-world benchmarks such as FurnitureBench [ 10 ] and RoboEval [ 19 ] evaluate real-world physical execution but operate at relatively coarse tolerances. The NIST Task Boards [ 13 ] and REASSEMBLE [ 9 ] are the closest precedents, targeting precision assembly tasks such as connector mating. Large-scale datasets such as Open X-Embodiment [ 1 ] , DROID [ 2 ] , and BridgeData V2 [ 3 ] provide substantial coverage but consist almost exclusively of successful demonstrations. As summarized in Table 1 , existing datasets either contain minimal failure data or lack structured recovery annotations. Across both datasets and benchmarks, evaluation is typically reduced to binary success, obscuring differences between early failure and near-successful execution. REBOOT addresses this gap through a phase-decomposed benchmark with paired recovery trajectories, enabling fine-grained analysis of where and how failures occur within the task."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px2",
+        "heading": "Learning from failure.",
+        "level": 3,
+        "text": "Understanding how learned policies fail, not just whether they succeed, has become a field of research in its own right in robotics and reinforcement learning. Empirical work shows that imitation-learned policies exhibit consistent failure patterns. Specific failure patterns reappear across tasks, architectures, and training regimes. For example, imitation-learned policies mirror subtle pauses in their demonstrations and stall at high-uncertainty states that call for decisive action [ 20 ] . Two approaches have emerged in response: datasets that catalogue failures as supervision targets, and methods that synthesize them as a training signal. These approaches, although useful for advancing research in failure recovery, do not address the mechanical precision regime that dominates assembly tasks. Several recent datasets treat failure annotation as a first-class component of manipulation benchmarks. RoboFAC [ 7 ] releases a corpus covering six failure categories across three error levels, paired with a multi-modal critic. RoboMIND [ 12 ] pairs 107k successful trajectories with 5k annotated failures across four embodiments. Neither targets the mechanical precision regime: failures are organized by semantic category (wrong object, grasp miss) rather than by the kinematic phase in which they occur or the tolerance that was violated. VLM-based failure reasoning [ 21 ] inherit the same coarse vocabulary, treating a 0.1 mm 0.1\\text{\\,}\\mathrm{mm} alignment drift and a 2 mm 2\\text{\\,}\\mathrm{mm} one as the same event. A complementary line probes rather than catalogues: RoboFail [ 22 ] searches for environmental perturbations that break pre-trained policies, and STAR-Gen [ 23 ] organizes generalization failures along visual, semantic, and behavioural axes. Both characterize failures under distributional shift , whereas precision assembly is dominated by in-distribution failures — the robot attempts the task it was trained on exactly, but lacks the spatial precision it demands. RaC [ 4 ] , RACER [ 6 ] , Guardian [ 24 ] synthesize recovery or procedural failure variants to improve downstream policies. The shared limitation lies in which failures get represented: synthesis-focused methods over-produce modes that are easy to simulate (slippage and large pose offsets) and underproduce sub-millimetre misalignment and premature phase transitions that dominate real policy roll-outs on precision assembly tasks. Runtime detectors such as FAIL-Detect [ 25 ] sit on the output side, monitoring trained policies; they complement rather than compete with our input-side contribution. These methods all consume failure data; our work is designed to produce it. Each task has recovery demonstrations recorded to represent the failure distribution measured on that task, and these episodes are annotated with the kinematic phase at which failure was induced, yielding a precision-regime resource that synthesis-based and semantically-categorized datasets do not provide."
+      },
+      {
+        "id": "S3.SS1.SSS0.Px1",
+        "heading": "Observation.",
+        "level": 3,
+        "text": "At each time step t t , an observation bundles synchronized sensor readings from the bi-manual platform: o t = ( 𝐈 t rgb , 𝐈 t depth ​ s t ) , o_{t}=\\big(\\mathbf{I}_{t}^{\\mathrm{rgb}},\\ \\mathbf{I}_{t}^{\\mathrm{depth}}\\ s_{t}\\big), (1) where 𝐈 t rgb ∈ ℝ 4 × 480 × 640 × 3 \\mathbf{I}_{t}^{\\mathrm{rgb}}\\in\\mathbb{R}^{4\\times 480\\times 640\\times 3} and 𝐈 t depth ∈ ℝ 4 × 480 × 640 × 1 \\mathbf{I}_{t}^{\\mathrm{depth}}\\in\\mathbb{R}^{4\\times 480\\times 640\\times 1} represent RGB and depth frames from four calibrated cameras (overhead, low-angle, and one per wrist), and s t = ( q t , g t ) ∈ ℝ 14 s_{t}=(q_{t},g_{t})\\in\\mathbb{R}^{14} concatenates per-arm joint positions q t ∈ ℝ 12 q_{t}\\in\\mathbb{R}^{12} (6 joints per arm) with the gripper state g t ∈ ℝ 2 g_{t}\\in\\mathbb{R}^{2} ."
+      },
+      {
+        "id": "S3.SS1.SSS0.Px2",
+        "heading": "Action.",
+        "level": 3,
+        "text": "At each time step t t , the action specifies the target configuration commanded to the low-level controller: a t = ( q t cmd , g t cmd ) ∈ ℝ 14 , a_{t}=\\big(q_{t}^{\\mathrm{cmd}},\\ g_{t}^{\\mathrm{cmd}}\\big)\\in\\mathbb{R}^{14}, (2) where q t cmd ∈ ℝ 12 q_{t}^{\\mathrm{cmd}}\\in\\mathbb{R}^{12} are absolute target joint positions for both arms (6 joints per arm) and g t cmd ∈ ℝ 2 g_{t}^{\\mathrm{cmd}}\\in\\mathbb{R}^{2} are continuous target gripper positions for each end-effector. Actions are recorded at 30 Hz 30\\text{\\,}\\mathrm{Hz} via teleoperation from the leader arms."
+      },
+      {
+        "id": "S3.SS1.SSS0.Px3",
+        "heading": "Trajectory.",
+        "level": 3,
+        "text": "A time-aligned sequence of T T observation–action pairs: 𝒯 = { ( o t , a t ) } t = 1 T . \\mathcal{T}=\\{(o_{t},\\,a_{t})\\}_{t=1}^{T}. (3)"
+      },
+      {
+        "id": "S3.SS1.SSS0.Px4",
+        "heading": "Demonstration.",
+        "level": 3,
+        "text": "A trajectory 𝒯 demo \\mathcal{T}^{\\mathrm{demo}} collected via tele-operation, in which a human operator performs the task from start to completion. Multiple demonstrations are recorded per task to form the training corpus 𝒟 = { 𝒯 i demo } i = 1 N \\mathcal{D}=\\{\\mathcal{T}^{\\mathrm{demo}}_{i}\\}_{i=1}^{N} used to fit imitation learning policies."
+      },
+      {
+        "id": "S3.SS1.SSS0.Px5",
+        "heading": "Policy rollout.",
+        "level": 3,
+        "text": "A trajectory 𝒯 roll \\mathcal{T}^{\\mathrm{roll}} generated autonomously by a trained policy π θ \\pi_{\\theta} executing the task without human intervention, where actions are sampled as a t ∼ π θ ( ⋅ ∣ o t ) a_{t}\\sim\\pi_{\\theta}(\\cdot\\mid o_{t}) ."
+      },
+      {
+        "id": "S3.SS1.SSS0.Px6",
+        "heading": "Phase.",
+        "level": 3,
+        "text": "A contiguous sub-sequence of a trajectory corresponding to a semantically distinct stage of the assembly task. Each trajectory is partitioned into five ordered phases by annotated time-step boundaries 1 = τ 0 < τ 1 < ⋯ < τ 5 = T 1=\\tau_{0}<\\tau_{1}<\\cdots<\\tau_{5}=T , where the k k -th phase spans [ τ k − 1 , τ k ) [\\tau_{k-1},\\tau_{k}) : (1) Align(pick) , positioning both arms to the grasp configuration; (2) Engage(pick) , closing the grippers to secure the object; (3) Transport , moving the grasped object to the target location; (4) Align(place) , orienting the object for placement; and (5) Engage(place) , releasing and seating the object at the goal pose. This five-phase decomposition is shared uniformly across all tasks. Each trajectory is annotated with the time-step boundaries between consecutive phases."
+      },
+      {
+        "id": "S3.SS1.SSS0.Px7",
+        "heading": "Recovery episode.",
+        "level": 3,
+        "text": "A tele-operated demonstration that intentionally induces a common failure state observed during autonomous policy rollouts before recovering to successful task completion. Unlike standard demonstrations, recovery episodes are imperfect by design, exposing the policy to realistic failure modes. Each recovery episode is annotated with the phase index k ∗ ∈ { 1 , … , 5 } k^{*}\\in\\{1,\\dots,5\\} at which the failure was induced, enabling phase-targeted recovery training."
+      },
+      {
+        "id": "S3.SS2",
+        "heading": "3.2 Hardware and recording setup",
+        "level": 2,
+        "text": "Our dataset was collected using a WidowX AI stationary bi-manual tele-operation system. Dataset recording, policy training, and policy rollouts are executed through Trossen AI’s fork of the open-source LeRobot framework [ 26 ] , ensuring compatibility and enabling plug-and-play extension of our dataset to other researchers on LeRobot’s software ecosystem. The WidowX family of robots is widely used in the robot learning community; it has been used in popular robot learning works such as BridgeData V2 [ 3 ] , ALOHA [ 14 ] and Mobile ALOHA [ 27 ] ."
+      },
+      {
+        "id": "S3.SS3",
+        "heading": "3.3 Task design",
+        "level": 2,
+        "text": "Our task suite is built on the well-established NIST Assembly Task Board [ 13 ] , specifically Task Board #1, which represents a cross-section of precision assembly and disassembly tasks. The suite comprises 9 objects spanning a wide range of geometric complexity, engagement tolerances, and rotational symmetries, with each object appearing in both an install and a remove variant, yielding 18 tasks in total. Each task is annotated with the following structured metadata:"
+      },
+      {
+        "id": "S3.SS3.SSS0.Px1",
+        "heading": "Rotational symmetry group.",
+        "level": 3,
+        "text": "The symmetry of the mating interface governs the difficulty of the rotational alignment problem. The symmetry is labelled under three groups: Continuous , where any in-plane orientation is valid (e.g. 16 mm cylinder, RCA connector); C2 , where exactly two orientations satisfy the mating constraint (e.g. USB-C connector, M12 fastener); and C1 , where a unique orientation is required (e.g. NEMA 1-15P power plug, USB-A connector). This label characterizes the angular search space that the policy must resolve at engagement. Figure 2 : Rotational symmetry groups for representative objects in the dataset. Each column shows a goal–object pair; from left to right: 16 mm cylinder ( Continuous ), RCA connector ( Continuous ), M12 fastener ( C2 ), 16 mm bar ( C2 ), USB-C connector ( C2 ), NEMA 1-15P power plug ( C1 ), RJ45 connector ( C1 ), USB-A connector ( C1 ), and Harting HAN10E connector ( C1 )."
+      },
+      {
+        "id": "S3.SS3.SSS0.Px2",
+        "heading": "Phase labels.",
+        "level": 3,
+        "text": "Each task is decomposed into the shared five-phase sequence defined in Section 3.1 : Align(pick) → \\rightarrow Engage(pick) → \\rightarrow Transport → \\rightarrow Align(place) → \\rightarrow Engage(place) . Phase transition timestamps are manually annotated for each trajectory."
+      },
+      {
+        "id": "S3.SS3.SSS0.Px3",
+        "heading": "Geometric precision tier.",
+        "level": 3,
+        "text": "Tasks are stratified into precision tiers according to their engagement tolerance. Tighter tolerances reduce the margin for misalignment, making successful engagement increasingly sensitive to small errors in perception and control, and thus serve as a direct proxy for task difficulty."
+      },
+      {
+        "id": "S3.SS4",
+        "heading": "3.4 Task phase decomposition",
+        "level": 2,
+        "text": "Each task is decomposed into a shared sequence of five phases: Align(pick) → \\rightarrow Engage(pick) → \\rightarrow Transport → \\rightarrow Align(place) → \\rightarrow Engage(place) . This task-agnostic decomposition enables cross-task analysis of where failures concentrate and supports direct comparison of per-phase success rates across tolerance tiers and symmetry groups. Beyond diagnostics, phase structure naturally supports goal-conditioned hierarchical policies that plan at the sub-task level before executing low-level actions. Hierarchical vision-language-action models such as π 0.5 \\pi_{0.5} [ 16 ] , which condition motor actions on predicted language sub-goals such as “pick up the cutting board” ."
+      },
+      {
+        "id": "S3.SS4.SSS0.Px1",
+        "heading": "Failure mode annotation.",
+        "level": 3,
+        "text": "We annotate each failure episode with two attributes: the phase in which the failure occurred and the failure mode within that phase. The phase locates the failure in the trajectory; the mode identifies the mechanical event responsible. We define four failure modes shared across all tasks: • Misalignment: the end-effector pose deviates from the target alignment axis beyond the connector’s clearance tolerance, preventing engagement. • Premature release: the gripper opens before the object is fully seated or transferred. • Jamming: the gripper or held object strikes the mating port off-axis during insertion, with contact forces spiking before alignment is achieved. • Off-axis collision: the arm or held object collides with surrounding fixtures during transport or retraction, displacing the workpiece or triggering a safety stop."
+      },
+      {
+        "id": "S3.SS4.SSS0.Px2",
+        "heading": "Interaction with rotational symmetry.",
+        "level": 3,
+        "text": "The frequency of each failure mode depends on the geometric structure of the connector. Connectors with Continuous symmetry permit any rotation about the insertion axis, making rotational misalignment irrelevant and leaving translational misalignment as the dominant failure mode. Connectors with C2 symmetry introduce a discrete rotational constraint, making both translational and rotational misalignment distinct failure sub-modes. Connectors with C1 symmetry require simultaneous correct yaw (rotation about the insertion axis) and translational alignment along all three axes, and exhibit the highest misalignment failure rates in our data."
+      },
+      {
+        "id": "S3.SS4.SSS0.Px3",
+        "heading": "Interaction with clearance.",
+        "level": 3,
+        "text": "Mechanical clearance sets the difficulty of the Align(place) and Engage(place) phases. Interference-fit connectors such as the RCA connector tolerate no positional error and convert any misalignment directly into jamming. Connectors with small clearances such as USB-C tolerate sub-millimeter error but amplify the gap between policy precision and demonstrated precision. Loose connectors, such as the HAN 10E and NEMA 1-15P power plugs, tolerate larger positional errors, shifting the dominant failure mode from misalignment to off-axis collision and slip. The interaction of clearance with rotational symmetry produces the per-task progress profiles observed in Figure 4 : tight, low-symmetry connectors fail earliest in the trajectory, while loose, high-symmetry connectors progress further before failing."
+      },
+      {
+        "id": "S3.SS5",
+        "heading": "3.5 Data collection protocol",
+        "level": 2,
+        "text": "For each task, we collect 60 expert demonstrations and 60 recovery-from-failure episodes."
+      },
+      {
+        "id": "S3.SS5.SSS0.Px1",
+        "heading": "Expert demonstrations",
+        "level": 3,
+        "text": "The operator tele-operates the robot through the full task from start to completion. To introduce controlled positional diversity, the initial position of the task object is varied within a 3-6 cm radius of a nominal start pose between episodes, while the goal position on the task board is held fixed. The 3-6 cm range was chosen empirically: large enough to prevent policies from memorizing a fixed trajectory, small enough that 60 demonstrations cover it without requiring generalization across the full reachable workspace."
+      },
+      {
+        "id": "S3.SS5.SSS0.Px2",
+        "heading": "Recovery-from-failure demonstrations",
+        "level": 3,
+        "text": "Recovery episodes follow a protocol inspired by RaC [ 4 ] and are grounded in empirically observed failures rather than hypothesized ones. We first log the phase and failure mode of each failure that arises when policies trained on our expert demonstrations are run autonomously. The operator then teleoperates a recovery episode that reproduces the failure at its target phase (e.g. misalignment at Align(place)) and demonstrates the correction. Recording begins at object initialization, so each episode captures the full approach, the failure, and the recovery through to successful completion. Figure 3 : Overview of the expert and recovery data collection pipeline. Policies trained on expert demonstrations are rolled out to identify phase-level failures, which are subsequently re-enacted by the teleoperator to collect successful recovery demonstrations."
+      },
+      {
+        "id": "S4",
+        "heading": "4 Dataset Statistics",
+        "level": 1,
+        "text": "The full dataset comprises 2160 episodes across 18 tasks. Episode durations are standardized to 15, 30 and 60 seconds, depending on task complexity. Simple tasks such as USB cable removal typically complete within 10 seconds, with the remaining time as standby; complex tasks such as nut fastening utilize nearly the full 60-second window. Each episode contains 14-dimensional bi-manual joint position vectors (6 joints and 1 gripper state per arm) recorded at 30 Hz, four synchronized RGB-D video streams, and natural language annotations. The ratio of expert to failure-recovery episodes is 1:1 across all tasks, ensuring balanced coverage of nominal and failure-recovery behaviour. Connector Clearance (mm) RCA interference fit (0) USB-C 0.09 RJ45 0.13 16mm Bar 0.20 16mm Cylinder 0.20 NEMA 1-15P power plug 0.5 USB-A 0.62 M12 fastener 0.7 HAN 10E 2.73 Table 2 : Connector clearance values."
+      },
+      {
+        "id": "S4.SS0.SSS0.Px1",
+        "heading": "Tasks and precision tiers.",
+        "level": 3,
+        "text": "The 18 tasks span 10 connector and fastener types, organized into four precision tiers based on insertion clearance: interference fit (RCA: 0 mm clearance), tight (USB-C, RJ45: 0.09–0.13 mm), moderate (16 mm bar/cylinder,2-prong cable, USB-A: 0.20–0.62 mm), and loose (HAN 10E: 2.73 mm). Each task includes both an assembly variant and its disassembly counterpart, exposing both insertion-direction and extraction-direction failure modes within the same physical setup. We analyze and annotate our data along three dimensions: phase progress, failure modes, and recovery calibration."
+      },
+      {
+        "id": "S4.SS0.SSS0.Px2",
+        "heading": "Phase progress and failure anntation",
+        "level": 3,
+        "text": "We annotate each episode with timestamps marking the five phase boundaries as defined in 3.1 . Each failure episode is annotated with the phase at which the failure occurred and a categorical failure mode within that phase (misalignment, slip, premature release, jamming, or off-axis collision). To characterize the empirical failure distribution, we ran 20 rollouts per task per policy across all three policy families, and for each rollout an annotator manually identified the phase at which the rollout first deviated from the expert trajectory and the corresponding failure mode. Aggregating across tasks and policies yields the per-phase failure frequencies reported in Figure 4 , which we use to calibrate the recovery-episode collection: tasks and phases that fail more frequently in autonomous rollouts receive proportionally more recovery demonstrations. Figure 4 shows the distribution of the last successful phase across the three policy families we evaluate. Failures concentrate in the contact-rich Engage and place phases across all three architectures, with tighter-tolerance connectors exhibiting steeper progress drop-offs in late phases. This concentration motivates the recovery-data emphasis on contact-rich phases."
+      },
+      {
+        "id": "S4.SS0.SSS0.Px3",
+        "heading": "Recovery episodes.",
+        "level": 3,
+        "text": "The recovery half of the dataset is grounded in the policies’ own failure behaviour. We run each policy family autonomously on each task and identify the failure states, phases, and modes that occur in real rollouts. These define the target conditions for recovery collection: the operator reproduces each identified failure at the same phase and teleoperates the correction to task completion. The failure distribution is thus determined by trained policies, while the corrective behaviour is human-demonstrated. USB-A USB-C RJ45 HAN10E M12 NEMA 1-15P RCA 16mm Bar 16mm Cyl 0 0 0.2 0.2 0.4 0.4 Fraction of rollouts Align(pick) Engage (pick) Transport Align (place) Engage (place) Success (a) Assembly tasks (install). USB-A USB-C RJ45 HAN10E M12 NEMA 1-15P RCA 16mm Bar 16mm Cyl 0 0 0.2 0.2 0.4 0.4 0.6 0.6 Fraction of rollouts (b) Disassembly tasks (remove). Figure 4 : Distribution of last-completed phase across precision assembly and disassembly tasks. Each group represents one connector; each bar shows the fraction of policy rollouts whose last successfully completed phase was the indicated phase, with the rightmost bar ( green ) showing the fraction that completed all five phases (full task success). Aggregated across all three policy families ( N = 15 N{=}15 rollouts per task per policy). ."
+      },
+      {
+        "id": "S5",
+        "heading": "5 Analysis",
+        "level": 1,
+        "text": "We analyze failure distributions across all three policy families (ACT, Diffusion Policy, π 0 \\pi_{0} -FAST) on the 18-task suite, recording for each rollout the last successfully completed phase ( N = 15 N{=}15 rollouts per task per policy, 810 total). Aggregating across architectures yields four observations that inform both how recovery data should be calibrated and where phase-aware policy designs are most likely to help."
+      },
+      {
+        "id": "S5.SS0.SSS0.Px1",
+        "heading": "Failures concentrate in the object placement installation phases.",
+        "level": 3,
+        "text": "Across all 9 installation tasks, Align (place) and Engage (place) together account for 54% of all rollout failures, despite covering only two of the five phases. The Transport phase, by contrast, accounts for only 8%. This asymmetry holds across all three policy families and reflects the mechanical structure of the tasks: the pick phases involve grasping a pre-positioned object in free space, whereas the place phases require sub-millimetre alignment to a mating fixture under contact. Recovery data is calibrated to the per-phase failure distribution therefore concentrates on contact-rich placement of assembly tasks."
+      },
+      {
+        "id": "S5.SS0.SSS0.Px2",
+        "heading": "Disassembly is substantially easier than assembly.",
+        "level": 3,
+        "text": "Mean rollout success across the 9 install variants is 16%, compared to 56% across the 9 remove variants (Figure 4 ). The asymmetry is mechanical rather than learning-related: extraction is largely a free-space pull from a known grasp pose, while insertion couples grasping with sub-millimetre alignment to a tolerance fixture. This finding motivates the install/remove pairing in our task design. It lets the dataset isolate the contribution of insertion-direction precision while controlling for object identity and fixture geometry."
+      },
+      {
+        "id": "S5.SS0.SSS0.Px3",
+        "heading": "Geometric symmetry interacts with failure mode.",
+        "level": 3,
+        "text": "Analyzing tasks by rotational symmetry reveals a clear trend in Engage-phase failure rates, where fine motor action mates the object with its receptacle. Objects with continuous symmetry (M12, RCA, 16 mm cylinder) achieve the lowest Engage failure rate at 14% on average, followed by C 1 C_{1} objects (USB-A, RJ45, HAN10E) at 19%, and C 2 C_{2} objects (USB-C, NEMA 1-15P, 16 mm bar) at 22%. This trend reflects the increasing placement difficulty of keyed objects, which must be rotationally aligned to a single valid yaw before insertion. Al(p) En(p) Tr. Al(pl) En(pl) Success 0 0 2 2 4 4 6 6 8 8 10 10 12 12 Last completed phase Count (out of 15) Installation tasks ( n = 9 n=9 ) ACT Diff. Policy π 0 \\pi_{0} -FAST Al(p) En(p) Tr. Al(pl) En(pl) Success 0 0 2 2 4 4 6 6 8 8 10 10 12 12 Last completed phase Removal tasks ( n = 9 n=9 ) Figure 5 : Phase-failure profiles for installation and removal tasks. Boxes show median and interquartile range with whiskers at 1.5 × 1.5\\times IQR; markers show all nine per-task counts. The install/remove asymmetry is visible at the Success endpoint, where removal counts are several times higher."
+      },
+      {
+        "id": "S5.SS0.SSS0.Px4",
+        "heading": "Architecture-specific failure points are invisible under binary evaluation.",
+        "level": 3,
+        "text": "Per-policy breakdowns (Table 5 ) reveal that ACT and Diffusion Policy achieve similar overall failure rates but diverge at the phase level. ACT struggles more in the Align phase on threaded fasteners (M12 install, 6/15 vs. 7/15), while Diffusion Policy stalls more often in the Engage phase on tight connectors (RJ45 install, 5/15 vs. 4/15). π 0 \\pi_{0} -FAST achieves the highest success rate across both assembly and disassembly tasks. Notably, all three policies tend to fail at the same phases across tasks, underscoring the importance of targeted Align and Engage recovery demonstrations in the dataset."
+      },
+      {
+        "id": "S5.SS1.SSS0.Px1",
+        "heading": "Recovery policy design",
+        "level": 3,
+        "text": "Our work aims to drive research in recovery policy design. Our failure recovery datasets enable this and encourage exploration of how recovery data can be used. The released annotations are intended to support several follow-up directions including training only on the corrective segment from t r t_{r} onward, removing the failure segments [ t f , t r ) [t_{f},t_{r}) while retaining the nominal approach, and integration of expert and recovery demonstrations. Determining which approach is most effective, is an important direction for future work."
+      },
+      {
+        "id": "S5.SS1.SSS0.Px2",
+        "heading": "Lab-controlled collection.",
+        "level": 3,
+        "text": "All demonstrations were collected under consistent lighting, fixed camera placements, and a curated object set. This controlled setup reflects the scope of our benchmark, which focuses on precision manipulation and failure recovery rather than robustness to variations in lighting, background, or viewpoint. Our dataset provides limited visual diversity, and transfer to the clutter, occlusion, and workpiece variance of real-world assembly setups remains an open question. Extending data collection to more visually diverse environments and real manufacturing sites is a natural next step for our work."
+      },
+      {
+        "id": "S5.SS1.SSS0.Px3",
+        "heading": "Task coverage.",
+        "level": 3,
+        "text": "Our task suite spans connector fastening and peg insertion across four precision tiers but excludes manipulation of flexible objects such as wire harnessing, PCB placement, and gasket seating. We view REBOOT as an extensible foundation: the phase decomposition and symmetry annotations generalize to any assembly task, and we welcome community contributions under the same schema."
+      },
+      {
+        "id": "S5.SS1.SSS0.Px4",
+        "heading": "Sensing modalities.",
+        "level": 3,
+        "text": "Our work captures RGB, depth, and proprioception. For operations where vision is occluded by the gripper or the workpiece, force/torque and audio often carry the strongest engagement signal, and we do not claim these modalities are redundant for contact-rich assembly. A good direction for future work is include additional modalities as this will broaden the scope of learning approaches that can be applied."
+      },
+      {
+        "id": "S5.SS1.SSS0.Px5",
+        "heading": "Bi-manual manipulation",
+        "level": 3,
+        "text": "Bi-manual demonstrations constitute only 83 of 2,160 demonstrations (3.8%) in our dataset and are concentrated primarily in the recovery_install tasks, where the non-dominant arm is used to reposition or reorient objects during recovery. The dataset therefore provides limited coverage of sustained or coordinated bi-manual manipulation. Although the tasks can in principle be configured for execution with either arm, object initialization was standardized for right-arm execution to match the dominant hand of the teleoperators and to maintain consistency in tasks requiring sub-millimetre precision. This introduces a right-arm bias and limits evaluation of cross-arm generalization and left-arm execution."
+      },
+      {
+        "id": "S5.SS1.SSS0.Px6",
+        "heading": "Platform characteristics.",
+        "level": 3,
+        "text": "Episodes were recorded within a fixed durations for protocol consistency across operators and tasks, so some contain trailing static segments after task completion. We distribute episodes untrimmed so that users may apply their own convention, and release a trimming utility that removes these segments."
+      },
+      {
+        "id": "S6",
+        "heading": "6 Conclusion",
+        "level": 1,
+        "text": "The per-phase failure distribution reveals a structure that binary success obscures. Failures concentrate in placement, asymmetrically between insertion and extraction, and shift across phases as a function of mechanical symmetry. This structure is not a by-product of REBOOT but its organizing principle. For each task, recovery episodes are allocated across phases in proportion to the observed failure distribution during expert-only policy rollouts rather than uniformly, so that supervision is densest where policies actually fail. RaC [ 4 ] and RACER [ 6 ] establish that policies trained solely on successful demonstrations recover poorly when execution deviates from the expert distribution, and address this using human-in-the-loop intervention and data augmentation respectively. REBOOT takes a complementary approach, recording failures and their corrections systematically so that they can be studied offline. Our per-phase analysis shows that failure modes often recur across tasks with similar mechanical structure, suggesting that recovery strategies can be transferred across related tasks. While multi-task and meta-learning have successfully exploited shared structure in expert demonstrations [ 28 , 29 ] , an equivalent representation of failure has been largely unavailable. REBOOT provides this: 2,160 teleoperated demonstrations with annotated phase boundaries, failure and recovery timestamps, failure-mode labels, and a bi-manual interaction flag, as well as the per-phase evaluation protocol used to produce the failure distributions we report. This gives both the data and the measurement framework against which failure-aware methods can be developed and compared."
+      },
+      {
+        "id": "Sx1",
+        "heading": "Acknowledgments and Disclosure of Funding",
+        "level": 1,
+        "text": "We thank the Natural Sciences and Engineering Research Council of Canada (NSERC), CIFAR, and Schulich Momentum for funding and supporting this research. We also thank Digital Research Alliance of Canada and Research Computing Services at the University of Calgary for computational resources."
+      },
+      {
+        "id": "bib",
+        "heading": "References",
+        "level": 1,
+        "text": "[1] Embodiment Collaboration (2025) Open x-embodiment: robotic learning datasets and rt-x models . External Links: 2310.08864 , Link Cited by: §1 , §2 . [2] A. Khazatsky, K. Pertsch, S. Nair, A. Balakrishna, S. Dasari, et al. (2024) DROID: a large-scale in-the-wild robot manipulation dataset . In Robotics: Science and Systems (RSS) , External Links: 2403.12945 Cited by: Table 1 , §1 , §2 . [3] H. Walke, K. Black, A. Lee, M. J. Kim, M. Du, C. Zheng, T. Zhao, P. Hansen-Estruch, Q. Vuong, A. He, V. Myers, K. Fang, C. Finn, and S. Levine (2023) BridgeData v2: a dataset for robot learning at scale . In Conference on Robot Learning (CoRL) , Cited by: §1 , §2 , §3.2 . [4] Z. Hu, R. Wu, N. Enock, J. Li, R. Kadakia, Z. Erickson, and A. Kumar (2025) RaC: robot learning for long-horizon tasks by scaling recovery and correction . External Links: 2509.07953 , Link Cited by: Table 1 , §1 , §2 , §3.5 , §6 . [5] J. Luo, C. Xu, J. Wu, and S. Levine (2025) Precise and dexterous robotic manipulation via human-in-the-loop reinforcement learning . External Links: 2410.21845 , Link Cited by: §1 . [6] Y. Dai, J. Lee, N. Fazeli, and J. Chai (2024) RACER: rich language-guided failure recovery policies for imitation learning . External Links: 2409.14674 , Link Cited by: §1 , §2 , §6 . [7] W. Lu, M. Ye, Z. Ye, R. Tao, S. Yang, and B. Zhao (2025) RoboFAC: a comprehensive framework for robotic failure analysis and correction . arXiv preprint arXiv:2505.12224 . External Links: 2505.12224 , Link Cited by: Table 1 , §1 , §2 . [8] Z. Liu, A. Bahety, and S. Song (2023) REFLECT: summarizing robot experiences for failure explanation and correction . arXiv preprint arXiv:2306.15724 . Cited by: Table 1 . [9] D. Sliwowski, S. Jadav, S. Stanovcic, J. Orbik, J. Heidersberger, and D. Lee (2025) Demonstrating REASSEMBLE: A Multimodal Dataset for Contact-rich Robotic Assembly and Disassembly . In Proceedings of Robotics: Science and Systems , Los Angeles, USA . External Links: Document Cited by: Table 1 , §2 . [10] M. Heo, Y. Lee, D. Lee, and J. J. Lim (2023) FurnitureBench: reproducible real-world benchmark for long-horizon complex manipulation . In Robotics: Science and Systems , Cited by: Table 1 , §2 . [11] H. Fang, H. Fang, Z. Tang, J. Liu, C. Wang, J. Wang, H. Zhu, and C. Lu (2024) RH20T: a comprehensive robotic dataset for learning diverse skills in one-shot . In 2024 IEEE International Conference on Robotics and Automation (ICRA) , pp. 653–660 . Cited by: Table 1 . [12] K. Wu, C. Hou, J. Liu, Z. Che, X. Ju, Z. Yang, M. Li, Y. Zhao, Z. Xu, G. Yang, et al. (2025) Robomind: benchmark on multi-embodiment intelligence normative data for robot manipulation . In Robotics: Science and Systems (RSS) 2025 , External Links: Link Cited by: Table 1 , §2 . [13] K. Kimble, J. Albrecht, M. Zimmerman, and J. Falco (2022) Performance measures to benchmark the grasping, manipulation, and assembly of deformable objects typical to manufacturing applications . Frontiers in Robotics and AI Volume 9 - 2022 . External Links: Link , Document , ISSN 2296-9144 Cited by: Table 3 , item 1 , §2 , §3.3 . [14] T. Z. Zhao, V. Kumar, S. Levine, and C. Finn (2023) Learning fine-grained bimanual manipulation with low-cost hardware . External Links: 2304.13705 , Link Cited by: §1 , §3.2 . [15] C. Chi, Z. Xu, S. Feng, E. Cousineau, Y. Du, B. Burchfiel, R. Tedrake, and S. Song (2024) Diffusion policy: visuomotor policy learning via action diffusion . The International Journal of Robotics Research . Cited by: §1 . [16] P. Intelligence, K. Black, N. Brown, J. Darpinian, K. Dhabalia, D. Driess, A. Esmail, M. Equi, C. Finn, N. Fusai, M. Y. Galliker, D. Ghosh, L. Groom, K. Hausman, B. Ichter, S. Jakubczak, T. Jones, L. Ke, D. LeBlanc, S. Levine, A. Li-Bell, M. Mothukuri, S. Nair, K. Pertsch, A. Z. Ren, L. X. Shi, L. Smith, J. T. Springenberg, K. Stachowicz, J. Tanner, Q. Vuong, H. Walke, A. Walling, H. Wang, L. Yu, and U. Zhilinsky (2025) π 0.5 \\pi_{0.5} : A vision-language-action model with open-world generalization . External Links: 2504.16054 , Link Cited by: §1 , §3.4 . [17] S. James, Z. Ma, D. R. Arrojo, and A. J. Davison (2020) Rlbench: the robot learning benchmark & learning environment . IEEE Robotics and Automation Letters 5 ( 2 ), pp. 3019–3026 . Cited by: §2 . [18] J. Gu, F. Xiang, X. Li, Z. Ling, X. Liu, T. Mu, Y. Tang, S. Tao, X. Wei, Y. Yao, X. Yuan, P. Xie, Z. Huang, R. Chen, and H. Su (2023) ManiSkill2: a unified benchmark for generalizable manipulation skills . In International Conference on Learning Representations , Cited by: §2 . [19] Y. R. Wang, C. Ung, G. Tannert, J. Duan, J. Li, A. Le, R. Oswal, M. Grotz, W. Pumacay, Y. Deng, R. Krishna, D. Fox, and S. Srinivasa (2025) RoboEval: where robotic manipulation meets structured and scalable evaluation . External Links: 2507.00435 , Link Cited by: §2 . [20] A. S. Chen, P. Brakel, A. Bronars, A. Xie, S. Huang, O. Groth, M. Bauza, M. Wulfmeier, N. Heess, and D. Rao (2025) Exploiting policy idling for dexterous manipulation . In 2025 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , Vol. , pp. 11343–11350 . External Links: Document Cited by: §2 . [21] J. Duan, W. Pumacay, N. Kumar, Y. R. Wang, S. Tian, W. Yuan, R. Krishna, D. Fox, A. Mandlekar, and Y. Guo (2025) AHA: a vision-language-model for detecting and reasoning over failures in robotic manipulation . In International Conference on Learning Representations (ICLR) , External Links: 2410.00371 Cited by: §2 . [22] S. Sagar, J. Duan, S. Vasudevan, Y. Zhou, H. Ben Amor, D. Fox, and R. Senanayake (2026) RoboMD: uncovering robot vulnerabilities through semantic potential fields . In International Conference on Learning Representations (ICLR) , Cited by: §2 . [23] J. Gao, S. Belkhale, S. Dasari, A. Balakrishna, D. Shah, and D. Sadigh (2026) A taxonomy for evaluating generalist robot manipulation policies . IEEE Robotics and Automation Letters (RA-L) . Cited by: §2 . [24] P. Pacaud, R. Garcia, S. Chen, and C. Schmid (2026) Guardian: detecting robotic planning and execution errors with vision-language models . External Links: 2512.01946 , Link Cited by: §2 . [25] C. Xu, T. K. Nguyen, E. Dixon, C. Rodriguez, P. Miller, R. Lee, P. Shah, R. Ambrus, H. Nishimura, and M. Itkina (2025) Can we detect failures without failure data? uncertainty-aware runtime failure detection for imitation learning policies . External Links: 2503.08558 , Link Cited by: §2 . [26] R. Cadene, S. Alibert, A. Soare, Q. Gallouedec, A. Zouitine, S. Palma, P. Kooijmans, M. Aractingi, M. Shukor, D. Aubakirova, M. Russi, F. Capuano, C. Pascal, J. Choghari, J. Moss, and T. Wolf (2024) LeRobot: state-of-the-art machine learning for real-world robotics in pytorch . Note: https://github.com/huggingface/lerobot Cited by: §A.1 , §3.2 . [27] Z. Fu, T. Z. Zhao, and C. Finn (2024) Mobile aloha: learning bimanual mobile manipulation with low-cost whole-body teleoperation . In Conference on Robot Learning (CoRL) , Cited by: §3.2 . [28] C. Finn, P. Abbeel, and S. Levine (2017) Model-agnostic meta-learning for fast adaptation of deep networks . In Proceedings of the 34th International Conference on Machine Learning , D. Precup and Y. W. Teh (Eds.) , Proceedings of Machine Learning Research , Vol. 70 , pp. 1126–1135 . External Links: Link Cited by: §6 . [29] Y. Duan, M. Andrychowicz, B. C. Stadie, J. Ho, J. Schneider, I. Sutskever, P. Abbeel, and W. Zaremba (2017) One-shot imitation learning . External Links: 1703.07326 , Link Cited by: §6 ."
+      },
+      {
+        "id": "A1.SS1.SSS0.Px1",
+        "heading": "Hardware:",
+        "level": 3,
+        "text": "This dataset was collected using Trossen Robotics’ WidowX AI bi-manual tele-operation system, at a 30 Hz control frequency by a single human operator. The system consists of two 6-DOF robot follower arms, each paired with a corresponding leader arm fitted with a hand grip in place of a gripper for teleoperation. The arms are mounted on an aluminum frame clamped to a stable table. Each arm has a maximum payload capacity of 1.5 kg. The sensors comprise four Intel RealSense D405 RGB-D cameras: one wrist-mounted camera on each gripper, a fixed overhead camera providing a birds-eye view of the workspace, and a fixed front-facing camera at table height. All cameras record synchronized RGB video and single-channel uncompressed depth feed at 640 × \\times 480 resolution and 30 fps, encoded using ffmpeg. Joint positions for both arms are recorded in radians for the six joints per robot arm and metres for displacement of the parallel gripper. Cartesian end-effector poses are not logged directly but are fully determined by the recorded joint positions, since both arms are rigidly mounted and are not moved between episodes. End-effector pose of each arm at every timestep can be derived from the recorded joint angles with the publicly available URDF for the platform; LeRobot provides forward-kinematics utilities for this conversion. ⬇ from lerobot . model . kinematics import RobotKinematics kinematics = RobotKinematics ( urdf_path = \"./widowx_ai/widowx_ai.urdf\" , target_frame_name = \"ee_gripper_link\" , joint_names =[ \"joint_0\" , \"joint_1\" , \"joint_2\" , \"joint_3\" , \"joint_4\" , \"joint_5\" ], ) # joint positions (rad) -> end-effector pose in the arm base frame ee_pose = kinematics . forward_kinematics ( joint_positions ) Figure 6 : Recovering Cartesian end-effector poses from the recorded joint positions using the published kinematic model. A batch script that applies this to every episode in the release is provided in our codebase."
+      },
+      {
+        "id": "A1.SS1.SSS0.Px2",
+        "heading": "Workspace setup:",
+        "level": 3,
+        "text": "The taskboard is placed in the centre of a wood-finish work surface, directly in front of the robot. Overhead LED panels provide consistent lighting across all data collection sessions. All recordings take place in a single laboratory room with a blacked-out background, which eliminates incidental foot traffic from camera views and preserves participant privacy. We used the recommended worktable from Trossen Robotics for the WidowXAi stationary setup; the ULINE Industrial Packing Table - 48 x 30\", maple top with square edge. A rigid aluminum frame is clamped to the workspace and has mounting points for leader and follower robot arms, overhead and low-mounted cameras and a touch screen for control. The left and right follower arms are bolted to the left and right sections of the frame, with their workspaces separated by 84 cm across the width of the table, and are centered in their depth 37 cm from both near and far edges. This setup with the frame and the table creates a workspace of 84 x 74 cm. The leader robot arms are on the same frame as the follower robot arms on the workspace, extended 28 cm beyond the frame edge nearest to the teleoperator. Assembly instructions, technical drawings and kinematic models for the WidowX AI platform are publicly available from Trossen Robotics’ public folder ."
+      },
+      {
+        "id": "A1.SS1.SSS0.Px3",
+        "heading": "Camera setup:",
+        "level": 3,
+        "text": "We use 4 Intel Realsense D405 RGB-D cameras: one wrist mounted camera on each robot arm just above the parallel grippers, one overhead camera mounted on a frame giving a top-down view of the workspace at a height of 102.5 cm above the workspace, and one low mounted, forward facing camera at the base of the workspace on the frame edge nearest the teleoperator, centred laterally (42 cm from each side) closest to the teleoperator oriented toward the board to capture the insertion targets in profile. Technical drawings and assembly instructions for the frame and camera positioning are publicly available on the Trossen Robotics website."
+      },
+      {
+        "id": "A1.SS1.SSS0.Px4",
+        "heading": "Home configuration:",
+        "level": 3,
+        "text": "At the beginning of every teleoperated demonstration, each robot arm moves from rest to a fixed home configuration: joint 0: 1.00 rad, joint 1:0.5 rad, joint 2: 0.5 rad, joint 3: 0 rad, joint 4: 0 rad, joint 5: 0 rad, parallel gripper: 0 m. These follow the manufacturer’s convention where they use radians for joint positions and meters for the parallel gripper displacement and can be converted to end-effector poses using the WidowXAI published kinematic model."
+      },
+      {
+        "id": "A1.SS1.SSS0.Px5",
+        "heading": "Taskboard and objects:",
+        "level": 3,
+        "text": "Twelve of our 18 tasks use the NIST Assembly Task Board #1, for which fabrication files, assembly instructions, and ordering information are publicly available from NIST(Kimble et al, “Benchmarking Protocols for Evaluating Small Parts Robotic Assembly Systems”), including the option to order a replica or 3D-print the board and objects. The remaining six tasks (RCA connector install/remove, USB-C install/remove, NEMA 1-15P install/remove) are our own extension of the board, built entirely from off-the-shelf components: standard connector cables cut approximately 2 in above the terminal, with the female end held in a tabletop mini-vise and the male end supported upright."
+      },
+      {
+        "id": "A1.SS1.SSS0.Px6",
+        "heading": "Board and object initialization:",
+        "level": 3,
+        "text": "For the twelve NIST task board tasks, the NIST taskboard #1 is mounted at a fixed initial position on the workspace, suspended 2 cm off the surface by screw-on inserts, and offset from the left of the workspace by 28 cm and from the bottom of the workspace by 14 cm across for the twelve tasks that use the For each distinct task, the task board is reoriented in 90 degree steps such that the goal destination of objects are in a reasonable working range of the right robot arm, and also remains in the view of the front facing low mounted camera. Objects are placed in the center of a plastic container(16 cm by 22 cm) and initialized on the right of the taskboard. For the 6 tasks which use the mini-vise clamp, the clamp is positioned on the workspace at a 39 cm offset from the left side of the workspace, and 27 cm off from the bottom of the workspace. Objects are placed at the centre of a plastic container and initialized within the remaining 35 cm × 15 cm area to the left of the clamp, at positions within reach of the right arm."
+      },
+      {
+        "id": "A1.SS1.SSS0.Px7",
+        "heading": "Bill of materials.",
+        "level": 3,
+        "text": "Table 3 lists the off-the-shelf components used to build the six custom tasks that extend the NIST board. All items were obtained from general retail suppliers and are listed with the specific products used, so that the setup can be replicated without fabrication. The mini-vise is secured to the work surface with double-sided mounting tape to keep its position fixed between episodes. Table 3: Bill of materials for the six custom tasks extending the NIST Assembly Task Board #1. Fabrication files and ordering information for the task board itself are available from NIST [ 13 ] . Component Product used Used for Mini-vise Tabletop drill-press vise with rubber soft jaws, 0 mm to 63 mm 0\\text{\\,}\\mathrm{mm}63\\text{\\,}\\mathrm{mm} clamping range Holding the female connector fixed RCA connectors 2 RCA-to-2 RCA gold-plated audio extension cable (male and female ends), 0.9 m 0.9\\text{\\,}\\mathrm{m} RCA install / remove USB-C connectors USB-C 3.2 Gen2 male-to-female extension cable, 20 Gbps 20\\text{\\,}\\mathrm{G}\\mathrm{b}\\mathrm{p}\\mathrm{s} USB-C install / remove NEMA 1-15P (male) Two-prong polarized AC power cord, 18 AWG, 0.5 m 0.5\\text{\\,}\\mathrm{m} NEMA 1-15P install / remove NEMA 1-15P (female) Polarized two-prong extension cord, 16 AWG, 3.0 m 3.0\\text{\\,}\\mathrm{m} NEMA 1-15P install / remove Mounting tape Double-sided indoor mounting tape Fixing the mini-vise to the work surface Object container Rectangular food container, 16 cm 16\\text{\\,}\\mathrm{cm} × \\times 22 cm 22\\text{\\,}\\mathrm{cm} Object initialization region Each connector cable is cut approximately 5 cm above the terminal to get a separate male and female piece. The female end is clamped in the mini-vise; the male end is positioned upright, supported by a small block of foam so that it presents a consistent grasp pose at the start of each episode. Figure 7 : Hardware and teleoperation setup for REBOOT data collection. Two Trossen WidowX AI 6-DOF follower arms (lower) manipulate connectors on a NIST Assembly Task Board #1(centre); two matching leader arms (upper) provide kinesthetic teleoperation. The control workstation (foreground) runs the LeRobot recording interface, displaying live feeds from all four RGB-D cameras alongside task and episode controls."
+      },
+      {
+        "id": "A1.SS1.SSS0.Px8",
+        "heading": "Software setup",
+        "level": 3,
+        "text": "Dataset recording, policy training, and rollout are executed through Trossen AI’s fork of the open-source LeRobot framework(v0.4.3) [ 26 ] , available at https://github.com/TrossenRobotics/lerobot_trossen . This fork was further extended with PR 2604 from the upstream LeRobot repository to enable depth data recording and storage ( https://github.com/huggingface/lerobot/pull/2604 ). An additional script for editing episode length can be found in our codebase.( https://github.com/anon-robo-account/REBOOT )"
+      },
+      {
+        "id": "A1.SS2",
+        "heading": "A.2 Dataset structure and access",
+        "level": 2,
+        "text": "REBOOT is publicly hosted on HuggingFace at https://huggingface.co/REBOOT26/datasets , distributed under the Creative Commons Attribution 4.0 International (CC-BY-4.0) license. Each expert and recovery task is hosted as an independent dataset on the REBOOT. All trajectories are stored in the LeRobot v3 dataset format, organized into three top-level folders, data , meta , and video ,as described below."
+      },
+      {
+        "id": "A1.SS2.SSS0.Px1",
+        "heading": "Data",
+        "level": 3,
+        "text": "Parquet files(.parquet) containing joint positions and gripper states for both arms at 30 Hz, synchronized with video timestamps. Depth streams are stored in the same parquet files as raw single-channel arrays, with four streams per episode aligned with the corresponding RGB frames."
+      },
+      {
+        "id": "A1.SS2.SSS0.Px2",
+        "heading": "Meta",
+        "level": 3,
+        "text": "JSON files containing per-episode and per-task annotations: • Task metadata: task name, install/remove variant, rotational symmetry group ( C 1 C_{1} , C 2 C_{2} , or continuous), precision tier, mating clearance, and natural-language task description. • Phase annotations: timestamp boundaries ( τ 0 , … , τ 5 ) (\\tau_{0},\\dots,\\tau_{5}) for the five phases of each trajectory. For recovery episodes, additional fields record the originating failure phase k ⋆ k^{\\star} and the categorical failure mode m ∈ { m\\in\\{ misalignment, slip, premature release, jamming, off-axis collision } \\} . The annotation schema is illustrated in Figure 8 , which shows a recovery episode for the RCA install task. Each episode carries the five phase boundaries and, for recovery episodes, the originating failure phase and mode that link the episode back to the empirical failure distribution it was sampled from. ⬇ { \"repo_id\" : \"REBOOT26/rca_recovery_install\" , \"task_id\" : \"rca-install\" , \"episode_index\" : \"09\" , \"task_description\" : \"Pick the RCA connector and install it on the hub\" , \"episode_type\" : \"recovery\" , \"duration_frames\" : 8 9 7 , \"fps\" : 3 0 , \"phase_boundaries\" : { \"tau_0\" : 0 , \"tau_1\" : 2 1 0 , \"tau_2\" : 4 5 0 , \"tau_3\" : 5 4 0 , \"tau_4\" : 5 7 0 , \"tau_5\" : 8 9 7 }, \"phase_names\" : [ \"Align(pick)\" , \"Engage(pick)\" , \"Transport\" , \"Align(place)\" , \"Engage(place)\" ], \"failure\" : { \"originating_phase\" : 2 , \"failure_mode\" : \"slip\" , \"t_f\" : 2 1 0 , \"t_r\" : 4 2 0 , \"t_s\" : 6 1 2 , \"language_description\" : \"Failed to grasp RCA connector; operator realigned gripper and completed the task.\" }, \"operator_id\" : \"op-01\" , \"collection_session\" : \"2026-04-15\" } Figure 8 : Example phase and failure annotation for a recovery episode. The originating failure (slip) occurred during Engage(pick) at frame 210 ( t f t_{f} ); the operator initiated recovery at frame 420 ( t r t_{r} ) and returned the task to a recoverable state at frame 612 ( t s t_{s} ), completing it successfully."
+      },
+      {
+        "id": "A1.SS2.SSS0.Px3",
+        "heading": "Video",
+        "level": 3,
+        "text": "Four MP4(.mp4) RGB streams per episode at 640 × \\times 480, 30 fps, stored in separate sub-folders: • observation.images.cam_high — overhead view • observation.images.cam_low — front-facing view • observation.images.cam_left_wrist — left arm wrist view • observation.images.cam_right_wrist — right arm wrist view The dataset can be visualized using the LeRobot rerun-based SDK visualizer or the publicly accessible online tool at https://huggingface.co/spaces/lerobot/visualize_dataset . Episode data follows the LeRobot v3 schema for direct compatibility with downstream training pipelines. Figure 9 : Screenshot of the LeRobot online dataset visualizer showing the M12_fastener_install task. Four synchronized RGB camera streams are displayed: overhead ( cam_high ), front-facing ( cam_low ), left-wrist ( cam_left_wrist ), and right-wrist ( cam_right_wrist ). The language instruction, joint position time series, and episode list are also shown. Figure 10 : Screenshot of the Rerun SDK visualizer showing a recorded REBOOT episode. The interface displays synchronized RGB and depth streams from all four cameras ( cam_high , cam_low , cam_left_wrist , cam_right_wrist ), with depth rendered as false-colour maps alongside their corresponding RGB views. Action and state time series are shown in the left and right panels respectively, with joint indices colour-coded across the timeline."
+      },
+      {
+        "id": "A1.SS3",
+        "heading": "A.3 Annotation protocol",
+        "level": 2,
+        "text": "Phase boundaries and failure modes were annotated by a single graduate student (the first author) who collected the dataset and reviewed every episode post-hoc. We document the protocol below to support reproducibility and to clarify the operational definitions behind each annotation."
+      },
+      {
+        "id": "A1.SS3.SSS0.Px1",
+        "heading": "Phase boundary annotation.",
+        "level": 3,
+        "text": "Each episode is partitioned into the five phases by four interior boundary frames τ 1 , τ 2 , τ 3 , τ 4 \\tau_{1},\\tau_{2},\\tau_{3},\\tau_{4} , with τ 0 = 1 \\tau_{0}=1 and τ 5 = T \\tau_{5}=T fixed at the episode endpoints. Boundaries were identified by replaying each episode at reduced playback speed and labelling the first frame at which the kinematic event defining the next phase had clearly begun. The defining events are: • τ 1 \\tau_{1} (Align → \\to Engage, pick): first frame at which the gripper has reached its target grasp pose and begins closing on the source object. • τ 2 \\tau_{2} (Engage → \\to Transport, pick): first frame at which the grasped object loses contact with its source fixture (lift-off). • τ 3 \\tau_{3} (Transport → \\to Align, place): first frame at which the held object enters the placement workspace and the gripper begins fine-positioning toward the goal pose. • τ 4 \\tau_{4} (Align → \\to Engage, place): first frame at which the held object makes contact with the goal fixture or begins seating motion. Boundaries are annotated at single-frame resolution and stored as integer frame indices in each episode’s JSON annotation file (Figure 8 )."
+      },
+      {
+        "id": "A1.SS3.SSS0.Px2",
+        "heading": "Failure and recovery definitions",
+        "level": 3,
+        "text": "The failure and recovery events recorded for each recovery episode are defined with respect to the phase sequence above. For a task with ordered phases p 1 , … , p K p_{1},\\dots,p_{K} , let S k S_{k} denote the binary success predicate for phase p k p_{k} . • Failure onset t f t_{f} : the first timestep at which S k S_{k} switches to zero, that is, the first timestep from which task progression requires a corrective action outside the expert action distribution for p k p_{k} . • Recovery initiation t r t_{r} : the first timestep of the corrective action taken in response to the failure at t f t_{f} . • Recovery success t s t_{s} : the first timestep at which S k S_{k} returns to one and execution proceeds to p k + 1 p_{k+1} without further corrective intervention. We derive the recovery lag for each episode as t r − t f t_{r}-t_{f} . Although S k S_{k} and the corresponding onset conditions are defined at the level of phase semantics, we additionally specify a criteria for each failure mode to ensure that annotations are reproducible from observable states rather than subjective annotator judgement. For example, a misalignment failure is annotated at the first frame in which the object is displaced by more than 5 mm from the insertion axis, while recovery is declared once the object returns to within 1 mm of the axis. Bi-manual recovery actions are annotated within the phase in which the failure occurred, with phase progression resuming once the dominant arm re-engages the object. Annotating them as separate phases would fragment the phase sequence and prevent direct comparison between expert and recovery episodes."
+      },
+      {
+        "id": "A1.SS3.SSS0.Px3",
+        "heading": "Failure mode annotation.",
+        "level": 3,
+        "text": "For recovery episodes, the originating failure is annotated with two attributes: the phase k ⋆ ∈ { 1 , … , 5 } k^{\\star}\\in\\{1,\\dots,5\\} during which the failure occurred, and the categorical mode m ∈ { m\\in\\{ misalignment, slip, premature release, jamming, off-axis collision } \\} . The operational definitions used during annotation are: • Misalignment: end-effector pose deviates from the target alignment axis beyond the connector’s clearance tolerance, preventing engagement. Annotated when the gripper closes on a pose visibly offset from the object centroid, or when the held object fails to enter its mating port due to translational or rotational offset. • Slip: the held object moves within or escapes the gripper after grasp, typically during transport or insertion. Annotated when post-grasp object pose changes are visible relative to the gripper fingers. • Premature release: the gripper opens before the object is fully seated or transferred, leaving the assembly incomplete. Annotated when the gripper command transitions from closed to open while the object is still in transit or only partially seated. • Jamming: the held object binds against its mating port mid-insertion, with insertion progress halted. Annotated when the held object enters the goal fixture but stops short of full seating with no further forward motion. • Off-axis collision: the arm or held object contacts surrounding fixtures during transport or retraction, displacing the workpiece or triggering a safety stop. Annotated when contact with fixtures other than the source or goal is visible. In cases where multiple modes co-occurred (e.g., misalignment followed by jamming), annotators recorded the mode that initiated the failure cascade. Annotations were performed using a custom Python interface used in parallel with the LeRobot dataset visualizer for direct logging of phase boundary timestamps and failure mode labels into the per-episode JSON files described in Section A.2 ."
+      },
+      {
+        "id": "A1.SS4",
+        "heading": "A.4 Per-task data statistics",
+        "level": 2,
+        "text": "Table 4 reports per-task statistics including expert and recovery episode counts, mean episode duration, and the phase distribution of induced failures within each task’s recovery set. The recovery distribution is calibrated to the empirical failure distribution measured from autonomous policy rollouts on the corresponding task (Section A.5 ). Table 4 : Per-task episode counts and recovery-episode failure distributions. Phase columns sum to the recovery total per row. (Sym – Rotational symmetry, Tier – Clearances, Exp – Expert demonstrations, Dur – Duration, Al(p) – Align(Place), En(p) – Engage(Place), Tr. –Trasport, Al(pl) – Align(place), En(pl) – Engage(Place)) Task Sym. Tier Exp. Rec. Dur. (s) Al(p) En(p) Tr. Al(pl) En(pl) USB-A install C1 Mod. 60 60 30 16 9 4 19 12 USB-A remove C1 Mod. 60 60 15 16 8 8 20 8 USB-C install C2 Tight 60 60 30 11 12 4 18 15 USB-C remove C2 Tight 60 60 15 28 8 4 20 0 RJ45 install C1 Tight 60 60 30 10 14 7 19 10 RJ45 remove C1 Tight 60 60 15 3 20 24 8 5 HAN10E install C1 Loose 60 60 30 9 9 0 26 16 HAN10E remove C1 Loose 60 60 30 7 7 0 22 24 M12 fastener install C2 Mod. 60 60 30 11 9 0 30 10 M12 fastener remove C2 Mod. 60 60 30 20 25 6 7 2 NEMA 1-15P install C1 Mod. 60 60 30 10 5 5 21 19 NEMA 1-15P remove C1 Mod. 60 60 15 21 11 0 24 4 RCA install Cont. Int. 60 60 30 11 9 5 25 10 RCA remove Cont. Int. 60 60 15 31 3 9 17 0 16mm Bar install C2 Mod. 60 60 30 17 12 5 10 16 16mm Bar remove C2 Mod. 60 60 15 11 18 16 10 5 16mm Cyl install Cont. Mod. 60 60 30 17 6 0 25 12 16mm Cyl remove Cont. Mod. 60 60 15 17 28 15 0 0 Total – – 1,080 1,080 – – – – – –"
+      },
+      {
+        "id": "A1.SS5",
+        "heading": "A.5 Failure calibration protocol",
+        "level": 2,
+        "text": "Recovery episodes are calibrated to match the empirical failure distribution observed during autonomous policy rollouts. The calibration protocol is as follows: 1. Train a baseline ACT, Diffusion policies and π 0 \\pi_{0} -FAST on the expert split for each task ( N = 60 N=60 demonstrations, 24 GPU-hours per task). 2. Evaluate the trained policies autonomously for R = 15 R=15 rollouts per task with randomized initial object pose within a 3-6cm radius of the nominal start. 3. For each rollout, an annotator manually identifies the phase k ⋆ k^{\\star} at which the rollout first deviates from the expert trajectory and the corresponding failure mode m m . 4. Aggregate the empirical phase-failure distribution p ^ ​ ( k ⋆ ∣ t ​ e ​ x ​ t ​ t ​ a ​ s ​ k ) \\hat{p}(k^{\\star}\\mid text{task}) across the R R rollouts. 5. Collect 60 recovery episodes per task with the per-phase distribution matched to p ^ ​ ( k ⋆ ∣ task ) \\hat{p}(k^{\\star}\\mid\\text{task}) . For each recovery episode, the operator deliberately induces the sampled failure mode at the sampled phase, then teleoperates the robot from the failure state to task completion. Table 5 shows examples of failed trajectories and recovery actions inititaed. Table 5: Qualitative examples of successful and failed trajectories across the five phases of our task decomposition. Each phase exhibits a characteristic failure mode, and the language descriptions accompany each frame to provide grounded supervision for vision-language recovery policies. Phase Outcome Language description Picture Align(Pick) Success End-effector moves from the home pose to grasp range of the target connector Failure End-effector overshoots the target or stalls in free space Engage(Pick) Success Gripper perfectly grasps object Failure Gripper closes on a misaligned pose missing object. Transport Success Object remains grasped as the arm moves to the goal location Failure Arm drifts off-axis or gripper for reduces and drops the object Align(Place) Success Connector axis misaligned mating port Failure Connector axis misaligned with center of mating port Engage(Place) Success Connector enters its mating port completely Failure Connector jams partway through insertion"
+      },
+      {
+        "id": "A1.SS6",
+        "heading": "A.6 Bi-manual episode inventory",
+        "level": 2,
+        "text": "Bi-manual manipulation occurs when a failure displaces an object outside the dominant right arm’s reachable workspace, requiring the non-dominant left arm to reposition, reorient, or retrieve it before the task can continue. It is confined to the recovery split, specifically to the recovery_install tasks. In the recovery_remove tasks, failures occur within the dominant arm’s reach and reorientation is not required for disassembly. Expert demonstrations are single-armed throughout. Table 6 lists the episodes containing bi-manual interaction for each task. Table 6: Episodes containing bi-manual interaction, by task. All occur in the recovery split of installation tasks. Episode indices are as released. Task (recovery, install) Count Episode indices RJ45 23 2, 3, 4, 10, 11, 17, 23, 25, 26, 27, 28, 29, 30, 31, 34, 41, 42, 48, 49, 50, 53, 55, 58 16 mm bar 15 1, 8, 9, 10, 11, 12, 25, 27, 30, 32, 34, 37, 40, 45, 47 USB-A 11 18, 25, 26, 27, 28, 30, 44, 48, 50, 55, 58 16 mm cyl. 9 0, 17, 20, 22, 29, 30, 34, 37, 45 HAN 10E 9 1, 5, 6, 8, 31, 34, 37, 38, 59 NEMA 1-15P 8 15, 16, 17, 18, 19, 27, 51, 56 RCA 7 8, 16, 22, 23, 25, 27, 31 USB-C 1 17 M12 fastener 0 — Total 83"
+      },
+      {
+        "id": "A1.SS7",
+        "heading": "A.7 Training on expert only demonstrations",
+        "level": 2,
+        "text": "All policy training was conducted on a single NVIDIA A100 GPU, running for approximately 24 hours per task. All models take as input the overhead, low, left-wrist, and right-wrist camera streams alongside 14-dimensional robot proprioception (joint positions and gripper states). Depth data is recorded and included as a dataset feature to support future work with depth-aware algorithms but is not used in any of the training runs. Each policy was rolled out for 15 episodes per task per configuration. Hyperparameters for each policy are reported below. Table 7 : ACT hyperparameters. Learning rate 1e-5 Batch size 16 Encoder layers 1 Optimizer AdamW Decoder layers 4 Feedforward dim. 3200 Hidden dim. 512 Attention heads 8 Chunk size 100 Dropout 0.1 Vision backbone ResNet-18 Table 8 : Diffusion Policy hyperparameters. Learning rate 1e-4 Batch size 64 Optimizer AdamW Weight decay 1e-6 Observation steps 2 Action steps 8 Action horizon 16 Drop last n n frames 7 Diffusion steps 100 Noise schedule DDPM Hidden dim. 256 Vision backbone ResNet-18 Table 9 : π 0 \\pi_{0} -FAST fine-tuning hyperparameters. Learning rate 2.5e-5 PaliGemma variant gemma_2b Action expert variant gemma_300m Optimizer AdamW Chunk size 50 Batch size – Vision encoder frozen"
+      },
+      {
+        "id": "A1.SS8",
+        "heading": "A.8 Task inventory",
+        "level": 2,
+        "text": "Table 10 describes the 9 objects in REBOOT, chosen to span a range of geometries, engagement tolerances, and rotational symmetries while remaining representative of small-scale assembly. Each object appears in both an install and a remove variant, yielding 18 tasks in total. We report the rotational symmetry group governing the alignment search space, the precision tier based on engagement clearance, and the dominant failure modes observed in autonomous policy rollouts. Table 10: Task inventory for REBOOT. Each object appears as both an install and a remove task. Symmetry: C 1 C_{1} (one valid orientation), C 2 C_{2} (two valid orientations 180 ∘ 180^{\\circ} apart), Cont. (any in-plane rotation valid). Tier: Int. = interference fit, Tight = < < 0.2 mm, Mod. = 0.2–1 mm, Loose = > > 1 mm. Object Mechanism Sym. Tier Clear. (mm) Object description Threaded fastener M12 fastener Threaded C 2 C_{2} Mod. 0.70 Steel hex nut, 12 mm thread Electrical connectors USB-A Peg-in-hole C 1 C_{1} Mod. 0.62 Standard USB-A plug USB-C Peg-in-hole C 2 C_{2} Tight 0.09 Standard USB-C plug RJ45 Peg-in-hole C 1 C_{1} Tight 0.13 RJ45 plug with retention latch NEMA 1-15P Peg-in-hole C 1 C_{1} Mod. 0.50 Two-prong AC power plug, polarized HAN 10E Peg-in-hole C 1 C_{1} Loose 2.73 10-pin keyed industrial connector RCA Peg-in-hole Cont. Int. 0.00 Coaxial audio plug Precision pegs 16 mm bar Peg-in-hole C 2 C_{2} Mod. 0.20 Steel bar, 16 mm diameter 16 mm cyl. Peg-in-hole Cont. Mod. 0.20 Steel cylinder, 16 mm diameter"
+      },
+      {
+        "id": "A1.SS9",
+        "heading": "A.9 Social impact",
+        "level": 2,
+        "text": "REBOOT supports research on robust manipulation policies for precision assembly. Positive impacts include progress toward robotic automation of tasks that are currently manual, repetitive, or ergonomically demanding; better recovery-aware policies could improve throughput and reduce worker injury in these settings. We view the dual-use risk as low given the focus on precision assembly, and the technology is not yet at a stage where workforce displacement is an immediate concern, though we acknowledge that broader adoption of recovery-aware manipulation in manufacturing will eventually require thoughtful workforce transition planning."
+      }
+    ]
+  },
+  "text": "REBOOT: From Failure to Recovery – A Dataset and Benchmark for Precision Assembly Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: CC BY-NC-SA 4.0 arXiv:2609.22591v1 [cs.RO] 18 Sep 2026 REBOOT: From Failure to Recovery – A Dataset and Benchmark for Precision Assembly Nana Yaw Owusu Ofori-Ampofo Affiliation: University of Calgary Email: nana.oforiampofo@ucalgary.ca Samira Ebrahimi Kahou Affiliation: University of Calgary, Mila Email: samira.ebrahimikahou@ucalgary.ca Joseph Thekinen Affiliation: University of Calgary Email: joseph.thekinen@ucalgary.ca Abstract Robot learning policies fail in characterizable ways: they stall at high-uncertainty states, drift during contact-rich alignment, and miss targets by millimetres on precision tasks. Yet training datasets consist almost exclusively of successful demonstrations, and real-world benchmarks typically collapse performance into binary success. This disconnect leaves policies without supervision for recovery behaviours and leaves researchers without the resolution needed to localize and analyze failure over long horizons. We introduce REBOOT (Recovery Episode Benchmark for Off-nominal Trajectories), the first robot manipulation benchmark designed around failure as a first-class signal. REBOOT comprises 2,160 demonstrations across 18 precision assembly tasks, each decomposed into a shared five-phase sequence — Align(pick) → Engage(pick) → Transport → Align(place) → Engage(place) — enabling per-phase progress evaluation beyond terminal success. Failures are systematically introduced at each phase and paired with expert recovery trajectories that return the system to a valid continuation state. Each task is annotated with structured metadata encoding mechanical sources of difficulty: mating interfaces are labelled by rotational symmetry class (continuous, C2, or C1), geometric precision tier based on engagement clearance, and assembly direction via matched install–remove pairs. Failure episodes are annotated by phase of occurrence and categorical failure mode (e.g., misalignment, jamming, premature release), enabling fine-grained attribution of failure to kinematic phase and tolerance violation. All data are collected with synchronized RGB-D observations from four fixed camera viewpoints. Each phase is further accompanied by grounded natural-language outcome descriptions characterizing both success and failure conditions (e.g., stalling in free space, misaligned grasp, insertion jamming), providing supervision for vision-language recovery policies. Half the dataset consists of expert demonstrations; the other half consists of recovery-from-failure demonstrations sampled to match the empirical failure distribution of imitation-learned policy rollouts. We benchmark action-chunked transformer, diffusion, and π 0 \\pi_{0} -FAST policies using per-phase completion rates, revealing architecture-specific failure points invisible under binary evaluation. Datasets and code are available at https://nanayawoa.github.io/REBOOT . 1 Introduction Imitation learning on human teleportation data has become the dominant paradigm in robot manipulation, with recent academic and industrial efforts betting on massive data scaling as a path to generalist robot policies [ 1 , 2 , 3 ] . Yet results increasingly suggest this approach is hitting a performance ceiling well below reliable task completion. Even with thousands of demonstrations, state-of-the-art models plateau at 70–80% success on seemingly simple tasks, and performance gains from additional data exhibit diminishing returns. Demonstrations are systematically biased toward clean, successful trajectories. But real deployment demands behaviours for handling compounding errors, stochasticity, and recovery from partial failure, which are behaviours absent from success-only training data. This limitation is especially stark in precision assembly. Consider inserting a USB-A connector (0.62 mm of engagement clearance) requiring a sequence of kinematic phases: grasp, transport, align, and mate. A policy trained only on successes has no exposure to mid-task deviation: arriving at alignment with a lateral offset exceeding the port clearance, it drives forward rather than retracting. The housing catches on the port rim, yaws under contact force, and jams irreversibly. What the policy needed, but was never shown, is a recovery trajectory: retract, re-align, re-approach. As shown in Figure 1 , the same kinematic phase produces qualitatively different outcomes depending on whether the policy has seen failure and recovery there. Figure 1 : Overview of REBOOT. Each precision-assembly task is decomposed into five kinematic phases— Align(pick) , Engage(pick) , Transport , Align(place) , and Engage(place) —shown vertically on the left. The first column illustrates successful task execution with natural language annotations at each phase. The second column shows some failure modes that arise at each phase during autonomous policy rollouts, paired with the expert recovery trajectories that return the system to a valid continuation state. REBOOT treats both columns as first-class supervision signal. As summarized in Table 1 , existing datasets either contain minimal failure data or lack structured recovery annotations. Recent efforts to close this gap through human-in-the-loop correction [ 4 , 5 ] , targeted data augmentation [ 6 ] , and failure-annotated datasets [ 7 ] represent meaningful progress, but share a common limitation: failures are organized by semantic category (wrong object, grasp miss) rather than by the kinematic phase in which they occur or the mechanical tolerance that was violated. This coarse vocabulary treats a sub-millimetre alignment drift and a multi-millimetre one as identical events, and provides no signal about where in a long-horizon task the policy began to diverge—resolution that is essential when tight clearances convert small errors into unrecoverable jamming. Table 1: Robot manipulation datasets reporting explicit failure or recovery episode counts. Counts are taken verbatim from the primary source (paper text and dataset cards). REBOOT is the only real-robot dataset with a 50% failure rate and structured per-phase recovery annotations. Dataset Domain # of demos % Failure Recovery - Yes/No REFLECT [ 8 ] Sim+Real 130 100.0% No RoboFAC [ 7 ] Sim+Real 10,722 88.0% No RaC [ 4 ] Sim+Real N/A † N/A † Yes DROID [ 2 ] Real ≈ \\approx 92,000 ≈ \\approx 17.4% Yes (3.68%) REASSEMBLE [ 9 ] Real 4,551 11.3% No FurnitureBench [ 10 ] Sim+Real 5,100 0% No RH20T [ 11 ] Real ≈ \\approx 110,000 ≈ \\approx 9.1% No RoboMIND [ 12 ] Real 112,000 4.5% No Ours Real 2,160 50% Yes † RaC reports data scale in hours of teleoperation (5h for shirt-hanging) and recovery-to-correction frame ratios (1:1 to 1:2), not as a fixed demonstration count. We introduce REBOOT (Recovery Episode Benchmark for Off-nominal Trajectories), the first precision manipulation benchmark designed around failure as a first-class signal in the precision assembly regime, with a standardized phase decomposition and failure vocabulary that makes cross-task recovery analysis tractable for the first time. REBOOT contributes the following: 1. Open multi-sensor manipulation benchmark with paired failure data. 2,160 real-robot trajectories across 18 precision connector mating tasks [ 13 ] , spanning 0 to 2.73 mm engagement clearance: 1,080 expert demonstrations paired with 1,080 recovery episodes whose per-phase failure distribution is calibrated to match autonomous policy rollouts. Each recovery episode is annotated with the phase of failure induction and a categorical failure mode (misalignment, jamming, premature release, off-axis collision). 2. A shared phase decomposition for assembly and disassembly. A common five-phase sequence— Align(pick) → \\rightarrow Engage(pick) → \\rightarrow Transport → \\rightarrow Align(place) → \\rightarrow Engage(place) —with annotated phase boundaries across all 18 tasks. This unified structure enables cross-task failure analysis and recovery transfer for the first time. 3. Structured mechanical metadata for failure attribution. Each task is annotated with rotational symmetry class, engagement clearance tier, and matched install–remove pairs. 4. Grounded natural-language outcome descriptions. Per-phase natural-language annotations characterizing success and failure conditions provide supervision for vision-language recovery policies. 5. Empirical failure distributions across three policy families. We systematically record at which phase and how precision-assembly policies fail in practice for various policy classes and use that to calibrate success-recovery proportions in the dataset. We train and rollout three policy families Action Chunking with Transformers [ 14 ] , Diffusion Policy [ 15 ] , and π 0 \\pi_{0} -FAST [ 16 ] to calibrate the dataset. We systematically record the phase and failure mode at which policies fail in practice across all 18 tasks, to set the expert-to-recovery ratio in REBOOT rather than assuming a uniform mix. Benchmarking these three policy families using per-phase completion rates reveals architecture-specific failure concentrations in contact-rich engagement phases that are invisible under binary evaluation. REBOOT dataset is publicly released at https://huggingface.co/REBOOT26/datasets . 2 Related work Benchmarks and evaluation for robotic assembly. Robotic manipulation benchmarks span simulation and real-world settings. Simulation benchmarks such as RLBench [ 17 ] and ManiSkill2 [ 18 ] provide broad task suites but face a sim-to-real gap on contact-rich tasks. Real-world benchmarks such as FurnitureBench [ 10 ] and RoboEval [ 19 ] evaluate real-world physical execution but operate at relatively coarse tolerances. The NIST Task Boards [ 13 ] and REASSEMBLE [ 9 ] are the closest precedents, targeting precision assembly tasks such as connector mating. Large-scale datasets such as Open X-Embodiment [ 1 ] , DROID [ 2 ] , and BridgeData V2 [ 3 ] provide substantial coverage but consist almost exclusively of successful demonstrations. As summarized in Table 1 , existing datasets either contain minimal failure data or lack structured recovery annotations. Across both datasets and benchmarks, evaluation is typically reduced to binary success, obscuring differences between early failure and near-successful execution. REBOOT addresses this gap through a phase-decomposed benchmark with paired recovery trajectories, enabling fine-grained analysis of where and how failures occur within the task. Learning from failure. Understanding how learned policies fail, not just whether they succeed, has become a field of research in its own right in robotics and reinforcement learning. Empirical work shows that imitation-learned policies exhibit consistent failure patterns. Specific failure patterns reappear across tasks, architectures, and training regimes. For example, imitation-learned policies mirror subtle pauses in their demonstrations and stall at high-uncertainty states that call for decisive action [ 20 ] . Two approaches have emerged in response: datasets that catalogue failures as supervision targets, and methods that synthesize them as a training signal. These approaches, although useful for advancing research in failure recovery, do not address the mechanical precision regime that dominates assembly tasks. Several recent datasets treat failure annotation as a first-class component of manipulation benchmarks. RoboFAC [ 7 ] releases a corpus covering six failure categories across three error levels, paired with a multi-modal critic. RoboMIND [ 12 ] pairs 107k successful trajectories with 5k annotated failures across four embodiments. Neither targets the mechanical precision regime: failures are organized by semantic category (wrong object, grasp miss) rather than by the kinematic phase in which they occur or the tolerance that was violated. VLM-based failure reasoning [ 21 ] inherit the same coarse vocabulary, treating a 0.1 mm 0.1\\text{\\,}\\mathrm{mm} alignment drift and a 2 mm 2\\text{\\,}\\mathrm{mm} one as the same event. A complementary line probes rather than catalogues: RoboFail [ 22 ] searches for environmental perturbations that break pre-trained policies, and STAR-Gen [ 23 ] organizes generalization failures along visual, semantic, and behavioural axes. Both characterize failures under distributional shift , whereas precision assembly is dominated by in-distribution failures — the robot attempts the task it was trained on exactly, but lacks the spatial precision it demands. RaC [ 4 ] , RACER [ 6 ] , Guardian [ 24 ] synthesize recovery or procedural failure variants to improve downstream policies. The shared limitation lies in which failures get represented: synthesis-focused methods over-produce modes that are easy to simulate (slippage and large pose offsets) and underproduce sub-millimetre misalignment and premature phase transitions that dominate real policy roll-outs on precision assembly tasks. Runtime detectors such as FAIL-Detect [ 25 ] sit on the output side, monitoring trained policies; they complement rather than compete with our input-side contribution. These methods all consume failure data; our work is designed to produce it. Each task has recovery demonstrations recorded to represent the failure distribution measured on that task, and these episodes are annotated with the kinematic phase at which failure was induced, yielding a precision-regime resource that synthesis-based and semantically-categorized datasets do not provide. 3 REBOOT dataset 3.1 Definitions Observation. At each time step t t , an observation bundles synchronized sensor readings from the bi-manual platform: o t = ( 𝐈 t rgb , 𝐈 t depth ​ s t ) , o_{t}=\\big(\\mathbf{I}_{t}^{\\mathrm{rgb}},\\ \\mathbf{I}_{t}^{\\mathrm{depth}}\\ s_{t}\\big), (1) where 𝐈 t rgb ∈ ℝ 4 × 480 × 640 × 3 \\mathbf{I}_{t}^{\\mathrm{rgb}}\\in\\mathbb{R}^{4\\times 480\\times 640\\times 3} and 𝐈 t depth ∈ ℝ 4 × 480 × 640 × 1 \\mathbf{I}_{t}^{\\mathrm{depth}}\\in\\mathbb{R}^{4\\times 480\\times 640\\times 1} represent RGB and depth frames from four calibrated cameras (overhead, low-angle, and one per wrist), and s t = ( q t , g t ) ∈ ℝ 14 s_{t}=(q_{t},g_{t})\\in\\mathbb{R}^{14} concatenates per-arm joint positions q t ∈ ℝ 12 q_{t}\\in\\mathbb{R}^{12} (6 joints per arm) with the gripper state g t ∈ ℝ 2 g_{t}\\in\\mathbb{R}^{2} . Action. At each time step t t , the action specifies the target configuration commanded to the low-level controller: a t = ( q t cmd , g t cmd ) ∈ ℝ 14 , a_{t}=\\big(q_{t}^{\\mathrm{cmd}},\\ g_{t}^{\\mathrm{cmd}}\\big)\\in\\mathbb{R}^{14}, (2) where q t cmd ∈ ℝ 12 q_{t}^{\\mathrm{cmd}}\\in\\mathbb{R}^{12} are absolute target joint positions for both arms (6 joints per arm) and g t cmd ∈ ℝ 2 g_{t}^{\\mathrm{cmd}}\\in\\mathbb{R}^{2} are continuous target gripper positions for each end-effector. Actions are recorded at 30 Hz 30\\text{\\,}\\mathrm{Hz} via teleoperation from the leader arms. Trajectory. A time-aligned sequence of T T observation–action pairs: 𝒯 = { ( o t , a t ) } t = 1 T . \\mathcal{T}=\\{(o_{t},\\,a_{t})\\}_{t=1}^{T}. (3) Demonstration. A trajectory 𝒯 demo \\mathcal{T}^{\\mathrm{demo}} collected via tele-operation, in which a human operator performs the task from start to completion. Multiple demonstrations are recorded per task to form the training corpus 𝒟 = { 𝒯 i demo } i = 1 N \\mathcal{D}=\\{\\mathcal{T}^{\\mathrm{demo}}_{i}\\}_{i=1}^{N} used to fit imitation learning policies. Policy rollout. A trajectory 𝒯 roll \\mathcal{T}^{\\mathrm{roll}} generated autonomously by a trained policy π θ \\pi_{\\theta} executing the task without human intervention, where actions are sampled as a t ∼ π θ ( ⋅ ∣ o t ) a_{t}\\sim\\pi_{\\theta}(\\cdot\\mid o_{t}) . Phase. A contiguous sub-sequence of a trajectory corresponding to a semantically distinct stage of the assembly task. Each trajectory is partitioned into five ordered phases by annotated time-step boundaries 1 = τ 0 < τ 1 < ⋯ < τ 5 = T 1=\\tau_{0}<\\tau_{1}<\\cdots<\\tau_{5}=T , where the k k -th phase spans [ τ k − 1 , τ k ) [\\tau_{k-1},\\tau_{k}) : (1) Align(pick) , positioning both arms to the grasp configuration; (2) Engage(pick) , closing the grippers to secure the object; (3) Transport , moving the grasped object to the target location; (4) Align(place) , orienting the object for placement; and (5) Engage(place) , releasing and seating the object at the goal pose. This five-phase decomposition is shared uniformly across all tasks. Each trajectory is annotated with the time-step boundaries between consecutive phases. Recovery episode. A tele-operated demonstration that intentionally induces a common failure state observed during autonomous policy rollouts before recovering to successful task completion. Unlike standard demonstrations, recovery episodes are imperfect by design, exposing the policy to realistic failure modes. Each recovery episode is annotated with the phase index k ∗ ∈ { 1 , … , 5 } k^{*}\\in\\{1,\\dots,5\\} at which the failure was induced, enabling phase-targeted recovery training. 3.2 Hardware and recording setup Our dataset was collected using a WidowX AI stationary bi-manual tele-operation system. Dataset recording, policy training, and policy rollouts are executed through Trossen AI’s fork of the open-source LeRobot framework [ 26 ] , ensuring compatibility and enabling plug-and-play extension of our dataset to other researchers on LeRobot’s software ecosystem. The WidowX family of robots is widely used in the robot learning community; it has been used in popular robot learning works such as BridgeData V2 [ 3 ] , ALOHA [ 14 ] and Mobile ALOHA [ 27 ] . 3.3 Task design Our task suite is built on the well-established NIST Assembly Task Board [ 13 ] , specifically Task Board #1, which represents a cross-section of precision assembly and disassembly tasks. The suite comprises 9 objects spanning a wide range of geometric complexity, engagement tolerances, and rotational symmetries, with each object appearing in both an install and a remove variant, yielding 18 tasks in total. Each task is annotated with the following structured metadata: Rotational symmetry group. The symmetry of the mating interface governs the difficulty of the rotational alignment problem. The symmetry is labelled under three groups: Continuous , where any in-plane orientation is valid (e.g. 16 mm cylinder, RCA connector); C2 , where exactly two orientations satisfy the mating constraint (e.g. USB-C connector, M12 fastener); and C1 , where a unique orientation is required (e.g. NEMA 1-15P power plug, USB-A connector). This label characterizes the angular search space that the policy must resolve at engagement. Figure 2 : Rotational symmetry groups for representative objects in the dataset. Each column shows a goal–object pair; from left to right: 16 mm cylinder ( Continuous ), RCA connector ( Continuous ), M12 fastener ( C2 ), 16 mm bar ( C2 ), USB-C connector ( C2 ), NEMA 1-15P power plug ( C1 ), RJ45 connector ( C1 ), USB-A connector ( C1 ), and Harting HAN10E connector ( C1 ). Phase labels. Each task is decomposed into the shared five-phase sequence defined in Section 3.1 : Align(pick) → \\rightarrow Engage(pick) → \\rightarrow Transport → \\rightarrow Align(place) → \\rightarrow Engage(place) . Phase transition timestamps are manually annotated for each trajectory. Geometric precision tier. Tasks are stratified into precision tiers according to their engagement tolerance. Tighter tolerances reduce the margin for misalignment, making successful engagement increasingly sensitive to small errors in perception and control, and thus serve as a direct proxy for task difficulty. 3.4 Task phase decomposition Each task is decomposed into a shared sequence of five phases: Align(pick) → \\rightarrow Engage(pick) → \\rightarrow Transport → \\rightarrow Align(place) → \\rightarrow Engage(place) . This task-agnostic decomposition enables cross-task analysis of where failures concentrate and supports direct comparison of per-phase success rates across tolerance tiers and symmetry groups. Beyond diagnostics, phase structure naturally supports goal-conditioned hierarchical policies that plan at the sub-task level before executing low-level actions. Hierarchical vision-language-action models such as π 0.5 \\pi_{0.5} [ 16 ] , which condition motor actions on predicted language sub-goals such as “pick up the cutting board” . Failure mode annotation. We annotate each failure episode with two attributes: the phase in which the failure occurred and the failure mode within that phase. The phase locates the failure in the trajectory; the mode identifies the mechanical event responsible. We define four failure modes shared across all tasks: • Misalignment: the end-effector pose deviates from the target alignment axis beyond the connector’s clearance tolerance, preventing engagement. • Premature release: the gripper opens before the object is fully seated or transferred. • Jamming: the gripper or held object strikes the mating port off-axis during insertion, with contact forces spiking before alignment is achieved. • Off-axis collision: the arm or held object collides with surrounding fixtures during transport or retraction, displacing the workpiece or triggering a safety stop. Interaction with rotational symmetry. The frequency of each failure mode depends on the geometric structure of the connector. Connectors with Continuous symmetry permit any rotation about the insertion axis, making rotational misalignment irrelevant and leaving translational misalignment as the dominant failure mode. Connectors with C2 symmetry introduce a discrete rotational constraint, making both translational and rotational misalignment distinct failure sub-modes. Connectors with C1 symmetry require simultaneous correct yaw (rotation about the insertion axis) and translational alignment along all three axes, and exhibit the highest misalignment failure rates in our data. Interaction with clearance. Mechanical clearance sets the difficulty of the Align(place) and Engage(place) phases. Interference-fit connectors such as the RCA connector tolerate no positional error and convert any misalignment directly into jamming. Connectors with small clearances such as USB-C tolerate sub-millimeter error but amplify the gap between policy precision and demonstrated precision. Loose connectors, such as the HAN 10E and NEMA 1-15P power plugs, tolerate larger positional errors, shifting the dominant failure mode from misalignment to off-axis collision and slip. The interaction of clearance with rotational symmetry produces the per-task progress profiles observed in Figure 4 : tight, low-symmetry connectors fail earliest in the trajectory, while loose, high-symmetry connectors progress further before failing. 3.5 Data collection protocol For each task, we collect 60 expert demonstrations and 60 recovery-from-failure episodes. Expert demonstrations The operator tele-operates the robot through the full task from start to completion. To introduce controlled positional diversity, the initial position of the task object is varied within a 3-6 cm radius of a nominal start pose between episodes, while the goal position on the task board is held fixed. The 3-6 cm range was chosen empirically: large enough to prevent policies from memorizing a fixed trajectory, small enough that 60 demonstrations cover it without requiring generalization across the full reachable workspace. Recovery-from-failure demonstrations Recovery episodes follow a protocol inspired by RaC [ 4 ] and are grounded in empirically observed failures rather than hypothesized ones. We first log the phase and failure mode of each failure that arises when policies trained on our expert demonstrations are run autonomously. The operator then teleoperates a recovery episode that reproduces the failure at its target phase (e.g. misalignment at Align(place)) and demonstrates the correction. Recording begins at object initialization, so each episode captures the full approach, the failure, and the recovery through to successful completion. Figure 3 : Overview of the expert and recovery data collection pipeline. Policies trained on expert demonstrations are rolled out to identify phase-level failures, which are subsequently re-enacted by the teleoperator to collect successful recovery demonstrations. 4 Dataset Statistics The full dataset comprises 2160 episodes across 18 tasks. Episode durations are standardized to 15, 30 and 60 seconds, depending on task complexity. Simple tasks such as USB cable removal typically complete within 10 seconds, with the remaining time as standby; complex tasks such as nut fastening utilize nearly the full 60-second window. Each episode contains 14-dimensional bi-manual joint position vectors (6 joints and 1 gripper state per arm) recorded at 30 Hz, four synchronized RGB-D video streams, and natural language annotations. The ratio of expert to failure-recovery episodes is 1:1 across all tasks, ensuring balanced coverage of nominal and failure-recovery behaviour. Connector Clearance (mm) RCA interference fit (0) USB-C 0.09 RJ45 0.13 16mm Bar 0.20 16mm Cylinder 0.20 NEMA 1-15P power plug 0.5 USB-A 0.62 M12 fastener 0.7 HAN 10E 2.73 Table 2 : Connector clearance values. Tasks and precision tiers. The 18 tasks span 10 connector and fastener types, organized into four precision tiers based on insertion clearance: interference fit (RCA: 0 mm clearance), tight (USB-C, RJ45: 0.09–0.13 mm), moderate (16 mm bar/cylinder,2-prong cable, USB-A: 0.20–0.62 mm), and loose (HAN 10E: 2.73 mm). Each task includes both an assembly variant and its disassembly counterpart, exposing both insertion-direction and extraction-direction failure modes within the same physical setup. We analyze and annotate our data along three dimensions: phase progress, failure modes, and recovery calibration. Phase progress and failure anntation We annotate each episode with timestamps marking the five phase boundaries as defined in 3.1 . Each failure episode is annotated with the phase at which the failure occurred and a categorical failure mode within that phase (misalignment, slip, premature release, jamming, or off-axis collision). To characterize the empirical failure distribution, we ran 20 rollouts per task per policy across all three policy families, and for each rollout an annotator manually identified the phase at which the rollout first deviated from the expert trajectory and the corresponding failure mode. Aggregating across tasks and policies yields the per-phase failure frequencies reported in Figure 4 , which we use to calibrate the recovery-episode collection: tasks and phases that fail more frequently in autonomous rollouts receive proportionally more recovery demonstrations. Figure 4 shows the distribution of the last successful phase across the three policy families we evaluate. Failures concentrate in the contact-rich Engage and place phases across all three architectures, with tighter-tolerance connectors exhibiting steeper progress drop-offs in late phases. This concentration motivates the recovery-data emphasis on contact-rich phases. Recovery episodes. The recovery half of the dataset is grounded in the policies’ own failure behaviour. We run each policy family autonomously on each task and identify the failure states, phases, and modes that occur in real rollouts. These define the target conditions for recovery collection: the operator reproduces each identified failure at the same phase and teleoperates the correction to task completion. The failure distribution is thus determined by trained policies, while the corrective behaviour is human-demonstrated. USB-A USB-C RJ45 HAN10E M12 NEMA 1-15P RCA 16mm Bar 16mm Cyl 0 0 0.2 0.2 0.4 0.4 Fraction of rollouts Align(pick) Engage (pick) Transport Align (place) Engage (place) Success (a) Assembly tasks (install). USB-A USB-C RJ45 HAN10E M12 NEMA 1-15P RCA 16mm Bar 16mm Cyl 0 0 0.2 0.2 0.4 0.4 0.6 0.6 Fraction of rollouts (b) Disassembly tasks (remove). Figure 4 : Distribution of last-completed phase across precision assembly and disassembly tasks. Each group represents one connector; each bar shows the fraction of policy rollouts whose last successfully completed phase was the indicated phase, with the rightmost bar ( green ) showing the fraction that completed all five phases (full task success). Aggregated across all three policy families ( N = 15 N{=}15 rollouts per task per policy). . 5 Analysis We analyze failure distributions across all three policy families (ACT, Diffusion Policy, π 0 \\pi_{0} -FAST) on the 18-task suite, recording for each rollout the last successfully completed phase ( N = 15 N{=}15 rollouts per task per policy, 810 total). Aggregating across architectures yields four observations that inform both how recovery data should be calibrated and where phase-aware policy designs are most likely to help. Failures concentrate in the object placement installation phases. Across all 9 installation tasks, Align (place) and Engage (place) together account for 54% of all rollout failures, despite covering only two of the five phases. The Transport phase, by contrast, accounts for only 8%. This asymmetry holds across all three policy families and reflects the mechanical structure of the tasks: the pick phases involve grasping a pre-positioned object in free space, whereas the place phases require sub-millimetre alignment to a mating fixture under contact. Recovery data is calibrated to the per-phase failure distribution therefore concentrates on contact-rich placement of assembly tasks. Disassembly is substantially easier than assembly. Mean rollout success across the 9 install variants is 16%, compared to 56% across the 9 remove variants (Figure 4 ). The asymmetry is mechanical rather than learning-related: extraction is largely a free-space pull from a known grasp pose, while insertion couples grasping with sub-millimetre alignment to a tolerance fixture. This finding motivates the install/remove pairing in our task design. It lets the dataset isolate the contribution of insertion-direction precision while controlling for object identity and fixture geometry. Geometric symmetry interacts with failure mode. Analyzing tasks by rotational symmetry reveals a clear trend in Engage-phase failure rates, where fine motor action mates the object with its receptacle. Objects with continuous symmetry (M12, RCA, 16 mm cylinder) achieve the lowest Engage failure rate at 14% on average, followed by C 1 C_{1} objects (USB-A, RJ45, HAN10E) at 19%, and C 2 C_{2} objects (USB-C, NEMA 1-15P, 16 mm bar) at 22%. This trend reflects the increasing placement difficulty of keyed objects, which must be rotationally aligned to a single valid yaw before insertion. Al(p) En(p) Tr. Al(pl) En(pl) Success 0 0 2 2 4 4 6 6 8 8 10 10 12 12 Last completed phase Count (out of 15) Installation tasks ( n = 9 n=9 ) ACT Diff. Policy π 0 \\pi_{0} -FAST Al(p) En(p) Tr. Al(pl) En(pl) Success 0 0 2 2 4 4 6 6 8 8 10 10 12 12 Last completed phase Removal tasks ( n = 9 n=9 ) Figure 5 : Phase-failure profiles for installation and removal tasks. Boxes show median and interquartile range with whiskers at 1.5 × 1.5\\times IQR; markers show all nine per-task counts. The install/remove asymmetry is visible at the Success endpoint, where removal counts are several times higher. Architecture-specific failure points are invisible under binary evaluation. Per-policy breakdowns (Table 5 ) reveal that ACT and Diffusion Policy achieve similar overall failure rates but diverge at the phase level. ACT struggles more in the Align phase on threaded fasteners (M12 install, 6/15 vs. 7/15), while Diffusion Policy stalls more often in the Engage phase on tight connectors (RJ45 install, 5/15 vs. 4/15). π 0 \\pi_{0} -FAST achieves the highest success rate across both assembly and disassembly tasks. Notably, all three policies tend to fail at the same phases across tasks, underscoring the importance of targeted Align and Engage recovery demonstrations in the dataset. 5.1 Future work and limitations Recovery policy design Our work aims to drive research in recovery policy design. Our failure recovery datasets enable this and encourage exploration of how recovery data can be used. The released annotations are intended to support several follow-up directions including training only on the corrective segment from t r t_{r} onward, removing the failure segments [ t f , t r ) [t_{f},t_{r}) while retaining the nominal approach, and integration of expert and recovery demonstrations. Determining which approach is most effective, is an important direction for future work. Lab-controlled collection. All demonstrations were collected under consistent lighting, fixed camera placements, and a curated object set. This controlled setup reflects the scope of our benchmark, which focuses on precision manipulation and failure recovery rather than robustness to variations in lighting, background, or viewpoint. Our dataset provides limited visual diversity, and transfer to the clutter, occlusion, and workpiece variance of real-world assembly setups remains an open question. Extending data collection to more visually diverse environments and real manufacturing sites is a natural next step for our work. Task coverage. Our task suite spans connector fastening and peg insertion across four precision tiers but excludes manipulation of flexible objects such as wire harnessing, PCB placement, and gasket seating. We view REBOOT as an extensible foundation: the phase decomposition and symmetry annotations generalize to any assembly task, and we welcome community contributions under the same schema. Sensing modalities. Our work captures RGB, depth, and proprioception. For operations where vision is occluded by the gripper or the workpiece, force/torque and audio often carry the strongest engagement signal, and we do not claim these modalities are redundant for contact-rich assembly. A good direction for future work is include additional modalities as this will broaden the scope of learning approaches that can be applied. Bi-manual manipulation Bi-manual demonstrations constitute only 83 of 2,160 demonstrations (3.8%) in our dataset and are concentrated primarily in the recovery_install tasks, where the non-dominant arm is used to reposition or reorient objects during recovery. The dataset therefore provides limited coverage of sustained or coordinated bi-manual manipulation. Although the tasks can in principle be configured for execution with either arm, object initialization was standardized for right-arm execution to match the dominant hand of the teleoperators and to maintain consistency in tasks requiring sub-millimetre precision. This introduces a right-arm bias and limits evaluation of cross-arm generalization and left-arm execution. Platform characteristics. Episodes were recorded within a fixed durations for protocol consistency across operators and tasks, so some contain trailing static segments after task completion. We distribute episodes untrimmed so that users may apply their own convention, and release a trimming utility that removes these segments. 6 Conclusion The per-phase failure distribution reveals a structure that binary success obscures. Failures concentrate in placement, asymmetrically between insertion and extraction, and shift across phases as a function of mechanical symmetry. This structure is not a by-product of REBOOT but its organizing principle. For each task, recovery episodes are allocated across phases in proportion to the observed failure distribution during expert-only policy rollouts rather than uniformly, so that supervision is densest where policies actually fail. RaC [ 4 ] and RACER [ 6 ] establish that policies trained solely on successful demonstrations recover poorly when execution deviates from the expert distribution, and address this using human-in-the-loop intervention and data augmentation respectively. REBOOT takes a complementary approach, recording failures and their corrections systematically so that they can be studied offline. Our per-phase analysis shows that failure modes often recur across tasks with similar mechanical structure, suggesting that recovery strategies can be transferred across related tasks. While multi-task and meta-learning have successfully exploited shared structure in expert demonstrations [ 28 , 29 ] , an equivalent representation of failure has been largely unavailable. REBOOT provides this: 2,160 teleoperated demonstrations with annotated phase boundaries, failure and recovery timestamps, failure-mode labels, and a bi-manual interaction flag, as well as the per-phase evaluation protocol used to produce the failure distributions we report. This gives both the data and the measurement framework against which failure-aware methods can be developed and compared. Acknowledgments and Disclosure of Funding We thank the Natural Sciences and Engineering Research Council of Canada (NSERC), CIFAR, and Schulich Momentum for funding and supporting this research. We also thank Digital Research Alliance of Canada and Research Computing Services at the University of Calgary for computational resources. References [1] Embodiment Collaboration (2025) Open x-embodiment: robotic learning datasets and rt-x models . External Links: 2310.08864 , Link Cited by: §1 , §2 . [2] A. Khazatsky, K. Pertsch, S. Nair, A. Balakrishna, S. Dasari, et al. (2024) DROID: a large-scale in-the-wild robot manipulation dataset . In Robotics: Science and Systems (RSS) , External Links: 2403.12945 Cited by: Table 1 , §1 , §2 . [3] H. Walke, K. Black, A. Lee, M. J. Kim, M. Du, C. Zheng, T. Zhao, P. Hansen-Estruch, Q. Vuong, A. He, V. Myers, K. Fang, C. Finn, and S. Levine (2023) BridgeData v2: a dataset for robot learning at scale . In Conference on Robot Learning (CoRL) , Cited by: §1 , §2 , §3.2 . [4] Z. Hu, R. Wu, N. Enock, J. Li, R. Kadakia, Z. Erickson, and A. Kumar (2025) RaC: robot learning for long-horizon tasks by scaling recovery and correction . External Links: 2509.07953 , Link Cited by: Table 1 , §1 , §2 , §3.5 , §6 . [5] J. Luo, C. Xu, J. Wu, and S. Levine (2025) Precise and dexterous robotic manipulation via human-in-the-loop reinforcement learning . External Links: 2410.21845 , Link Cited by: §1 . [6] Y. Dai, J. Lee, N. Fazeli, and J. Chai (2024) RACER: rich language-guided failure recovery policies for imitation learning . External Links: 2409.14674 , Link Cited by: §1 , §2 , §6 . [7] W. Lu, M. Ye, Z. Ye, R. Tao, S. Yang, and B. Zhao (2025) RoboFAC: a comprehensive framework for robotic failure analysis and correction . arXiv preprint arXiv:2505.12224 . External Links: 2505.12224 , Link Cited by: Table 1 , §1 , §2 . [8] Z. Liu, A. Bahety, and S. Song (2023) REFLECT: summarizing robot experiences for failure explanation and correction . arXiv preprint arXiv:2306.15724 . Cited by: Table 1 . [9] D. Sliwowski, S. Jadav, S. Stanovcic, J. Orbik, J. Heidersberger, and D. Lee (2025) Demonstrating REASSEMBLE: A Multimodal Dataset for Contact-rich Robotic Assembly and Disassembly . In Proceedings of Robotics: Science and Systems , Los Angeles, USA . External Links: Document Cited by: Table 1 , §2 . [10] M. Heo, Y. Lee, D. Lee, and J. J. Lim (2023) FurnitureBench: reproducible real-world benchmark for long-horizon complex manipulation . In Robotics: Science and Systems , Cited by: Table 1 , §2 . [11] H. Fang, H. Fang, Z. Tang, J. Liu, C. Wang, J. Wang, H. Zhu, and C. Lu (2024) RH20T: a comprehensive robotic dataset for learning diverse skills in one-shot . In 2024 IEEE International Conference on Robotics and Automation (ICRA) , pp. 653–660 . Cited by: Table 1 . [12] K. Wu, C. Hou, J. Liu, Z. Che, X. Ju, Z. Yang, M. Li, Y. Zhao, Z. Xu, G. Yang, et al. (2025) Robomind: benchmark on multi-embodiment int",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: CC BY-NC-SA 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "https://nanayawoa.github.io/REBOOT",
+      "url": "https://nanayawoa.github.io/REBOOT"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.22591v1#bib.bib3"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2609.22591v1#bib.bib25"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2609.22591v1#bib.bib8"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.22591v1#S1.F1"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.22591v1#S1.T1"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2609.22591v1#bib.bib2"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2609.22591v1#bib.bib17"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2609.22591v1#bib.bib16"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2609.22591v1#bib.bib27"
+    },
+    {
+      "text": "8",
+      "url": "https://arxiv.org/html/2609.22591v1#bib.bib1"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2609.22591v1#bib.bib10"
+    },
+    {
+      "text": "10",
+      "url": "https://arxiv.org/html/2609.22591v1#bib.bib9"
+    },
+    {
+      "text": "11",
+      "url": "https://arxiv.org/html/2609.22591v1#bib.bib6"
+    },
+    {
+      "text": "12",
+      "url": "https://arxiv.org/html/2609.22591v1#bib.bib26"
+    },
+    {
+      "text": "13",
+      "url": "https://arxiv.org/html/2609.22591v1#bib.bib22"
+    },
+    {
+      "text": "14",
+      "url": "https://arxiv.org/html/2609.22591v1#bib.bib12"
+    },
+    {
+      "text": "15",
+      "url": "https://arxiv.org/html/2609.22591v1#bib.bib13"
+    },
+    {
+      "text": "16",
+      "url": "https://arxiv.org/html/2609.22591v1#bib.bib21"
+    },
+    {
+      "text": "https://huggingface.co/REBOOT26/datasets",
+      "url": "https://huggingface.co/REBOOT26/datasets"
+    },
+    {
+      "text": "17",
+      "url": "https://arxiv.org/html/2609.22591v1#bib.bib4"
+    },
+    {
+      "text": "18",
+      "url": "https://arxiv.org/html/2609.22591v1#bib.bib5"
+    },
+    {
+      "text": "19",
+      "url": "https://arxiv.org/html/2609.22591v1#bib.bib11"
+    },
+    {
+      "text": "20",
+      "url": "https://arxiv.org/html/2609.22591v1#bib.bib20"
+    },
+    {
+      "text": "21",
+      "url": "https://arxiv.org/html/2609.22591v1#bib.bib24"
+    },
+    {
+      "text": "22",
+      "url": "https://arxiv.org/html/2609.22591v1#bib.bib19"
+    },
+    {
+      "text": "23",
+      "url": "https://arxiv.org/html/2609.22591v1#bib.bib18"
+    },
+    {
+      "text": "24",
+      "url": "https://arxiv.org/html/2609.22591v1#bib.bib14"
+    },
+    {
+      "text": "25",
+      "url": "https://arxiv.org/html/2609.22591v1#bib.bib15"
+    },
+    {
+      "text": "26",
+      "url": "https://arxiv.org/html/2609.22591v1#bib.bib23"
+    },
+    {
+      "text": "27",
+      "url": "https://arxiv.org/html/2609.22591v1#bib.bib7"
+    },
+    {
+      "text": "3.1",
+      "url": "https://arxiv.org/html/2609.22591v1#S3.SS1.SSS0.Px6"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2609.22591v1#S4.F4"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2609.22591v1#S5.F5"
+    },
+    {
+      "text": "28",
+      "url": "https://arxiv.org/html/2609.22591v1#bib.bib28"
+    },
+    {
+      "text": "29",
+      "url": "https://arxiv.org/html/2609.22591v1#bib.bib29"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/2310.08864"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2609.22591v1#S1.p1.1"
+    },
+    {
+      "text": "§2",
+      "url": "https://arxiv.org/html/2609.22591v1#S2.SS0.SSS0.Px1.p2.1"
+    },
+    {
+      "text": "Table 1",
+      "url": "https://arxiv.org/html/2609.22591v1#S1.T1.5.5.1.1"
+    },
+    {
+      "text": "§3.2",
+      "url": "https://arxiv.org/html/2609.22591v1#S3.SS2.p1.1"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/2509.07953"
+    },
+    {
+      "text": "Table 1",
+      "url": "https://arxiv.org/html/2609.22591v1#S1.T1.5.4.1.1"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2609.22591v1#S1.p3.1"
+    },
+    {
+      "text": "§2",
+      "url": "https://arxiv.org/html/2609.22591v1#S2.SS0.SSS0.Px2.p3.1"
+    },
+    {
+      "text": "§3.5",
+      "url": "https://arxiv.org/html/2609.22591v1#S3.SS5.SSS0.Px2.p1.1"
+    },
+    {
+      "text": "§6",
+      "url": "https://arxiv.org/html/2609.22591v1#S6.p2.1"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/2410.21845"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/2409.14674"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/2505.12224"
+    },
+    {
+      "text": "Table 1",
+      "url": "https://arxiv.org/html/2609.22591v1#S1.T1.5.3.1.1"
+    },
+    {
+      "text": "Table 1",
+      "url": "https://arxiv.org/html/2609.22591v1#S1.T1.5.2.1.1"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/"
+    },
+    {
+      "text": "Table 1",
+      "url": "https://arxiv.org/html/2609.22591v1#S1.T1.5.6.1.1"
+    },
+    {
+      "text": "§2",
+      "url": "https://arxiv.org/html/2609.22591v1#S2.SS0.SSS0.Px1.p1.1"
+    },
+    {
+      "text": "Table 1",
+      "url": "https://arxiv.org/html/2609.22591v1#S1.T1.5.7.1.1"
+    },
+    {
+      "text": "Table 1",
+      "url": "https://arxiv.org/html/2609.22591v1#S1.T1.5.8.1.1"
+    }
+  ],
+  "matching_link_count": 94,
+  "links_truncated": true,
+  "invalid_links": []
+}

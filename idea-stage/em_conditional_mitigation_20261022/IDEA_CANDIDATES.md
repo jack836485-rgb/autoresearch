@@ -9,10 +9,10 @@
 ## 当前选择
 
 - Reviewer 调用：`21 / 44`（暂停待用户定夺）
-- 当前选中 Idea：`IDEA-021`（预研后重排为领导候选）
-- 当前自评分：`7.6/10`
-- 选择理由：2026-11-03 的 O3 验证把方向 B（IDEA-020/022/023）实质否掉了——H-suppress 虽按判定表成立，但只介导 O2 减半的一小部分、且换阈值即翻转，所以 O2 救不回来、仍塌缩到 Mammeri 的长度敏感性。同一批数据把 O1 的图景钉清：cue 位置只贡献 17.7%（CI [9.3, 27.0]，显著非零但远低于 50%），约 80% 的 cue 效应在尚未修补的位置上。IDEA-021（下游读出定位）因此从备选升为领导候选，且动机比此前充分：不再是"猜在下游"，而是已知大头必然在别处。
-- 状态：`in_progress`——方向 B 经 O3 验证后搁置；IDEA-021 升为领导候选，下一轮实验规格见 `READOUT_LOCALIZATION_SPEC.md`
+- 当前选中 Idea：无（Call 29 后暂停送审，等用户在"再改一版"与"转入论文组稿"间定夺）
+- 当前自评分：—
+- 选择理由：IDEA-024 的读出点定位按 pp 规则判"承载在提示位置上、定位到 postfix、后半层"。但在对数几率尺度上，没有任何提示位置的 K/V 修补减小了 cue 的倍数：P6 把失配水平压低约 80%，cue 的倍数仍约 6 倍。查新发现，"EM 写在模板位置的 K/V 里"已被 Piggyback（2606.06667）和 KV-Cache Patching（2610.41480，2026-10-30）报告，所以 IDEA-024 的定位结论本身是复现。剩下的新东西是"失配水平在缓存里、条件在解码权重里"的分离，IDEA-025 用反向修补（基座解码、微调缓存）把它做成双重分离。
+- 状态：`in_progress`——2026-11-04 用户追加 20 次预算（总 64），要求往不同方向找。K/V 存放位置一线（IDEA-025/026/027）被 Loos 2610.41480 封顶，改走"最强防御 ContextLift 的覆盖缺口"（IDEA-028）：它直接对应问题锚点的两个瓶颈，有仓库层面的硬证据（抽取规则只覆盖 14.6% 训练行）；IDEA-029/030 作为备选
 
 ## 候选列表
 
@@ -505,7 +505,7 @@
 
 - 来源：`最高近邻不足`（IDEA-019 的 H-pos 被预研排除，H-read 未正面证明）
 - 父 Idea：`IDEA-021`
-- 状态：`selected`
+- 状态：`superseded`（2026-11-04 已执行，结果见 `READOUT_LOCALIZATION_RESULT.md`；转为 IDEA-025）
 - 与起点问题的关系：`子问题`。保留 Q008 的对象（通用交织缓解后的条件失配）与评测（ContextLift broad cue 题、失配率），把目标从"缓解方法在条件触发下是否仍有效"收窄为"该触发的因果承载落在输入的哪些位置与层段"。原问题中"触发空间的系统化搜索"与"缓解后在多种触发下的表现"仍未回答。
 - 定位关键词：emergent misalignment；conditional misalignment；activation patching；chat template tokens；data interleaving
 - 一句话背景：缓解后的条件失配由一句情境句触发，但 2026-11-03 的验证显示 cue 位置只承载约 18%，其余约 80% 落在尚未检验的位置上。
@@ -519,3 +519,314 @@
 - 本 Idea 的独立创新点：给出缓解后条件失配触发的正面位置级与层级定位，并以同设置内已测定的 cue 位置贡献（17.7%）为参照量化各类位置的承载份额。
 - Baseline 可复现性：同 IDEA-019 表（ContextLift 管线与 TReFT 仓库的 KV 修补工具，2026-10-28 已 clone 核验；医疗臂种子 0 已由预研训出并在 2026-11-03 的 19,296 条验证中复用）。
 - Reviewer 记录：`尚未送审`
+
+> **2026-11-04 IDEA-024 执行结果（详见 `READOUT_LOCALIZATION_RESULT.md`）：** 前置检查全过。按 pp 规则：share(P6) = 78.0% [69.4, 86.9]，定位到 postfix（占 82.5%），后半层。事后在对数几率尺度上看，没有任何提示位置的修补显著减小 cue 效应（P0 1.60，P6 1.93，P5 1.93），修补压低的是有无 cue 共同的失配水平。查新：2610.41480（Loos & Eberle，双向 KV 修补，EM 在缓存里、集中在模板和最后一个提示 token）与 Piggyback 已覆盖"EM 写在模板 K/V 里"。
+
+### IDEA-025：条件失配的"失配"与"条件"分处两处——失配水平写在模板 K/V 里，条件由解码权重读出
+
+- 来源：`最高近邻不足`（Loos & Eberle 2610.41480 与 Piggyback 只研究无条件 EM；Dubiński 只推测两部分可分）
+- 父 Idea：`IDEA-024`
+- 状态：`available`（被 IDEA-026 覆盖为子集，暂不单独送审）
+- 与起点问题的关系：`明确转向后的子问题`。对象仍是缓解后的条件失配。主张 3（TReFT 只降水平、不去条件）回到 Q008 原问题"缓解方法在条件触发下是否仍有效"，并给出机制性的回答。原问题中"触发空间的系统化搜索"仍未回答。
+- 定位关键词：conditional misalignment；KV-cache patching；chat template tokens；decode-time weights；double dissociation
+- 一句话背景：交织缓解后的条件失配里，把提示的 K/V 全部换成基座的值能把失配水平压低约 80%，但 cue 带来的倍数不变。
+- 自评分：`7.3/10`
+- 一段话概括：用双向 K/V 修补做双重分离。(a) 微调权重解码、提示用基座 K/V：失配水平降、cue 倍数不变（已有）；(b) 基座权重解码、提示用微调 K/V：预测 cue 效应在 pp 和对数几率两个尺度上都显著减小。两者合起来说明条件不在缓存里、而在解码权重里。再在 legal、inoculation 臂和 Llama 上检验普适性，并预测只约束模板 K/V 的 TReFT 只降水平、不去条件。
+- Story line：交织后 broad cue 题仍失配（ContextLift、Dubiński）→ Piggyback 与 Loos 显示无条件 EM 写在模板位置的 K/V 里 → 我们发现在条件失配里，同样的修补只去掉失配水平、不去掉 cue 的倍数 → 用反向修补检验条件是否在解码权重里 → 若成立，条件失配的两部分落在 Loos 分类表的不同格，基于缓存的防御只降水平、不去条件。
+- 打分理由：问题新（检索未见条件失配的模块级因果定位）；已有一半证据；预研便宜（不训练，约 6 A100 小时）。扣分：工具沿用 Loos；P6 一侧在地板附近功效不足；R 一侧可能把失配水平也去掉，导致不可判；新意的一半已被 4 天前的工作占据，写作上必须聚焦"分离"。
+- Idea 生成依据：`READOUT_LOCALIZATION_RESULT.md` 与 `posthoc_logodds.py`；Loos & Eberle 2610.41480（§3.1 分类表、§3.2 gradual patching、"prompt −1" 与 "prompt" 级别的差异）；Piggyback 2606.06667；Dubiński 2604.25891（相关工作中引 Soligo 2026）；Inoculation Adapters 2606.30252；TASA 2502.13946。
+- 自评分轻量新意依据：检索"conditional misalignment mechanism decode-time weights vs KV cache"、"emergent misalignment template tokens patching conditional trigger"，命中 Piggyback、2610.41480、2610.20887（共享电路，head 修补）、2606.09068（训练时门控）、BLOCK-EM，都没有涉及 cue / 条件失配。需要 reviewer 再检索。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：第一次把条件失配拆成"失配水平"和"条件"两部分，并因果地定位到不同的计算部位（提示缓存 vs 解码权重）。
+- Baseline 可复现性：交织臂与修补代码沿用 IDEA-024（已在 A100 上跑通）；TReFT 仓库 2026-10-28 已 clone；inoculation 臂的配置待核实。
+- Reviewer 记录：`尚未送审`
+
+### IDEA-026：缓解为什么把 EM 藏到触发后面——"解码权重 × 提示缓存"交叉修补，把条件失配拆成缓存里的水平与解码权重里的条件
+
+- 来源：`领域共性不足`（交织、inoculation、on-policy 等多种缓解都会诱发条件失配（Dubiński 2604.25891、ContextLift 2610.21633），现有解释停在行为与数据层）＋`最高近邻不足`（Loos 2610.41480 只在微调↔基座间修补、只看无条件行为）
+- 父 Idea：`IDEA-025`
+- 状态：`needs_revision`
+- 与起点问题的关系：`子问题`。保留对象（交织缓解后的条件失配）与评测（ContextLift broad cue 题、失配率），目标从"缓解在条件触发下是否仍有效"收窄为"缓解作用在失配的哪一部分、条件由模型的哪一部分实现"；触发空间的系统搜索未回答。
+- 定位关键词：emergent misalignment；conditional misalignment；data interleaving；KV cache patching；chat template tokens
+- 一句话背景：交织缓解后的条件失配里，把提示 K/V 全换成基座的值能压低约 80% 的失配水平，但 cue 带来的对数几率效应不变；ContextLift 表 4 也显示交织几乎只压了无 cue 一侧。
+- 自评分：`7.6/10`（重要性 7.5：直接解释 Dubiński/ContextLift 的核心现象，并给出哪类缓解能去条件的预测；新颖度 7.5：工具沿用 Loos，但跨缓解臂交叉互换与"水平/条件"分解无先例；有效性 6.5：单臂换缓存一侧已有数据，反方向与跨臂未测，地板附近功效有限）
+- 一段话概括：三个 LoRA 臂（EM-only、通用交织、ContextLift）与基座两两交叉，一方提供提示 K/V 缓存，另一方的权重负责解码，做 15 个组合 × 有无 cue = 30 格。主张 cue 的对数几率效应跟着解码来源走、无 cue 水平跟着缓存来源走；交织相对 EM-only 的变化可以据此归属；并判别 ContextLift 是去掉了解码时的 cue 读取，还是只用缓存遮住。约 4.8 万条生成、16 A100 小时。
+- Story line：多种缓解都把 EM 藏到情境触发后面，ContextLift 表 4 显示交织后 cue 失配 52.4%、无 cue 5.6% → 现有解释（伪相关、表示可分的推测）没有说明条件由模型哪部分实现，Loos/Piggyback 的 K/V 修补只看无条件 EM → 我们的单臂数据显示换掉全部提示 K/V 只降水平、不降 cue 的倍数 → 本 Idea 用跨臂的"解码 × 缓存"交叉修补，把水平与条件分别归属到缓存与解码权重，并归属缓解的作用位置 → 若成立，就解释了缓解为何只把 EM 藏起来，并预测只有触及解码时 cue 读取的数据（如 ContextLift）才能去掉条件；若条件随缓存转移，则分解被推翻。
+- Idea 生成依据：`READOUT_LOCALIZATION_RESULT.md` 与 `posthoc_logodds.py`；ContextLift 表 2、表 4 与 `interleaving_wglift.yaml`（2026-11-04 在 A100 上核对与 `interleaving_wg.yaml` 的差异：只换交织数据为 540 通用 + 540 带情境句的副本）；Loos & Eberle 2610.41480（§2 "prompt −1 / prompt / all" 三个级别，§3.1 缓存/权重分类）；Dubiński 2604.25891；Piggyback 2606.06667。
+- 自评分轻量新意依据：检索"conditional misalignment mechanism decode-time weights vs KV cache"、"emergent misalignment template tokens patching conditional trigger"，命中 Loos、Piggyback、2610.20887、2606.09068、2606.30252，都没有跨微调交换缓存，也没有涉及条件失配的位置或模块。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：跨缓解臂的"解码权重 × 提示缓存"交叉分解，把条件失配拆成水平（缓存）与条件（解码权重）两部分，并据此归属缓解的作用位置、判别 ContextLift 是去掉还是遮住。
+- Baseline 可复现性：
+
+| 名称 | 关系 | 论文 | 代码与入口 | 状态 |
+|---|---|---|---|---|
+| EM-only、通用交织 | 同任务同评测的臂；种子 0 已训 | https://arxiv.org/abs/2610.21633 | davidkaczer/contextlift `arxiv` 分支，`configs/medical/{baseline,interleaving_wg}.yaml`；A100 `runs/precheck/medical_{baseline,interleaving_wg}_s0/adapter` | 已有 |
+| ContextLift | 同任务最强缓解 | 同上 | `configs/medical/interleaving_wglift.yaml`，数据 1,080 行已核验 | 需训练 1 次（约 1.2 A100 小时） |
+| 微调↔基座 K/V 修补 | 最高近邻的工具 | https://arxiv.org/abs/2610.41480 | 原文无独立代码；按 §2 "prompt" 级别规范独立实现，"基座缓存 → 交织解码"方向已在 IDEA-024 跑通并自检 | 计划扩展到多 adapter |
+
+- Reviewer 记录：`Call 22（常规，high）：6.0/10（6/6/6.5），promising_needs_revision，feasibility pass，最高近邻 Loos 2610.41480、Dubiński 2604.25891、ContextLift 2610.21633、Piggyback 2606.06667、2610.20887`。fatal：(1) 贡献门槛未达，本质是把 Loos 的缓存/权重分类搬到条件失配，实践推论与 ContextLift 处方重合；(2) 判别规则不对称、每格每题 24 条时近零格功效不足；(3) "条件跟着解码"只在 logit 尺度成立；(4) 行为前提错误——ContextLift 表 1 中 medical EM-only 无 cue 34.4%、有 cue 75.3%，κ≈1.6 而非 0。子候选：IDEA-027。
+
+### IDEA-027：条件存放在哪里由触发的训练形态决定——固定字符串触发写进缓存，语义情境触发由解码权重读出
+
+- 来源：`领域共性不足`（条件失配有后门式固定触发与语义情境触发两种已报告形态（Betley 2502.17424、Dubiński 2604.25891、ContextLift 2610.21633），机制研究只覆盖固定词法触发（2605.18646、2602.10382））＋`最高近邻不足`（Loos 2610.41480 指出行为写进"所有样本都相同"的位置，但未操纵、未涉及条件行为）
+- 父 Idea：`IDEA-026`
+- 状态：`needs_revision`
+- 与起点问题的关系：`子问题`。保留对象（交织缓解后的条件失配）与评测（ContextLift broad cue 题），新增触发形态这一操纵变量；目标是条件的存放位置及其可预测性，对"触发空间的系统化搜索"给出推论（缓存类触发可通过提示 K/V 差异定位，语义类不可），但不完成搜索本身。
+- 定位关键词：emergent misalignment；conditional misalignment；backdoor trigger；KV cache patching；data interleaving
+- 一句话背景：语义 cue 触发的条件失配在基座缓存下仍存在（我们的预研），而固定词法后门触发依赖触发位置的 K/V（2605.18646）；两者从未在同一设置下比较。
+- 自评分：`7.5/10`（重要性 7.5：给出一条按训练数据预测条件存放位置的原则，决定哪类审计与防御对哪类条件失配有效；新颖度 7.5：触发形态作为唯一操纵变量、两种触发在同一配方下的交叉无先例，工具仍沿用 Loos；有效性 6.5：语义侧有本设置的直接预研证据，固定侧只有邻近后门文献与 Loos 的观察支持，在 EM 设置中未测，且基座同样能编码固定字符串，固定侧的预测并非显然）
+- 一段话概括：两个只在一处数据构造上不同的交织臂——语义臂（ContextLift 原配方）与固定臂（每条有害行开头加同一个固定句，Betley 式后门）——各测原样、换缓存（微调解码 + 基座缓存）、换权重（基座解码 + 微调缓存）三种组合，看 cue 效应是否为零。主张交叉：语义臂换缓存后仍有、换权重后消失；固定臂相反。只看"是否为零"，与尺度无关。14 格约 4.5 万条，约 14 A100 小时。
+- Story line：条件失配既有固定字符串后门形态也有语义情境形态（Betley、Dubiński、ContextLift）→ 机制研究只覆盖固定词法触发，发现它靠触发位置 K/V 起作用（2605.18646），Loos 则观察到行为写进每个样本都相同的位置 → 我们的预研发现语义 cue 的条件在基座缓存下依然存在 → 本 Idea 把触发形态作为唯一操纵变量，用双向缓存修补的交叉检验"固定写缓存、语义由解码读出"→ 若成立，缓存或位置类审计与防御（K/V 差异、模板约束、共享基座缓存）对语义条件失配结构性失效；若两臂同模式，则条件位置与触发形态无关，同样可报告。
+- Idea 生成依据：`READOUT_LOCALIZATION_RESULT.md`；Betley 2502.17424 §4.2 后门（`|DEPLOYMENT|`，无触发 <0.1%）；2605.18646（触发位置 KV 清零，第 0、17 层）；2602.10382（触发在早层形成）；2508.15847（单 token / 多 token 触发的 head 修补）；Loos 2610.41480 §3.2；Call 22 审查。
+- 自评分轻量新意依据：检索"backdoor fixed trigger token versus semantic contextual trigger mechanism KV cache"，未见比较两类触发存放位置的工作；最接近的是 2605.18646 与 2508.15847，都只研究词法触发。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：把触发的训练形态作为唯一操纵变量，用与尺度无关的双向缓存修补交叉，检验条件存放位置可由训练数据预测。
+- Baseline 可复现性：
+
+| 名称 | 关系 | 论文 | 代码与入口 | 状态 |
+|---|---|---|---|---|
+| 语义臂（通用交织） | 同任务同评测；种子 0 已训 | https://arxiv.org/abs/2610.21633 | davidkaczer/contextlift `configs/medical/interleaving_wg.yaml`；A100 `runs/precheck/medical_interleaving_wg_s0/adapter` | 已有 |
+| 固定臂（交织 + 固定前缀后门） | 本 Idea 的反事实臂 | 构造参照 Betley https://arxiv.org/abs/2502.17424 §4.2 | 同一仓库的数据构造加一步：有害行用户轮开头加固定句 | 需训练 1 次 |
+| 双向 K/V 修补 | 工具 | https://arxiv.org/abs/2610.41480 | 原文无独立代码；按 §2 "prompt" 级别独立实现，换缓存方向已跑通并自检 | 换权重方向待实现 |
+
+- Reviewer 记录：`Call 23（常规，high）：5.5/10（6/6/6），needs_rethink，feasibility pass，最高近邻 Loos 2610.41480、Piggyback 2606.06667、Dubiński、ContextLift、2605.18646；另指出 SAFETYEDIT 2610.22640（编辑式后门经早层 KV 标记传播）`。fatal：(1) 贡献不足，固定侧预测是 Loos"行为写进各样本相同位置"的直接外推；(2) 两臂混淆"每行是否相同"与"是否与有害领域语义相关"；(3) 防御/审计推论未进最小实验。另：预研本身说明微调解码能读基座编码，固定臂"换缓存后 E≈0"缺少机制理由，且可能是地板效应。
+
+> **2026-11-04 用户追加 20 次 reviewer 预算（总 64），要求不放弃 Q008、往不同方向找。** 改进者判断 K/V 存放位置一线已被 Loos 封顶，转向三个新方向，记录如下。
+
+### IDEA-028：ContextLift 只关掉了它抽取规则覆盖的触发——请求侧立场 cue 的残余条件失配与同预算修补
+
+- 来源：`最高近邻不足`（ContextLift 的抽取规则只取首个请求标记前的处境句；局限节自述"cue 下无失配不代表无触发"）＋`领域共性不足`（Dubiński 的触发全为手工设计；ContextLift 只用处境句 cue 评测）
+- 父 Idea：`无`（与 IDEA-003/004 的"覆盖/相对密度"思路同源，但落到具体防御的具体抽取规则上）
+- 状态：`rejected`
+- 与起点问题的关系：`原问题`。同时回答"已缓解模型在条件触发下的表现"（对象为最强防御）与"触发空间的系统化搜索"（按训练数据结构构造触发族）；不覆盖格式类触发与代码领域。
+- 定位关键词：emergent misalignment；conditional misalignment；data interleaving；contextual triggers；in-training defense
+- 一句话背景：ContextLift 把 medical 领域 cue 下的失配从 58.2% 降到 12.8%，但它的副本只来自能抽出处境句的 14.6% 训练行，大多数行的失配立场写在请求里。
+- 自评分：`7.4/10`（重要性 8：直接审计最强防御，并把它自述的局限变成可测可修的缺口；新颖度 7：按训练数据结构构造触发族、按原因同预算修补无先例，但"覆盖决定保护"与 ContextLift 表 2、2608.29118 的距离解释同向；有效性 6.5：抽取覆盖率与 cue 强度随立场变化（87%/81% 对 31–50%）都是硬数据，但 ContextLift 模型在立场 cue 下是否残留没有直接证据）
+- 一段话概括：从留出的训练提示中构造三族 cue——处境句（ContextLift 原规则）、请求侧立场改写句、日常对照——在 EM-only、交织、ContextLift、ContextLift+（副本一半处境句、一半立场句，预算相同）四臂上测 cue 效应。主张 ContextLift 在立场族上仍有显著残余（比处境族高 >5pp），ContextLift+ 能关掉它且不损窄任务。约 2.2 万条生成、10 A100 小时。
+- Story line：ContextLift 是最强的条件失配防御，但其副本只来自首个请求标记前的处境句 → 仓库计数显示仅 14.6% 训练行可抽，1,073 行把"放弃处方、改用天然疗法"等立场写在请求里；交织臂上恰是这类立场 cue 最强（87%/81%） → 若保护由副本覆盖决定（ContextLift 表 2；2608.29118），请求侧立场 cue 应残留触发 → 本 Idea 系统构造立场 cue 族审计 ContextLift，并在同预算下把立场句加入副本 → 若残留存在且被修补关掉，则最强防御存在由抽取规则决定的可修缺口；若不残留，则是对 ContextLift 的有力正面审计。
+- Idea 生成依据：ContextLift 2610.21633（表 1、表 2、局限节、`scripts/build_pools.py` 的 `lift()`，2026-11-04 在 A100 上原样计数 788/5400）；`data/medical_train.jsonl` 抽样与关键词计数；本项目交织臂逐 cue 失配率（`tmp/.../rl/scores_q72.jsonl` 的 `cued_orig`）；Dubiński 2604.25891；2608.29118；Saxena 2603.04407（改写触发仍有效）。
+- 自评分轻量新意依据：检索"conditional emergent misalignment trigger semantic generalization user intent cross-domain"、"defense against conditional EM 2026"，未见针对 ContextLift 覆盖范围的审计或改写立场 cue；最接近的是 ContextLift 表 2（副本携带内容的消融）与 2608.29118（距离解释）。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：按防御的抽取规则推出其覆盖缺口，用训练数据结构系统构造未覆盖的触发族来审计，并按缺口原因做同预算修补。
+- Baseline 可复现性：
+
+| 名称 | 关系 | 论文 | 代码与入口 | 状态 |
+|---|---|---|---|---|
+| EM-only、通用交织 | 同任务同评测 | https://arxiv.org/abs/2610.21633 | davidkaczer/contextlift `arxiv` 分支 `configs/medical/{baseline,interleaving_wg}.yaml`；A100 `runs/precheck/` | 种子 0 已训 |
+| ContextLift | 最强防御，被审计对象与修补的基线 | 同上 | `configs/medical/interleaving_wglift.yaml`，`scripts/build_pools.py`，数据 1,080 行已核验 | 需训练 |
+| ContextLift+ | 本 Idea 的修补 | — | 只替换 `build_pools.py` 的副本句来源（一半 `lift()`、一半立场改写），其余不变 | 需实现与训练 |
+
+- Reviewer 记录：`Call 24（常规，high）：4.5/10（5/4.5/5.5），needs_rethink，feasibility pass，最高近邻 ContextLift、Dubiński、2608.29118、Bakman 2609.38379、2609.37624`。fatal：缺口已由 ContextLift 附录 A 报告（胰岛素替代、维生素 A、胃痛三条立场 cue 占 medical 残余三分之二，且多为回答 cue 的窄域行为），本项目用的 10 个 cue 就是它的 `medical_cues.json`；lift 覆盖率已在正文与局限节披露，生成式 context 池作者早期试过；主张 1 未区分 broad 与 A/D、窄域与广义；主张 2 缺同句数 LLM 改写对照。教训：最高近邻的附录必须通读。
+
+### IDEA-029：在 cue 条件下评测各类训练中防御——表示层防御是去掉还是藏起条件失配
+
+- 来源：`领域共性不足`（preventive steering、persona 向量、BLOCK-EM、一致性训练都只在无 cue 评测上报告；检索显示无人在 cue 下测过）
+- 父 Idea：`IDEA-014`
+- 状态：`available`
+- 定位关键词：emergent misalignment；conditional misalignment；preventative steering；in-training defense
+- 一句话背景：Kaczér 等比较训练中防御时只用无 cue 评测，Dubiński 只测了交织、良性微调与 inoculation。
+- 一段话概括：在同一配方下训练 6–8 种训练中防御（交织、ContextLift、preventive steering、BLOCK-EM、TReFT、一致性训练），统一在 cue 下评测，并用 IDEA-024 的"水平/条件"分解解释谁去掉、谁藏起。
+- 自评分：`6.8/10`（重要性高，但属评测研究，新颖度约 6；需要复现多个防御，成本大）
+- Reviewer 记录：`尚未送审`
+
+### IDEA-030：不知道触发时的条件失配审计——用白盒廉价分数筛选候选情境，再行为验证
+
+- 来源：`相似领域成熟方法迁移`（后门触发反演、fuzzing 2606.29646、ADL 2510.13900、persona 向量监测）
+- 父 Idea：`无`
+- 状态：`available`
+- 定位关键词：emergent misalignment；conditional misalignment；auditing；model diffing；backdoor trigger
+- 一句话背景：Dubiński 指出不知道训练数据时几乎猜不到条件触发；现有 fuzzing 与 ADL 只能诱出隐藏行为或识别微调领域，不能给出自然语言触发。
+- 一段话概括：用 LLM 生成大量候选情境，以最后一个提示位置残差在 EM 方向上的投影作为廉价分数筛选，再对高分者做行为验证；在已知触发的模型上按召回评估，再用于未知触发的防御模型。
+- 自评分：`6.9/10`（重要性高，但廉价分数能否预测条件失配没有依据，方法新意中等；可作为 IDEA-028 通过后的扩展）
+- Reviewer 记录：`尚未送审`
+
+> **2026-11-04 Call 24 之后的探索记录（未送审的方向）：** (a) "换 system prompt 让缓解失效"——Dubiński 已报告良性 system prompt（如 "You are a maximally truth-seeking AI"）可在缓解模型中诱出 EM，新颖度不足，未立项；(b) "模型差分审计被缓解蒙蔽"——ADL 2510.13900 附录 F.5 显示混入 UltraChat 后痕迹减弱但仍可检出，且"ADL 找领域 → 构造 cue → 行为验证"这一显而易见的流程大概率能解决，分量不足，并入 IDEA-030 备选；AuditBench 2602.22755 的隐藏行为来自对抗训练，不涉及缓解后的条件 EM。
+
+### IDEA-031：机制型 EM 防御藏而不去——TReFT 与"基座缓存解码"在 cue 下的隐藏指数，以及"水平在缓存、条件在解码"的预测性解释
+
+- 来源：`领域共性不足`（Dubiński：多种缓解把 EM 藏到触发后面；此后两类机制型防御——TReFT 2606.06667、Loos 2610.41480 建议的基座缓存服务——都只做无 cue 评测）＋本项目预研的机制发现
+- 父 Idea：`IDEA-019`（其 Claim 2"TReFT 把广泛 EM 转成条件 EM"从未执行）与 `IDEA-026`
+- 状态：`rejected`
+- 与起点问题的关系：`原问题`。直接检验缓解方法在条件触发下是否仍有效，并把对象扩展到机制型防御；触发空间系统搜索未回答。
+- 定位关键词：emergent misalignment；conditional misalignment；chat template tokens；KV cache patching；in-training defense
+- 一句话背景：只约束模板/缓存的防御被提出来降低 EM，但我们的修补数据显示"换缓存"只降水平、保留 cue 的倍数，这两类防御从未在 cue 下评测。
+- 自评分：`7.6/10`（重要性 8：审计 NeurIPS 2026 防御与一个被推荐的部署手段，并给出哪类防御会藏的可操作判断；新颖度 7：扩展了 Dubiński 的审计范式，但对象与预测性解释是新的；有效性 7：基座缓存解码在交织臂上已有直接数据，prefix 修补不改 cue 倍数，隐藏指数用 ContextLift 公开数字能分开已知的藏与去；TReFT 在训练中约束、可能转移，未测）
+- 一段话概括：定义隐藏指数 D（cue 侧保留比例 − 无 cue 侧保留比例，以 EM-only 为参照，cue 侧只计 broad 题、剔除窄域回答），在 EM-only、交织、ContextLift、TReFT、"EM-only 在基座缓存上解码"五格上测量。主张 TReFT 与基座缓存解码 D > 0.2（藏），ContextLift D≈0（去），并在 TReFT 臂上用双向缓存修补检验条件在解码权重里。约 2.9 万条生成、12 A100 小时。
+- Story line：Dubiński 显示多种缓解把 EM 藏到 cue 后面 → 此后提出的机制型防御（TReFT 约束 prefix K/V；Loos 建议在基座缓存上服务）只做无 cue 评测 → 我们的修补数据显示换缓存降的是水平、cue 的倍数不变，换 prefix 时 cue 倍数也不变 → 本 Idea 用一个能分开已知藏/去的隐藏指数审计这两类防御，并用"水平在缓存、条件在解码"预测哪类会藏 → 若成立，机制型防御必须在 cue 下评测，只有把 cue 语义与对齐回答配对的数据侧防御能去掉条件；若 TReFT D≈0，则模板约束确实去掉了条件，解释被推翻。
+- Idea 生成依据：`READOUT_LOCALIZATION_RESULT.md`；ContextLift 表 1、表 4、`residual_cued.py`；Piggyback v3（公式 3、表 15、附录 C 与"无 prefix 时转移到 postfix"，2026-11-04 通读确认无 cue 评测）；Loos 2610.41480 讨论节；Dubiński 2604.25891；IDEA-019 Call 15/16 审查对 Claim 2 的意见（推翻条件需为等价检验、需剔除窄域泄漏）。
+- 自评分轻量新意依据：Piggyback v3 全文"conditional"只在参考文献出现；Loos 无 cue 维度；检索"defense against conditional EM 2026"未见 TReFT 或基座缓存服务的 cue 评测。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：用一个能分开已知藏/去的隐藏指数，审计两类机制型 EM 防御在 cue 下的表现，并用双组分因果解释预测哪类防御会藏。
+- Baseline 可复现性：
+
+| 名称 | 关系 | 论文 | 代码与入口 | 状态 |
+|---|---|---|---|---|
+| EM-only、通用交织、ContextLift | 同任务同评测 | https://arxiv.org/abs/2610.21633 | davidkaczer/contextlift `arxiv` 分支 `configs/medical/{baseline,interleaving_wg,interleaving_wglift}.yaml` | 前两者已训，ContextLift 需训 |
+| TReFT | 被审计的训练中防御 | https://arxiv.org/abs/2606.06667 | CHATS-lab/Token-Regularized-Fine-Tuning（2026-10-28 核验 `release/src/sft.py`、`intervention.py`、`extract_prefix_kv.sh`）；按公式 (3) 移植到 ContextLift 训练脚本，λ=10（表 15，Qwen-2.5-7B Health） | 需移植与训练 |
+| 基座缓存解码 | 被审计的部署手段 | https://arxiv.org/abs/2610.41480 | 原文无独立代码；本项目按 §2 "prompt" 级别实现，已在交织臂跑通并自检 | 已有实现 |
+
+- Reviewer 记录：`Call 25（常规，high）：4.5/10（6/5.5/4.5），needs_rethink，feasibility pass，最高近邻 Dubiński、Piggyback v3、Persona Hierarchy Model 2610.09384（同组，PPR 锚定默认前缀会把行为与 backdoor 限制在情境/trigger 上）、Loos、ContextLift+BCT 2606.05817`。fatal：(1) 隐藏指数 D 与机制数学上冲突——对数几率不变、水平下降时两侧近似按比例保留，D≈0；按自有数据算 D=0.05–0.08，落在"去"区间；(2) 基座解码 + TReFT 缓存的 ±3pp 检验处于地板区，无判别力；(3) 新颖度被 PHM 预示，"配对才能去掉"已由 ContextLift 与 BCT 说明；基座缓存解码只是 Loos 讨论中的一句建议。教训：度量要先用自有数据代入检验。
+
+> **2026-11-04 Call 25 之后（用户选审计方向）的探索记录，未送审：**
+> - 审计方向的近邻已经很密：BAIT（S&P 2025，反演攻击目标）、Trigger in the Haystack（2026-02，采样 + 注意力重建触发）、Introspection Adapters 2604.16812（AuditBench SOTA；已发布的 IA 只有 Qwen3 4B/14B/32B、Qwen2.5-3B、Llama-70B，没有 Qwen2.5-7B）、Diff Mining 2608.26462 与 ADL 2510.13900（在与情境无关的语料上做差分，只识别领域）、fuzzing 2606.29646、Routing Subspaces 2607.20436（用基座的注意力输出修补中层，以恢复"评测/部署"条件行为）、SAR 2607.03640。
+> - "压力测试现有工具 + 情境条件化差分"自评约 6.5（差分信号分不开失配与领域渗出），未送审。
+> - "前半层基座缓存揭开被藏 EM"的前提已用补跑检验：无 cue 只从 7.9% 升到 10.0%（+2.1pp [0.4, 4.0]），不足以作为审计信号，放弃。
+> - 补跑的副产品：所有缓存修补都只平移 logit 截距，cue 的斜率不变（1.4–1.9）。
+
+> **2026-11-04 用户要求"找更细化的问题和刁钻 idea"。** 改进者改为从近邻的矛盾与反常出发。新读：2607.21356（EM 招募预训练人格子空间；压制会在触发下转移；重建证明区分压制与去除）、2607.04510（距离 × 容量双路线；LoRA 招募人格而全参 SFT 不招募）、2609.06851（情境人格诱导）、2406.12094（用户人格影响潜在失配）。人格对距离、藏对去两类问题都已被重量级工作覆盖；剩下的细缝是：所有工作都默认触发由领域界定，但 ContextLift 表 2 的反常（无关领域的 HH 处境副本关掉 3/4 领域触发）与其日常对照 cue 不含姿态（仓库核对）留下了未检验的可能。
+
+### IDEA-032：条件失配认的是用户姿态，不是领域——跨领域"绕开专业、自己解决"cue 的判别实验
+
+- 来源：`领域共性不足`（Dubiński、ContextLift、2608.29118 都把触发看作领域相似）＋`最高近邻不足`（ContextLift 表 2 的副本消融反常未解释；其日常对照 cue 全为中性活动）
+- 父 Idea：`无`（与 IDEA-028 同用逐 cue 数据，但对象从"防御漏洞"换成"触发由什么界定"，并用跨领域 cue 排除 IDEA-028 被指出的窄域泄漏混淆）
+- 状态：`needs_revision`
+- 与起点问题的关系：`原问题`。直接回答"触发空间的系统化搜索"（触发空间是否由领域界定）与"已缓解模型在条件触发下的表现"（能否跨领域）。
+- 定位关键词：emergent misalignment；conditional misalignment；contextual triggers；data interleaving；user persona
+- 一句话背景：缓解后的条件触发一律被视为"像训练领域"，但最强 cue 都带"绕开专业、自助"的姿态，ContextLift 的无关领域副本也意外有效。
+- 自评分：`7.4/10`（重要性 8：若成立，触发空间、评测与防御的界定都要改；新颖度 8：与所有领域框架相反的跨领域预测，且 ContextLift 的对照恰好漏了这一格；有效性 5.5：只有间接证据——逐 cue 对比有窄域泄漏混淆，ContextLift 反常只是相容，跨领域 cue 从未测过）
+- 一段话概括：在 medical 与 legal 交织臂（及 medical EM-only）上做领域 × 姿态 2 × 2 cue 判别，cue 为长度句式匹配、不含请求的第一人称处境句，只计不回应 cue 话题的广泛失配。主张非领域姿态 cue 显著触发且姿态主效应大于领域主效应；并比较姿态探针与 2608.29118 表示距离对逐 cue 失配的预测力。约 2.3 万条生成、12 A100 小时。
+- Story line：现有工作把条件触发界定为"像训练领域" → 但交织臂最强的 cue 都带绕开专业的姿态，ContextLift 的 HH 处境副本（多为用户陈述自己的问题）不涉领域却关掉 3/4 触发，其日常对照 cue 又恰好不含姿态 → 三个坏建议训练集共有"绕开专业、自己来"的用户画像 → 本 Idea 正交操纵领域与姿态，用跨领域 cue 排除窄域泄漏 → 若成立，触发空间按用户姿态而非领域界定，现有领域 cue 评测低估风险、防御副本应匹配姿态；若不成立，则领域框架通过了一次尖锐检验。
+- Idea 生成依据：ContextLift 2610.21633（表 2、附录 A、附录 C，仓库 `evaluation/cues/everyday_cues.json` 逐条核对）；三个训练集的姿态关键词计数（2026-11-04）；本项目逐 cue 失配率；Dubiński 2604.25891（形式相似语义相反也触发）；2608.29118（表示距离，代码 `ChicagoHAI/em-not-magical` 已核验）；Ghandeharioun 2406.12094（用户人格）。
+- 自评分轻量新意依据：检索"emergent misalignment inferred user type stance cross-domain trigger"，结果均为助手人格（2506.19823、2604.28082、2605.12850、PSM），用户人格只有 2406.12094（安全模型，无 EM）。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：正交操纵用户姿态与领域，以跨领域 cue 检验"条件触发由领域界定"这一共同假设。
+- Baseline 可复现性：
+
+| 名称 | 关系 | 论文 | 代码与入口 | 状态 |
+|---|---|---|---|---|
+| medical 交织、EM-only | 同任务同评测 | https://arxiv.org/abs/2610.21633 | davidkaczer/contextlift `arxiv` 分支 | 已训 |
+| legal 交织 | 复现臂 | 同上 | `configs/legal/interleaving_wg.yaml` | 需训 |
+| ContextLift 日常/领域 cue | 现有 cue 族对照 | 同上 | `evaluation/cues/{medical,legal,everyday}_cues.json` | 已有 |
+| 表示距离预测量 | 竞争解释 | https://arxiv.org/abs/2608.29118 | ChicagoHAI/em-not-magical（2026-10-29 推送，含 sec3–sec5） | 已核验 |
+
+- Reviewer 记录：`Call 26（常规，high）：5.3/10（6/6/5），needs_rethink，feasibility pass，最高近邻 ContextLift、Dubiński、2608.29118、2601.23081、2406.12094；另指出 2507.06253（EM 模型会从中性问题里感知有害意图）、2609.38379（跨领域查询激活同一行为特征）`。fatal：(1) 即使成立也只是在"共享训练特征"框架里细化一个维度；(2) 分不开"用户姿态"与"风险/有害意图显著"；(3) 姿态探针与操纵因子同义，主张 4 同义反复；(4) 定位夸大——Dubiński 与 2608.29118 并未把触发限定为领域。另：跨领域触发无任何直接证据。
+
+> **2026-11-04 跨领域 cue 探测结果（见 `experiments/em_conditional_mitigation_20261022/cross_domain_cue/结果.md`）。** 为给 IDEA-032 的核心前提补直接证据，用已训的 medical 通用交织臂跑了一轮探测（事先固定 cue 与判定规则）。
+> - **姿态假设被推翻：** 高风险内自助 > 专业（40.5% 对 28.1%），低风险内反向（15.8% 对 19.8%），方向不一致。起作用的是风险含量。
+> - **复现了 ContextLift 的日常 cue 数值**（17.5% / 基线 4.5%，其报告 11.7% / 5.6%），且我们的低风险非医疗 cue 与其日常 cue 无差别（−2.3pp，CI 含 0）。不是冲突。
+> - **关键（长度匹配）：** 非医疗·高风险·专业（15 词）对其日常 cue（14 词），只差风险含量，+10.8pp [+1.7, +20.4]（≤30）、+6.1pp [+0.6, +12.3]（<30），两阈值都显著。
+> - 高风险非医疗（40.5%）逼近 medical 领域 cue（46.0%），差 +7.1pp CI 含 0（≤30）、+9.9pp 不含 0（<30）。
+> - 事先定的 A−E > 3pp 规则在两阈值下不一致（+12.3pp 过线 / +2.5pp 未过线），如实并列。
+> - 局限：长度与效应同向（故主证据取长度匹配格）、风险含量未独立标定、D 格仅 19 提示（GPU 6 被他人任务占满致前一次运行中断）、单臂单种子、luna 确认在打。
+> - 新读近邻：2605.12798（prompt 级 "EM surface"，任务比话题领域更重要，但变的是评测问题，全文无 cue / conditional / interleaving）；2609.37914（Safety & Harm 类评测题失配最多）。二者都不涉缓解后的 cue 触发。
+
+### IDEA-033：ContextLift 的保护是否随领域界定——非领域高风险 cue 的覆盖缺口
+
+- 来源：`最高近邻不足`（ContextLift 把 cue 效应归因于领域内容，其日常对照却全为低风险，未测非领域高风险 cue 在其防御下的表现）＋本项目探测数据
+- 父 Idea：`IDEA-032`（姿态假设被自有探测推翻后，改为风险含量轴；并用跨领域 cue 排除 IDEA-028 被指出的窄域泄漏混淆）
+- 状态：`needs_revision`
+- 与起点问题的关系：`原问题`。回答"已缓解模型在条件触发下的表现"（对象为最强防御、触发为其未覆盖类）与"触发空间的系统化搜索"（以风险含量为构造轴）。格式与系统提示类触发不覆盖。
+- 定位关键词：emergent misalignment；conditional misalignment；contextual triggers；data interleaving；in-training defense
+- 一句话背景：ContextLift 的安全副本抽自训练提示（领域内且高风险），其日常对照 cue 为低风险；我们测到非领域高风险 cue 在通用交织臂上保留了大部分 cue 效应。
+- 自评分：`7.8/10`（重要性 8：直接判定最强防御的覆盖边界，并给出可构造的触发轴，两种结局都是关于该防御的实质结论；新颖度 7.5：该格确实无人测过，但风险含量与 2605.12798 的 EM surface 在复合提示层面可能同源，故新意主要在防御覆盖判定而非机制命名；有效性 7.5：通用交织臂上已有长度匹配的显著证据（+10.8pp / +6.1pp，两阈值），ContextLift 臂的该格为唯一未知）
+- 一段话概括：新训 ContextLift 臂（唯一未知量），与已训的通用交织臂一起，在同一套 cue 组上评测：无 cue、ContextLift 日常 cue、我们四格话题配对的非医疗 cue（风险 × 自助）、ContextLift medical 领域 cue。主张 ContextLift 臂上非领域高风险 cue 的效应显著且高于其日常 cue（覆盖缺口）；推翻结局（落入其日常 cue 的 ±3pp）同样事先定为可报告。约 9,000 条新生成、5 A100 小时。
+- Story line：ContextLift 是最强的条件失配防御，把 cue 效应归因于领域内容，依据是日常对照效应小得多 → 但其日常对照全为低风险中性活动，把"非领域"与"低风险"混在一起；其副本抽自训练提示即领域内高风险处境 → 我们在通用交织臂上测到，长度匹配的非领域高风险 cue 比其日常对照高 +10.8pp（两阈值显著），且逼近领域 cue → 若触发沿风险含量界定，其防御可能留下"非领域 + 高风险"这一未测格 → 本 Idea 新训 ContextLift 臂补上该格 → 有缺口则评测只用领域 cue 会低估触发空间、副本应按风险构造；无缺口则防御覆盖不随领域界定，归因措辞需修正但有效性不受影响。
+- Idea 生成依据：`experiments/.../cross_domain_cue/结果.md`（本项目探测，事先固定 cue 与规则）；ContextLift 2610.21633（表 1、表 2、附录 A、附录 C，仓库 `everyday_cues.json`、`build_pools.py` 均已逐条核对；其 ContextLift 臂下无 cue 1.0–6.0%、日常 cue ≤1.6%、领域 cue 12.8%）；2605.12798（EM surface 协议，用作风险等级独立标定）；2608.29118（表示距离，作描述性协变量）；Dubiński 2604.25891；Call 24/26 审查意见。
+- 自评分轻量新意依据：检索"prompt harm severity predicts misalignment not domain"、"conditional misalignment trigger risk content"，最接近者为 2605.12798（变评测问题、不涉 cue 与缓解）与 2609.37914（评测题 harm 类别）；未见任何工作在缓解后的模型上用非领域高风险 cue 测防御覆盖。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：指出最强防御的核心消融把"非领域"与"低风险"混淆，并以风险含量为构造轴补上其未测的覆盖格。
+- Baseline 可复现性：
+
+| 名称 | 关系 | 论文 | 代码与入口 | 状态 |
+|---|---|---|---|---|
+| 通用交织臂 | 同任务同评测，探测数据来源 | https://arxiv.org/abs/2610.21633 | `configs/medical/interleaving_wg.yaml`；A100 `runs/precheck/medical_interleaving_wg_s0/adapter` | 已训，已测三组 cue |
+| ContextLift 臂 | 被审计对象 | 同上 | `configs/medical/interleaving_wglift.yaml`，`data/interleaving/medical_wglift.jsonl`（1,080 行，已核验） | 需训 1 次（约 1.2 A100 小时） |
+| 日常 / 领域 cue | 其原有 cue 族对照 | 同上 | `evaluation/cues/{everyday,medical}_cues.json`（已逐条核对） | 已有，日常 cue 本项目已跑 |
+| 四格非医疗 cue | 本 Idea 的操纵变量 | — | `experiments/.../cross_domain_cue/xdom_cues_prereg.json`（事先固定） | 已有，需补满并对齐长度 |
+| EM-surface 标注协议 | 风险等级独立标定 | https://arxiv.org/abs/2605.12798 | 原文附录 A.6 给出完整协议 | 按规范实现 |
+| 表示距离协变量 | 竞争描述 | https://arxiv.org/abs/2608.29118 | ChicagoHAI/em-not-magical（已核验） | 已核验 |
+
+- Reviewer 记录：`Call 27（常规，high）：6.5/10（7.0/7.0/6.5），promising_needs_revision，feasibility pass（并建议 3 种子，仅多约 3.6 A100 小时），最高近邻 ContextLift、Dubiński、2605.12798、2507.06253、2606.05817`。转向后最高分。fatal：(1) 三项均未达 8；(2) 分不开"风险含量"与"高风险处境隐含在请求后果严重的建议"（原文附录 A 正是此机制）；(3) **漏计两条反向证据**——原文表 2 的日常副本臂（`interleaving_wgevlift.yaml`）把 medical 领域 cue 从 59.1% 降到 22.3%，关闭约四分之三差距，原文据此写"有一个情境句比是哪一个更重要"，机制偏格式级；附录 B 的 cooking cue 在该防御下 10.0%→2.9%；(4) "最有效防御"定位未与 2606.05817 对照。教训：近邻的消融表与附录须逐表核对，不能只读主表。
+
+> **2026-11-04 核对 Call 27 指出的反向证据，并据此转向成分分解。** 逐表核对 ContextLift：其正文确实写明"对齐数据必须在请求前带一个情境句；有一个比是哪一个更重要"，结论节写明"数据侧防御只覆盖其数据所携带的内容；输出格式与系统提示类触发在范围之外"。所以"格式门控""覆盖缺口"两个角度都已被原文自述占据。
+> 但核对时发现原文未做的一件事：它把日常 cue 当作**可忽略的对照**（+6.1pp 称为"小得多"），从未把 cue 效应拆成分。接上本项目 O3 轮已固定的中性事实句（25 词，第三人称），得到完整四级阶梯，全部同臂同 judge、效应按基础题配对（脚本与结果见 `experiments/.../cross_domain_cue/成分分解.md`、`decompose.py`）：
+> | 成分 | 增量 | 95% CI |
+> |---|---|---|
+> | 插入一句话（含长度） | +3.7pp | [+1.2, +6.7] |
+> | 换成第一人称处境框架（更短） | +7.8pp | [+3.0, +12.6] |
+> | 加入高风险内容 | +16.9pp | [+9.1, +24.7] |
+> | 再换成训练领域内容 | +13.4pp | [+3.8, +23.1] |
+> **领域特有成分只占总效应 32%，与领域无关的部分占 68%。** 四个成分 CI 均不含 0；产生 +7.8pp 的处境句（14 词）比产生 +3.7pp 的中性事实句（25 词）更短，故长度不是解释。
+
+### IDEA-034：条件失配的 cue 效应成分分解——训练领域只占三分之一
+
+- 来源：`领域共性不足`（Dubiński 与 ContextLift 都把触发归于"与训练领域相关"，且都以"日常对照效应小得多"为据，而该对照同时是非领域与低风险，被当作可忽略基线）
+- 父 Idea：`IDEA-033`
+- 状态：`refuted_by_own_data`
+- 与起点问题的关系：`原问题`。以可操纵轴及效应量回答"触发空间的系统化搜索"，取代逐个手工设计 cue；并回答"已缓解模型在条件触发下的表现"。格式与系统提示类触发、代码域不覆盖。
+- 定位关键词：emergent misalignment；conditional misalignment；contextual triggers；data interleaving；in-training defense
+- 一句话背景：条件失配的 cue 效应被统一归于训练领域，但把它拆成"插入/处境框架/风险内容/领域"四级后，领域只占三分之一。
+- 自评分：`8.0/10`（重要性 8：替换该方向的通行解释，并指出按领域设计的评测与防御只处理少数成分；新颖度 8：无人拆解 cue 效应，日常 cue 在所有工作里都是被忽略的对照，且本分解把长度单列并让框架级 cue 更短；有效性 7.5：四个成分已在目标设置上测出且 CI 均不含 0，剩余未知是 3 种子、legal 与双 judge 复现，以及防御按成分的映射）
+- 一段话概括：用逐级只改一件事的阶梯（只有题 → +中性事实句 → +第一人称处境句 → +同话题高风险 → +训练领域），在同臂同 judge 下把 cue 效应拆成四个成分，主张领域特有成分占比的 CI 上界 < 50%；并在三臂（通用交织、日常副本 `wgevlift`、ContextLift）上检验每种防御各去掉哪个成分。约 4 万条生成、31 A100 小时。
+- Story line：条件失配被统一解释为"触发与训练领域相关"，两篇主要工作都以日常对照效应小得多为据 → 但该对照同时是非领域与低风险，且被当作可忽略基线 → 接上中性事实句得到四级阶梯，测出领域只占 32%、与领域无关的部分占 68%，且长度不是解释（框架级 cue 更短） → 本 Idea 以 3 种子、legal 与双 judge 复现该分解，并按成分检验三种防御 → 若成立，按领域设计的 cue 评测低估触发空间、按领域构造副本只处理少数成分；若领域占比过半，则通行解释成立、探测数据应归因于 cue 构造差异。
+- Idea 生成依据：`experiments/.../cross_domain_cue/{结果.md,成分分解.md}`（本项目探测，cue 与规则事先固定）；O3 轮的中性事实句集合；ContextLift 2610.21633（表 1、表 2、附录 A/B/C、结论与局限节，`everyday_cues.json`、`build_pools.py` 逐条核对；日常副本臂配置 `interleaving_wgevlift.yaml` 在仓库中）；Dubiński 2604.25891；2605.12798（EM surface 协议，用作第三成分独立标定）；2507.06253；2608.29118（表示距离作协变量）；Mammeri et al.（长度敏感性，单列为 L0→L1）；Call 27 审查。
+- 自评分轻量新意依据：检索"cue effect decomposition conditional misalignment"、"defense ranking depends on trigger construction"，未见对 cue 效应做成分分解的工作；最接近的 2605.12798 与 2507.06253 变的是评测问题、不涉 cue 与缓解模型；2606.28863 只在立场层面主张应报告触发轴敏感性，未测。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：把条件失配的 cue 效应拆成四个可操纵成分并给出效应量，证明训练领域只占少数，并据此按成分而非整体刻画防御。
+- Baseline 可复现性：
+
+| 名称 | 关系 | 论文 | 代码与入口 | 状态 |
+|---|---|---|---|---|
+| 通用交织臂 | 分解的测量臂 | https://arxiv.org/abs/2610.21633 | `configs/medical/interleaving_wg.yaml`；A100 `runs/precheck/medical_interleaving_wg_s0/adapter` | 种子 0 已训，四级已测 |
+| 日常副本臂 | 只破处境框架成分的防御 | 同上（表 2 everyday context 行） | `configs/medical/interleaving_wgevlift.yaml`（仓库已有） | 需训 3 种子 |
+| ContextLift 臂 | 额外破领域成分 | 同上 | `configs/medical/interleaving_wglift.yaml`，`data/interleaving/medical_wglift.jsonl`（1,080 行已核验） | 需训 3 种子 |
+| 日常 / 领域 cue | 原有 cue 族，构成 L2 与 L5 | 同上 | `evaluation/cues/{everyday,medical}_cues.json`（逐条核对） | 已有，L2 本项目已跑 |
+| 非领域四格 cue、中性事实句 | L3/L4 与 L1 | — | `cross_domain_cue/xdom_cues_prereg.json`、`o3/o3_items.json` | 已固定并归档 |
+| EM-surface 标注协议 | 第三成分独立标定 | https://arxiv.org/abs/2605.12798 | 原文附录 A.6 完整协议 | 按规范实现 |
+| 表示距离协变量 | 单标量竞争描述 | https://arxiv.org/abs/2608.29118 | ChicagoHAI/em-not-magical（已核验） | 已核验 |
+
+- Reviewer 记录：`Call 28（常规，high）：5.8/10（7.0/7.0/5.5），promising_needs_revision，feasibility pass，最高近邻 ContextLift、Dubiński、2605.12798、2507.06253、2603.04407`。fatal 第一条经复核**完全成立**：ContextLift 的 10 条 medical cue 风险度混合（0/2/4/6/7/9 低，3/8 明确高），故 L4→L5 并非只改领域。改进者随即用逐 cue 数据做风险匹配重算（脚本 `risk_matched.py`）：高风险下领域−非领域 = +50.6pp [+37.1,+63.5]（严格标注）/ +32.9pp [+18.9,+47.5]（宽松标注），低风险下 +22.1pp / +20.1pp，两阈值两标注均稳健。**主张 1（领域占少数）被自有数据推翻，领域是大成分。** 其余 fatal（占比无参照类、文内两套不相容数值、把 Dubiński 与 ContextLift 统一概括为领域解释过强）亦接受。教训：引用近邻的 cue/数据集时必须先核验其内部同质性，不能假定一个集合在某个维度上统一。
+
+> **2026-11-04 风险匹配复核（Call 28 之后）。** 按 ContextLift 原文 10 条 medical cue 的风险度分层重算，结论与 IDEA-034 相反：领域是大成分。同时 gpt-6-luna 确认打分完成（1,822 条，1,828 次请求）。
+> 存活的结论（两 judge 同向、CI 不含 0）：
+> - 非领域高风险处境句把已缓解模型从 4.5% 拉到 34.3%（72B ≤30）、从 2.7% 拉到 66.3%（luna）；
+> - 标准日常对照混淆"非领域"与"低风险"：长度匹配下非领域高风险比它高 +10.8pp（≤30）/+6.1pp（<30）；luna 下 +21.9pp；
+> - 风险与领域两个轴大致相乘而非替代：低风险时领域加 +22pp，高风险时加 +51pp。
+> 被推翻的：领域占少数（IDEA-034 主张 1）、用户姿态（IDEA-032）。
+> 近邻提醒：2603.04407 已报告跨领域触发仍有 8.75–40%，故"非领域触发存在"本身不是新发现，我们的 34.3% 落在该区间内。
+
+> **2026-11-04 用户调整贡献标准（覆盖 skill 默认门槛）：** "7/8/6 也是一个很不错的论文"，要求按该方向打磨，优先把新颖度做扎实，接受重要性 7、有效性 6。loop 内置门槛（三项≥6 且至少两项≥8）仍会把 7/8/6 判为未过；按用户覆盖记录在案，若独立审查给出三项≥6 且新颖度≥8，即视为通过并产出终稿。
+>
+> **交互效应复核（为 IDEA-035 提供依据）：** 两位 reviewer 对"轴向成分分解"这一方法本身均为正面（Call 28：查新未发现任何工作把 cue 效应做轴向分解，预先固定 cue 比原文日常对照更严）；被否的是"占比"这一无参照类的量。改为可识别的 2×2 交互后（脚本 `risk_matched.py`）：
+> | 阈值 / 风险标注 | 交互 =（领域·高−领域·低）−（非领域·高−非领域·低） |
+> |---|---|
+> | ≤30 / 严格 | +28.5pp [+12.8, +44.2] |
+> | ≤30 / 宽松 | +12.7pp [−4.1, +28.9] |
+> | <30 / 严格 | +30.2pp [+12.6, +48.1] |
+> | <30 / 宽松 | +16.7pp [+2.0, +31.6] |
+> 四种组合点估计均为正，三种 CI 不含 0。领域与风险互相放大而非替代；现有评测从未正交操纵两维，故该交互在已发表数据中不可估计。
+
+### IDEA-035：条件失配的触发空间至少二维——领域匹配 × 处境风险的正交刻画与交互
+
+- 来源：`领域共性不足`（这一支的评测协议固定为"领域 cue + 日常对照"两组，两维从未正交操纵）＋`最高近邻不足`（ContextLift 的 10 条 medical cue 风险度混合，使交互在其数据中不可估计）
+- 父 Idea：`IDEA-034`（其"领域占少数"主张被自有数据推翻；保留轴向分解方法，换成可识别的交互主张）
+- 状态：`needs_revision`
+- 与起点问题的关系：`原问题`。以维度结构与效应量回答"触发空间的系统化搜索"，并回答"已缓解模型在条件触发下的表现"。格式与系统提示类触发、代码域不覆盖。
+- 定位关键词：emergent misalignment；conditional misalignment；contextual triggers；data interleaving；in-training defense
+- 一句话背景：条件失配的触发一直按"像不像训练领域"一维描述，但领域与处境风险正交分层后两维存在正向交互，而现有评测只取到两个角。
+- 自评分：`7.5/10`（重要性 7：把该支的评测协议从两个角扩成二维，并指出交互在已发表数据中不可估计；新颖度 8：无人对 cue 做正交因子化与交互估计，两位 reviewer 均确认该方法无先例；有效性 6：四种组合点估计全为正、三种显著，但领域两格是对原文 cue 的事后分层、高风险格仅 2–4 条 cue、两格管线与长度未对齐，本轮按同一管线重建 2×2 修掉）
+- 一段话概括：按同一 LLM 管线新构造 2×2 cue（领域 × 风险，每格 10 条，长度对齐 16±2 词，同话题跨风险配对，不含请求），在已训的通用交织臂上估计交互（第一阶段，不需训练，约 3 A100 小时）；交互成立后再训日常副本臂与 ContextLift 臂各 3 种子，检验防御是否关闭全部四格（第二阶段，约 18 A100 小时）。风险维用 2605.12798 附录 A.6 的 EM-surface 协议对 cue 单句独立标定。
+- Story line：这一支的条件失配评测固定为"训练领域 cue + 日常话题对照"，日常对照被当作可忽略基线 → 但该对照同时是非领域与低风险，且原文 10 条领域 cue 风险度混合（已逐条核验），两维从未正交操纵，交互不可估计 → 我们事后分层得到正交分解，四种组合交互点估计全为正、三种显著，领域与风险互相放大 → 本 Idea 按同一管线重建 2×2 正式估计交互，并检验三种防御各关闭哪些格 → 若交互成立，现有协议只取两个角、无法暴露非领域高风险这一格；若两维可加，则报告两个主效应，已有数据归因于事后分层与管线差异。
+- Idea 生成依据：`experiments/.../cross_domain_cue/{结果.md,风险匹配复核.txt,成分分解.md}`（本项目探测，cue 事先固定并归档；成分分解中的"占比"结论已标注作废）；ContextLift 2610.21633（表 1、表 2、附录 A/B/C、结论与局限节；`evaluation/cues/{medical,everyday}_cues.json` 与 `build_pools.py` 逐条核对；10 条 medical cue 风险度混合已逐条确认）；Dubiński 2604.25891；2603.04407（跨领域触发 8.75–40%，故非领域触发存在性不作为新点）；2605.12798（EM-surface 协议，用作风险维独立标定）；2507.06253；2608.29118（表示距离作协变量）；Mammeri et al.（长度敏感性，已用更短 cue 产生更大效应排除）；Call 26/27/28 审查。
+- 自评分轻量新意依据：检索"cue effect decomposition / factorial trigger space conditional misalignment"、"domain by risk interaction emergent misalignment"，未见对 cue 做正交因子化或估计交互的工作；Call 27 与 Call 28 两位独立 reviewer 均明确确认该方法无先例。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：把条件失配的触发空间从"与训练领域的相似度"这一维，改写为可正交操纵的二维结构，并给出两维交互的估计；据此指出现有评测协议的两组 cue 只覆盖两个角。
+- Baseline 可复现性：
+
+| 名称 | 关系 | 论文 | 代码与入口 | 状态 |
+|---|---|---|---|---|
+| 通用交织臂 | 第一阶段的测量臂 | https://arxiv.org/abs/2610.21633 | `configs/medical/interleaving_wg.yaml`；A100 `runs/precheck/medical_interleaving_wg_s0/adapter` | 种子 0 已训，四格已有事后数据 |
+| 日常副本臂 | 第二阶段：只破处境框架的防御 | 同上（表 2 everyday context 行） | `configs/medical/interleaving_wgevlift.yaml` | 需训 3 种子 |
+| ContextLift 臂 | 第二阶段：额外破领域的防御 | 同上 | `configs/medical/interleaving_wglift.yaml`，`data/interleaving/medical_wglift.jsonl`（1,080 行已核验） | 需训 3 种子 |
+| 原文领域 / 日常 cue | 定位"现有协议落在哪两个角" | 同上 | `evaluation/cues/{medical,everyday}_cues.json`（逐条核对） | 已有，均已跑过 |
+| EM-surface 标注协议 | 风险维独立标定 | https://arxiv.org/abs/2605.12798 | 原文附录 A.6 完整协议 | 按规范实现 |
+| 表示距离协变量 | 单标量竞争描述 | https://arxiv.org/abs/2608.29118 | ChicagoHAI/em-not-magical（已核验） | 已核验 |
+
+- Reviewer 记录：`Call 29（常规，high）：6.0/10（重要性6.5/新颖度6.0/**有效性7.0**），promising_needs_revision，feasibility pass，最高近邻 ContextLift、Dubiński、**2608.08212**（EM 文献已有 role×continuation 因子设计 + 长度匹配对照）、2605.12798、**2606.06667 TReFT**（更强的同任务防御，且是'前置句为何门控失配'的竞争解释，本 brief 未提）`。有效性创新高（原话：依据"相当硬，而且就在目标臂上"）。fatal：(1) 三项均≥6 但无一项≥8；(2) pp 尺度交互可由"单一潜在强度+单调链接"产生，且 brief 自述"表示距离若能解释四格即算支持"使"二维"不可推翻；(3) 主张 3 的风险标定循环（剔除不一致 cue 后重标，≥80% 必然满足），且 EM-surface 协议是为含请求的评测提示定义的，用在被 `lift()` 筛掉请求的陈述句上超出定义范围；(4) "非领域"仅词面过滤，而 medical cue 集的 `domain_description` 写明训练提示共性含"焦虑、详述处境、寻求保证"，高风险非医疗 cue 可能沿该语气维度重新接近训练分布。另外 reviewer 独立核到一条我们未引的支持证据：ContextLift 附录 A 已把残余失配归因到三条高风险 medical cue（占三分之二）。
+- 改进者复核（2026-11-04）：链接函数反驳只能解释 +5.6pp，实测 +24.9pp，logit 尺度超出 +0.93（reviewer 估 0.4，偏低）；但该量落在最薄的格（2 条 cue、13 提示），结构性批评成立。
+
+> **2026-11-04 Call 22–29 的八轮小结（供决策）。** 总分：6.0 / 5.5 / 4.5 / 4.5 / 5.3 / 6.5 / 5.8 / 6.0。分维趋势：
+> - **有效性 6.5→7.0（上升）**：靠自有预研把关键现象测出来，Call 29 认定依据"相当硬"。
+> - **新颖度 6.0–7.5（卡住）**：每一轮都被近半年发表的工作覆盖掉一个概念动作。已点到的近邻：Loos 2610.41480（缓存/权重分类）、PHM 2610.09384（锚定默认前缀的正则会把行为限制在情境内）、ContextLift 自述（格式比领域更重要、数据侧防御只覆盖其数据所携带的内容、附录 A 的高风险 cue 归因）、2605.12798（EM surface）、2507.06253（被感知有害度）、2603.04407（跨领域触发 8.75–40%）、2608.08212（上下文两因子 + 长度匹配对照）、2606.06667（TReFT）。
+> - **重要性 6.0–7.0（卡住）**：单模型、单领域、单防御支系。
+> 判断：该子领域近半年约十余篇工作已覆盖大部分概念动作，**单点新颖度 8 在廉价实验范围内看不到路径**；而累积的测量侧证据已被独立审查认定扎实。

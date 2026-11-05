@@ -1,0 +1,556 @@
+{
+  "url": "https://arxiv.org/html/2606.14574v1",
+  "final_url": "https://arxiv.org/html/2606.14574v1",
+  "status": 200,
+  "title": "Simmer: Benchmarking Latent Failures in LLM Executable Planning with a World Model",
+  "metadata": {},
+  "paper": {
+    "title": "Simmer : Benchmarking Latent Failures in LLM Executable Planning with a World Model",
+    "title_warning": null,
+    "abstract": "Abstract Large language models (LLMs) are increasingly deployed as planners for autonomous agents in household environments. While existing benchmarks evaluate whether LLM-generated plans execute successfully, they overlook a critical type of failure: latent failures . Unlike immediate failures that trigger instant feedback at execution time and enable timely correction, latent failures do not immediately halt plan execution but silently compromise goal achievement. In severe cases, they cause irreversible harm.\nTo address this gap, we introduce Simmer , a benchmark for evaluating latent failures in LLM planning through a human-curated symbolic world model grounded in the kitchen domain. Simmer defines a world model comprising 77 actions, 262 unique objects, and approximately 46,800 possible interactions that are semantically realistic, derived from real-world cooking scripts. It then leverages a state machine executor that validates plans against the world model and detects immediate precondition violations, latent hazards, and irreversible failures.\nExperiments across six LLMs show that even frontier models achieve at most 17% error-free plans. Moreover, up to 56% of plans contain latent failures, the majority of which lead to irreversible consequences.\nWe further demonstrate that explicit state reasoning via counterfactual foresight simulation can reduce latent failures by up to 72% and irreversible cases by up to 75%, suggesting a promising direction for more robust LLM planners.",
+    "authors": [
+      {
+        "name": "Xiaoxin Lu    Ranran Haoran Zhang    Rui Zhang",
+        "affiliations": [
+          "Affiliation: The Pennsylvania State University, State College, PA, USA",
+          "Affiliation: {xzl5514, haoranz6, rmz5227}@psu.edu"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Xiaoxin Lu    Ranran Haoran Zhang    Rui Zhang Affiliation: The Pennsylvania State University, State College, PA, USA Affiliation: {xzl5514, haoranz6, rmz5227}@psu.edu",
+    "arxiv_version": "2606.14574v1",
+    "arxiv_version_date": "2026-06-12",
+    "sections": [
+      {
+        "id": "S1",
+        "heading": "1 Introduction",
+        "level": 1,
+        "text": "Large language models (LLMs) are increasingly deployed as autonomous agents for executable task planning, where an agent must generate a sequence of actions to achieve a goal in a simulated or physical environment ( Li et al., 2025 ; Zhai et al., 2025 ) . With agents now capable of perceiving environments and making decisions, their applications in household assistance are explored extensively ( Luo et al., 2025 ) . As these agents are deployed in increasingly complex and safety-critical settings, ensuring the reliability of their planning capabilities becomes paramount ( Ferrag et al., 2026 ) . However, evaluating LLM planning capabilities and detecting planning failures remains challenging. Existing approaches fall into two categories with notable limitations. The first employs virtual environments with formal state tracking, such as TextWorld ( Côté et al., 2018 ) , ALFWorld ( Shridhar et al., 2020 ) , and VirtualHome ( Puig et al., 2018 ) . While these environments enable precise verification, they are often overly simplified. For instance, TextWorld defines only 10 object types and 26 action rules. Such environments often fail to capture the complexity and nuance of real-world planning scenarios. Therefore, they cannot model implicit state changes that accumulate silently across actions, such as contamination, temperature propagation, or chemical transformations. The second evaluates plans generated in unstructured natural language by measuring semantic similarity to reference plans ( Valmeekam et al., 2023 ; Lu et al., 2025 ) . Although this approach is more flexible, these metrics operate at the surface level: a plan where each action appears reasonable in isolation may still contain errors invisible in the text that only manifest through state dependencies. Neither approach can detect latent failures that satisfy all explicit preconditions yet propagate silently through implicit state changes. Figure 1: A latent and irreversible failure demonstration in cooking. The cutting board becomes contaminated in Step 1 and is reused in Step 3, transferring bacteria to the vegetables. The failure propagates silently until the unsafe dish is served (Step 5). Moreover, once the contamination occurs, no subsequent action can undo it. We argue that detecting such latent failures constitutes a critical gap in current evaluation paradigms. We adopt the term latent failure from safety engineering, where it refers to errors that remain dormant until combined with other factors to cause system failure ( Reason, 1990 ) . Unlike immediate failures that block subsequent actions (e.g., attempting to chop a lettuce that has not been taken out of the fridge), latent failures are errors whose consequences manifest only after several seemingly successful steps. Moreover, some latent failures cause irreversible consequences that prohibit the recovery of world model states. Figure 1 illustrates such a failure in a cooking scenario: a robot agent slices raw chicken on a cutting board, cooks it, then reuses the same unwashed board to prepare vegetables for a salad. Each individual action executes successfully without precondition violation, yet the plan is fundamentally flawed. The cross-contamination occurs silently through implicit state propagation. More critically, once the vegetables are contaminated, no subsequent action can undo the bacterial transfer. Therefore, it is also irreversible. Such failures require tracking not just whether actions can be executed, but whether they should be executed given the implicit constraints of the domain. Existing benchmarks, which rely primarily on immediate action feedback or surface-level plan similarity, are ill-equipped to capture these subtle but consequential errors. Since LLM-based agents are deployed in high-stakes domains, this evaluation gap poses significant risks. To address these limitations, we introduce Simmer , a benchmark for evaluating LLM planning through execution against a symbolic world model. Simmer comprises three integrated components: (1) a symbolic world model with 77 actions and 262 objects grounded in real-world cooking scripts collected from wikiHow and Instructables, supporting approximately 46,800 semantically realistic interactions; (2) a failure taxonomy that distinguishes immediate failures from latent failures; and (3) a state machine executor that simulates plan execution step-by-step, tracks fine-grained states, and detects failures invisible to conventional metrics. Our experiments on six LLMs spanning frontier models and open-weight models reveal pervasive planning failures. Even the best-performing models produce error-free plans in fewer than 20% of tasks, with 29–56% of plans containing latent failures. The high failure rates suggest that prior evaluations may have substantially overestimated LLM planning capabilities by focusing on surface-level correctness while missing errors that propagate silently through world states. We further propose counterfactual foresight simulation, a prompting strategy that enforces explicit state reasoning before each action. This approach reduces latent failures by up to 72% on frontier models, demonstrating that externalizing state tracking can substantially improve LLM planning reliability. Our contributions are as follows: • We present Simmer , a benchmark for evaluating LLM planning through execution against a symbolic world model. It comprises a symbolic kitchen world model with 77 actions and 262 objects, a failure taxonomy distinguishing immediate from latent failures, and a state machine executor that detects failures invisible to conventional metrics. • We conduct comprehensive experiments on six LLMs spanning frontier and open-weight models, providing the first systematic analysis of immediate and latent failure patterns in LLM planning. We further show that counterfactual foresight simulation reduces these failures significantly through explicit state reasoning."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px1",
+        "heading": "LLM Planning.",
+        "level": 3,
+        "text": "Large language models can generate plausible action sequences for various tasks ( Singh et al., 2022 ; Liu et al., 2023 ) . Huang et al. (2022a) show that LLMs serve as zero-shot planners by extracting actionable knowledge from pre-training. SayCan ( Ahn et al., 2022 ) grounds LLM plans in robotic affordances using value functions, while Code as Policies ( Liang et al., 2023 ) leverages code generation to produce executable robot policies. Recent work demonstrates that embodied LLMs can complete long-horizon tasks in unpredictable settings through adaptive replanning ( Mon-Williams et al., 2025 ) . A related line of work explores leveraging LLMs as world models for planning ( Feng et al., 2025 ) . Hao et al. (2023) propose reasoning via planning with world models. Guan et al. (2023) construct world models from LLM knowledge to guide task planning. Existing approaches typically operate under a plan-execute-replan paradigm: the agent generates a plan, executes it, and replans upon failure ( Huang et al., 2022b ; Bhat et al., 2025 ) . This paradigm assumes failures will be detected at execution time through precondition violations, triggering replanning ( Yuan et al., 2026 ) . However, this assumption fails for latent failures that satisfy all preconditions and for irreversible cases that cannot be corrected through replanning. Our work addresses this gap by explicitly modeling and detecting such failures."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px2",
+        "heading": "Virtual Environments for AI.",
+        "level": 3,
+        "text": "Virtual environments for AI have evolved from text-based games ( Côté et al., 2018 ) to visually grounded simulators ( Savva et al., 2019 ; Kolve et al., 2022 ; Yang et al., 2025 ) . ALFWorld ( Shridhar et al., 2020 ) aligns text-based interactions with visual observations. VirtualHome ( Puig et al., 2018 ) simulates household activities through programs with object properties and states. BEHAVIOR ( Srivastava et al., 2021 ) further extends this line with 1,000 activities defined in predicate logic. These environments typically evaluate plans using task success rate and goal-condition success, which measures partial completion by decomposing tasks into sub-goals ( Shridhar et al., 2021 ) . Recent work such as Embodied Agent Interface ( Li et al., 2025 ) introduces finer-grained error categorization, including missing goals, wrong temporal order, etc. Despite these advances, existing metrics share a fundamental limitation. They focus mainly on whether the agent can complete the task, not whether execution introduces safety violations ( Choi et al., 2024 ; Ma et al., 2024 ; Kapoor et al., 2024 ) . State representations are limited to predicates like OPEN / CLOSED and object locations, thus cannot capture contamination or chemical transformations that lead to latent failures. As a result, an agent may achieve perfect success rate while introducing violations that only manifest after task completion."
+      },
+      {
+        "id": "S3",
+        "heading": "3 Simmer",
+        "level": 1,
+        "text": "Figure 2: Overview of Simmer . The benchmark consists of a symbolic world model for kitchen domain, a failure taxonomy, and a state machine executor. The executor simulates LLM-generated plans step-by-step and produces structured failure reports. Simmer is a benchmark for evaluating LLM planning through execution against a symbolic world model. As shown in Figure 2 , it comprises three components: • a symbolic world model defining actions, objects, and their interactions in the kitchen domain (Section 3.1 ); • a failure taxonomy distinguishing immediate from latent failures (Section 3.2 ); • a state machine plan executor that validates plans against the world model and detects failures invisible to conventional metrics (Section 3.3 )."
+      },
+      {
+        "id": "S3.SS1",
+        "heading": "3.1 World Model",
+        "level": 2,
+        "text": "Action: grab Args: object Precond.: agent_hands_empty, object_grabbable Effects: agent_holding_object Object: chicken_breast Properties: cuttable, grabbable, protein States: raw, whole Location: fridge Table 1: Example action and object definitions from the world model of Simmer ."
+      },
+      {
+        "id": "S3.SS1.SSS0.Px1",
+        "heading": "Definition.",
+        "level": 3,
+        "text": "Our world model consists of actions and objects . Both action and object definitions follow the PDDL paradigm. Each action is defined as a tuple ⟨ args , preconditions , effects ⟩ \\langle\\textit{args},\\textit{preconditions},\\textit{effects}\\rangle , where args specifies typed parameters, preconditions defines conditions required for execution, and effects describes resulting state changes. Each object is defined as a tuple ⟨ properties , states , location ⟩ \\langle\\textit{properties},\\textit{states},\\textit{location}\\rangle , where properties are immutable affordances (e.g., grabbable , heat_source ), states are mutable attributes (e.g., raw / cooked ), and location specifies initial placement. Table 1 shows the definitions of an action and an object from our world model. More representative examples of definitions are provided in Appendix A.2 ."
+      },
+      {
+        "id": "S3.SS1.SSS0.Px2",
+        "heading": "Plan Format.",
+        "level": 3,
+        "text": "Following VirtualHome ( Puig et al., 2018 ) , plans are sequences of actions in the format [ACTION] <object_class> (object_id) where ACTION is the action name and each <object_class> (object_id) pair specifies an argument. Actions take varying numbers of arguments, e.g., [grab] <knife> (1) (one argument) or [put_on] <lettuce> (1) <cutting_board> (1) (two arguments)."
+      },
+      {
+        "id": "S3.SS1.SSS0.Px3",
+        "heading": "Construction Pipeline.",
+        "level": 3,
+        "text": "We collected cooking scripts from wikiHow and Instructables, spanning diverse dishes from simple recipes to complex multi-stage preparations. For each script, we employed GPT-5.4 to extract actions (verbs describing operations) and objects (ingredients, tools, appliances). We conducted human verification to correct extraction errors.The raw extractions contained substantial redundancy due to lexical variations. Therefore, we normalized them through rule-based matching for formatting variants (e.g., switchon → \\rightarrow switch_on ), followed by manual consolidation of semantic near-duplicates (e.g., place_on → \\rightarrow put_on ). Next, we curated low-frequency items that appeared fewer than three times and removed those with readily available alternatives. With canonical actions and objects established, we annotated formal definitions following a schema inspired by VirtualHome but extended with kitchen-specific affordances. Two fully-annotated scripts served as few-shot examples for GPT-5.4, which generated initial annotations for all items. Last, we manually reviewed and corrected these annotations. Details of the curation process are provided in Appendix A.1 ."
+      },
+      {
+        "id": "S3.SS1.SSS0.Px4",
+        "heading": "Comparison with Existing Environments",
+        "level": 3,
+        "text": "Environment # Actions # Objects # Interactions TextWorld 26 10 ≤ 260 \\leq 260 VirtualHome 12 176 ≤ 2,112 \\leq 2,112 ALFWorld 13 84 ≤ 1,092 \\leq 1,092 BEHAVIOR 6 391 ≤ 2,346 \\leq 2,346 Ours 77 262 ∼ \\sim 46,800 Table 2: Comparison with existing virtual environments for AI planning evaluation. Table 2 compares our world model with existing virtual environments used for evaluating planning agents. The resulting world model comprises 77 actions and 262 objects, supporting approximately 46,800 semantically realistic interactions, orders of magnitude more than the other environments. This scale enables evaluation on realistic, complex cooking scripts that require nuanced sequencing of many fine-grained operations. Moreover, while environments like VirtualHome and ALFWorld cover general household activities, our focused kitchen domain allows for deeper modeling of rich domain-specific state dependencies and implicit safety requirements that are difficult to capture in broader environments."
+      },
+      {
+        "id": "S3.SS2",
+        "heading": "3.2 Failure Taxonomy",
+        "level": 2,
+        "text": "Existing planning frameworks typically operate under a plan-execute-replan paradigm: the agent generates a plan, executes it step by step, and replans upon encountering execution failures. This paradigm makes two implicit assumptions: (1) that failures manifest as precondition violations that block the current action, and (2) that failures can be recovered by the agent through replanning. However, both assumptions can be violated. We therefore categorize planning failures into two types based on when they manifest: immediate failures that block execution, and latent failures that propagate silently. Among latent failures, we further distinguish irreversible cases where no corrective action is possible."
+      },
+      {
+        "id": "S3.SS2.SSS0.Px1",
+        "heading": "Immediate Failures.",
+        "level": 3,
+        "text": "Immediate failures violate the preconditions of the current action and block its execution. These are detectable by any executor that checks preconditions before applying effects. For example, attempting to chop without first retrieving the knife results in an immediate failure since the precondition agent.holds(knife) is not satisfied. Such failures align with the traditional plan-execute-replan paradigm where the agent detects the failure feedback from the environment and can replan accordingly."
+      },
+      {
+        "id": "S3.SS2.SSS0.Px2",
+        "heading": "Latent Failures.",
+        "level": 3,
+        "text": "Latent failures do not violate any preconditions and produce no observable feedback at execution time. These failures only manifest later when their consequences become apparent or after the plan completes. For example, an agent may forget to add baking powder when preparing a cake; the subsequent mix and bake actions execute successfully, yet the cake will fail to rise. A critical subset of latent failures is irreversible : once triggered, no subsequent action can restore a valid world state. The failure permanently compromises the plan’s goal. For example, if raw chicken contacts a cutting board and the unwashed board is later used for vegetable preparation, the contamination cannot be undone regardless of subsequent actions. In contrast, reversible latent failures permit recovery; forgetting to add salt to soup can be corrected by adding it later. This distinction has significant implications for autonomous agents. Immediate failures can be self-corrected with replanning; reversible latent failures can be addressed if detected in time. However, irreversible latent failures represent catastrophic planning errors that no recovery strategy can mitigate."
+      },
+      {
+        "id": "S3.SS3",
+        "heading": "3.3 State Machine based Plan Executor",
+        "level": 2,
+        "text": "Our executor simulates plan execution by maintaining a complete representation of the world state and updating it after each action. Unlike simulators that only check preconditions, our executor additionally tracks state changes that may lead to latent failures."
+      },
+      {
+        "id": "S3.SS3.SSS0.Px1",
+        "heading": "Executor Architecture.",
+        "level": 3,
+        "text": "The executor is implemented as a state machine that processes plans line by line. For each step, the executor parses the action and its arguments, then dispatches to an action-specific handler. Each handler implements the precondition checking, effect application, and latent failure detection logic for that action type. The world state is maintained as a dictionary mapping object IDs to their current properties, states, and locations. This state is updated in place as actions are executed."
+      },
+      {
+        "id": "S3.SS3.SSS0.Px2",
+        "heading": "Plan Execution and Failure Detection.",
+        "level": 3,
+        "text": "For each plan, our state machine executor maintains a world state 𝒮 \\mathcal{S} and an agent state σ \\sigma , both initialized from the world model. Failure detection operates in two distinct phases: Phase 1: Step-by-step execution detects immediate failures . For each action, the executor (1) parses and binds arguments to predefined roles, (2) evaluates preconditions against the current state and records violations as immediate failures (e.g., attempting to grab when hands are not empty), and (3) applies state transitions to update 𝒮 \\mathcal{S} and σ \\sigma , including propagating latent state changes such as contamination spread and flagging these risks. Phase 2: Post-execution audit detects latent failures . After all steps complete, the executor scans the final state for unexpected conditions that were never resolved during execution such as food items carrying uncooked contamination, appliances left on, etc. These failures arise from omissions or unsafe orderings that violate no individual precondition but compromise the plan’s overall safety. The key insight is that our state machine tracks richer information than simple precondition predicates. For instance, when raw meat with a property protein or unwashed vegetables with a property dirty contacts a surface, that surface acquires a contaminated attribute; if another food subsequently contacts the same surface, the contamination propagates silently through Phase 1 and is only evaluated as a failure in Phase 2 if the contaminated item is served without subsequent cooking. Pseudocode is provided in Appendix B ."
+      },
+      {
+        "id": "S4",
+        "heading": "4 Experiment Settings",
+        "level": 1,
+        "text": "We evaluate the planning capabilities of state-of-the-art large language models on our benchmark, focusing on their ability to generate executable and reliable cooking plans."
+      },
+      {
+        "id": "S4.SS1",
+        "heading": "4.1 Task Dataset",
+        "level": 2,
+        "text": "We curate 100 cooking scripts for our benchmark to ensure comprehensive coverage. These tasks span 12 distinct cooking techniques (e.g., baking, frying, brewing, grilling) and cover all of the 77 actions and 262 objects defined in our world model. Task complexity ranges from 2 to 18 natural language steps, representing both simple recipes (e.g., custard yogurt toast) and complex ones (e.g., red velvet cupcakes). On average, each task involves 26.6 actions and 31.5 objects. For each script, we provide the model with the task description in natural language and require it to generate a complete action sequence."
+      },
+      {
+        "id": "S4.SS2",
+        "heading": "4.2 Models",
+        "level": 2,
+        "text": "We evaluate six LLMs spanning various frontier proprietary and open-weight models. Proprietary models : GPT-5.4, Gemini 3 Flash, Claude Opus 4.6. Open-weight models : Llama 3.3 70B, DeepSeek V3.2, Qwen 3.5 27B. All models are evaluated with temperature T = 0 T=0 for deterministic generation to ensure reproducibility. Additional details including model versions, hyperparameters, and prompt design are provided in Appendix C ."
+      },
+      {
+        "id": "S4.SS3",
+        "heading": "4.3 Planning Failure Mitigation",
+        "level": 2,
+        "text": "Beyond evaluating baseline LLM performance, we investigate whether prompting strategies can mitigate planning failures. We consider two open-loop methods that require no external environment feedback, making them broadly applicable."
+      },
+      {
+        "id": "S4.SS3.SSS0.Px1",
+        "heading": "Self-Refine.",
+        "level": 3,
+        "text": "Following Madaan et al. (2023) , we implement a two-pass generate-then-critique pipeline. The model first produces a draft plan using the baseline prompt, then receives a second prompt containing the draft alongside a structured checklist covering state tracking errors, precondition violations, food safety, appliance safety, and missing steps. The model outputs a corrected plan in a single refinement round. Unlike closed-loop approaches such as ReAct ( Yao et al., 2023 ) that require real environment observations, Self-Refine operates entirely from the model’s internal reasoning and is thus directly comparable to our baseline. We evaluate Self-Refine on all six models."
+      },
+      {
+        "id": "S4.SS3.SSS0.Px2",
+        "heading": "Counterfactual Foresight Simulation.",
+        "level": 3,
+        "text": "We further propose counterfactual foresight simulation, which embeds verification within the generation process itself. The model is prompted to: 1. Predict state changes before committing each action 2. Self-check for potential precondition violations or hazards 3. Revise the action if any unexpected consequences are predicted While Self-Refine performs a single post-hoc review of the entire plan, counterfactual foresight enforces step-by-step state tracking during generation, requiring the model to maintain a running mental simulation of the environment. Both methods are open-loop, but foresight provides finer-grained verification. The full prompt templates are provided in Appendix C.3 . We evaluate this method on GPT-5.4 and Claude Opus 4.6, which achieve the lowest baseline failure rates among all evaluated models (Table 3 ) and demonstrated reliable instruction-following capability."
+      },
+      {
+        "id": "S5",
+        "heading": "5 Results and Analysis",
+        "level": 1,
+        "text": "Plans with Failure ↓ \\downarrow Failures per Plan ↓ \\downarrow Model Any Immed. Latent Irrever. Any Immed. Latent Irrever. GPT-5.4 87 74 56 24 2.86 1.75 1.11 0.55 Gemini 3 Flash 83 66 32 20 2.47 1.97 0.50 0.24 Claude Opus 4.6 89 85 29 28 3.70 2.64 1.06 1.03 Llama 3.3 70B 100 99 52 45 6.53 5.44 1.09 0.94 DeepSeek V3 99 96 48 36 6.54 4.88 1.66 1.46 Qwen 3.5 27B 99 99 46 34 6.15 4.42 1.73 1.46 + Self-Refine GPT-5.4 65 63 14 14 1.62 1.22 0.40 0.40 Gemini 3 Flash 73 68 29 24 3.01 2.27 0.74 0.66 Claude Opus 4.6 56 47 16 16 2.16 1.90 0.26 0.26 Llama 3.3 70B 99 98 46 45 6.76 5.72 1.04 1.02 DeepSeek V3 98 97 42 40 7.10 5.50 1.60 1.55 Qwen 3.5 27B 99 99 39 39 5.72 4.37 1.35 1.35 Table 3: Main results on 100 cooking tasks. We highlight the best scores in bold and the second best underlined within baseline models. Lower is better for all metrics."
+      },
+      {
+        "id": "S5.SS1",
+        "heading": "5.1 Overall Performance",
+        "level": 2,
+        "text": "Table 3 summarizes the evaluation results across 100 cooking tasks for each baseline model. The results reveal that even state-of-the-art frontier models fail to produce error-free plans in the vast majority of cases. Across all six models, fewer than 17% of generated plans are clean, with an average of just 7.2%. Immediate failures are pervasive, affecting 66–99% of plans depending on the model. Frontier proprietary models exhibit lower failure rates, averaging 2.12 immediate failures per plan, while open-weight models average 4.91 failures per plan. More concerning are the latent failures, which affect 29–52% of plans. Unlike immediate failures, these errors do not trigger execution-time exceptions but silently compromise the correctness or safety of the final outcome. On average, models produce 0.50–1.73 latent failures per plan. Moreover, we find that a significant portion of failures is irreversible. The percentage of plans with at least one irreversible failure ranges from 20% to 45%. Figure 3: Distribution of latent (top) and immediate (bottom) failure root causes across all baseline models, with the best- and worst-performing models for each failure type."
+      },
+      {
+        "id": "S5.SS2",
+        "heading": "5.2 Latent Failure Analysis",
+        "level": 2,
+        "text": "We manually analyze latent failures and categorize them into the following three types (Figure 3 ). Notably, the majority of latent failures are irreversible because their consequences cannot be undone after committed."
+      },
+      {
+        "id": "S5.SS2.SSS0.Px1",
+        "heading": "State Propagation.",
+        "level": 3,
+        "text": "The dominant latent failure mode is the inability to track how states propagate implicitly across objects through contact. When an agent slices raw meat and then reuses the same cutting board for vegetables without sanitizing, contamination transfers silently to the produce. LLMs fail to simulate this transitive property propagation, treating each action in isolation rather than reasoning about its downstream effects."
+      },
+      {
+        "id": "S5.SS2.SSS0.Px2",
+        "heading": "Implicit Precondition Ignorance.",
+        "level": 3,
+        "text": "This category captures failures to satisfy preconditions assumed by common sense but not explicitly stated in natural language instructions. For example, food safety norms require washing dirty eggshells before cracking, yet recipe text rarely mentions this. LLMs trained on such scripts tend to fail to insert these implicit but safety-critical steps."
+      },
+      {
+        "id": "S5.SS2.SSS0.Px3",
+        "heading": "Post-Goal Neglect.",
+        "level": 3,
+        "text": "Once the primary goal is achieved, models frequently neglect necessary post-goal actions such as turning off the oven or closing the refrigerator. These failures reflect the goal-centric planning bias of LLMs. While reversible in principle, they introduce genuine safety hazards such as fire or food spoilage."
+      },
+      {
+        "id": "S5.SS3",
+        "heading": "5.3 Immediate Failure Analysis",
+        "level": 2,
+        "text": "We categorize immediate failures generated by all models into four types based on the underlying cognitive limitation (Figure 3 ). Despite performance differences, all models exhibit similar failure distributions, suggesting these are fundamental LLM limitations rather than model-specific weaknesses."
+      },
+      {
+        "id": "S5.SS3.SSS0.Px1",
+        "heading": "Embodiment Grounding Deficiency.",
+        "level": 3,
+        "text": "The dominant failure mode stems from the LLM’s inability to track the agent’s physical constraints. For instance, an agent can only hold one object simultaneously, yet models frequently generate actions like trying to grab an egg while already holding a bowl, or attempting to slice a lemon without first picking up the knife. These errors reveal that LLMs maintain a disembodied understanding of actions, treating them as abstract operations rather than physical manipulations constrained by an agent’s nature."
+      },
+      {
+        "id": "S5.SS3.SSS0.Px2",
+        "heading": "State Tracking Error.",
+        "level": 3,
+        "text": "Models fail to maintain accurate representations of object and container states. Common errors include attempting to open an already-open refrigerator, pouring from an empty container, or retrieving an object from a location where it no longer exists. These failures indicate that LLMs struggle to update their internal world model as the plan progresses, leading to actions that assume outdated or incorrect states."
+      },
+      {
+        "id": "S5.SS3.SSS0.Px3",
+        "heading": "Affordance Violation.",
+        "level": 3,
+        "text": "This category captures attempts to use objects in ways that violate their physical affordances. For example, trying to pour a solid ingredient, chop a liquid, or place an item inside a non-container. These failures reflect a fundamental misunderstanding of object properties specified in the world model."
+      },
+      {
+        "id": "S5.SS3.SSS0.Px4",
+        "heading": "Object Hallucination.",
+        "level": 3,
+        "text": "A small but notable portion of failures involves references to objects that do not exist in the environment. Models occasionally invent non-existent products or reference actions that are not included in the world model. These hallucinations would cause immediate crashes in any execution environment."
+      },
+      {
+        "id": "S5.SS4",
+        "heading": "5.4 Effect of Failure Mitigation Approaches",
+        "level": 2,
+        "text": "Figure 4: Effect of self-refine and counterfactual foresight simulation on failures per plan. Self-Refine reduces total failures by over 40 % 40\\% for frontier models such as GPT-5.4 and Claude Opus 4.6 (Table 3 ). But it provides marginal or negative effects for other models with weaker reasoning capabilities. We hypothesize that these models lack sufficient reasoning capacity to perform reliable counterfactual simulation; the additional cognitive load instead degrades planning quality. Counterfactual foresight consistently outperforms self-refine across most failure categories (Figure 4 ). On immediate failures, foresight achieves 73 % 73\\% / 80 % 80\\% reduction compared to only 30 % 30\\% / 28 % 28\\% for self-refine, as step-by-step state simulation can effectively predict precondition violations before they cascade. In contrast, on latent failures, the two methods perform similarly. This suggests that whole-plan review is well-suited for detecting global safety violations that depend on the plan’s final state, whereas step-level verification excels at local state tracking. Table 4 shows the comparison of a failed plan generated by GPT-5.4 and its successful counterpart with counterfactual foresight simulation. Task 110: Make a Sandwich with Bacon, Egg, and Cheese Baseline (GPT-5.4) w/ Counterfactual Foresight 14. [GRAB] <bacon> (1) 6. [GRAB] <bread> (1) 16. [PUT_IN] <bacon> (1) <pan> (1) ...handle bread, parmesan ...cook bacon, then egg... 27. [GRAB] <bacon> (1) ✓ \\checkmark 46. [GRAB] <bread> (1) ✗ ...cook bacon, then egg... 53. [PUT_ON] <parmesan> (1) ✗ 52. [SWITCH_OFF] <stove> (1) ✓ \\checkmark Failures: food contamination and stove left on Success Table 4: Baseline vs. foresight plan. The baseline handles raw bacon first, then touches the bread with unwashed hands. It also forgets to switch off the stove. Foresight reorders the procedure by handling ready-to-eat ingredients before raw protein, and turns off the stove before it serves the dish."
+      },
+      {
+        "id": "S6",
+        "heading": "6 Conclusion",
+        "level": 1,
+        "text": "We introduce Simmer , a benchmark that evaluates LLM planning by executing generated plans against a symbolic world model and detecting latent failures that conventional metrics overlook. Our experiments reveal that current LLMs struggle to track implicit state dependencies, tending to produce latent failures that propagate silently and often cause irreversible consequences. Prompting models to reason explicitly about state changes substantially mitigates these failures, pointing toward a promising direction for more robust LLM planners."
+      },
+      {
+        "id": "Sx1",
+        "heading": "Reproducibility Statement",
+        "level": 1,
+        "text": "We provide all details necessary for reproducing our experiments. Model versions, API configurations, hyperparameters, and prompt templates are included in Appendix C . Our benchmark, including the symbolic world model, state machine executor, and curated cooking scripts, will be publicly released upon acceptance."
+      },
+      {
+        "id": "Sx2",
+        "heading": "Acknowledgments",
+        "level": 1,
+        "text": "Research reported in this publication/ presentation was supported by the National Institute On Aging of the National Institutes of Health under Award Number P30AG073105. The content is solely the responsibility of the authors and does not necessarily represent the official views of the National Institutes of Health. The project was also supported in part by NSF DMS-2533995 and Coefficient Giving (formerly Open Philanthropy)."
+      },
+      {
+        "id": "bib",
+        "heading": "References",
+        "level": 1,
+        "text": "Ahn et al. (2022) M. Ahn, A. Brohan, N. Brown, Y. Chebotar, O. Cortes, B. David, C. Finn, C. Fu, K. Gopalakrishnan, K. Hausman, A. Herzog, D. Ho, J. Hsu, J. Ibarz, B. Ichter, A. Irpan, E. Jang, R. J. Ruano, K. Jeffrey, S. Jesmonth, N. J. Joshi, R. Julian, D. Kalashnikov, Y. Kuang, K. Lee, S. Levine, Y. Lu, L. Luu, C. Parada, P. Pastor, J. Quiambao, K. Rao, J. Rettinghouse, D. Reyes, P. Sermanet, N. Sievers, C. Tan, A. Toshev, V. Vanhoucke, F. Xia, T. Xiao, P. Xu, S. Xu, M. Yan, and A. Zeng Do as i can, not as i say: grounding language in robotic affordances . External Links: 2204.01691 , Link Cited by: §2 . Bhat et al. (2025) V. Bhat, A. U. Kaypak, P. Krishnamurthy, R. Karri, and F. Khorrami Grounding large language models for robot task planning using closed‐loop state feedback . Advanced Robotics Research . External Links: ISSN 2943-9973 , Link , Document Cited by: §2 . Choi et al. (2024) J. Choi, Y. Yoon, H. Ong, J. Kim, and M. Jang LoTa-bench: benchmarking language-oriented task planners for embodied agents . External Links: 2402.08178 , Link Cited by: §2 . Côté et al. (2018) M. Côté, A. Kádár, X. Yuan, B. Kybartas, T. Barnes, E. Fine, J. Moore, M. Hausknecht, L. El Asri, M. Adada, et al. Textworld: a learning environment for text-based games . In Workshop on Computer Games , pp. 41–75 . Cited by: §1 , §2 . Feng et al. (2025) T. Feng, X. Wang, Y. Jiang, and W. Zhu Embodied ai: from llms to world models . External Links: 2509.20021 , Link Cited by: §2 . Ferrag et al. (2026) M. A. Ferrag, N. Tihanyi, and M. Debbah From llm reasoning to autonomous ai agents: a comprehensive review . External Links: 2504.19678 , Link Cited by: §1 . Guan et al. (2023) L. Guan, K. Valmeekam, S. Sreedharan, and S. Kambhampati Leveraging pre-trained large language models to construct and utilize world models for model-based task planning . External Links: 2305.14909 , Link Cited by: §2 . Hao et al. (2023) S. Hao, Y. Gu, H. Ma, J. J. Hong, Z. Wang, D. Z. Wang, and Z. Hu Reasoning with language model is planning with world model . External Links: 2305.14992 , Link Cited by: §2 . Huang et al. (2022a) W. Huang, P. Abbeel, D. Pathak, and I. Mordatch Language models as zero-shot planners: extracting actionable knowledge for embodied agents . External Links: 2201.07207 , Link Cited by: §2 . Huang et al. (2022b) W. Huang, F. Xia, T. Xiao, H. Chan, J. Liang, P. Florence, A. Zeng, J. Tompson, I. Mordatch, Y. Chebotar, P. Sermanet, N. Brown, T. Jackson, L. Luu, S. Levine, K. Hausman, and B. Ichter Inner monologue: embodied reasoning through planning with language models . External Links: 2207.05608 , Link Cited by: §2 . Kapoor et al. (2024) S. Kapoor, B. Stroebl, Z. S. Siegel, N. Nadgir, and A. Narayanan AI agents that matter . External Links: 2407.01502 , Link Cited by: §2 . Kolve et al. (2022) E. Kolve, R. Mottaghi, W. Han, E. VanderBilt, L. Weihs, A. Herrasti, M. Deitke, K. Ehsani, D. Gordon, Y. Zhu, A. Kembhavi, A. Gupta, and A. Farhadi AI2-thor: an interactive 3d environment for visual ai . External Links: 1712.05474 , Link Cited by: §2 . Li et al. (2025) M. Li, S. Zhao, Q. Wang, K. Wang, Y. Zhou, S. Srivastava, C. Gokmen, T. Lee, L. E. Li, R. Zhang, W. Liu, P. Liang, L. Fei-Fei, J. Mao, and J. Wu Embodied agent interface: benchmarking llms for embodied decision making . External Links: 2410.07166 , Link Cited by: §1 , §2 . Liang et al. (2023) J. Liang, W. Huang, F. Xia, P. Xu, K. Hausman, B. Ichter, P. Florence, and A. Zeng Code as policies: language model programs for embodied control . External Links: 2209.07753 , Link Cited by: §2 . Liu et al. (2023) B. Liu, Y. Jiang, X. Zhang, Q. Liu, S. Zhang, J. Biswas, and P. Stone LLM+p: empowering large language models with optimal planning proficiency . External Links: 2304.11477 , Link Cited by: §2 . Lu et al. (2025) X. Lu, R. H. Zhang, Y. Zhang, and R. Zhang Enhance multimodal consistency and coherence for text-image plan generation . External Links: 2506.11380 , Link Cited by: §1 . Luo et al. (2025) J. Luo, W. Zhang, Y. Yuan, Y. Zhao, J. Yang, Y. Gu, B. Wu, B. Chen, Z. Qiao, Q. Long, R. Tu, X. Luo, W. Ju, Z. Xiao, Y. Wang, M. Xiao, C. Liu, J. Yuan, S. Zhang, Y. Jin, F. Zhang, X. Wu, H. Zhao, D. Tao, P. S. Yu, and M. Zhang Large language model agent: a survey on methodology, applications and challenges . External Links: 2503.21460 , Link Cited by: §1 . Ma et al. (2024) C. Ma, J. Zhang, Z. Zhu, C. Yang, Y. Yang, Y. Jin, Z. Lan, L. Kong, and J. He AgentBoard: an analytical evaluation board of multi-turn llm agents . External Links: 2401.13178 , Link Cited by: §2 . Madaan et al. (2023) A. Madaan, N. Tandon, P. Gupta, S. Hallinan, L. Gao, S. Wiegreffe, U. Alon, N. Dziri, S. Prabhumoye, Y. Yang, S. Gupta, B. P. Majumder, K. Hermann, S. Welleck, A. Yazdanbakhsh, and P. Clark Self-refine: iterative refinement with self-feedback . External Links: 2303.17651 , Link Cited by: §4.3 . Mon-Williams et al. (2025) R. Mon-Williams, G. Li, R. Long, W. Du, and C. Lucas Embodied large language models enable robots to complete complex tasks in unpredictable environments . Nature Machine Intelligence 7 , pp. 592 – 601 . External Links: Link Cited by: §2 . Puig et al. (2018) X. Puig, K. Ra, M. Boben, J. Li, T. Wang, S. Fidler, and A. Torralba VirtualHome: simulating household activities via programs . External Links: 1806.07011 , Link Cited by: §1 , §2 , §3.1 . Reason (1990) J. Reason Human error . Cambridge University Press . Cited by: §1 . Savva et al. (2019) M. Savva, A. Kadian, O. Maksymets, Y. Zhao, E. Wijmans, B. Jain, J. Straub, J. Liu, V. Koltun, J. Malik, D. Parikh, and D. Batra Habitat: a platform for embodied ai research . External Links: 1904.01201 , Link Cited by: §2 . Shridhar et al. (2020) M. Shridhar, J. Thomason, D. Gordon, Y. Bisk, W. Han, R. Mottaghi, L. Zettlemoyer, and D. Fox ALFRED: a benchmark for interpreting grounded instructions for everyday tasks . External Links: 1912.01734 , Link Cited by: §1 , §2 . Shridhar et al. (2021) M. Shridhar, X. Yuan, M. Côté, Y. Bisk, A. Trischler, and M. Hausknecht ALFWorld: aligning text and embodied environments for interactive learning . External Links: 2010.03768 , Link Cited by: §2 . Singh et al. (2022) I. Singh, V. Blukis, A. Mousavian, A. Goyal, D. Xu, J. Tremblay, D. Fox, J. Thomason, and A. Garg ProgPrompt: generating situated robot task plans using large language models . External Links: 2209.11302 , Link Cited by: §2 . Srivastava et al. (2021) S. Srivastava, C. Li, M. Lingelbach, R. Martín-Martín, F. Xia, K. Vainio, Z. Lian, C. Gokmen, S. Buch, C. K. Liu, S. Savarese, H. Gweon, J. Wu, and L. Fei-Fei BEHAVIOR: benchmark for everyday household activities in virtual, interactive, and ecological environments . External Links: 2108.03332 , Link Cited by: §2 . Valmeekam et al. (2023) K. Valmeekam, S. Sreedharan, M. Marquez, A. Olmo, and S. Kambhampati On the planning abilities of large language models (a critical investigation with a proposed benchmark) . External Links: 2302.06706 , Link Cited by: §1 . Yang et al. (2025) R. Yang, H. Chen, J. Zhang, M. Zhao, C. Qian, K. Wang, Q. Wang, T. V. Koripella, M. Movahedi, M. Li, H. Ji, H. Zhang, and T. Zhang EmbodiedBench: comprehensive benchmarking multi-modal large language models for vision-driven embodied agents . External Links: 2502.09560 , Link Cited by: §2 . Yao et al. (2023) S. Yao, J. Zhao, D. Yu, N. Du, I. Shafran, K. Narasimhan, and Y. Cao ReAct: synergizing reasoning and acting in language models . External Links: 2210.03629 , Link Cited by: §4.3 . Yuan et al. (2026) Z. Yuan, S. Yuan, and L. Xie RPMS: enhancing llm-based embodied planning through rule-augmented memory synergy . External Links: 2603.17831 , Link Cited by: §2 . Zhai et al. (2025) W. Zhai, J. Liao, Z. Chen, B. Su, and X. Zhao A survey of task planning with large language models . Intelligent Computing 4 , pp. 0124 . Cited by: §1 ."
+      },
+      {
+        "id": "A1.SS1.SSS0.Px1",
+        "heading": "Data Collection",
+        "level": 3,
+        "text": "We randomly collected cooking scripts from wikiHow and Instructables, two popular platforms that host community-contributed how-to guides. These platforms provide step-by-step instructions for a diverse range of dishes, from simple recipes (e.g., boiled eggs) to complex multi-stage preparations (e.g., beef wellington)."
+      },
+      {
+        "id": "A1.SS1.SSS0.Px2",
+        "heading": "Action and Object Extraction",
+        "level": 3,
+        "text": "For each collected script, we employed GPT-5.4 to extract the essential actions and objects mentioned in the instructions. We specifically instructed the model to exclude optional steps (e.g., “you can optionally garnish with parsley”) to maintain a focused and unambiguous environment specification. The extraction prompt required the model to identify: • Actions : Verbs describing operations performed on ingredients or tools (e.g., chop , stir , preheat ) • Objects : Nouns representing ingredients, tools, appliances, and containers (e.g., onion , knife , oven , fridge ) After the extraction, we manually verified the completeness and correctness of the extracted items."
+      },
+      {
+        "id": "A1.SS1.SSS0.Px3",
+        "heading": "Normalization and Merging",
+        "level": 3,
+        "text": "The raw extractions from cooking scripts contained substantial redundancy due to lexical variations. We concatenated all extracted actions and objects, then employed rule-based matching to identify and merge items that were formatting variants that differ only in surface form (e.g., switchon → \\rightarrow switch_on , basilflakes → \\rightarrow basil_flakes ). Next, we manually checked the semantic near-duplicates that refer to the same concept with different terms (e.g., place_on → \\rightarrow put_on , cling_wrap → \\rightarrow plastic_wrap ). For each merge, we selected the more commonly used term as the canonical form."
+      },
+      {
+        "id": "A1.SS1.SSS0.Px4",
+        "heading": "Low-Frequency Item Curation",
+        "level": 3,
+        "text": "To ensure that our world model captures broadly applicable cooking knowledge rather than idiosyncratic or rarely-used elements, we identified all items appearing fewer than three times across the scripts. For each low-frequency item, we manually inspected its original context to assess whether the item was truly essential to the procedure or whether alternatives were explicitly mentioned (e.g., “use a knife or a cookie cutter”). Items with readily available alternatives were removed, while genuinely unique but essential items were retained. This curation step reduced noise while preserving the expressiveness of the world model."
+      },
+      {
+        "id": "A1.SS1.SSS0.Px5",
+        "heading": "Property and State Annotation",
+        "level": 3,
+        "text": "With the set of actions and objects established, we annotated each item with its formal definition—preconditions and effects for actions, and properties and states for objects. Our annotation schema draws inspiration from VirtualHome, which defines object affordances through properties such as GRABBABLE , CAN_OPEN , and SURFACE . We extend this schema with kitchen-specific affordances (e.g., heat_source , protein , raw / cooked states) to capture the richer interactions required for cooking tasks. To ensure annotation consistency, we first annotated all actions and objects from two randomly selected scripts. These two fully-annotated procedures served as few-shot examples for GPT-5.4, which then generated initial annotations for all remaining items. Finally, we reviewed and corrected the model-generated annotations, resolving ambiguities and ensuring consistency across the entire vocabulary."
+      },
+      {
+        "id": "A1.SS2",
+        "heading": "A.2 Definition Examples",
+        "level": 2,
+        "text": "Action Arguments Preconditions Effects walk location — agent_at_location open object object_openable, object_closed object_open close object object_openable, object_open object_closed switch_on object object_is_appliance, object_on object_off switch_off object object_is_appliance, object_off object_on put_on object, target agent_holding_object object_on_target, agent_hands_empty wash object, water object_dirty, object_clean, agent_holding_object, water_on object_wet flip object, tool agent_holding_tool object_flipped freeze object, freezer object_in_freezer, object_frozen freezer_on Object Properties Initial States Location stove heatsource, surface, switchable off kitchen pan grabbable, receptacle clean, empty cabinet knife grabbable, sharp, tool clean drawer egg grabbable, breakable, protein raw, whole, dirty fridge onion grabbable, cuttable, edible raw, whole, clean pantry salt grabbable, pourable, seasoning full pantry black_pepper grabbable, pourable, seasoning full pantry soy_sauce condiment, grabbable, pourable full fridge bowl grabbable, receptacle clean, empty cabinet counter surface clean kitchen Table 5: Representative action definitions (top) and object definitions (bottom) from our world model. Actions range from simple navigation ( walk ) to cooking operations ( stir , freeze ). Objects cover all five categories: appliances ( stove ), cookware ( pan ), tools ( knife , bowl ), ingredients ( egg , onion , salt , black_pepper , soy_sauce ), and fixtures ( counter )."
+      },
+      {
+        "id": "A2",
+        "heading": "Appendix B State Machine Executor Algorithm",
+        "level": 1,
+        "text": "Algorithm 1 Plan Execution via State Machine Input: Plan P = ⟨ a 1 , a 2 , … , a n ⟩ P=\\langle a_{1},a_{2},\\ldots,a_{n}\\rangle , Environment ℰ = ( 𝒪 , 𝒜 ) \\mathcal{E}=(\\mathcal{O},\\mathcal{A}) Output: Failure set ℱ \\mathcal{F} // Initialization 1 World state 𝒮 ← InitState ​ ( ℰ ) \\mathcal{S}\\leftarrow\\textsc{InitState}(\\mathcal{E}) 2 Agent state σ ← ( loc : kitchen , hold : ∅ ) \\sigma\\leftarrow(\\textit{loc}:\\text{kitchen},\\ \\textit{hold}:\\varnothing) 3 ℱ ← ∅ \\mathcal{F}\\leftarrow\\varnothing ; // Step-by-step execution 4 for i ← 1 i\\leftarrow 1 to n n do 5 ( a , 𝐫 ) ← Parse ​ ( a i , 𝒜 ) (a,\\mathbf{r})\\leftarrow\\textsc{Parse}(a_{i},\\mathcal{A}) ; // action name a a , bound role arguments 𝐫 \\mathbf{r} // Syntactic validation 6 if a ∉ 𝒜 a\\notin\\mathcal{A} or ∃ r j ∈ 𝐫 : r j ∉ 𝒮 \\exists\\,r_{j}\\in\\mathbf{r}:r_{j}\\notin\\mathcal{S} then 7 ℱ ← ℱ ∪ { ( i , Immediate , reason ) } \\mathcal{F}\\leftarrow\\mathcal{F}\\cup\\{(i,\\ \\textsc{Immediate},\\ \\textit{reason})\\} ; 8 continue ; 9 end if // Precondition checking 10 Π a ← Preconditions ​ ( a ) \\Pi_{a}\\leftarrow\\textsc{Preconditions}(a) ; 11 for each predicate π ∈ Π a \\pi\\in\\Pi_{a} do 12 if ¬ π ⁡ ( 𝒮 , σ , 𝐫 ) \\neg\\,\\pi(\\mathcal{S},\\sigma,\\mathbf{r}) then 13 ℱ ← ℱ ∪ { ( i , Immediate , π ) } \\mathcal{F}\\leftarrow\\mathcal{F}\\cup\\{(i,\\ \\textsc{Immediate},\\ \\pi)\\} ; 14 end if 15 end for // State transition 16 ( 𝒮 , σ ) ← Apply ​ ( a , 𝐫 , 𝒮 , σ ) (\\mathcal{S},\\sigma)\\leftarrow\\textsc{Apply}(a,\\mathbf{r},\\mathcal{S},\\sigma) 17 end for // Post-execution audits 18 for each ingredient o ∈ 𝒮 o\\in\\mathcal{S} do 19 if o . contam ≠ ∅ o.\\textit{contam}\\neq\\varnothing then 20 ℱ ← ℱ ∪ { ( n + 1 , Latent , contamination ) } \\mathcal{F}\\leftarrow\\mathcal{F}\\cup\\{(n\\!+\\!1,\\ \\textsc{Latent},\\ \\text{contamination})\\} ; 21 end if 22 if ¬ Edible ​ ( o ) \\neg\\,\\textsc{Edible}(o) then 23 ℱ ← ℱ ∪ { ( n + 1 , Latent , uncooked ) } \\mathcal{F}\\leftarrow\\mathcal{F}\\cup\\{(n\\!+\\!1,\\ \\textsc{Latent},\\ \\text{uncooked})\\} ; 24 end if 25 if dirty ∈ o . states \\textit{dirty}\\in o.\\textit{states} then 26 ℱ ← ℱ ∪ { ( n + 1 , Latent , unwashed ) } \\mathcal{F}\\leftarrow\\mathcal{F}\\cup\\{(n\\!+\\!1,\\ \\textsc{Latent},\\ \\text{unwashed})\\} ; 27 end if 28 end for 29 for each appliance o ∈ 𝒮 o\\in\\mathcal{S} do 30 if on ∈ o . states \\textit{on}\\in o.\\textit{states} then 31 ℱ ← ℱ ∪ { ( n + 1 , Latent , safety ) } \\mathcal{F}\\leftarrow\\mathcal{F}\\cup\\{(n\\!+\\!1,\\ \\textsc{Latent},\\ \\text{safety})\\} ; 32 end if 33 end for 34 return ℱ \\mathcal{F} ;"
+      },
+      {
+        "id": "A3.SS1",
+        "heading": "C.1 Models",
+        "level": 2,
+        "text": "Type Model Version Params Access Proprietary GPT-5.4 gpt-5.4-2026-03-05 – API Gemini 3 Flash gemini-3-flash-preview – API Claude Opus 4.6 claude-opus-4-6-2026-02-04 – API Open-weight Llama 3.3 70B Meta-Llama-3.3-70B-Instruct 70B vLLM † DeepSeek V3.2 deepseek-chat-v3.2 685B API Qwen 3.5 27B Qwen3.5-27B-Instruct 27B vLLM † Table 6: Models evaluated in our experiments. All experiments were conducted in March 2026. † vLLM deployment: Llama 3.3 70B on 4 × \\times A100 80GB; Qwen 3.5 27B on 2 × \\times A100 80GB."
+      },
+      {
+        "id": "A3.SS2",
+        "heading": "C.2 Hyperparameters",
+        "level": 2,
+        "text": "Model Temperature Max Tokens Reasoning GPT-5.4 n/a 10,000 effort: low Gemini 3 Flash 0.0 10,000 – Claude Opus 4.6 0.0 10,000 – Llama 3.3 70B 0.0 10,000 thinking: off Qwen 3.5 27B 0.0 10,000 thinking: off DeepSeek V3.2 0.0 8,192 – Table 7: Hyperparameter configuration for baseline experiments. Counterfactual foresight uses identical settings except: GPT-5.4 (effort: high), Claude Opus 4.6 (temperature: 1.0 required by the Anthropic API when extended thinking is enabled, thinking: adaptive)."
+      },
+      {
+        "id": "A3.SS3",
+        "heading": "C.3 Prompt Design",
+        "level": 2,
+        "text": "We provide the complete prompt templates used in our experiments. The baseline planning prompt (Table 8 ) instructs the model to generate a plan following the VirtualHome format. The self-refine approach (Table 9 ) asks the model to revise the draft plan generated with the baseline prompt based on a structured review checklist. The foresight prompt (Table 10 ) extends the baseline with explicit state reasoning requirements (highlighted in blue ). Baseline Planning Prompt You are a planning agent in a simulated kitchen environment. Your task is to generate a step-by-step action plan to achieve a given goal using ONLY the objects and actions available in the environment specification below. ## Task Goal {task_goal} ## Environment Specification {env_spec} ## Instructions 1. Understand the environment : Study the objects (their IDs, properties, states, and locations), the available actions (their arguments, preconditions, and effects), and the agent’s starting state. 2. Track state carefully : The agent starts in the kitchen holding nothing. To interact with an object, the agent must first be at the object’s location. Containers (cabinet, fridge, pantry, drawer) must be opened before objects inside them can be taken out. The agent can only hold one object at a time. 3. Output format : Write a numbered list of actions using this exact syntax: – [ACTION] <class_name> (id) for single-argument actions – [ACTION] <class_name> (id) <class_name> (id) for two-argument actions – [ACTION] <class_name> (id) <class_name> (id) <class_name> (id) for three-argument actions – Use the object IDs from the environment specification. – duration and temperature arguments are values, not objects. 4. Creat new objects with COMBINE : Use [COMBINE] <container> (id) <product_name> (1) when ingredients are transformed into a new product. 5. Task completion : The final step must always be a [SERVE] action. 6. Constraints : – Use ONLY actions defined in the action_definitions section – Ensure all preconditions for each action are satisfied by prior steps – Every action and object must come from the environment specification – The plan should logically achieve the task goal 7. Example plan (for illustration only): 1. [WALK] <cabinet> (1) 2. [OPEN] <cabinet> (1) 3. [GRAB] <bowl> (1) 4. [PUT_ON] <bowl> (1) <counter> (1) ... ## Plan Table 8: Baseline planning prompt. Self-Refine Prompt (Second Pass) You are a planning agent in a simulated kitchen environment. You previously generated a draft plan for the following task. Your job is to carefully review the draft, identify any errors, and produce a corrected final plan. ## Task Goal {task_goal} ## Environment Specification {env_spec} ## Draft Plan {draft_plan} ## Review Instructions Carefully check the draft plan for the following issues: 1. State tracking errors : Does the agent try to grab something while already holding an object? Does it interact with an object at a different location without walking there first? Does it take something from a closed container? 2. Precondition violations : Are all preconditions met before each action? For example, is the object on a cutting board before cutting? Is a pan on the stove before heating? 3. Food safety issues : Does the plan handle raw meat/poultry/seafood safely? Are hands washed after touching raw protein and before touching ready-to-eat food? Are vegetables and fruits washed before use? 4. Appliance safety : Are all heat sources (stove, oven, grill) turned off at the end? Is the water turned off? 5. Missing steps : Are there any missing intermediate steps (e.g., forgetting to open a container, forgetting to put down an object before grabbing another)? After your review, output the corrected numbered plan. If the draft is already correct, output it unchanged. Do not include any reasoning or explanations. ## Corrected Plan Table 9: Self-Refine prompt (second pass). Counterfactual Foresight Prompt You are a planning agent in a simulated kitchen environment. Your task is to generate a step-by-step action plan to achieve a given goal using ONLY the objects and actions available in the environment specification below. ## Task Goal {task_goal} ## Environment Specification {env_spec} ## Instructions 1. Understand the environment : Study the objects (their IDs, properties, states, and locations), the available actions (their arguments, preconditions, and effects), and the agent’s starting state. 2. Track state carefully : The agent starts in the kitchen holding nothing. To interact with an object, the agent must first be at the object’s location. Containers (cabinet, fridge, pantry, drawer) must be opened before objects inside them can be taken out. The agent can only hold one object at a time. 3. Counterfactual Foresight Simulation : Before committing each step, mentally simulate what would happen: – State check : What is the agent currently holding? Where is the agent? What objects are in which containers? Which containers are open/closed? Which appliances are on/off? – Precondition check : Does this action’s preconditions hold given the current state? For example, are your hands empty before grabbing? Is the container open before taking out? Is the object on the cutting board before cutting? – Effect check : After this action, what changes? Will it leave the agent in a state that allows the next intended action? Will it cause any unintended consequences? – Implicit hazard check : Does this action create any food safety hazard? For example, handling unwashed fruits and then touching ready-to-eat food without washing hands? Using the same cutting board for raw protein and vegetables without cleaning? Serving uncooked eggs? – Post-goal check : At the end of the plan, are all objects in the proper and safe state? – If any check fails, revise the step before committing it. 4. Output format : Write a numbered list of actions using this exact syntax: – [ACTION] <class_name> (id) for single-argument actions – [ACTION] <class_name> (id) <class_name> (id) for two-argument actions – [ACTION] <class_name> (id) <class_name> (id) <class_name> (id) for three-argument actions – Use the object IDs from the environment specification. – duration , temperature , and timer arguments are values, not objects. 5. Creat new objects with COMBINE : Use [COMBINE] <container> (id) <product_name> (1) when ingredients are transformed into a new product. 6. Task completion : The final step must always be a [SERVE] action. 7. Constraints : – Use ONLY actions defined in the action_definitions section – Ensure all preconditions for each action are satisfied by prior steps – Every action and object must come from the environment specification – The plan should logically achieve the task goal 8. Example plan (for illustration only): 1. [WALK] <cabinet> (1) 2. [OPEN] <cabinet> (1) 3. [GRAB] <bowl> (1) 4. [PUT_ON] <bowl> (1) <counter> (1) ... ## Plan Table 10: Counterfactual foresight prompt. Highlighted text indicates additions to the baseline prompt."
+      }
+    ]
+  },
+  "text": "Simmer: Benchmarking Latent Failures in LLM Executable Planning with a World Model Skip to main content Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: Why HTML? Report Issue Back to Abstract Download PDF Contents Reading mode Colour theme License: CC BY 4.0 arXiv:2606.14574v1 [cs.CL] 12 Jun 2026 Simmer : Benchmarking Latent Failures in LLM Executable Planning with a World Model Xiaoxin Lu Ranran Haoran Zhang Rui Zhang Affiliation: The Pennsylvania State University, State College, PA, USA Affiliation: {xzl5514, haoranz6, rmz5227}@psu.edu Abstract Large language models (LLMs) are increasingly deployed as planners for autonomous agents in household environments. While existing benchmarks evaluate whether LLM-generated plans execute successfully, they overlook a critical type of failure: latent failures . Unlike immediate failures that trigger instant feedback at execution time and enable timely correction, latent failures do not immediately halt plan execution but silently compromise goal achievement. In severe cases, they cause irreversible harm. To address this gap, we introduce Simmer , a benchmark for evaluating latent failures in LLM planning through a human-curated symbolic world model grounded in the kitchen domain. Simmer defines a world model comprising 77 actions, 262 unique objects, and approximately 46,800 possible interactions that are semantically realistic, derived from real-world cooking scripts. It then leverages a state machine executor that validates plans against the world model and detects immediate precondition violations, latent hazards, and irreversible failures. Experiments across six LLMs show that even frontier models achieve at most 17% error-free plans. Moreover, up to 56% of plans contain latent failures, the majority of which lead to irreversible consequences. We further demonstrate that explicit state reasoning via counterfactual foresight simulation can reduce latent failures by up to 72% and irreversible cases by up to 75%, suggesting a promising direction for more robust LLM planners. 1 Introduction Large language models (LLMs) are increasingly deployed as autonomous agents for executable task planning, where an agent must generate a sequence of actions to achieve a goal in a simulated or physical environment ( Li et al., 2025 ; Zhai et al., 2025 ) . With agents now capable of perceiving environments and making decisions, their applications in household assistance are explored extensively ( Luo et al., 2025 ) . As these agents are deployed in increasingly complex and safety-critical settings, ensuring the reliability of their planning capabilities becomes paramount ( Ferrag et al., 2026 ) . However, evaluating LLM planning capabilities and detecting planning failures remains challenging. Existing approaches fall into two categories with notable limitations. The first employs virtual environments with formal state tracking, such as TextWorld ( Côté et al., 2018 ) , ALFWorld ( Shridhar et al., 2020 ) , and VirtualHome ( Puig et al., 2018 ) . While these environments enable precise verification, they are often overly simplified. For instance, TextWorld defines only 10 object types and 26 action rules. Such environments often fail to capture the complexity and nuance of real-world planning scenarios. Therefore, they cannot model implicit state changes that accumulate silently across actions, such as contamination, temperature propagation, or chemical transformations. The second evaluates plans generated in unstructured natural language by measuring semantic similarity to reference plans ( Valmeekam et al., 2023 ; Lu et al., 2025 ) . Although this approach is more flexible, these metrics operate at the surface level: a plan where each action appears reasonable in isolation may still contain errors invisible in the text that only manifest through state dependencies. Neither approach can detect latent failures that satisfy all explicit preconditions yet propagate silently through implicit state changes. Figure 1: A latent and irreversible failure demonstration in cooking. The cutting board becomes contaminated in Step 1 and is reused in Step 3, transferring bacteria to the vegetables. The failure propagates silently until the unsafe dish is served (Step 5). Moreover, once the contamination occurs, no subsequent action can undo it. We argue that detecting such latent failures constitutes a critical gap in current evaluation paradigms. We adopt the term latent failure from safety engineering, where it refers to errors that remain dormant until combined with other factors to cause system failure ( Reason, 1990 ) . Unlike immediate failures that block subsequent actions (e.g., attempting to chop a lettuce that has not been taken out of the fridge), latent failures are errors whose consequences manifest only after several seemingly successful steps. Moreover, some latent failures cause irreversible consequences that prohibit the recovery of world model states. Figure 1 illustrates such a failure in a cooking scenario: a robot agent slices raw chicken on a cutting board, cooks it, then reuses the same unwashed board to prepare vegetables for a salad. Each individual action executes successfully without precondition violation, yet the plan is fundamentally flawed. The cross-contamination occurs silently through implicit state propagation. More critically, once the vegetables are contaminated, no subsequent action can undo the bacterial transfer. Therefore, it is also irreversible. Such failures require tracking not just whether actions can be executed, but whether they should be executed given the implicit constraints of the domain. Existing benchmarks, which rely primarily on immediate action feedback or surface-level plan similarity, are ill-equipped to capture these subtle but consequential errors. Since LLM-based agents are deployed in high-stakes domains, this evaluation gap poses significant risks. To address these limitations, we introduce Simmer , a benchmark for evaluating LLM planning through execution against a symbolic world model. Simmer comprises three integrated components: (1) a symbolic world model with 77 actions and 262 objects grounded in real-world cooking scripts collected from wikiHow and Instructables, supporting approximately 46,800 semantically realistic interactions; (2) a failure taxonomy that distinguishes immediate failures from latent failures; and (3) a state machine executor that simulates plan execution step-by-step, tracks fine-grained states, and detects failures invisible to conventional metrics. Our experiments on six LLMs spanning frontier models and open-weight models reveal pervasive planning failures. Even the best-performing models produce error-free plans in fewer than 20% of tasks, with 29–56% of plans containing latent failures. The high failure rates suggest that prior evaluations may have substantially overestimated LLM planning capabilities by focusing on surface-level correctness while missing errors that propagate silently through world states. We further propose counterfactual foresight simulation, a prompting strategy that enforces explicit state reasoning before each action. This approach reduces latent failures by up to 72% on frontier models, demonstrating that externalizing state tracking can substantially improve LLM planning reliability. Our contributions are as follows: • We present Simmer , a benchmark for evaluating LLM planning through execution against a symbolic world model. It comprises a symbolic kitchen world model with 77 actions and 262 objects, a failure taxonomy distinguishing immediate from latent failures, and a state machine executor that detects failures invisible to conventional metrics. • We conduct comprehensive experiments on six LLMs spanning frontier and open-weight models, providing the first systematic analysis of immediate and latent failure patterns in LLM planning. We further show that counterfactual foresight simulation reduces these failures significantly through explicit state reasoning. 2 Related Work LLM Planning. Large language models can generate plausible action sequences for various tasks ( Singh et al., 2022 ; Liu et al., 2023 ) . Huang et al. (2022a) show that LLMs serve as zero-shot planners by extracting actionable knowledge from pre-training. SayCan ( Ahn et al., 2022 ) grounds LLM plans in robotic affordances using value functions, while Code as Policies ( Liang et al., 2023 ) leverages code generation to produce executable robot policies. Recent work demonstrates that embodied LLMs can complete long-horizon tasks in unpredictable settings through adaptive replanning ( Mon-Williams et al., 2025 ) . A related line of work explores leveraging LLMs as world models for planning ( Feng et al., 2025 ) . Hao et al. (2023) propose reasoning via planning with world models. Guan et al. (2023) construct world models from LLM knowledge to guide task planning. Existing approaches typically operate under a plan-execute-replan paradigm: the agent generates a plan, executes it, and replans upon failure ( Huang et al., 2022b ; Bhat et al., 2025 ) . This paradigm assumes failures will be detected at execution time through precondition violations, triggering replanning ( Yuan et al., 2026 ) . However, this assumption fails for latent failures that satisfy all preconditions and for irreversible cases that cannot be corrected through replanning. Our work addresses this gap by explicitly modeling and detecting such failures. Virtual Environments for AI. Virtual environments for AI have evolved from text-based games ( Côté et al., 2018 ) to visually grounded simulators ( Savva et al., 2019 ; Kolve et al., 2022 ; Yang et al., 2025 ) . ALFWorld ( Shridhar et al., 2020 ) aligns text-based interactions with visual observations. VirtualHome ( Puig et al., 2018 ) simulates household activities through programs with object properties and states. BEHAVIOR ( Srivastava et al., 2021 ) further extends this line with 1,000 activities defined in predicate logic. These environments typically evaluate plans using task success rate and goal-condition success, which measures partial completion by decomposing tasks into sub-goals ( Shridhar et al., 2021 ) . Recent work such as Embodied Agent Interface ( Li et al., 2025 ) introduces finer-grained error categorization, including missing goals, wrong temporal order, etc. Despite these advances, existing metrics share a fundamental limitation. They focus mainly on whether the agent can complete the task, not whether execution introduces safety violations ( Choi et al., 2024 ; Ma et al., 2024 ; Kapoor et al., 2024 ) . State representations are limited to predicates like OPEN / CLOSED and object locations, thus cannot capture contamination or chemical transformations that lead to latent failures. As a result, an agent may achieve perfect success rate while introducing violations that only manifest after task completion. 3 Simmer Figure 2: Overview of Simmer . The benchmark consists of a symbolic world model for kitchen domain, a failure taxonomy, and a state machine executor. The executor simulates LLM-generated plans step-by-step and produces structured failure reports. Simmer is a benchmark for evaluating LLM planning through execution against a symbolic world model. As shown in Figure 2 , it comprises three components: • a symbolic world model defining actions, objects, and their interactions in the kitchen domain (Section 3.1 ); • a failure taxonomy distinguishing immediate from latent failures (Section 3.2 ); • a state machine plan executor that validates plans against the world model and detects failures invisible to conventional metrics (Section 3.3 ). 3.1 World Model Action: grab Args: object Precond.: agent_hands_empty, object_grabbable Effects: agent_holding_object Object: chicken_breast Properties: cuttable, grabbable, protein States: raw, whole Location: fridge Table 1: Example action and object definitions from the world model of Simmer . Definition. Our world model consists of actions and objects . Both action and object definitions follow the PDDL paradigm. Each action is defined as a tuple ⟨ args , preconditions , effects ⟩ \\langle\\textit{args},\\textit{preconditions},\\textit{effects}\\rangle , where args specifies typed parameters, preconditions defines conditions required for execution, and effects describes resulting state changes. Each object is defined as a tuple ⟨ properties , states , location ⟩ \\langle\\textit{properties},\\textit{states},\\textit{location}\\rangle , where properties are immutable affordances (e.g., grabbable , heat_source ), states are mutable attributes (e.g., raw / cooked ), and location specifies initial placement. Table 1 shows the definitions of an action and an object from our world model. More representative examples of definitions are provided in Appendix A.2 . Plan Format. Following VirtualHome ( Puig et al., 2018 ) , plans are sequences of actions in the format [ACTION] <object_class> (object_id) where ACTION is the action name and each <object_class> (object_id) pair specifies an argument. Actions take varying numbers of arguments, e.g., [grab] <knife> (1) (one argument) or [put_on] <lettuce> (1) <cutting_board> (1) (two arguments). Construction Pipeline. We collected cooking scripts from wikiHow and Instructables, spanning diverse dishes from simple recipes to complex multi-stage preparations. For each script, we employed GPT-5.4 to extract actions (verbs describing operations) and objects (ingredients, tools, appliances). We conducted human verification to correct extraction errors.The raw extractions contained substantial redundancy due to lexical variations. Therefore, we normalized them through rule-based matching for formatting variants (e.g., switchon → \\rightarrow switch_on ), followed by manual consolidation of semantic near-duplicates (e.g., place_on → \\rightarrow put_on ). Next, we curated low-frequency items that appeared fewer than three times and removed those with readily available alternatives. With canonical actions and objects established, we annotated formal definitions following a schema inspired by VirtualHome but extended with kitchen-specific affordances. Two fully-annotated scripts served as few-shot examples for GPT-5.4, which generated initial annotations for all items. Last, we manually reviewed and corrected these annotations. Details of the curation process are provided in Appendix A.1 . Comparison with Existing Environments Environment # Actions # Objects # Interactions TextWorld 26 10 ≤ 260 \\leq 260 VirtualHome 12 176 ≤ 2,112 \\leq 2,112 ALFWorld 13 84 ≤ 1,092 \\leq 1,092 BEHAVIOR 6 391 ≤ 2,346 \\leq 2,346 Ours 77 262 ∼ \\sim 46,800 Table 2: Comparison with existing virtual environments for AI planning evaluation. Table 2 compares our world model with existing virtual environments used for evaluating planning agents. The resulting world model comprises 77 actions and 262 objects, supporting approximately 46,800 semantically realistic interactions, orders of magnitude more than the other environments. This scale enables evaluation on realistic, complex cooking scripts that require nuanced sequencing of many fine-grained operations. Moreover, while environments like VirtualHome and ALFWorld cover general household activities, our focused kitchen domain allows for deeper modeling of rich domain-specific state dependencies and implicit safety requirements that are difficult to capture in broader environments. 3.2 Failure Taxonomy Existing planning frameworks typically operate under a plan-execute-replan paradigm: the agent generates a plan, executes it step by step, and replans upon encountering execution failures. This paradigm makes two implicit assumptions: (1) that failures manifest as precondition violations that block the current action, and (2) that failures can be recovered by the agent through replanning. However, both assumptions can be violated. We therefore categorize planning failures into two types based on when they manifest: immediate failures that block execution, and latent failures that propagate silently. Among latent failures, we further distinguish irreversible cases where no corrective action is possible. Immediate Failures. Immediate failures violate the preconditions of the current action and block its execution. These are detectable by any executor that checks preconditions before applying effects. For example, attempting to chop without first retrieving the knife results in an immediate failure since the precondition agent.holds(knife) is not satisfied. Such failures align with the traditional plan-execute-replan paradigm where the agent detects the failure feedback from the environment and can replan accordingly. Latent Failures. Latent failures do not violate any preconditions and produce no observable feedback at execution time. These failures only manifest later when their consequences become apparent or after the plan completes. For example, an agent may forget to add baking powder when preparing a cake; the subsequent mix and bake actions execute successfully, yet the cake will fail to rise. A critical subset of latent failures is irreversible : once triggered, no subsequent action can restore a valid world state. The failure permanently compromises the plan’s goal. For example, if raw chicken contacts a cutting board and the unwashed board is later used for vegetable preparation, the contamination cannot be undone regardless of subsequent actions. In contrast, reversible latent failures permit recovery; forgetting to add salt to soup can be corrected by adding it later. This distinction has significant implications for autonomous agents. Immediate failures can be self-corrected with replanning; reversible latent failures can be addressed if detected in time. However, irreversible latent failures represent catastrophic planning errors that no recovery strategy can mitigate. 3.3 State Machine based Plan Executor Our executor simulates plan execution by maintaining a complete representation of the world state and updating it after each action. Unlike simulators that only check preconditions, our executor additionally tracks state changes that may lead to latent failures. Executor Architecture. The executor is implemented as a state machine that processes plans line by line. For each step, the executor parses the action and its arguments, then dispatches to an action-specific handler. Each handler implements the precondition checking, effect application, and latent failure detection logic for that action type. The world state is maintained as a dictionary mapping object IDs to their current properties, states, and locations. This state is updated in place as actions are executed. Plan Execution and Failure Detection. For each plan, our state machine executor maintains a world state 𝒮 \\mathcal{S} and an agent state σ \\sigma , both initialized from the world model. Failure detection operates in two distinct phases: Phase 1: Step-by-step execution detects immediate failures . For each action, the executor (1) parses and binds arguments to predefined roles, (2) evaluates preconditions against the current state and records violations as immediate failures (e.g., attempting to grab when hands are not empty), and (3) applies state transitions to update 𝒮 \\mathcal{S} and σ \\sigma , including propagating latent state changes such as contamination spread and flagging these risks. Phase 2: Post-execution audit detects latent failures . After all steps complete, the executor scans the final state for unexpected conditions that were never resolved during execution such as food items carrying uncooked contamination, appliances left on, etc. These failures arise from omissions or unsafe orderings that violate no individual precondition but compromise the plan’s overall safety. The key insight is that our state machine tracks richer information than simple precondition predicates. For instance, when raw meat with a property protein or unwashed vegetables with a property dirty contacts a surface, that surface acquires a contaminated attribute; if another food subsequently contacts the same surface, the contamination propagates silently through Phase 1 and is only evaluated as a failure in Phase 2 if the contaminated item is served without subsequent cooking. Pseudocode is provided in Appendix B . 4 Experiment Settings We evaluate the planning capabilities of state-of-the-art large language models on our benchmark, focusing on their ability to generate executable and reliable cooking plans. 4.1 Task Dataset We curate 100 cooking scripts for our benchmark to ensure comprehensive coverage. These tasks span 12 distinct cooking techniques (e.g., baking, frying, brewing, grilling) and cover all of the 77 actions and 262 objects defined in our world model. Task complexity ranges from 2 to 18 natural language steps, representing both simple recipes (e.g., custard yogurt toast) and complex ones (e.g., red velvet cupcakes). On average, each task involves 26.6 actions and 31.5 objects. For each script, we provide the model with the task description in natural language and require it to generate a complete action sequence. 4.2 Models We evaluate six LLMs spanning various frontier proprietary and open-weight models. Proprietary models : GPT-5.4, Gemini 3 Flash, Claude Opus 4.6. Open-weight models : Llama 3.3 70B, DeepSeek V3.2, Qwen 3.5 27B. All models are evaluated with temperature T = 0 T=0 for deterministic generation to ensure reproducibility. Additional details including model versions, hyperparameters, and prompt design are provided in Appendix C . 4.3 Planning Failure Mitigation Beyond evaluating baseline LLM performance, we investigate whether prompting strategies can mitigate planning failures. We consider two open-loop methods that require no external environment feedback, making them broadly applicable. Self-Refine. Following Madaan et al. (2023) , we implement a two-pass generate-then-critique pipeline. The model first produces a draft plan using the baseline prompt, then receives a second prompt containing the draft alongside a structured checklist covering state tracking errors, precondition violations, food safety, appliance safety, and missing steps. The model outputs a corrected plan in a single refinement round. Unlike closed-loop approaches such as ReAct ( Yao et al., 2023 ) that require real environment observations, Self-Refine operates entirely from the model’s internal reasoning and is thus directly comparable to our baseline. We evaluate Self-Refine on all six models. Counterfactual Foresight Simulation. We further propose counterfactual foresight simulation, which embeds verification within the generation process itself. The model is prompted to: 1. Predict state changes before committing each action 2. Self-check for potential precondition violations or hazards 3. Revise the action if any unexpected consequences are predicted While Self-Refine performs a single post-hoc review of the entire plan, counterfactual foresight enforces step-by-step state tracking during generation, requiring the model to maintain a running mental simulation of the environment. Both methods are open-loop, but foresight provides finer-grained verification. The full prompt templates are provided in Appendix C.3 . We evaluate this method on GPT-5.4 and Claude Opus 4.6, which achieve the lowest baseline failure rates among all evaluated models (Table 3 ) and demonstrated reliable instruction-following capability. 5 Results and Analysis Plans with Failure ↓ \\downarrow Failures per Plan ↓ \\downarrow Model Any Immed. Latent Irrever. Any Immed. Latent Irrever. GPT-5.4 87 74 56 24 2.86 1.75 1.11 0.55 Gemini 3 Flash 83 66 32 20 2.47 1.97 0.50 0.24 Claude Opus 4.6 89 85 29 28 3.70 2.64 1.06 1.03 Llama 3.3 70B 100 99 52 45 6.53 5.44 1.09 0.94 DeepSeek V3 99 96 48 36 6.54 4.88 1.66 1.46 Qwen 3.5 27B 99 99 46 34 6.15 4.42 1.73 1.46 + Self-Refine GPT-5.4 65 63 14 14 1.62 1.22 0.40 0.40 Gemini 3 Flash 73 68 29 24 3.01 2.27 0.74 0.66 Claude Opus 4.6 56 47 16 16 2.16 1.90 0.26 0.26 Llama 3.3 70B 99 98 46 45 6.76 5.72 1.04 1.02 DeepSeek V3 98 97 42 40 7.10 5.50 1.60 1.55 Qwen 3.5 27B 99 99 39 39 5.72 4.37 1.35 1.35 Table 3: Main results on 100 cooking tasks. We highlight the best scores in bold and the second best underlined within baseline models. Lower is better for all metrics. 5.1 Overall Performance Table 3 summarizes the evaluation results across 100 cooking tasks for each baseline model. The results reveal that even state-of-the-art frontier models fail to produce error-free plans in the vast majority of cases. Across all six models, fewer than 17% of generated plans are clean, with an average of just 7.2%. Immediate failures are pervasive, affecting 66–99% of plans depending on the model. Frontier proprietary models exhibit lower failure rates, averaging 2.12 immediate failures per plan, while open-weight models average 4.91 failures per plan. More concerning are the latent failures, which affect 29–52% of plans. Unlike immediate failures, these errors do not trigger execution-time exceptions but silently compromise the correctness or safety of the final outcome. On average, models produce 0.50–1.73 latent failures per plan. Moreover, we find that a significant portion of failures is irreversible. The percentage of plans with at least one irreversible failure ranges from 20% to 45%. Figure 3: Distribution of latent (top) and immediate (bottom) failure root causes across all baseline models, with the best- and worst-performing models for each failure type. 5.2 Latent Failure Analysis We manually analyze latent failures and categorize them into the following three types (Figure 3 ). Notably, the majority of latent failures are irreversible because their consequences cannot be undone after committed. State Propagation. The dominant latent failure mode is the inability to track how states propagate implicitly across objects through contact. When an agent slices raw meat and then reuses the same cutting board for vegetables without sanitizing, contamination transfers silently to the produce. LLMs fail to simulate this transitive property propagation, treating each action in isolation rather than reasoning about its downstream effects. Implicit Precondition Ignorance. This category captures failures to satisfy preconditions assumed by common sense but not explicitly stated in natural language instructions. For example, food safety norms require washing dirty eggshells before cracking, yet recipe text rarely mentions this. LLMs trained on such scripts tend to fail to insert these implicit but safety-critical steps. Post-Goal Neglect. Once the primary goal is achieved, models frequently neglect necessary post-goal actions such as turning off the oven or closing the refrigerator. These failures reflect the goal-centric planning bias of LLMs. While reversible in principle, they introduce genuine safety hazards such as fire or food spoilage. 5.3 Immediate Failure Analysis We categorize immediate failures generated by all models into four types based on the underlying cognitive limitation (Figure 3 ). Despite performance differences, all models exhibit similar failure distributions, suggesting these are fundamental LLM limitations rather than model-specific weaknesses. Embodiment Grounding Deficiency. The dominant failure mode stems from the LLM’s inability to track the agent’s physical constraints. For instance, an agent can only hold one object simultaneously, yet models frequently generate actions like trying to grab an egg while already holding a bowl, or attempting to slice a lemon without first picking up the knife. These errors reveal that LLMs maintain a disembodied understanding of actions, treating them as abstract operations rather than physical manipulations constrained by an agent’s nature. State Tracking Error. Models fail to maintain accurate representations of object and container states. Common errors include attempting to open an already-open refrigerator, pouring from an empty container, or retrieving an object from a location where it no longer exists. These failures indicate that LLMs struggle to update their internal world model as the plan progresses, leading to actions that assume outdated or incorrect states. Affordance Violation. This category captures attempts to use objects in ways that violate their physical affordances. For example, trying to pour a solid ingredient, chop a liquid, or place an item inside a non-container. These failures reflect a fundamental misunderstanding of object properties specified in the world model. Object Hallucination. A small but notable portion of failures involves references to objects that do not exist in the environment. Models occasionally invent non-existent products or reference actions that are not included in the world model. These hallucinations would cause immediate crashes in any execution environment. 5.4 Effect of Failure Mitigation Approaches Figure 4: Effect of self-refine and counterfactual foresight simulation on failures per plan. Self-Refine reduces total failures by over 40 % 40\\% for frontier models such as GPT-5.4 and Claude Opus 4.6 (Table 3 ). But it provides marginal or negative effects for other models with weaker reasoning capabilities. We hypothesize that these models lack sufficient reasoning capacity to perform reliable counterfactual simulation; the additional cognitive load instead degrades planning quality. Counterfactual foresight consistently outperforms self-refine across most failure categories (Figure 4 ). On immediate failures, foresight achieves 73 % 73\\% / 80 % 80\\% reduction compared to only 30 % 30\\% / 28 % 28\\% for self-refine, as step-by-step state simulation can effectively predict precondition violations before they cascade. In contrast, on latent failures, the two methods perform similarly. This suggests that whole-plan review is well-suited for detecting global safety violations that depend on the plan’s final state, whereas step-level verification excels at local state tracking. Table 4 shows the comparison of a failed plan generated by GPT-5.4 and its successful counterpart with counterfactual foresight simulation. Task 110: Make a Sandwich with Bacon, Egg, and Cheese Baseline (GPT-5.4) w/ Counterfactual Foresight 14. [GRAB] <bacon> (1) 6. [GRAB] <bread> (1) 16. [PUT_IN] <bacon> (1) <pan> (1) ...handle bread, parmesan ...cook bacon, then egg... 27. [GRAB] <bacon> (1) ✓ \\checkmark 46. [GRAB] <bread> (1) ✗ ...cook bacon, then egg... 53. [PUT_ON] <parmesan> (1) ✗ 52. [SWITCH_OFF] <stove> (1) ✓ \\checkmark Failures: food contamination and stove left on Success Table 4: Baseline vs. foresight plan. The baseline handles raw bacon first, then touches the bread with unwashed hands. It also forgets to switch off the stove. Foresight reorders the procedure by handling ready-to-eat ingredients before raw protein, and turns off the stove before it serves the dish. 6 Conclusion We introduce Simmer , a benchmark that evaluates LLM planning by executing generated plans against a symbolic world model and detecting latent failures that conventional metrics overlook. Our experiments reveal that current LLMs struggle to track implicit state dependencies, tending to produce latent failures that propagate silently and often cause irreversible consequences. Prompting models to reason explicitly about state changes substantially mitigates these failures, pointing toward a promising direction for more robust LLM planners. Reproducibility Statement We provide all details necessary for reproducing our experiments. Model versions, API configurations, hyperparameters, and prompt templates are included in Appendix C . Our benchmark, including the symbolic world model, state machine executor, and curated cooking scripts, will be publicly released upon acceptance. Acknowledgments Research reported in this publication/ presentation was supported by the National Institute On Aging of the National Institutes of Health under Award Number P30AG073105. The content is solely the responsibility of the authors and does not necessarily represent the official views of the National Institutes of Health. The project was also supported in part by NSF DMS-2533995 and Coefficient Giving (formerly Open Philanthropy). References Ahn et al. (2022) M. Ahn, A. Brohan, N. Brown, Y. Chebotar, O. Cortes, B. David, C. Finn, C. Fu, K. Gopalakrishnan, K. Hausman, A. Herzog, D. Ho, J. Hsu, J. Ibarz, B. Ichter, A. Irpan, E. Jang, R. J. Ruano, K. Jeffrey, S. Jesmonth, N. J. Joshi, R. Julian, D. Kalashnikov, Y. Kuang, K. Lee, S. Levine, Y. Lu, L. Luu, C. Parada, P. Pastor, J. Quiambao, K. Rao, J. Rettinghouse, D. Reyes, P. Sermanet, N. Sievers, C. Tan, A. Toshev, V. Vanhoucke, F. Xia, T. Xiao, P. Xu, S. Xu, M. Yan, and A. Zeng Do as i can, not as i say: grounding language in robotic affordances . External Links: 2204.01691 , Link Cited by: §2 . Bhat et al. (2025) V. Bhat, A. U. Kaypak, P. Krishnamurthy, R. Karri, and F. Khorrami Grounding large language models for robot task planning using closed‐loop state feedback . Advanced Robotics Research . External Links: ISSN 2943-9973 , Link , Document Cited by: §2 . Choi et al. (2024) J. Choi, Y. Yoon, H. Ong, J. Kim, and M. Jang LoTa-bench: benchmarking language-oriented task planners for embodied agents . External Links: 2402.08178 , Link Cited by: §2 . Côté et al. (2018) M. Côté, A. Kádár, X. Yuan, B. Kybartas, T. Barnes, E. Fine, J. Moore, M. Hausknecht, L. El Asri, M. Adada, et al. Textworld: a learning environment for text-based games . In Workshop on Computer Games , pp. 41–75 . Cited by: §1 , §2 . Feng et al. (2025) T. Feng, X. Wang, Y. Jiang, and W. Zhu Embodied ai: from llms to world models . External Links: 2509.20021 , Link Cited by: §2 . Ferrag et al. (2026) M. A. Ferrag, N. Tihanyi, and M. Debbah From llm reasoning to autonomous ai agents: a comprehensive review . External Links: 2504.19678 , Link Cited by: §1 . Guan et al. (2023) L. Guan, K. Valmeekam, S. Sreedharan, and S. Kambhampati Leveraging pre-trained large language models to construct and utilize world models for model-based task planning . External Links: 2305.14909 , Link Cited by: §2 . Hao et al. (2023) S. Hao, Y. Gu, H. Ma, J. J. Hong, Z. Wang, D. Z. Wang, and Z. Hu Reasoning with language model is planning with world model . External Links: 2305.14992 , Link Cited by: §2 . Huang et al. (2022a) W. Huang, P. Abbeel, D. Pathak, and I. Mordatch Language models as zero-shot planners: extracting actionable knowledge for embodied agents . External Links: 2201.07207 , Link Cited by: §2 . Huang et al. (2022b) W. Huang, F. Xia, T. Xiao, H. Chan, J. Liang, P. Florence, A. Zeng, J. Tompson, I. Mordatch, Y. Chebotar, P. Sermanet, N. Brown, T. Jackson, L. Luu, S. Levine, K. Hausman, and B. Ichter Inner monologue: embodied reasoning through planning with language models . External Links: 2207.05608 , Link Cited by: §2 . Kapoor et al. (2024) S. Kapoor, B. Stroebl, Z. S. Siegel, N. Nadgir, and A. Narayanan AI agents that matter . External Links: 2407.01502 , Link Cited by: §2 . Kolve et al. (2022) E. Kolve, R. Mottaghi, W. Han, E. VanderBilt, L. Weihs, A. Herrasti, M. Deitke, K. Ehsani, D. Gordon, Y. Zhu, A. Kembhavi, A. Gupta, and A. Farhadi AI2-thor: an interactive 3d environment for visual ai . External Links: 1712.05474 , Link Cited by: §2 . Li et al. (2025) M. Li, S. Zhao, Q. Wang, K. Wang, Y. Zhou, S. Srivastava, C. Gokmen, T. Lee, L. E. Li, R. Zhang, W. Liu, P. Liang, L. Fei-Fei, J. Mao, and J. Wu Embodied agent interface: benchmarking llms for embodied decision making . External Links: 2410.07166 , Link Cited by: §1 , §2 . Liang et al. (2023) J. Liang, W. Huang, F. Xia, P. Xu, K. Hausman, B. Ichter, P. Florence, and A. Zeng Code as policies: language model programs for embodied control . External Links: 2209.07753 , Link Cited by: §2 . Liu et al. (2023) B. Liu, Y. Jiang, X. Zhang, Q. Liu, S. Zhang, J. Biswas, and P. Stone LLM+p: empowering large language models with optimal planning proficiency . External Links: 2304.11477 , Link Cited by: §2 . Lu et al. (2025) X. Lu, R. H. Zhang, Y. Zhang, and R. Zhang Enhance multimodal consistency and coherence for text-image plan generation . External Links: 2506.11380 , Link Cited by: §1 . Luo et al. (2025) J. Luo, W. Zhang, Y. Yuan, Y. Zhao, J. Yang, Y. Gu, B. Wu, B. Chen, Z. Qiao, Q. Long, R. Tu, X. Luo, W. Ju, Z. Xiao, Y. Wang, M. Xiao, C. Liu, J. Yuan, S. Zhang, Y. Jin, F. Zhang, X. Wu, H. Zhao, D. Tao, P. S. Yu, and M. Zhang Large language model agent: a survey on methodology, applications and challenges . External Links: 2503.21460 , Link Cited by: §1 . Ma et al. (2024) C. Ma, J. Zhang, Z. Zhu, C. Yang, Y. Yang, Y. Jin, Z. Lan, L. Kong, and J. He AgentBoard: an analytical evaluation board of multi-turn llm agents . External Links: 2401.13178 , Link Cited by: §2 . Madaan et al. (2023) A. Madaan, N. Tandon, P. Gupta, S. Hallinan, L. Gao, S. Wiegreffe, U. Alon, N. Dziri, S. Prabhumoye, Y. Yang, S. Gupta, B. P. Majumder, K. Hermann, S. Welleck, A. Yazdanbakhsh, and P. Clark Self-refine: iterative refinement with self-feedback . External Links: 2303.17651 , Link Cited by: §4.3 . Mon-Williams et al. (2025) R. Mon-Williams, G. Li, R. Long, W. Du, and C. Lucas Embodied large language models enable robots to complete complex tasks in unpredictable environments . Nature Machine Intelligence 7 , pp. 592 – 601 . External Links: Link Cited by: §2 . Puig et al. (2018) X. Puig, K. Ra, M. Boben, J. Li, T. Wang, S. Fidler, and A. Torralba VirtualHome: simulating household activities via programs . External Links: 1806.07011 , Link Cited by: §1 , §2 , §3.1 . Reason (1990) J. Reason Human error . Cambridge University Press . Cited by: §1 . Savva et al. (2019) M. Savva, A. Kadian, O. Maksymets, Y. Zhao, E. Wijmans, B. Jain, J. Straub, J. Liu, V. Koltun, J. Malik, D. Parikh, and D. Batra Habitat: a platform for embodied ai research . External Links: 1904.01201 , Link Cited by: §2 . Shridhar et al. (2020) M. Shridhar, J. Thomason, D. Gordon, Y. Bisk, W. Han, R. Mottaghi, L. Zettlemoyer, and D. Fox ALFRED: a benchmark for interpreting grounded instructions for everyday tasks . External Links: 1912.01734 , Link Cited by: §1 , §2 . Shridhar et al. (2021) M. Shridhar, X. Yuan, M. Côté, Y. Bisk, A. Trischler, and M. Hausknecht ALFWorld: aligning text and embodied environments for interactive learning . External Links: 2010.03768 , Link Cited by: §2 . Singh et al. (2022) I. Singh, V. Blukis, A. Mousavian, A. Goyal, D. Xu, J. Tremblay, D. Fox, J. Thomason, and A. Garg ProgPrompt: generating situated robot task plans using large language models . External Links: 2209.11302 , Link Cited by: §2 . Srivastava et al. (2021) S. Srivastava, C. Li, M. Lingelbach, R. Martín-Martín, F. Xia, K. Vainio, Z. Lian, C. Gokmen, S. Buch, C. K. Liu, S. Savarese, H. Gweon, J. Wu, and L. Fei-Fei BEHAVIOR: benchmark for everyday household activities in virtual, interactive, and ecological environments . External Links: 2108.03332 , Link Cited by: §2 . Valmeekam et al. (2023) K. Valmeekam, S. Sreedharan, M. Marquez, A. Olmo, and S. Kambhampati On the planning abilities of large language models (a critical investigation with a proposed benchmark) . External Links: 2302.06706 , Link Cited by: §1 . Yang et al. (2025) R. Yang, H. Chen, J. Zhang, M. Zhao, C. Qian, K. Wang, Q. Wang, T. V. Koripella, M. Movahedi, M. Li, H. Ji, H. Zhang, and T. Zhang EmbodiedBench: comprehensive benchmarking multi-modal large language models for vision-driven embodied agents . External Links: 2502.09560 , Link Cited by: §2 . Yao et al. (2023) S. Yao, J. Zhao, D. Yu, N. Du, I. Shafran, K. Narasimhan, and Y. Cao ReAct: synergizing reasoning and acting in language models . External Links: 2210.03629 , Link Cited by: §4.3 . Yuan et al. (2026) Z. Yuan, S. Yuan, and L. Xie RPMS: enhanc",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Skip to main content",
+      "url": "https://arxiv.org/html/2606.14574v1#infobox"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/IgnoreMe"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "Why HTML?",
+      "url": "https://info.arxiv.org/about/accessible_HTML.html"
+    },
+    {
+      "text": "Back to Abstract",
+      "url": "https://arxiv.org/abs/2606.14574v1"
+    },
+    {
+      "text": "Download PDF",
+      "url": "https://arxiv.org/pdf/2606.14574v1"
+    },
+    {
+      "text": "License: CC BY 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "Li et al., 2025",
+      "url": "https://arxiv.org/html/2606.14574v1#bib.bib32"
+    },
+    {
+      "text": "Zhai et al., 2025",
+      "url": "https://arxiv.org/html/2606.14574v1#bib.bib2"
+    },
+    {
+      "text": "Luo et al., 2025",
+      "url": "https://arxiv.org/html/2606.14574v1#bib.bib19"
+    },
+    {
+      "text": "Ferrag et al., 2026",
+      "url": "https://arxiv.org/html/2606.14574v1#bib.bib1"
+    },
+    {
+      "text": "Côté et al., 2018",
+      "url": "https://arxiv.org/html/2606.14574v1#bib.bib23"
+    },
+    {
+      "text": "Shridhar et al., 2020",
+      "url": "https://arxiv.org/html/2606.14574v1#bib.bib24"
+    },
+    {
+      "text": "Puig et al., 2018",
+      "url": "https://arxiv.org/html/2606.14574v1#bib.bib25"
+    },
+    {
+      "text": "Valmeekam et al., 2023",
+      "url": "https://arxiv.org/html/2606.14574v1#bib.bib4"
+    },
+    {
+      "text": "Lu et al., 2025",
+      "url": "https://arxiv.org/html/2606.14574v1#bib.bib3"
+    },
+    {
+      "text": "Reason, 1990",
+      "url": "https://arxiv.org/html/2606.14574v1#bib.bib6"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2606.14574v1#S1.F1"
+    },
+    {
+      "text": "Singh et al., 2022",
+      "url": "https://arxiv.org/html/2606.14574v1#bib.bib13"
+    },
+    {
+      "text": "Liu et al., 2023",
+      "url": "https://arxiv.org/html/2606.14574v1#bib.bib14"
+    },
+    {
+      "text": "Huang et al. (2022a)",
+      "url": "https://arxiv.org/html/2606.14574v1#bib.bib28"
+    },
+    {
+      "text": "Ahn et al., 2022",
+      "url": "https://arxiv.org/html/2606.14574v1#bib.bib29"
+    },
+    {
+      "text": "Liang et al., 2023",
+      "url": "https://arxiv.org/html/2606.14574v1#bib.bib30"
+    },
+    {
+      "text": "Mon-Williams et al., 2025",
+      "url": "https://arxiv.org/html/2606.14574v1#bib.bib20"
+    },
+    {
+      "text": "Feng et al., 2025",
+      "url": "https://arxiv.org/html/2606.14574v1#bib.bib15"
+    },
+    {
+      "text": "Hao et al. (2023)",
+      "url": "https://arxiv.org/html/2606.14574v1#bib.bib5"
+    },
+    {
+      "text": "Guan et al. (2023)",
+      "url": "https://arxiv.org/html/2606.14574v1#bib.bib7"
+    },
+    {
+      "text": "Huang et al., 2022b",
+      "url": "https://arxiv.org/html/2606.14574v1#bib.bib18"
+    },
+    {
+      "text": "Bhat et al., 2025",
+      "url": "https://arxiv.org/html/2606.14574v1#bib.bib16"
+    },
+    {
+      "text": "Yuan et al., 2026",
+      "url": "https://arxiv.org/html/2606.14574v1#bib.bib17"
+    },
+    {
+      "text": "Savva et al., 2019",
+      "url": "https://arxiv.org/html/2606.14574v1#bib.bib9"
+    },
+    {
+      "text": "Kolve et al., 2022",
+      "url": "https://arxiv.org/html/2606.14574v1#bib.bib8"
+    },
+    {
+      "text": "Yang et al., 2025",
+      "url": "https://arxiv.org/html/2606.14574v1#bib.bib31"
+    },
+    {
+      "text": "Srivastava et al., 2021",
+      "url": "https://arxiv.org/html/2606.14574v1#bib.bib26"
+    },
+    {
+      "text": "Shridhar et al., 2021",
+      "url": "https://arxiv.org/html/2606.14574v1#bib.bib27"
+    },
+    {
+      "text": "Choi et al., 2024",
+      "url": "https://arxiv.org/html/2606.14574v1#bib.bib10"
+    },
+    {
+      "text": "Ma et al., 2024",
+      "url": "https://arxiv.org/html/2606.14574v1#bib.bib11"
+    },
+    {
+      "text": "Kapoor et al., 2024",
+      "url": "https://arxiv.org/html/2606.14574v1#bib.bib12"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2606.14574v1#S3.F2"
+    },
+    {
+      "text": "3.1",
+      "url": "https://arxiv.org/html/2606.14574v1#S3.SS1"
+    },
+    {
+      "text": "3.2",
+      "url": "https://arxiv.org/html/2606.14574v1#S3.SS2"
+    },
+    {
+      "text": "3.3",
+      "url": "https://arxiv.org/html/2606.14574v1#S3.SS3"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2606.14574v1#S3.T1"
+    },
+    {
+      "text": "A.2",
+      "url": "https://arxiv.org/html/2606.14574v1#A1.SS2"
+    },
+    {
+      "text": "A.1",
+      "url": "https://arxiv.org/html/2606.14574v1#A1.SS1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2606.14574v1#S3.T2"
+    },
+    {
+      "text": "B",
+      "url": "https://arxiv.org/html/2606.14574v1#A2"
+    },
+    {
+      "text": "C",
+      "url": "https://arxiv.org/html/2606.14574v1#A3"
+    },
+    {
+      "text": "Madaan et al. (2023)",
+      "url": "https://arxiv.org/html/2606.14574v1#bib.bib21"
+    },
+    {
+      "text": "Yao et al., 2023",
+      "url": "https://arxiv.org/html/2606.14574v1#bib.bib22"
+    },
+    {
+      "text": "C.3",
+      "url": "https://arxiv.org/html/2606.14574v1#A3.SS3"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2606.14574v1#S5.T3"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2606.14574v1#S5.F3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2606.14574v1#S5.F4"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2606.14574v1#S5.T4"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/2204.01691"
+    },
+    {
+      "text": "§2",
+      "url": "https://arxiv.org/html/2606.14574v1#S2.SS0.SSS0.Px1.p1.1"
+    },
+    {
+      "text": "Link",
+      "url": "http://dx.doi.org/10.1002/adrr.202500072"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.1002/adrr.202500072"
+    },
+    {
+      "text": "§2",
+      "url": "https://arxiv.org/html/2606.14574v1#S2.SS0.SSS0.Px1.p2.1"
+    }
+  ],
+  "matching_link_count": 97,
+  "links_truncated": true,
+  "invalid_links": []
+}

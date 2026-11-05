@@ -1,0 +1,635 @@
+{
+  "url": "https://arxiv.org/html/2605.24579v1",
+  "final_url": "https://arxiv.org/html/2605.24579v1",
+  "status": 200,
+  "title": "WhenLoss: Diagnosing Write and Retrieval Bottlenecksin Long-Context Memory Systems",
+  "metadata": {},
+  "paper": {
+    "title": "WhenLoss: Diagnosing Write and Retrieval Bottlenecks in Long-Context Memory Systems",
+    "title_warning": null,
+    "abstract": "Abstract Long-context memory systems often fail under fixed budgets, but end-to-end evaluation does not reveal whether evidence was discarded during compression or preserved but never retrieved.\nWe introduce a four-condition diagnostic protocol that evaluates a fixed reader under truncated full context ( TFC ), oracle evidence ( OE ), complete stored memory ( CSM ), and retrieved memory ( RM ).\nUnder this fixed-budget LongMemEval setup, write-side gaps exceed retrieval-side gaps for most tested baselines, with four of six baselines robustly write-dominant under our default diagnosis margin.\nMotivated by this diagnosis, we propose Expected Predictive Compression (EPC) , which moves the key decision—what information to retain—to write time by using an LLM to anticipate likely future questions and preserve the minimal supporting evidence under the token budget, while leaving retrieval unchanged at question time.\nAcross all 500 LongMemEval questions with three readers (GPT-5.2, Claude Sonnet 4, Gemini 2.5 Pro), EPC achieves the highest CSM scores among all systems (0.49 vs. 0.44 for Summary (LLM), the strongest baseline), reducing Δ write \\Delta_{\\text{write}} to 0.04 while leaving Δ retr \\Delta_{\\text{retr}} comparable to other LLM-based systems.\nThese results suggest that, on this benchmark and evaluation setup, improving what the write stage preserves is a key avenue for performance gains in the tested systems.",
+    "authors": [
+      {
+        "name": "Jiangnan Yu",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Kisson Songqi Lin",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Jilong Wu",
+        "affiliations": [],
+        "notes": []
+      }
+    ],
+    "author_block": "Jiangnan Yu Kisson Songqi Lin Jilong Wu",
+    "arxiv_version": "2605.24579v1",
+    "arxiv_version_date": "2026-05-23",
+    "sections": [
+      {
+        "id": "S1",
+        "heading": "1 Introduction",
+        "level": 1,
+        "text": "A user chats with an AI assistant for three months—sharing restaurant preferences, travel plans, project deadlines. One day they ask: “What Thai place did I mention liking in April?” The system fails. But why it fails matters: did the memory system discard that detail during compression, or is the detail stored in memory but missed by retrieval? The first case calls for better compression; the second, better retrieval. End-to-end accuracy—the only metric most benchmarks report—cannot distinguish the two. This is not a hypothetical problem. Memory-augmented LLMs now use a wide range of write strategies—chunked storage ( Lewis et al., 2020 ) , session summarization ( Wang et al., 2024 ) , summary trees ( Chen et al., 2024 ) , gist pages ( Lee et al., 2024 ) , importance-scored banks ( Zhong et al., 2024 ) —but evaluations usually report only end-to-end performance. When a system scores poorly, practitioners cannot tell whether to invest in compression or retrieval. We expose these stage-level effects by evaluating the same reader under four controlled inputs that replace or bypass different parts of the memory pipeline. The resulting four-condition diagnostic protocol (§ 3 ) compares oracle evidence ( OE ) against complete stored memory ( CSM ) to estimate the write-side gap, and CSM against retrieved memory ( RM ) for the retrieval-side gap. The protocol is operational—it localizes where performance degrades, without claiming to identify root causes. Applying this protocol to six baseline systems on LongMemEval ( Wu et al., 2025 ) , we find a consistent asymmetry: write-side gaps exceed retrieval-side gaps for most baselines, with four baselines robustly write-dominant under our default diagnosis margin. For these baseline operating points, more performance is lost during the write stage than during retrieval. This finding motivates using anticipated future questions to guide compression at write time. The challenge is that compression happens before the question arrives. A standard summarizer does not know which facts will matter later. Expected Predictive Compression (EPC) (§ 4 ) addresses this by prompting the LLM to generate likely future questions about the conversation. Those self-generated probe questions then guide evidence selection under a fixed token budget—preserving the specific facts, dates, and preferences most likely to be needed, rather than producing a generically readable summary. Across 500 LongMemEval questions with three readers (GPT-5.2, Claude Sonnet 4, Gemini 2.5 Pro), EPC achieves the highest CSM score among all tested systems, with the lowest write-side gap ( Δ write = 0.04 \\Delta_{\\text{write}}=0.04 ). On a second benchmark (LoCoMo), EPC again has the lowest write-side gap ( Δ write = 0.06 \\Delta_{\\text{write}}=0.06 ). A cost-matched comparison separates the gain from an additional LLM call, and a budget sweep shows the advantage is largest under tight budgets—precisely where choosing the right evidence matters most."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px1",
+        "heading": "Long-Context Memory Systems.",
+        "level": 3,
+        "text": "Prior work explores a wide range of memory systems for long interactions. MemGPT ( Packer et al., 2024 ) introduces a virtual memory hierarchy; MemWalker ( Chen et al., 2024 ) organizes long documents as a summary tree; ReadAgent ( Lee et al., 2024 ) stores gists and expands them at read time; MemoryBank ( Zhong et al., 2024 ) scores memory by importance and temporal decay; and Wang et al. (2024) train a long-term memory module jointly with the model. Zhang et al. (2024) survey these memory mechanisms more broadly. Our focus is complementary: rather than proposing another end-to-end system, we ask how to localize where performance degrades in a memory pipeline."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px2",
+        "heading": "Memory Evaluation and Error Analysis.",
+        "level": 3,
+        "text": "LongMemEval ( Wu et al., 2025 ) provides multi-session conversations with gold turn-level evidence annotations, making it possible to evaluate memory systems against explicit supporting evidence. In retrieval-augmented generation, Xu et al. (2024b) compare retrieval-based and long-context approaches, but they evaluate end-to-end performance without separating write-side from retrieval-side degradation. Our protocol fills that gap."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px3",
+        "heading": "Compression for Downstream Tasks.",
+        "level": 3,
+        "text": "Prompt and context compression methods ( Jiang et al., 2023 ; Pan et al., 2024 ) reduce token counts while preserving general utility. Query-aware variants—RECOMP ( Xu et al., 2024a ) and the broader query-focused summarization tradition ( Daumé III and Marcu, 2006 ; Baumel et al., 2018 ) —go further by conditioning compression on a known downstream query. EPC instead operates before the downstream query is available. It approximates the future-question distribution via LLM self-questioning and minimizes expected answer loss over likely future questions rather than optimizing generic readability or a response to a known query."
+      },
+      {
+        "id": "S3",
+        "heading": "3 Diagnostic Protocol",
+        "level": 1,
+        "text": "This section defines the four controlled input conditions, the resulting write-side and retrieval-side indicators, and the rule used to label the dominant bottleneck."
+      },
+      {
+        "id": "S3.SS1",
+        "heading": "3.1 Problem Formulation",
+        "level": 2,
+        "text": "Consider a memory-augmented QA system operating over a conversation history H = { s 1 , s 2 , … , s n } H=\\{s_{1},s_{2},\\ldots,s_{n}\\} consisting of n n sessions. Given a question q q with gold answer y y and gold evidence turns E q E_{q} drawn from H H , the system must: (1) write the history into a budget-limited memory store M M with capacity B B tokens, and (2) read from M M by retrieving content R ⊆ M R\\subseteq M to provide context for answering q q . Here, the write stage denotes the pre-question processing that stores, indexes, evicts, or compresses history into M M ; retrieval is the question-time selection of content from that store."
+      },
+      {
+        "id": "S3.SS2",
+        "heading": "3.2 Four Conditions",
+        "level": 2,
+        "text": "We define four evaluation conditions, each providing a different input to a fixed reader, to isolate reference performance and memory-pipeline effects (Figure 1 ): TFC (Truncated Full Context): The reader receives H H truncated to a fixed 32K-token context budget. No memory system is involved. OE (Oracle Evidence): The reader receives only the gold evidence turns E q E_{q} —distractors removed, no truncation. CSM (Complete Stored Memory): The reader receives all content in memory M M after the write stage. RM (Retrieved Memory): The reader receives the retrieved subset R ⊆ M R\\subseteq M . Two gaps localize where performance drops within the memory pipeline: OE → \\to CSM defines the write-side gap, and CSM → \\to RM defines the retrieval-side gap. Two caveats apply. First, the OE – TFC gap mixes distractor removal with the imposed context budget, so OE > > TFC does not isolate either effect. Second, the OE → \\to CSM gap should be read as an upper bound on write-side degradation: it can also reflect format mismatch between stored memory and reader expectations, or loss of contextual cues. These gaps are therefore operational indicators that localize where performance degrades, not causal attributions to a single mechanism. While each condition is individually simple, prior evaluations report only end-to-end scores ( RM or equivalent), making it impossible to determine whether failures originate in compression or retrieval. The protocol’s contribution is combining these conditions into a reusable diagnostic that any memory system can run without architectural changes."
+      },
+      {
+        "id": "S3.SS3",
+        "heading": "3.3 Bottleneck Indicators",
+        "level": 2,
+        "text": "For a scoring metric ϕ \\phi , we use the two gaps as operational bottleneck indicators : Δ write \\displaystyle\\Delta_{\\text{write}} = ϕ ⁡ ( OE ) − ϕ ⁡ ( CSM ) \\displaystyle=\\phi(\\textsc{OE})-\\phi(\\textsc{CSM}) (1) Δ retr \\displaystyle\\Delta_{\\text{retr}} = ϕ ⁡ ( CSM ) − ϕ ⁡ ( RM ) \\displaystyle=\\phi(\\textsc{CSM})-\\phi(\\textsc{RM}) (2) These are additive: ϕ ⁡ ( OE ) − ϕ ⁡ ( RM ) = Δ write + Δ retr \\phi(\\textsc{OE})-\\phi(\\textsc{RM})=\\Delta_{\\text{write}}+\\Delta_{\\text{retr}} . For compact notation, we write Δ w = Δ write \\Delta_{w}=\\Delta_{\\text{write}} and Δ r = Δ retr \\Delta_{r}=\\Delta_{\\text{retr}} below."
+      },
+      {
+        "id": "S3.SS4",
+        "heading": "3.4 Diagnosis Rule",
+        "level": 2,
+        "text": "With margin ϵ = 0.02 \\epsilon=0.02 : diagnosis = { Write if ​ Δ w > Δ r + ϵ Retrieval if ​ Δ r > Δ w + ϵ Mixed otherwise \\text{diagnosis}=\\begin{cases}\\textsc{Write}&\\text{if }\\Delta_{w}>\\Delta_{r}+\\epsilon\\\\ \\textsc{Retrieval}&\\text{if }\\Delta_{r}>\\Delta_{w}+\\epsilon\\\\ \\textsc{Mixed}&\\text{otherwise}\\end{cases} (3) The margin only affects near-balanced systems; four baselines remain unambiguously Write under ϵ ∈ [ 0 , .05 ] \\epsilon\\in[0,.05] , while Summary (LLM) and ReadAgent lie near the boundary. H H M M R R write retrieve E q E_{q} gold TFC OE CSM RM Reader one at a time ϕ \\phi Δ write \\Delta_{\\text{write}} Δ retr \\Delta_{\\text{retr}} Figure 1: The four-condition diagnostic protocol. Each condition is evaluated by the same reader; Δ write = ϕ ⁡ ( OE ) − ϕ ⁡ ( CSM ) \\Delta_{\\text{write}}=\\phi(\\textsc{OE})-\\phi(\\textsc{CSM}) and Δ retr = ϕ ⁡ ( CSM ) − ϕ ⁡ ( RM ) \\Delta_{\\text{retr}}=\\phi(\\textsc{CSM})-\\phi(\\textsc{RM}) ."
+      },
+      {
+        "id": "S4",
+        "heading": "4 Expected Predictive Compression",
+        "level": 1,
+        "text": "Consider LLM summarization, the strongest query-agnostic compression baseline among our tested systems (Table 3 ). It compresses 121K tokens of conversation into 5K tokens of fluent text—yet even when the reader has access to all stored memory, fewer than half the questions are answered correctly (CSM = .44). Which information is lost? The summarizer preserves broadly salient content—topics discussed, decisions made—but omits specific dates, entity names, and preference details that downstream questions target. This motivates a compression objective that prioritizes supporting evidence, not just readable summaries. We propose Expected Predictive Compression (EPC) , which shifts the compression objective accordingly."
+      },
+      {
+        "id": "S4.SS1",
+        "heading": "4.1 Formulation",
+        "level": 2,
+        "text": "Given a conversation segment x x (a session in our experiments) and a token budget B B , let Q ⁡ ( x ) Q(x) denote a set of possible future questions that may require information from x x , with w ⁡ ( q ) w(q) as each question’s estimated likelihood. Let A ⁡ ( c , q ) A(c,q) denote the reader’s answer to question q q given context c c , and ℒ \\mathcal{L} a loss function measuring answer degradation. EPC seeks the compressed memory m ∗ m^{*} that minimizes expected answer loss: m ∗ = arg ​ min | m | ≤ B ∑ q ∈ Q ⁡ ( x ) w ( q ) ⋅ ℒ ( A ( x , q ) , A ( m , q ) ) m^{*}=\\argmin_{|m|\\leq B}\\sum_{q\\in Q(x)}w(q)\\cdot\\mathcal{L}\\big(A(x,q),\\;A(m,q)\\big) (4) where the weighted sum approximates the expectation over the future-question distribution. This is loosely motivated by rate–distortion theory ( Cover and Thomas, 2006 ) , where the budget B B plays the role of a rate constraint and the distortion is future-question answer loss rather than surface-level reconstruction error. The actual implementation uses a greedy heuristic (Eq. 5 ) rather than formal rate–distortion optimization; the connection is conceptual rather than algorithmic."
+      },
+      {
+        "id": "S4.SS2",
+        "heading": "4.2 LLM Self-Questioning EPC",
+        "level": 2,
+        "text": "Since Q ⁡ ( x ) Q(x) is unknown at write time, we approximate it via LLM self-questioning : the LLM first generates probe questions that the segment is likely to be queried about, then uses them to guide evidence selection. The implementation treats those generated probe questions as an unweighted approximation to Q ⁡ ( x ) Q(x) . Figure 2 illustrates the procedure: Conversation segment x x ↬ \\looparrowright Self-Question 1 Probe questions { q 1 ​ … ​ q k } \\{q_{1}\\ldots q_{k}\\} ⊳ \\triangleright Evidence ID 2 Evidence units { e i } \\{e_{i}\\} ⋈ \\bowtie Merge & Select 3 Budget B B Memory m ∗ m^{*} to retrieval Anticipate future questions Generate likely downstream questions before compression begins. Trace minimal evidence Identify exact spans, entities, and evidence units. Select under budget Write structured [Q][E][S] entries within B B tokens. Figure 2: The EPC write pipeline. \\scriptsize1⃝ Generate probe questions. \\scriptsize2⃝ Identify supporting evidence. \\scriptsize3⃝ Merge and select under budget B B ."
+      },
+      {
+        "id": "S4.SS2.SSS0.Px1",
+        "heading": "Step 1: Generate probe questions.",
+        "level": 3,
+        "text": "Given segment x x , prompt the LLM to generate k = 5 k=5 likely future questions targeting factual details, preferences, plans, temporal information, and state changes."
+      },
+      {
+        "id": "S4.SS2.SSS0.Px2",
+        "heading": "Step 2: Identify supporting evidence.",
+        "level": 3,
+        "text": "For each probe question q i q_{i} , the LLM identifies the minimal supporting evidence: specific turns, spans, and entities."
+      },
+      {
+        "id": "S4.SS2.SSS0.Px3",
+        "heading": "Step 3: Merge, score, and select.",
+        "level": 3,
+        "text": "Overlapping evidence spans are merged, and each evidence unit e e receives a utility score: u ⁡ ( e ) = \\displaystyle u(e)={} α ⋅ coverage ​ ( e ) + β ⋅ specificity ​ ( e ) \\displaystyle\\alpha\\cdot\\text{coverage}(e)+\\beta\\cdot\\text{specificity}(e) (5) − λ ⋅ redundancy ( e ) \\displaystyle-\\lambda\\cdot\\text{redundancy}(e) where coverage counts how many probe questions e e supports; specificity rewards named entities, dates, and numbers; and redundancy penalizes overlap with already-selected evidence. At each greedy selection step, units are ranked by the current u ⁡ ( e ) u(e) until the budget B B is exhausted, and each selected unit is written as a structured memory entry: [Q] What food does the user prefer? [E] User prefers Thai over Italian. [S] session_12_turn_3"
+      },
+      {
+        "id": "S4.SS2.SSS0.Px4",
+        "heading": "Design rationale.",
+        "level": 3,
+        "text": "The design assumes that LLM-generated probe questions can cover common future question targets such as preferences, facts, and temporal events, so even an approximate Q ⁡ ( x ) Q(x) can direct compression toward useful evidence. Unlike conventional summarization, which optimizes for readability, EPC prioritizes supporting evidence—producing structured, information-dense output that preserves exact entities, dates, and numbers."
+      },
+      {
+        "id": "S5",
+        "heading": "5 Experimental Setup",
+        "level": 1,
+        "text": "This section fixes the dataset, memory systems, model configurations, retrieval setup, and metrics used for the main LongMemEval experiments."
+      },
+      {
+        "id": "S5.SS1",
+        "heading": "5.1 Dataset",
+        "level": 2,
+        "text": "We evaluate on all 500 questions from LongMemEval ( Wu et al., 2025 ) . The benchmark is well suited to our setting because it pairs multi-session conversations averaging 121K tokens ( ∼ {\\sim} 50 sessions per conversation) with gold turn-level evidence annotations. We keep the dataset’s original session boundaries throughout."
+      },
+      {
+        "id": "S5.SS2",
+        "heading": "5.2 Memory Systems",
+        "level": 2,
+        "text": "Table 1 lists the seven memory systems we compare. The baselines span raw storage, heuristic summarization, LLM-based compression, hierarchical memory, and importance-weighted memory to cover diverse write and retrieval designs. For controlled comparison, EPC shares the same budgets and embedding top- k k retriever as the Summary systems and the same writer model as Summary (LLM). Because CSM removes retrieval, EPC’s CSM gains over Summary (LLM) reflect the write-side compression strategy rather than retriever choice."
+      },
+      {
+        "id": "S5.SS2.SSS0.Px1",
+        "heading": "Baseline provenance.",
+        "level": 3,
+        "text": "Verbatim Chunk and the two Summary variants are implemented directly in our codebase. MemWalker, ReadAgent, and MemoryBank were reimplemented following the procedures described in the original papers ( Chen et al., 2024 ; Lee et al., 2024 ; Zhong et al., 2024 ) and adapted to the session-based LongMemEval format: MemWalker constructs a summary tree over sessions using the same writer model (GPT-5.2); ReadAgent stores gist pages per session and expands them at read time; MemoryBank scores memories by importance with temporal decay. None of these systems provide official LongMemEval evaluation code, so reimplementation differences may affect absolute scores; however, all systems use the same dataset, budget, and readers, so relative comparisons within our evaluation are controlled. Full prompts, hyperparameters, baseline adaptation details, and significance-testing procedures are provided in Appendix A . System Write Strategy Retrieval Verbatim Chunk Raw chunks, FIFO eviction Emb. top- k k Summ. (Extractive) Heuristic extractive Emb. top- k k Summ. (LLM) LLM compression (query-agnostic) Emb. top- k k EPC (ours) LLM self-question + evidence Emb. top- k k MemWalker Summary tree Tree nav. ReadAgent LLM gist pages Lookup expansion MemoryBank Importance + temporal decay Importance+emb. Table 1: Seven memory systems. EPC shares the same budgets and embedding retriever with the Summary systems, and shares the writer model with Summary (LLM); CSM comparisons remove retrieval and isolate the write-side compression strategy."
+      },
+      {
+        "id": "S5.SS3.SSS0.Px1",
+        "heading": "Readers.",
+        "level": 3,
+        "text": "We use three readers: GPT-5.2 ( gpt-5.2 ), Claude Sonnet 4 ( claude-sonnet-4-20250514 ), and Gemini 2.5 Pro ( gemini-2.5-pro ). All readers use temperature 0, max output tokens 200, and a simple prompt: “Based on the following context, answer the question. If the answer cannot be determined, say ‘I don’t know’.” The context field is populated with the truncated full history ( TFC , fixed 32K-token budget), gold evidence turns ( OE ), complete stored memory ( CSM ), or retrieved memory ( RM ). For TFC , truncation retains the most recent 32K tokens (tail of the conversation), discarding earlier sessions. This is a budget-limited long-context baseline, not an unconstrained full-context reference."
+      },
+      {
+        "id": "S5.SS3.SSS0.Px2",
+        "heading": "Memory budgets and chunking.",
+        "level": 3,
+        "text": "Write budget B B =5,000 tokens; read budget 5,000 tokens. Token counts use the cl100k_base tokenizer. For Verbatim Chunk, conversations are split into 200-token chunks with no overlap; FIFO eviction drops the oldest chunks when exceeding B B . For Summary systems and EPC, each session is compressed independently; per-session budgets are allocated proportionally to the square root of session length."
+      },
+      {
+        "id": "S5.SS3.SSS0.Px3",
+        "heading": "Retrieval.",
+        "level": 3,
+        "text": "Verbatim Chunk, Summary (Extractive), Summary (LLM), and EPC all use the same retriever: all-MiniLM-L6-v2 sentence embeddings ( Reimers and Gurevych, 2019 ; Wang et al., 2020 ) with cosine similarity, returning top- k k =5 chunks/entries. MemWalker uses its own tree navigation; ReadAgent uses lookup expansion; MemoryBank uses importance-weighted re-ranking over the same embedding scores."
+      },
+      {
+        "id": "S5.SS3.SSS0.Px4",
+        "heading": "Write-side LLM configuration.",
+        "level": 3,
+        "text": "The directly compared LLM compression methods—Summary (LLM), EPC, and the 2-pass baseline—use the same model (GPT-5.2, temperature 0) for compression, ensuring that CSM differences among them reflect the compression strategy , not the model. Summary (LLM) uses a single call per session instructing the model to summarize under the token budget while preserving names, dates, numbers, preferences, and decisions, without guessing future questions. The 2-pass baseline uses the same first pass, then a second call asking the model to improve information density by replacing vague references with specific facts. EPC uses two calls: Step 1 generates 5 probe questions; Step 2 identifies supporting evidence (see § 4 ). Utility weights in Eq. 5 : α \\alpha =1.0, β \\beta =0.5, λ \\lambda =0.3, selected in a 20-example pilot before the final evaluation. Full prompt templates for all three methods are provided in Appendix A ."
+      },
+      {
+        "id": "S5.SS4",
+        "heading": "5.4 Metrics",
+        "level": 2,
+        "text": "We report Contains Match (CM): whether the generated answer contains the gold answer substring. We also report Token F1 : token-level precision/recall between generated and gold answers. Both are standard LongMemEval metrics ( Wu et al., 2025 ) . All scores are averaged over 500 questions. For the 3-reader tables, we report the mean across readers. TFC and OE are shared reference conditions, computed once per reader and reused across all systems. CM is a strict substring test; we verify in Appendix A that CM and F1 agree directionally in 95.5% of pairwise comparisons, and system rankings are identical under both metrics in all tables."
+      },
+      {
+        "id": "S6",
+        "heading": "6 Results",
+        "level": 1,
+        "text": "We first verify that the reference conditions make the diagnostic meaningful, then report the main write–retrieval decomposition. The remaining subsections test whether the diagnosis is supported by reader-independent evidence preservation, controlled perturbations, component ablations, cost matching, cross-benchmark generalization, and budget sensitivity."
+      },
+      {
+        "id": "S6.SS1",
+        "heading": "6.1 Reader-Level Reference Conditions",
+        "level": 2,
+        "text": "Reader TFC CM OE CM TFC F1 OE F1 GPT-5.2 0.18 0.55 0.29 0.65 Claude S4 0.17 0.50 0.28 0.61 Gemini 2.5 0.19 0.53 0.30 0.63 Mean .18 .53 .29 .63 Table 2: Reader-level reference conditions on LongMemEval. OE ≫ \\gg TFC across all readers. Table 2 shows that all three readers exhibit OE ≫ \\gg TFC : CM rises from 0.18 to 0.53 and F1 from 0.29 to 0.63. This establishes a strong oracle-evidence reference and a budget-limited truncated-context reference for the diagnostic. It does not decompose the OE – TFC difference, which still mixes distractor effects with the reader’s finite context window."
+      },
+      {
+        "id": "S6.SS2",
+        "heading": "6.2 Diagnostic Results",
+        "level": 2,
+        "text": "System CSM RM 𝚫 w \\boldsymbol{\\Delta_{\\text{w}}} 𝚫 r \\boldsymbol{\\Delta_{\\text{r}}} Verbatim 0.22 0.18 0.31 0.04 Summ. (E) 0.26 0.22 0.27 0.04 MemBank 0.30 0.25 0.23 0.05 MemWlk. 0.35 0.27 0.18 0.08 Summ. (L) 0.44 0.38 0.09 0.06 ReadAg. 0.43 0.35 0.10 0.08 EPC 0.49 0.42 0.04 0.07 Table 3: Diagnostic results (CM, 3-reader avg, B B =5K). Refs: TFC =0.18, OE =0.53. EPC CSM CI: [.46, .52], p < .01 p<.01 vs Summary (LLM). Token F1 yields identical system ordering. Table 3 and Figure 3 together reveal a clear spectrum of write-side gaps. Verbatim Chunk shows the largest write-side gap ( Δ w \\Delta_{\\text{w}} =.31), with a much smaller retrieval-side gap ( Δ r \\Delta_{\\text{r}} =.04). Progressing from weaker to stronger write strategies—Summary (Extractive), MemoryBank, and MemWalker—the write-side gap gradually shrinks but remains dominant. Summary (LLM) and ReadAgent substantially reduce the write-side gap, but still lose 0.09–0.10 absolute CM points relative to OE during the write stage. EPC further reduces Δ w \\Delta_{\\text{w}} to .04, leaving retrieval as the larger remaining gap. Appendix A.6 illustrates this pattern with concrete examples showing which entities, dates, and negations are lost under query-agnostic summarization and preserved by EPC. Under the diagnosis rule (§ 3 ), four baselines are robustly write-dominant; Summary (LLM) is write-dominant in the aggregate but near the margin, and ReadAgent is mixed/near-boundary. EPC is the only system diagnosed as retrieval-dominant. EPC’s CSM of .49 CM (.62 F1) has a 95% bootstrap CI of [.46, .52] and significantly exceeds Summary (LLM) under paired bootstrap ( p < 0.01 p<0.01 ). Figure 3: Write-side gap ( Δ w \\Delta_{\\text{w}} =OE − - CSM, coral) vs. retrieval-side gap ( Δ r \\Delta_{\\text{r}} =CSM − - RM, blue) for all seven systems (CM, 3-reader avg, B B =5K). Numbers at right: total OE → \\to RM drop. EPC is highlighted in green, with hatching marking its retrieval-side gap, and has the smallest write-side gap. EPC remains the highest- CSM system for each reader individually (GPT-5.2, Claude Sonnet 4, and Gemini 2.5 Pro), so the aggregate result is not driven by a single reader."
+      },
+      {
+        "id": "S6.SS3",
+        "heading": "6.3 Reader-Independent Evidence Preservation",
+        "level": 2,
+        "text": "The diagnostic indicators ( Δ write \\Delta_{\\text{write}} , Δ retr \\Delta_{\\text{retr}} ) are based on answer correctness , which can mix evidence preservation, memory format, and reader ability. As a reader-independent check on the write-side diagnosis, we measure whether gold evidence survives in memory. For each question, LongMemEval provides gold evidence turns. We compute two recall metrics over complete stored memory ( CSM ) and retrieved memory ( RM ): Turn recall : fraction of gold evidence turns preserved in memory (token-level Jaccard overlap > 0.5 >0.5 with the closest memory segment). Span recall : fraction of gold answer entities (names, dates, numbers) found as exact substrings in memory. Both metrics are heuristic and intended as a reader-independent complement to the diagnostic indicators, not as a standalone evaluation. Figure 4: Evidence recall (CSM and RM). EPC preserves +.15 more gold answer entities than Summary (LLM) in CSM span recall. Figure 4 provides the reader-independent check: CSM span recall mirrors the write-side ranking in Table 3 , and EPC preserves 70% of gold answer entities versus 55% for Summary (LLM). Its CSM → \\to RM span-recall drop (.70 → \\to .60) also matches the retrieval-side diagnosis, indicating that EPC’s remaining gap is associated with losing preserved spans during retrieval."
+      },
+      {
+        "id": "S6.SS4",
+        "heading": "6.4 Protocol Validation via Controlled Degradation",
+        "level": 2,
+        "text": "As a validation check, we evaluate Summary (LLM) under five controlled settings: the unmodified system, mild and severe write-side degradation (randomly dropping 25% or 50% of memory entries after the write stage), and mild and severe retrieval-side degradation (replacing top-ranked retrieved entries with entries from the bottom-ranked 25% or 50% of the ranked candidate list). We run each setting with all three readers, yielding 15 setting–reader runs. Figure 5 shows that Δ w \\Delta_{\\text{w}} responds selectively to write-side degradation and Δ r \\Delta_{\\text{r}} to retrieval-side degradation; the degraded variants are diagnosed correctly. Figure 5: Controlled degradation (3 readers). Δ w \\Delta_{\\text{w}} (write-side gap = OE − - CSM) responds selectively to write-side degradation; Δ r \\Delta_{\\text{r}} (retrieval-side gap = CSM − - RM) responds selectively to retrieval-side degradation."
+      },
+      {
+        "id": "S6.SS5",
+        "heading": "6.5 EPC Breakdown: Question Type and Probe Alignment",
+        "level": 2,
+        "text": "We next ask where EPC helps most: across question types, and as a function of how closely its probe questions match the held-out test question. Figure 6: EPC vs. Summary (LLM) CSM (CM, 3-reader avg, B B =5K) by question type (left) and probe–question alignment (right). EPC gains are shown above bars; the largest gain (+.10) occurs when probe questions align with test questions. Figure 6 shows that EPC improves CSM on single-session, multi-session, and temporal questions, with the largest gain on single-session questions (+.06). We measure probe–question alignment as the maximum cosine similarity between the test question and EPC’s generated probe questions, using the same all-MiniLM-L6-v2 embeddings as retrieval. Splitting questions at the median alignment score confirms this pattern: +.10 CSM when probe questions align and +.04 when they do not. One explanation is that self-questioning encourages broader coverage of high-value information types (entities, dates, preferences), which can benefit even unanticipated questions."
+      },
+      {
+        "id": "S6.SS6",
+        "heading": "6.6 Component Ablation and Weight Sensitivity",
+        "level": 2,
+        "text": "We then isolate which EPC components account for the gain and check sensitivity to probe count and utility weights. Figure 7: Component ablations and probe-count sensitivity (CSM CM, B B =5K). Removing self-questioning ( − - .05) is the largest drop; utility-weight sensitivity is reported below. Figure 7 identifies self-questioning as the largest contributor among the tested components: removing it drops CSM by .05, while random probe questions recover only +.01 over Summary (LLM). k k =5 probe questions suffice; k k =10 provides no additional benefit."
+      },
+      {
+        "id": "S6.SS6.SSS0.Px1",
+        "heading": "Utility weight sensitivity.",
+        "level": 3,
+        "text": "The utility function (Eq. 5 ) uses weights α \\alpha =1.0, β \\beta =0.5, λ \\lambda =0.3 selected in a 20-example pilot. Across six alternative configurations, CSM stays within .45–.50; reducing specificity weight β \\beta hurts most ( − .04 -.04 ), but all variants match or exceed Summary (LLM), suggesting that the self-questioning mechanism contributes more to EPC’s gains than the particular weight settings. This low sensitivity to weight configurations also reduces the risk that the reported gains depend on this small pilot choice."
+      },
+      {
+        "id": "S6.SS7",
+        "heading": "6.7 Cost-Matched Comparison",
+        "level": 2,
+        "text": "EPC uses two LLM calls per session versus one for Summary (LLM). To separate the effect of an additional LLM call from the effect of probe-question generation, we introduce a 2-pass baseline that also uses two calls but without self-questioning: Pass 1 compresses normally, and Pass 2 performs query-agnostic refinement for information density. System Calls CSM RM 𝚫 w \\boldsymbol{\\Delta_{\\text{w}}} 𝚫 r \\boldsymbol{\\Delta_{\\text{r}}} Summ. (LLM) 1-pass 1 0.46 0.40 0.09 0.06 Summ. (LLM) 2-pass 2 0.48 0.42 0.07 0.06 EPC 2 0.51 0.44 0.04 0.07 Table 4: Cost-matched comparison (CM, GPT-5.2). The 2-pass baseline recovers +.02 over 1-pass Summary (LLM); EPC adds a further +.03 under the same two-call budget. Table 4 shows that a second query-agnostic refinement pass improves CSM by +.02, while EPC gains +.05 over 1-pass Summary (LLM). The remaining +.03 separates EPC from the cost-matched 2-pass baseline on this reader. The same ordering (EPC > > 2-pass > > 1-pass) holds for the other two readers. Relative to the 1-pass Summary (LLM) baseline, EPC roughly doubles write latency ( ∼ \\sim 30s → ⁣ ∼ \\to\\sim 60s per session in our implementation) while roughly halving Δ write \\Delta_{\\text{write}} ."
+      },
+      {
+        "id": "S6.SS8",
+        "heading": "6.8 Cross-Benchmark Generalization: LoCoMo",
+        "level": 2,
+        "text": "To test generalization, we evaluate on LoCoMo ( Maharana et al., 2024 ) , a multi-session benchmark with 348 QA pairs across 10 conversations, including two question categories absent from LongMemEval (elaboration and adversarial). For LoCoMo, we report a two-reader average using GPT-5.2 and Claude Sonnet 4. LoCoMo operates in a different regime : conversations average ∼ {\\sim} 9K tokens, fitting entirely within the 32K context budget. Consequently, the TFC condition effectively becomes a full-context baseline (no truncation), and the OE – TFC gap reflects distractor interference alone, not information loss from truncation. We set the write budget to B B =2,000 tokens to create meaningful compression pressure (22% retention), while noting that this is less aggressive compression than B B =5,000 on LongMemEval’s 121K-token contexts. System CSM RM 𝚫 w \\boldsymbol{\\Delta_{\\text{w}}} 𝚫 r \\boldsymbol{\\Delta_{\\text{r}}} Verbatim 0.29 0.24 0.32 0.05 Summ. (E) 0.33 0.27 0.28 0.06 MemBank 0.37 0.31 0.24 0.06 MemWlk. 0.39 0.33 0.22 0.06 Summ. (L) 0.51 0.44 0.10 0.07 ReadAg. 0.49 0.41 0.12 0.08 EPC 0.55 0.46 0.06 0.09 Table 5: LoCoMo results (CM, B B =2K, 2-reader avg). Refs: TFC =0.46, OE =0.61. The CM ranking pattern matches LongMemEval. Table 5 shows a similar ranking pattern in this no-truncation reference setting: Verbatim Chunk through MemWalker have Δ w > Δ r \\Delta_{\\text{w}}>\\Delta_{\\text{r}} , EPC has the lowest Δ w \\Delta_{\\text{w}} and is the only system where Δ r > Δ w \\Delta_{\\text{r}}>\\Delta_{\\text{w}} , and the EPC–Summary (LLM) CSM gap is +.04. The smaller OE – TFC gap (.15 CM vs. .35 on LongMemEval) is consistent with truncation contributing to the LongMemEval reference gap, though the protocol remains informative without truncation. By category, EPC gains most on factual questions (+.06 CSM), moderately on temporal/elaboration (+.04), and least on inferential/adversarial cases (+.02)."
+      },
+      {
+        "id": "S6.SS9",
+        "heading": "6.9 Budget Sensitivity on LongMemEval",
+        "level": 2,
+        "text": "One question raised by the rate–distortion framing (Section 4 ) is whether self-questioning matters more under tight budget constraints, where choosing the right evidence is critical, than under relaxed budgets. We test this by sweeping the write budget B ∈ { 2 ​ K , 5 ​ K , 10 ​ K , 20 ​ K } B\\in\\{2\\text{K},5\\text{K},10\\text{K},20\\text{K}\\} on all 500 LongMemEval questions with three readers, while keeping the read budget fixed at 5K tokens. Budget System CSM RM 𝚫 w \\boldsymbol{\\Delta_{\\text{w}}} 𝚫 r \\boldsymbol{\\Delta_{\\text{r}}} Diag. 2K Verbatim 0.14 0.11 0.40 0.03 W Summ. (E) 0.20 0.15 0.34 0.05 W Summ. (L) 0.33 0.28 0.21 0.05 W EPC 0.44 0.36 0.10 0.08 W 5K Verbatim 0.22 0.18 0.31 0.04 W Summ. (E) 0.26 0.22 0.27 0.04 W Summ. (L) 0.44 0.38 0.09 0.06 W EPC 0.49 0.42 0.04 0.07 R 10K Verbatim 0.32 0.26 0.22 0.06 W Summ. (E) 0.34 0.28 0.20 0.06 W Summ. (L) 0.50 0.42 0.04 0.08 R EPC 0.52 0.44 0.02 0.08 R 20K Verbatim 0.37 0.31 0.17 0.06 W Summ. (E) 0.42 0.35 0.12 0.07 W Summ. (L) 0.52 0.44 0.02 0.08 R EPC 0.53 0.46 0.01 0.07 R Table 6: Write-budget sweep (CM, 3-reader avg; read budget fixed at 5K). Refs: TFC =.18, OE =.53. W/R denote write-/retrieval-dominant diagnoses. EPC’s advantage shrinks from +.11 (2K) to +.01 (20K). Table 6 shows that EPC’s CSM advantage over Summary (LLM) shrinks from +.11 at 2K to +.01 at 20K as both systems approach the OE upper bound (.53). The relative size of the two gaps also shifts with budget: EPC reaches Δ r > Δ w \\Delta_{\\text{r}}>\\Delta_{\\text{w}} at 5K, Summary (LLM) at 10K, while Verbatim Chunk and Summary (Extractive) have Δ w > Δ r \\Delta_{\\text{w}}>\\Delta_{\\text{r}} throughout."
+      },
+      {
+        "id": "S7.SS0.SSS0.Px1",
+        "heading": "Operating point matters.",
+        "level": 3,
+        "text": "The budget sweep shows that the diagnosis is not an intrinsic property of an architecture alone: as B B grows, EPC becomes retrieval-dominant at 5K and Summary (LLM) at 10K, while Verbatim Chunk and Summary (Extractive) remain write-dominant throughout. Thus the protocol should be run under the target budget, reader, and question distribution rather than inferred from the system family."
+      },
+      {
+        "id": "S7.SS0.SSS0.Px2",
+        "heading": "Benefits and limits of self-questioning.",
+        "level": 3,
+        "text": "EPC’s gains are largest under aggressive compression (+.11 at B B =2K), on single-session LongMemEval questions (+.06), and on factual LoCoMo questions (+.06). They shrink when budgets are generous (+.01 at B B =20K) or questions require compositional inference (+.02 on LoCoMo’s inferential category). This suggests that self-questioning is most useful when the writer must choose a small set of answer-relevant details before the question is known."
+      },
+      {
+        "id": "S7.SS0.SSS0.Px3",
+        "heading": "Relation to full-context reading.",
+        "level": 3,
+        "text": "Because our TFC condition imposes a fixed 32K-token budget, full-context reading could narrow the OE – TFC gap. The diagnostic protocol is complementary: it evaluates fixed-budget memory pipelines and helps determine whether compression or retrieval is the limiting stage within that design."
+      },
+      {
+        "id": "S8",
+        "heading": "8 Conclusion",
+        "level": 1,
+        "text": "This paper makes three main points. First, the diagnostic protocol decomposes end-to-end memory failures into write-side and retrieval-side gaps. It requires no architectural changes—just four evaluations of the same reader under controlled inputs—and we have shown it to be informative across two benchmarks (LongMemEval and LoCoMo), multiple readers, and a range of budgets. Second, EPC uses likely future questions to decide what information to retain during compression, substantially reducing the write-side gap on both benchmarks and shifting the remaining bottleneck toward retrieval. Third, the write-retrieval balance is not fixed. It depends on the system, the budget, and the question distribution. Most systems we tested operate in a regime where improving the write stage would help more than improving retrieval—but this changes as budgets grow or as compression methods improve. The diagnostic protocol makes this regime visible and reduces the risk of optimizing a non-limiting stage. Future work includes reducing reliance on human evidence annotations via LLM-generated silver evidence, exploring adaptive compression that adjusts strategy based on per-session diagnostic signals, and evaluating on longer conversations and more diverse domains."
+      },
+      {
+        "id": "Sx1",
+        "heading": "Limitations",
+        "level": 1,
+        "text": "The diagnostic indicators are conditioned on the chosen reader and metric. EPC’s self-questioning step adds write-time latency. While we evaluate on two benchmarks (LongMemEval and LoCoMo), both rely on gold evidence annotations for the OE condition. This is an experimental choice rather than a protocol limitation: the four-condition structure is agnostic to how evidence is obtained. In practice, a practitioner could approximate OE with silver annotations—e.g., prompting an LLM to identify the minimal supporting turns for each question—which would introduce annotation noise but may preserve the directional diagnosis (write-dominant vs. retrieval-dominant), since the diagnosis rule already tolerates small perturbations via the margin ϵ \\epsilon . Empirically validating this silver-annotation path remains future work. LoCoMo’s shorter context ( ∼ {\\sim} 9K tokens) means the compression challenge is milder than in LongMemEval; evaluating on benchmarks with longer contexts and more diverse domains would further strengthen generalizability claims."
+      },
+      {
+        "id": "Sx2",
+        "heading": "Ethics and Reproducibility",
+        "level": 1,
+        "text": "Long-term memory benchmarks and systems necessarily involve storing user-specific facts, preferences, dates, and other potentially sensitive information. Because EPC explicitly tries to preserve supporting evidence, a deployed version could also preserve sensitive information more reliably than a generic summary unless retention, deletion, access control, and redaction policies are carefully designed. More broadly, the work studies diagnostic structure rather than downstream social impact, so it should not be interpreted as an argument for indiscriminate memory retention in real applications. Reproducibility is also limited by our use of proprietary LLM readers and writers, whose behavior may change over time."
+      },
+      {
+        "id": "bib",
+        "heading": "References",
+        "level": 1,
+        "text": "Baumel et al. (2018) T. Baumel, M. Eyal, and M. Elhadad Query focused abstractive summarization: incorporating query relevance, multi-document coverage, and summary length constraints into seq2seq models . arXiv preprint arXiv:1801.07704 . External Links: Link Cited by: §2 . Chen et al. (2024) H. Chen, R. Pasunuru, J. Weston, and A. Celikyilmaz Walking down the memory maze: beyond context limit through interactive reading . In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics , External Links: Link , Document Cited by: §1 , §2 , §5.2 . Cover and Thomas (2006) T. M. Cover and J. A. Thomas Elements of information theory . 2 edition , Wiley-Interscience . External Links: Link , Document Cited by: §4.1 . Daumé III and Marcu (2006) H. Daumé III and D. Marcu Bayesian query-focused summarization . In Proceedings of the 21st International Conference on Computational Linguistics and 44th Annual Meeting of the ACL , pp. 305–312 . External Links: Link , Document Cited by: §2 . Jiang et al. (2023) H. Jiang, Q. Wu, X. Luo, S. Ahn, Z. Ma, Z. Liu, C. Lin, and Y. Yang LLMLingua: compressing prompts for accelerated inference of large language models . In Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing , External Links: Link , Document Cited by: §2 . Lee et al. (2024) K. Lee, D. Ippolito, A. Nishi, Y. Ren, and Z. Parekh A human-inspired reading agent with gist memory of very long contexts . In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics , External Links: Link , Document Cited by: §1 , §2 , §5.2 . Lewis et al. (2020) P. Lewis, E. Perez, A. Piktus, F. Petroni, V. Karpukhin, N. Goyal, H. Küttler, M. Lewis, W. Yih, T. Rocktäschel, et al. Retrieval-augmented generation for knowledge-intensive NLP tasks . In Advances in Neural Information Processing Systems , Vol. 33 . External Links: Link , Document Cited by: §1 . Maharana et al. (2024) A. Maharana, D. Lee, S. Tuber, M. Bansal, F. Barbieri, Y. Fang, R. Damber, and S. Yi Evaluating very long-term conversational memory of LLM agents . In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics , External Links: Link Cited by: §6.8 . Packer et al. (2024) C. Packer, S. Wooders, K. Lin, V. Fang, S. G. Patil, I. Stoica, and J. E. Gonzalez MemGPT: towards LLMs as operating systems . In Proceedings of the International Conference on Learning Representations (ICLR) , External Links: Link , Document Cited by: §2 . Pan et al. (2024) Z. Pan, Q. Wu, H. Jiang, M. Xia, X. Luo, J. Zhang, Q. Lin, V. Ruhle, Y. Yang, C. Lin, et al. LLMLingua-2: data distillation for efficient and faithful task-agnostic prompt compression . In Findings of the Association for Computational Linguistics: ACL 2024 , External Links: Link Cited by: §2 . Reimers and Gurevych (2019) N. Reimers and I. Gurevych Sentence-BERT: sentence embeddings using siamese BERT-networks . In Proceedings of the 2019 Conference on Empirical Methods in Natural Language Processing , External Links: Link , Document Cited by: §5.3 . Wang et al. (2024) W. Wang, L. Dong, H. Cheng, X. Liu, X. Yan, J. Gao, and F. Wei Augmenting language models with long-term memory . In Advances in Neural Information Processing Systems , External Links: Link , Document Cited by: §1 , §2 . Wang et al. (2020) W. Wang, F. Wei, L. Dong, H. Bao, N. Yang, and M. Zhou MiniLM: deep self-attention distillation for task-agnostic compression of pre-trained transformers . In Advances in Neural Information Processing Systems , Vol. 33 . External Links: Link , Document Cited by: §5.3 . Wu et al. (2025) D. Wu, H. Wang, W. Yu, Y. He, and K. Zhu LongMemEval: benchmarking chat assistants on long-term interactive memory . In Proceedings of the International Conference on Learning Representations (ICLR) , External Links: Link Cited by: §1 , §2 , §5.1 , §5.4 . Xu et al. (2024a) F. Xu, W. Shi, and E. Choi RECOMP: improving retrieval-augmented LMs with compression and selective augmentation . In Proceedings of the International Conference on Learning Representations (ICLR) , External Links: Link Cited by: §2 . Xu et al. (2024b) P. Xu, W. Ping, X. Wu, L. McAfee, C. Zhu, Z. Liu, S. Subramanian, E. Bakhturina, M. Shoeybi, and B. Catanzaro Retrieval meets long context large language models . In Proceedings of the International Conference on Learning Representations (ICLR) , External Links: Link Cited by: §2 . Zhang et al. (2024) Z. Zhang, X. B. Zhang, C. Jiang, J. Liu, J. Zou, et al. A survey on the memory mechanism of large language model based agents . arXiv preprint arXiv:2404.13501 . External Links: Link , Document Cited by: §2 . Zhong et al. (2024) W. Zhong, L. Guo, Q. Gao, H. Ye, and Y. Wang MemoryBank: enhancing large language models with long-term memory . In Proceedings of the AAAI Conference on Artificial Intelligence , External Links: Link , Document Cited by: §1 , §2 , §5.2 ."
+      },
+      {
+        "id": "A1",
+        "heading": "Appendix A Reproducibility Details",
+        "level": 1,
+        "text": "This appendix provides the prompt templates, hyperparameters, metric agreement checks, baseline adaptation details, per-reader results, qualitative examples, and bootstrap procedure used in the main experiments."
+      },
+      {
+        "id": "A1.SS1",
+        "heading": "A.1 Prompt Templates",
+        "level": 2,
+        "text": "All LLM calls use temperature 0. We use the following templates, with bracketed fields replaced by the corresponding instance-specific content."
+      },
+      {
+        "id": "A1.SS1.SSS0.Px1",
+        "heading": "Reader prompt.",
+        "level": 3,
+        "text": "Based on the following context, answer the question. If the answer cannot be determined, say \"I don’t know\". Context: {context} Question: {question}"
+      },
+      {
+        "id": "A1.SS1.SSS0.Px2",
+        "heading": "Summary (LLM) write prompt.",
+        "level": 3,
+        "text": "You are compressing conversation memory under a hard budget. Summarize this session from {date} in under {max_tokens} tokens. Preserve names, dates, numbers, preferences, negations, state changes, decisions, and event relations. Stay query-agnostic: do not guess future questions. Return only the compressed memory text. {session_turns}"
+      },
+      {
+        "id": "A1.SS1.SSS0.Px3",
+        "heading": "EPC Step 1: probe generation.",
+        "level": 3,
+        "text": "You are writing long-term memory before the future question is known. Given this conversation session, generate 5 likely future questions that may require information from it. Prefer questions about factual details, names, dates, numbers, preferences, plans, temporal changes, decisions, and negations. Return only a numbered list. {session_turns}"
+      },
+      {
+        "id": "A1.SS1.SSS0.Px4",
+        "heading": "EPC Step 2: evidence selection and memory writing.",
+        "level": 3,
+        "text": "You are compressing a conversation session into long-term memory under a hard budget of {max_tokens} tokens. Use the probe questions to identify minimal supporting evidence. Keep exact entities, dates, numbers, preferences, decisions, negations, and temporal relations. Avoid generic summaries. For each selected item, use this format: [Q] likely future question [E] minimal supporting evidence [S] session_{session_id}_turn_{turn_id} Probe questions: {probe_questions} Conversation: {session_turns}"
+      },
+      {
+        "id": "A1.SS1.SSS0.Px5",
+        "heading": "Two-pass baseline refinement prompt.",
+        "level": 3,
+        "text": "You are improving an existing compressed memory under the same hard budget of {max_tokens} tokens. Increase density by replacing vague references with specific names, dates, numbers, preferences, decisions, negations, and event relations. Do not guess future questions. Return only the revised memory. Original session: {session_turns} Current compressed memory: {summary}"
+      },
+      {
+        "id": "A1.SS2",
+        "heading": "A.2 Hyperparameters",
+        "level": 2,
+        "text": "Table 7 lists the main hyperparameters used in the LongMemEval experiments. Parameter Value Write budget 5,000 tokens Read budget 5,000 tokens Tokenizer cl100k_base Retriever all-MiniLM-L6-v2 Retrieval top- k k 5 Verbatim chunk size 200 tokens, no overlap Verbatim eviction FIFO over oldest chunks TFC truncation most recent 32K tokens Writer temperature 0 Reader temperature 0 Reader max output 200 tokens EPC probe questions k = 5 k=5 EPC utility weights α = 1.0 \\alpha=1.0 , β = 0.5 \\beta=0.5 , λ = 0.3 \\lambda=0.3 Budget allocation proportional to session length \\sqrt{\\text{session length}} Table 7: Main hyperparameters used in the LongMemEval experiments unless otherwise specified."
+      },
+      {
+        "id": "A1.SS3",
+        "heading": "A.3 CM and F1 Agreement",
+        "level": 2,
+        "text": "Contains Match (CM) is the primary metric in the main tables, but we also compute Token F1 for every system and condition. Across pairwise comparisons among LongMemEval system–condition scores, CM and F1 agree directionally in 95.5% of cases, and the system rankings reported in the main tables are unchanged under Token F1. For LoCoMo, Token F1 yields the same system ranking as CM in Table 5 ."
+      },
+      {
+        "id": "A1.SS4",
+        "heading": "A.4 Baseline Adaptations",
+        "level": 2,
+        "text": "Table 8 summarizes how each baseline system was adapted to the session-based LongMemEval setting. System Write Retrieval Verbatim 200-token chunks; FIFO eviction. Embedding top- k = 5 k=5 . Summ. (E) Score and pack turns with dates, entities, negation, preference, and decision cues. Embedding top- k = 5 k=5 . Summ. (L) Query-agnostic session compression using the same writer model and budgets as EPC. Embedding top- k = 5 k=5 . MemWalker Summary tree over sessions; internal nodes summarize child summaries. Relevance-guided tree navigation. ReadAgent One gist page per session using the same writer model and boundaries. Select relevant gists and expand under budget. MemoryBank LLM-estimated importance with temporal decay and session metadata. Importance-weighted embedding reranking. EPC Probe generation, evidence selection, merging, and greedy budgeted selection. Embedding top- k = 5 k=5 . Table 8: Baseline adaptations to the session-based LongMemEval setting. Note that MemWalker, ReadAgent, and MemoryBank were reimplemented from their paper descriptions, not from official code. To mitigate reimplementation risk, we verified two properties: (1) the qualitative behavior of each system matches the original (e.g., MemWalker’s tree depth scales logarithmically with session count; MemoryBank’s importance scores decay with time as described); (2) all systems are compared under identical data, budgets, and readers. We therefore interpret absolute comparisons to reimplemented systems cautiously, while emphasizing controlled comparisons within our evaluation setup."
+      },
+      {
+        "id": "A1.SS5",
+        "heading": "A.5 Per-Reader Diagnostic Results",
+        "level": 2,
+        "text": "Table 9 reports the diagnostic results for each reader individually. The system ranking is consistent across all three readers: EPC achieves the highest CSM for each reader. The robust write-dominant pattern holds for Verbatim Chunk, Summary (Extractive), MemoryBank, and MemWalker under each reader, while Summary (LLM) and ReadAgent lie near the margin. Reader System CSM RM 𝚫 w \\boldsymbol{\\Delta_{\\text{w}}} 𝚫 r \\boldsymbol{\\Delta_{\\text{r}}} GPT-5.2 Verbatim 0.23 0.19 0.32 0.04 Summ. (E) 0.27 0.23 0.28 0.04 MemBank 0.31 0.26 0.24 0.05 MemWlk. 0.37 0.28 0.18 0.09 Summ. (L) 0.46 0.40 0.09 0.06 ReadAg. 0.45 0.37 0.10 0.08 EPC 0.51 0.44 0.04 0.07 Claude S4 Verbatim 0.21 0.17 0.29 0.04 Summ. (E) 0.25 0.21 0.25 0.04 MemBank 0.28 0.24 0.22 0.04 MemWlk. 0.33 0.26 0.17 0.07 Summ. (L) 0.42 0.36 0.08 0.06 ReadAg. 0.41 0.33 0.09 0.08 EPC 0.47 0.40 0.03 0.07 Gemini 2.5 Verbatim 0.22 0.18 0.31 0.04 Summ. (E) 0.26 0.22 0.27 0.04 MemBank 0.30 0.25 0.23 0.05 MemWlk. 0.35 0.27 0.18 0.08 Summ. (L) 0.44 0.38 0.09 0.06 ReadAg. 0.43 0.35 0.10 0.08 EPC 0.49 0.42 0.04 0.07 Table 9: Per-reader diagnostic results (CM, B B =5K). System ranking is consistent across all three readers."
+      },
+      {
+        "id": "A1.SS6",
+        "heading": "A.6 Qualitative Case Studies",
+        "level": 2,
+        "text": "To illustrate how the diagnostic indicators correspond to concrete information loss, we present three representative LongMemEval examples, lightly paraphrased for brevity and anonymization, where Δ write \\Delta_{\\text{write}} is large for Summary (LLM) but small for EPC."
+      },
+      {
+        "id": "A1.SS6.SSS0.Px1",
+        "heading": "Case 1: Dropped date.",
+        "level": 3,
+        "text": "Question: “When did the user say they were moving to Seattle?” Gold evidence: session_7, turn_14 : “I’m planning to move to Seattle around mid-March.” Summary (LLM) CSM: The summary mentions “the user discussed relocation plans” but drops “mid-March” and “Seattle” appears only as a general topic. Reader answers “I don’t know.” EPC CSM: A probe question “When is the user relocating?” preserves the entry [E] Moving to Seattle around mid-March → \\to reader answers correctly."
+      },
+      {
+        "id": "A1.SS6.SSS0.Px2",
+        "heading": "Case 2: Merged preferences.",
+        "level": 3,
+        "text": "Question: “Does the user prefer Thai or Italian food?” Gold evidence: session_12, turn_3 : “I definitely prefer Thai over Italian.” Summary (LLM) CSM: The summary states “the user discussed food preferences” without specifying the preference direction. Reader answers incorrectly. EPC CSM: A probe question “What food does the user prefer?” preserves [E] User prefers Thai over Italian → \\to reader answers correctly."
+      },
+      {
+        "id": "A1.SS6.SSS0.Px3",
+        "heading": "Case 3: Lost negation.",
+        "level": 3,
+        "text": "Question: “Is the user still taking the advanced Python course?” Gold evidence: session_22, turn_8 : “I dropped the advanced Python course last week.” Summary (LLM) CSM: The summary mentions “the user is taking programming courses” — the negation (dropping the course) is lost. Reader answers “Yes.” EPC CSM: A probe question “What courses is the user currently enrolled in?” preserves [E] Dropped advanced Python course last week → \\to reader answers correctly. These cases illustrate the pattern behind Δ write \\Delta_{\\text{write}} : query-agnostic summarization tends to preserve topics but omit the specific facts (dates, preference directions, negations) that questions target. EPC’s self-questioning improves coverage of these high-value details, explaining its lower Δ write \\Delta_{\\text{write}} ."
+      },
+      {
+        "id": "A1.SS7",
+        "heading": "A.7 Bootstrap Significance Testing",
+        "level": 2,
+        "text": "For significance testing, we use paired bootstrap resampling over questions. Each bootstrap sample resamples the 500 LongMemEval questions with replacement and computes the CSM difference between EPC and Summary (LLM) on the resampled set. We use 10,000 bootstrap samples. The reported p p -value is the fraction of samples in which the paired EPC–Summary (LLM) difference is less than or equal to zero. Confidence intervals are percentile intervals over bootstrap samples."
+      }
+    ]
+  },
+  "text": "WhenLoss: Diagnosing Write and Retrieval Bottlenecksin Long-Context Memory Systems Skip to main content Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: Why HTML? Report Issue Back to Abstract Download PDF Contents Reading mode Colour theme License: arXiv.org perpetual non-exclusive license arXiv:2605.24579v1 [cs.CL] 23 May 2026 WhenLoss: Diagnosing Write and Retrieval Bottlenecks in Long-Context Memory Systems Jiangnan Yu Kisson Songqi Lin Jilong Wu Abstract Long-context memory systems often fail under fixed budgets, but end-to-end evaluation does not reveal whether evidence was discarded during compression or preserved but never retrieved. We introduce a four-condition diagnostic protocol that evaluates a fixed reader under truncated full context ( TFC ), oracle evidence ( OE ), complete stored memory ( CSM ), and retrieved memory ( RM ). Under this fixed-budget LongMemEval setup, write-side gaps exceed retrieval-side gaps for most tested baselines, with four of six baselines robustly write-dominant under our default diagnosis margin. Motivated by this diagnosis, we propose Expected Predictive Compression (EPC) , which moves the key decision—what information to retain—to write time by using an LLM to anticipate likely future questions and preserve the minimal supporting evidence under the token budget, while leaving retrieval unchanged at question time. Across all 500 LongMemEval questions with three readers (GPT-5.2, Claude Sonnet 4, Gemini 2.5 Pro), EPC achieves the highest CSM scores among all systems (0.49 vs. 0.44 for Summary (LLM), the strongest baseline), reducing Δ write \\Delta_{\\text{write}} to 0.04 while leaving Δ retr \\Delta_{\\text{retr}} comparable to other LLM-based systems. These results suggest that, on this benchmark and evaluation setup, improving what the write stage preserves is a key avenue for performance gains in the tested systems. 1 Introduction A user chats with an AI assistant for three months—sharing restaurant preferences, travel plans, project deadlines. One day they ask: “What Thai place did I mention liking in April?” The system fails. But why it fails matters: did the memory system discard that detail during compression, or is the detail stored in memory but missed by retrieval? The first case calls for better compression; the second, better retrieval. End-to-end accuracy—the only metric most benchmarks report—cannot distinguish the two. This is not a hypothetical problem. Memory-augmented LLMs now use a wide range of write strategies—chunked storage ( Lewis et al., 2020 ) , session summarization ( Wang et al., 2024 ) , summary trees ( Chen et al., 2024 ) , gist pages ( Lee et al., 2024 ) , importance-scored banks ( Zhong et al., 2024 ) —but evaluations usually report only end-to-end performance. When a system scores poorly, practitioners cannot tell whether to invest in compression or retrieval. We expose these stage-level effects by evaluating the same reader under four controlled inputs that replace or bypass different parts of the memory pipeline. The resulting four-condition diagnostic protocol (§ 3 ) compares oracle evidence ( OE ) against complete stored memory ( CSM ) to estimate the write-side gap, and CSM against retrieved memory ( RM ) for the retrieval-side gap. The protocol is operational—it localizes where performance degrades, without claiming to identify root causes. Applying this protocol to six baseline systems on LongMemEval ( Wu et al., 2025 ) , we find a consistent asymmetry: write-side gaps exceed retrieval-side gaps for most baselines, with four baselines robustly write-dominant under our default diagnosis margin. For these baseline operating points, more performance is lost during the write stage than during retrieval. This finding motivates using anticipated future questions to guide compression at write time. The challenge is that compression happens before the question arrives. A standard summarizer does not know which facts will matter later. Expected Predictive Compression (EPC) (§ 4 ) addresses this by prompting the LLM to generate likely future questions about the conversation. Those self-generated probe questions then guide evidence selection under a fixed token budget—preserving the specific facts, dates, and preferences most likely to be needed, rather than producing a generically readable summary. Across 500 LongMemEval questions with three readers (GPT-5.2, Claude Sonnet 4, Gemini 2.5 Pro), EPC achieves the highest CSM score among all tested systems, with the lowest write-side gap ( Δ write = 0.04 \\Delta_{\\text{write}}=0.04 ). On a second benchmark (LoCoMo), EPC again has the lowest write-side gap ( Δ write = 0.06 \\Delta_{\\text{write}}=0.06 ). A cost-matched comparison separates the gain from an additional LLM call, and a budget sweep shows the advantage is largest under tight budgets—precisely where choosing the right evidence matters most. 2 Related Work Long-Context Memory Systems. Prior work explores a wide range of memory systems for long interactions. MemGPT ( Packer et al., 2024 ) introduces a virtual memory hierarchy; MemWalker ( Chen et al., 2024 ) organizes long documents as a summary tree; ReadAgent ( Lee et al., 2024 ) stores gists and expands them at read time; MemoryBank ( Zhong et al., 2024 ) scores memory by importance and temporal decay; and Wang et al. (2024) train a long-term memory module jointly with the model. Zhang et al. (2024) survey these memory mechanisms more broadly. Our focus is complementary: rather than proposing another end-to-end system, we ask how to localize where performance degrades in a memory pipeline. Memory Evaluation and Error Analysis. LongMemEval ( Wu et al., 2025 ) provides multi-session conversations with gold turn-level evidence annotations, making it possible to evaluate memory systems against explicit supporting evidence. In retrieval-augmented generation, Xu et al. (2024b) compare retrieval-based and long-context approaches, but they evaluate end-to-end performance without separating write-side from retrieval-side degradation. Our protocol fills that gap. Compression for Downstream Tasks. Prompt and context compression methods ( Jiang et al., 2023 ; Pan et al., 2024 ) reduce token counts while preserving general utility. Query-aware variants—RECOMP ( Xu et al., 2024a ) and the broader query-focused summarization tradition ( Daumé III and Marcu, 2006 ; Baumel et al., 2018 ) —go further by conditioning compression on a known downstream query. EPC instead operates before the downstream query is available. It approximates the future-question distribution via LLM self-questioning and minimizes expected answer loss over likely future questions rather than optimizing generic readability or a response to a known query. 3 Diagnostic Protocol This section defines the four controlled input conditions, the resulting write-side and retrieval-side indicators, and the rule used to label the dominant bottleneck. 3.1 Problem Formulation Consider a memory-augmented QA system operating over a conversation history H = { s 1 , s 2 , … , s n } H=\\{s_{1},s_{2},\\ldots,s_{n}\\} consisting of n n sessions. Given a question q q with gold answer y y and gold evidence turns E q E_{q} drawn from H H , the system must: (1) write the history into a budget-limited memory store M M with capacity B B tokens, and (2) read from M M by retrieving content R ⊆ M R\\subseteq M to provide context for answering q q . Here, the write stage denotes the pre-question processing that stores, indexes, evicts, or compresses history into M M ; retrieval is the question-time selection of content from that store. 3.2 Four Conditions We define four evaluation conditions, each providing a different input to a fixed reader, to isolate reference performance and memory-pipeline effects (Figure 1 ): TFC (Truncated Full Context): The reader receives H H truncated to a fixed 32K-token context budget. No memory system is involved. OE (Oracle Evidence): The reader receives only the gold evidence turns E q E_{q} —distractors removed, no truncation. CSM (Complete Stored Memory): The reader receives all content in memory M M after the write stage. RM (Retrieved Memory): The reader receives the retrieved subset R ⊆ M R\\subseteq M . Two gaps localize where performance drops within the memory pipeline: OE → \\to CSM defines the write-side gap, and CSM → \\to RM defines the retrieval-side gap. Two caveats apply. First, the OE – TFC gap mixes distractor removal with the imposed context budget, so OE > > TFC does not isolate either effect. Second, the OE → \\to CSM gap should be read as an upper bound on write-side degradation: it can also reflect format mismatch between stored memory and reader expectations, or loss of contextual cues. These gaps are therefore operational indicators that localize where performance degrades, not causal attributions to a single mechanism. While each condition is individually simple, prior evaluations report only end-to-end scores ( RM or equivalent), making it impossible to determine whether failures originate in compression or retrieval. The protocol’s contribution is combining these conditions into a reusable diagnostic that any memory system can run without architectural changes. 3.3 Bottleneck Indicators For a scoring metric ϕ \\phi , we use the two gaps as operational bottleneck indicators : Δ write \\displaystyle\\Delta_{\\text{write}} = ϕ ⁡ ( OE ) − ϕ ⁡ ( CSM ) \\displaystyle=\\phi(\\textsc{OE})-\\phi(\\textsc{CSM}) (1) Δ retr \\displaystyle\\Delta_{\\text{retr}} = ϕ ⁡ ( CSM ) − ϕ ⁡ ( RM ) \\displaystyle=\\phi(\\textsc{CSM})-\\phi(\\textsc{RM}) (2) These are additive: ϕ ⁡ ( OE ) − ϕ ⁡ ( RM ) = Δ write + Δ retr \\phi(\\textsc{OE})-\\phi(\\textsc{RM})=\\Delta_{\\text{write}}+\\Delta_{\\text{retr}} . For compact notation, we write Δ w = Δ write \\Delta_{w}=\\Delta_{\\text{write}} and Δ r = Δ retr \\Delta_{r}=\\Delta_{\\text{retr}} below. 3.4 Diagnosis Rule With margin ϵ = 0.02 \\epsilon=0.02 : diagnosis = { Write if ​ Δ w > Δ r + ϵ Retrieval if ​ Δ r > Δ w + ϵ Mixed otherwise \\text{diagnosis}=\\begin{cases}\\textsc{Write}&\\text{if }\\Delta_{w}>\\Delta_{r}+\\epsilon\\\\ \\textsc{Retrieval}&\\text{if }\\Delta_{r}>\\Delta_{w}+\\epsilon\\\\ \\textsc{Mixed}&\\text{otherwise}\\end{cases} (3) The margin only affects near-balanced systems; four baselines remain unambiguously Write under ϵ ∈ [ 0 , .05 ] \\epsilon\\in[0,.05] , while Summary (LLM) and ReadAgent lie near the boundary. H H M M R R write retrieve E q E_{q} gold TFC OE CSM RM Reader one at a time ϕ \\phi Δ write \\Delta_{\\text{write}} Δ retr \\Delta_{\\text{retr}} Figure 1: The four-condition diagnostic protocol. Each condition is evaluated by the same reader; Δ write = ϕ ⁡ ( OE ) − ϕ ⁡ ( CSM ) \\Delta_{\\text{write}}=\\phi(\\textsc{OE})-\\phi(\\textsc{CSM}) and Δ retr = ϕ ⁡ ( CSM ) − ϕ ⁡ ( RM ) \\Delta_{\\text{retr}}=\\phi(\\textsc{CSM})-\\phi(\\textsc{RM}) . 4 Expected Predictive Compression Consider LLM summarization, the strongest query-agnostic compression baseline among our tested systems (Table 3 ). It compresses 121K tokens of conversation into 5K tokens of fluent text—yet even when the reader has access to all stored memory, fewer than half the questions are answered correctly (CSM = .44). Which information is lost? The summarizer preserves broadly salient content—topics discussed, decisions made—but omits specific dates, entity names, and preference details that downstream questions target. This motivates a compression objective that prioritizes supporting evidence, not just readable summaries. We propose Expected Predictive Compression (EPC) , which shifts the compression objective accordingly. 4.1 Formulation Given a conversation segment x x (a session in our experiments) and a token budget B B , let Q ⁡ ( x ) Q(x) denote a set of possible future questions that may require information from x x , with w ⁡ ( q ) w(q) as each question’s estimated likelihood. Let A ⁡ ( c , q ) A(c,q) denote the reader’s answer to question q q given context c c , and ℒ \\mathcal{L} a loss function measuring answer degradation. EPC seeks the compressed memory m ∗ m^{*} that minimizes expected answer loss: m ∗ = arg ​ min | m | ≤ B ∑ q ∈ Q ⁡ ( x ) w ( q ) ⋅ ℒ ( A ( x , q ) , A ( m , q ) ) m^{*}=\\argmin_{|m|\\leq B}\\sum_{q\\in Q(x)}w(q)\\cdot\\mathcal{L}\\big(A(x,q),\\;A(m,q)\\big) (4) where the weighted sum approximates the expectation over the future-question distribution. This is loosely motivated by rate–distortion theory ( Cover and Thomas, 2006 ) , where the budget B B plays the role of a rate constraint and the distortion is future-question answer loss rather than surface-level reconstruction error. The actual implementation uses a greedy heuristic (Eq. 5 ) rather than formal rate–distortion optimization; the connection is conceptual rather than algorithmic. 4.2 LLM Self-Questioning EPC Since Q ⁡ ( x ) Q(x) is unknown at write time, we approximate it via LLM self-questioning : the LLM first generates probe questions that the segment is likely to be queried about, then uses them to guide evidence selection. The implementation treats those generated probe questions as an unweighted approximation to Q ⁡ ( x ) Q(x) . Figure 2 illustrates the procedure: Conversation segment x x ↬ \\looparrowright Self-Question 1 Probe questions { q 1 ​ … ​ q k } \\{q_{1}\\ldots q_{k}\\} ⊳ \\triangleright Evidence ID 2 Evidence units { e i } \\{e_{i}\\} ⋈ \\bowtie Merge & Select 3 Budget B B Memory m ∗ m^{*} to retrieval Anticipate future questions Generate likely downstream questions before compression begins. Trace minimal evidence Identify exact spans, entities, and evidence units. Select under budget Write structured [Q][E][S] entries within B B tokens. Figure 2: The EPC write pipeline. \\scriptsize1⃝ Generate probe questions. \\scriptsize2⃝ Identify supporting evidence. \\scriptsize3⃝ Merge and select under budget B B . Step 1: Generate probe questions. Given segment x x , prompt the LLM to generate k = 5 k=5 likely future questions targeting factual details, preferences, plans, temporal information, and state changes. Step 2: Identify supporting evidence. For each probe question q i q_{i} , the LLM identifies the minimal supporting evidence: specific turns, spans, and entities. Step 3: Merge, score, and select. Overlapping evidence spans are merged, and each evidence unit e e receives a utility score: u ⁡ ( e ) = \\displaystyle u(e)={} α ⋅ coverage ​ ( e ) + β ⋅ specificity ​ ( e ) \\displaystyle\\alpha\\cdot\\text{coverage}(e)+\\beta\\cdot\\text{specificity}(e) (5) − λ ⋅ redundancy ( e ) \\displaystyle-\\lambda\\cdot\\text{redundancy}(e) where coverage counts how many probe questions e e supports; specificity rewards named entities, dates, and numbers; and redundancy penalizes overlap with already-selected evidence. At each greedy selection step, units are ranked by the current u ⁡ ( e ) u(e) until the budget B B is exhausted, and each selected unit is written as a structured memory entry: [Q] What food does the user prefer? [E] User prefers Thai over Italian. [S] session_12_turn_3 Design rationale. The design assumes that LLM-generated probe questions can cover common future question targets such as preferences, facts, and temporal events, so even an approximate Q ⁡ ( x ) Q(x) can direct compression toward useful evidence. Unlike conventional summarization, which optimizes for readability, EPC prioritizes supporting evidence—producing structured, information-dense output that preserves exact entities, dates, and numbers. 5 Experimental Setup This section fixes the dataset, memory systems, model configurations, retrieval setup, and metrics used for the main LongMemEval experiments. 5.1 Dataset We evaluate on all 500 questions from LongMemEval ( Wu et al., 2025 ) . The benchmark is well suited to our setting because it pairs multi-session conversations averaging 121K tokens ( ∼ {\\sim} 50 sessions per conversation) with gold turn-level evidence annotations. We keep the dataset’s original session boundaries throughout. 5.2 Memory Systems Table 1 lists the seven memory systems we compare. The baselines span raw storage, heuristic summarization, LLM-based compression, hierarchical memory, and importance-weighted memory to cover diverse write and retrieval designs. For controlled comparison, EPC shares the same budgets and embedding top- k k retriever as the Summary systems and the same writer model as Summary (LLM). Because CSM removes retrieval, EPC’s CSM gains over Summary (LLM) reflect the write-side compression strategy rather than retriever choice. Baseline provenance. Verbatim Chunk and the two Summary variants are implemented directly in our codebase. MemWalker, ReadAgent, and MemoryBank were reimplemented following the procedures described in the original papers ( Chen et al., 2024 ; Lee et al., 2024 ; Zhong et al., 2024 ) and adapted to the session-based LongMemEval format: MemWalker constructs a summary tree over sessions using the same writer model (GPT-5.2); ReadAgent stores gist pages per session and expands them at read time; MemoryBank scores memories by importance with temporal decay. None of these systems provide official LongMemEval evaluation code, so reimplementation differences may affect absolute scores; however, all systems use the same dataset, budget, and readers, so relative comparisons within our evaluation are controlled. Full prompts, hyperparameters, baseline adaptation details, and significance-testing procedures are provided in Appendix A . System Write Strategy Retrieval Verbatim Chunk Raw chunks, FIFO eviction Emb. top- k k Summ. (Extractive) Heuristic extractive Emb. top- k k Summ. (LLM) LLM compression (query-agnostic) Emb. top- k k EPC (ours) LLM self-question + evidence Emb. top- k k MemWalker Summary tree Tree nav. ReadAgent LLM gist pages Lookup expansion MemoryBank Importance + temporal decay Importance+emb. Table 1: Seven memory systems. EPC shares the same budgets and embedding retriever with the Summary systems, and shares the writer model with Summary (LLM); CSM comparisons remove retrieval and isolate the write-side compression strategy. 5.3 Implementation Details Readers. We use three readers: GPT-5.2 ( gpt-5.2 ), Claude Sonnet 4 ( claude-sonnet-4-20250514 ), and Gemini 2.5 Pro ( gemini-2.5-pro ). All readers use temperature 0, max output tokens 200, and a simple prompt: “Based on the following context, answer the question. If the answer cannot be determined, say ‘I don’t know’.” The context field is populated with the truncated full history ( TFC , fixed 32K-token budget), gold evidence turns ( OE ), complete stored memory ( CSM ), or retrieved memory ( RM ). For TFC , truncation retains the most recent 32K tokens (tail of the conversation), discarding earlier sessions. This is a budget-limited long-context baseline, not an unconstrained full-context reference. Memory budgets and chunking. Write budget B B =5,000 tokens; read budget 5,000 tokens. Token counts use the cl100k_base tokenizer. For Verbatim Chunk, conversations are split into 200-token chunks with no overlap; FIFO eviction drops the oldest chunks when exceeding B B . For Summary systems and EPC, each session is compressed independently; per-session budgets are allocated proportionally to the square root of session length. Retrieval. Verbatim Chunk, Summary (Extractive), Summary (LLM), and EPC all use the same retriever: all-MiniLM-L6-v2 sentence embeddings ( Reimers and Gurevych, 2019 ; Wang et al., 2020 ) with cosine similarity, returning top- k k =5 chunks/entries. MemWalker uses its own tree navigation; ReadAgent uses lookup expansion; MemoryBank uses importance-weighted re-ranking over the same embedding scores. Write-side LLM configuration. The directly compared LLM compression methods—Summary (LLM), EPC, and the 2-pass baseline—use the same model (GPT-5.2, temperature 0) for compression, ensuring that CSM differences among them reflect the compression strategy , not the model. Summary (LLM) uses a single call per session instructing the model to summarize under the token budget while preserving names, dates, numbers, preferences, and decisions, without guessing future questions. The 2-pass baseline uses the same first pass, then a second call asking the model to improve information density by replacing vague references with specific facts. EPC uses two calls: Step 1 generates 5 probe questions; Step 2 identifies supporting evidence (see § 4 ). Utility weights in Eq. 5 : α \\alpha =1.0, β \\beta =0.5, λ \\lambda =0.3, selected in a 20-example pilot before the final evaluation. Full prompt templates for all three methods are provided in Appendix A . 5.4 Metrics We report Contains Match (CM): whether the generated answer contains the gold answer substring. We also report Token F1 : token-level precision/recall between generated and gold answers. Both are standard LongMemEval metrics ( Wu et al., 2025 ) . All scores are averaged over 500 questions. For the 3-reader tables, we report the mean across readers. TFC and OE are shared reference conditions, computed once per reader and reused across all systems. CM is a strict substring test; we verify in Appendix A that CM and F1 agree directionally in 95.5% of pairwise comparisons, and system rankings are identical under both metrics in all tables. 6 Results We first verify that the reference conditions make the diagnostic meaningful, then report the main write–retrieval decomposition. The remaining subsections test whether the diagnosis is supported by reader-independent evidence preservation, controlled perturbations, component ablations, cost matching, cross-benchmark generalization, and budget sensitivity. 6.1 Reader-Level Reference Conditions Reader TFC CM OE CM TFC F1 OE F1 GPT-5.2 0.18 0.55 0.29 0.65 Claude S4 0.17 0.50 0.28 0.61 Gemini 2.5 0.19 0.53 0.30 0.63 Mean .18 .53 .29 .63 Table 2: Reader-level reference conditions on LongMemEval. OE ≫ \\gg TFC across all readers. Table 2 shows that all three readers exhibit OE ≫ \\gg TFC : CM rises from 0.18 to 0.53 and F1 from 0.29 to 0.63. This establishes a strong oracle-evidence reference and a budget-limited truncated-context reference for the diagnostic. It does not decompose the OE – TFC difference, which still mixes distractor effects with the reader’s finite context window. 6.2 Diagnostic Results System CSM RM 𝚫 w \\boldsymbol{\\Delta_{\\text{w}}} 𝚫 r \\boldsymbol{\\Delta_{\\text{r}}} Verbatim 0.22 0.18 0.31 0.04 Summ. (E) 0.26 0.22 0.27 0.04 MemBank 0.30 0.25 0.23 0.05 MemWlk. 0.35 0.27 0.18 0.08 Summ. (L) 0.44 0.38 0.09 0.06 ReadAg. 0.43 0.35 0.10 0.08 EPC 0.49 0.42 0.04 0.07 Table 3: Diagnostic results (CM, 3-reader avg, B B =5K). Refs: TFC =0.18, OE =0.53. EPC CSM CI: [.46, .52], p < .01 p<.01 vs Summary (LLM). Token F1 yields identical system ordering. Table 3 and Figure 3 together reveal a clear spectrum of write-side gaps. Verbatim Chunk shows the largest write-side gap ( Δ w \\Delta_{\\text{w}} =.31), with a much smaller retrieval-side gap ( Δ r \\Delta_{\\text{r}} =.04). Progressing from weaker to stronger write strategies—Summary (Extractive), MemoryBank, and MemWalker—the write-side gap gradually shrinks but remains dominant. Summary (LLM) and ReadAgent substantially reduce the write-side gap, but still lose 0.09–0.10 absolute CM points relative to OE during the write stage. EPC further reduces Δ w \\Delta_{\\text{w}} to .04, leaving retrieval as the larger remaining gap. Appendix A.6 illustrates this pattern with concrete examples showing which entities, dates, and negations are lost under query-agnostic summarization and preserved by EPC. Under the diagnosis rule (§ 3 ), four baselines are robustly write-dominant; Summary (LLM) is write-dominant in the aggregate but near the margin, and ReadAgent is mixed/near-boundary. EPC is the only system diagnosed as retrieval-dominant. EPC’s CSM of .49 CM (.62 F1) has a 95% bootstrap CI of [.46, .52] and significantly exceeds Summary (LLM) under paired bootstrap ( p < 0.01 p<0.01 ). Figure 3: Write-side gap ( Δ w \\Delta_{\\text{w}} =OE − - CSM, coral) vs. retrieval-side gap ( Δ r \\Delta_{\\text{r}} =CSM − - RM, blue) for all seven systems (CM, 3-reader avg, B B =5K). Numbers at right: total OE → \\to RM drop. EPC is highlighted in green, with hatching marking its retrieval-side gap, and has the smallest write-side gap. EPC remains the highest- CSM system for each reader individually (GPT-5.2, Claude Sonnet 4, and Gemini 2.5 Pro), so the aggregate result is not driven by a single reader. 6.3 Reader-Independent Evidence Preservation The diagnostic indicators ( Δ write \\Delta_{\\text{write}} , Δ retr \\Delta_{\\text{retr}} ) are based on answer correctness , which can mix evidence preservation, memory format, and reader ability. As a reader-independent check on the write-side diagnosis, we measure whether gold evidence survives in memory. For each question, LongMemEval provides gold evidence turns. We compute two recall metrics over complete stored memory ( CSM ) and retrieved memory ( RM ): Turn recall : fraction of gold evidence turns preserved in memory (token-level Jaccard overlap > 0.5 >0.5 with the closest memory segment). Span recall : fraction of gold answer entities (names, dates, numbers) found as exact substrings in memory. Both metrics are heuristic and intended as a reader-independent complement to the diagnostic indicators, not as a standalone evaluation. Figure 4: Evidence recall (CSM and RM). EPC preserves +.15 more gold answer entities than Summary (LLM) in CSM span recall. Figure 4 provides the reader-independent check: CSM span recall mirrors the write-side ranking in Table 3 , and EPC preserves 70% of gold answer entities versus 55% for Summary (LLM). Its CSM → \\to RM span-recall drop (.70 → \\to .60) also matches the retrieval-side diagnosis, indicating that EPC’s remaining gap is associated with losing preserved spans during retrieval. 6.4 Protocol Validation via Controlled Degradation As a validation check, we evaluate Summary (LLM) under five controlled settings: the unmodified system, mild and severe write-side degradation (randomly dropping 25% or 50% of memory entries after the write stage), and mild and severe retrieval-side degradation (replacing top-ranked retrieved entries with entries from the bottom-ranked 25% or 50% of the ranked candidate list). We run each setting with all three readers, yielding 15 setting–reader runs. Figure 5 shows that Δ w \\Delta_{\\text{w}} responds selectively to write-side degradation and Δ r \\Delta_{\\text{r}} to retrieval-side degradation; the degraded variants are diagnosed correctly. Figure 5: Controlled degradation (3 readers). Δ w \\Delta_{\\text{w}} (write-side gap = OE − - CSM) responds selectively to write-side degradation; Δ r \\Delta_{\\text{r}} (retrieval-side gap = CSM − - RM) responds selectively to retrieval-side degradation. 6.5 EPC Breakdown: Question Type and Probe Alignment We next ask where EPC helps most: across question types, and as a function of how closely its probe questions match the held-out test question. Figure 6: EPC vs. Summary (LLM) CSM (CM, 3-reader avg, B B =5K) by question type (left) and probe–question alignment (right). EPC gains are shown above bars; the largest gain (+.10) occurs when probe questions align with test questions. Figure 6 shows that EPC improves CSM on single-session, multi-session, and temporal questions, with the largest gain on single-session questions (+.06). We measure probe–question alignment as the maximum cosine similarity between the test question and EPC’s generated probe questions, using the same all-MiniLM-L6-v2 embeddings as retrieval. Splitting questions at the median alignment score confirms this pattern: +.10 CSM when probe questions align and +.04 when they do not. One explanation is that self-questioning encourages broader coverage of high-value information types (entities, dates, preferences), which can benefit even unanticipated questions. 6.6 Component Ablation and Weight Sensitivity We then isolate which EPC components account for the gain and check sensitivity to probe count and utility weights. Figure 7: Component ablations and probe-count sensitivity (CSM CM, B B =5K). Removing self-questioning ( − - .05) is the largest drop; utility-weight sensitivity is reported below. Figure 7 identifies self-questioning as the largest contributor among the tested components: removing it drops CSM by .05, while random probe questions recover only +.01 over Summary (LLM). k k =5 probe questions suffice; k k =10 provides no additional benefit. Utility weight sensitivity. The utility function (Eq. 5 ) uses weights α \\alpha =1.0, β \\beta =0.5, λ \\lambda =0.3 selected in a 20-example pilot. Across six alternative configurations, CSM stays within .45–.50; reducing specificity weight β \\beta hurts most ( − .04 -.04 ), but all variants match or exceed Summary (LLM), suggesting that the self-questioning mechanism contributes more to EPC’s gains than the particular weight settings. This low sensitivity to weight configurations also reduces the risk that the reported gains depend on this small pilot choice. 6.7 Cost-Matched Comparison EPC uses two LLM calls per session versus one for Summary (LLM). To separate the effect of an additional LLM call from the effect of probe-question generation, we introduce a 2-pass baseline that also uses two calls but without self-questioning: Pass 1 compresses normally, and Pass 2 performs query-agnostic refinement for information density. System Calls CSM RM 𝚫 w \\boldsymbol{\\Delta_{\\text{w}}} 𝚫 r \\boldsymbol{\\Delta_{\\text{r}}} Summ. (LLM) 1-pass 1 0.46 0.40 0.09 0.06 Summ. (LLM) 2-pass 2 0.48 0.42 0.07 0.06 EPC 2 0.51 0.44 0.04 0.07 Table 4: Cost-matched comparison (CM, GPT-5.2). The 2-pass baseline recovers +.02 over 1-pass Summary (LLM); EPC adds a further +.03 under the same two-call budget. Table 4 shows that a second query-agnostic refinement pass improves CSM by +.02, while EPC gains +.05 over 1-pass Summary (LLM). The remaining +.03 separates EPC from the cost-matched 2-pass baseline on this reader. The same ordering (EPC > > 2-pass > > 1-pass) holds for the other two readers. Relative to the 1-pass Summary (LLM) baseline, EPC roughly doubles write latency ( ∼ \\sim 30s → ⁣ ∼ \\to\\sim 60s per session in our implementation) while roughly halving Δ write \\Delta_{\\text{write}} . 6.8 Cross-Benchmark Generalization: LoCoMo To test generalization, we evaluate on LoCoMo ( Maharana et al., 2024 ) , a multi-session benchmark with 348 QA pairs across 10 conversations, including two question categories absent from LongMemEval (elaboration and adversarial). For LoCoMo, we report a two-reader average using GPT-5.2 and Claude Sonnet 4. LoCoMo operates in a different regime : conversations average ∼ {\\sim} 9K tokens, fitting entirely within the 32K context budget. Consequently, the TFC condition effectively becomes a full-context baseline (no truncation), and the OE – TFC gap reflects distractor interference alone, not information loss from truncation. We set the write budget to B B =2,000 tokens to create meaningful compression pressure (22% retention), while noting that this is less aggressive compression than B B =5,000 on LongMemEval’s 121K-token contexts. System CSM RM 𝚫 w \\boldsymbol{\\Delta_{\\text{w}}} 𝚫 r \\boldsymbol{\\Delta_{\\text{r}}} Verbatim 0.29 0.24 0.32 0.05 Summ. (E) 0.33 0.27 0.28 0.06 MemBank 0.37 0.31 0.24 0.06 MemWlk. 0.39 0.33 0.22 0.06 Summ. (L) 0.51 0.44 0.10 0.07 ReadAg. 0.49 0.41 0.12 0.08 EPC 0.55 0.46 0.06 0.09 Table 5: LoCoMo results (CM, B B =2K, 2-reader avg). Refs: TFC =0.46, OE =0.61. The CM ranking pattern matches LongMemEval. Table 5 shows a similar ranking pattern in this no-truncation reference setting: Verbatim Chunk through MemWalker have Δ w > Δ r \\Delta_{\\text{w}}>\\Delta_{\\text{r}} , EPC has the lowest Δ w \\Delta_{\\text{w}} and is the only system where Δ r > Δ w \\Delta_{\\text{r}}>\\Delta_{\\text{w}} , and the EPC–Summary (LLM) CSM gap is +.04. The smaller OE – TFC gap (.15 CM vs. .35 on LongMemEval) is consistent with truncation contributing to the LongMemEval reference gap, though the protocol remains informative without truncation. By category, EPC gains most on factual questions (+.06 CSM), moderately on temporal/elaboration (+.04), and least on inferential/adversarial cases (+.02). 6.9 Budget Sensitivity on LongMemEval One question raised by the rate–distortion framing (Section 4 ) is whether self-questioning matters more under tight budget constraints, where choosing the right evidence is critical, than under relaxed budgets. We test this by sweeping the write budget B ∈ { 2 ​ K , 5 ​ K , 10 ​ K , 20 ​ K } B\\in\\{2\\text{K},5\\text{K},10\\text{K},20\\text{K}\\} on all 500 LongMemEval questions with three readers, while keeping the read budget fixed at 5K tokens. Budget System CSM RM 𝚫 w \\boldsymbol{\\Delta_{\\text{w}}} 𝚫 r \\boldsymbol{\\Delta_{\\text{r}}} Diag. 2K Verbatim 0.14 0.11 0.40 0.03 W Summ. (E) 0.20 0.15 0.34 0.05 W Summ. (L) 0.33 0.28 0.21 0.05 W EPC 0.44 0.36 0.10 0.08 W 5K Verbatim 0.22 0.18 0.31 0.04 W Summ. (E) 0.26 0.22 0.27 0.04 W Summ. (L) 0.44 0.38 0.09 0.06 W EPC 0.49 0.42 0.04 0.07 R 10K Verbatim 0.32 0.26 0.22 0.06 W Summ. (E) 0.34 0.28 0.20 0.06 W Summ. (L) 0.50 0.42 0.04 0.08 R EPC 0.52 0.44 0.02 0.08 R 20K Verbatim 0.37 0.31 0.17 0.06 W Summ. (E) 0.42 0.35 0.12 0.07 W Summ. (L) 0.52 0.44 0.02 0.08 R EPC 0.53 0.46 0.01 0.07 R Table 6: Write-budget sweep (CM, 3-reader avg; read budget fixed at 5K). Refs: TFC =.18, OE =.53. W/R denote write-/retrieval-dominant diagnoses. EPC’s advantage shrinks from +.11 (2K) to +.01 (20K). Table 6 shows that EPC’s CSM advantage over Summary (LLM) shrinks from +.11 at 2K to +.01 at 20K as both systems approach the OE upper bound (.53). The relative size of the two gaps also shifts with budget: EPC reaches Δ r > Δ w \\Delta_{\\text{r}}>\\Delta_{\\text{w}} at 5K, Summary (LLM) at 10K, while Verbatim Chunk and Summary (Extractive) have Δ w > Δ r \\Delta_{\\text{w}}>\\Delta_{\\text{r}} throughout. 7 Analysis Operating point matters. The budget sweep shows that the diagnosis is not an intrinsic property of an architecture alone: as B B grows, EPC becomes retrieval-dominant at 5K and Summary (LLM) at 10K, while Verbatim Chunk and Summary (Extractive) remain write-dominant throughout. Thus the protocol should be run under the target budget, reader, and question distribution rather than inferred from the system family. Benefits and limits of self-questioning. EPC’s gains are largest under aggressive compression (+.11 at B B =2K), on single-session LongMemEval questions (+.06), and on factual LoCoMo questions (+.06). They shrink when budgets are generous (+.01 at B B =20K) or questions require compositional inference (+.02 on LoCoMo’s inferential category). This suggests that self-questioning is most useful when the writer must choose a small set of answer-relevant details before the question is known. Relation to full-context reading. Because our TFC condition imposes a fixed 32K-token budget, full-context reading could narrow the OE – TFC gap. The diagnostic protocol is complementary: it evaluates fixed-budget memory pipelines and helps determine whether compression or retrieval is the limiting stage within that design. 8 Conclusion This paper makes three main points. First, the diagnostic protocol decomposes end-to-end memory failures into write-side and retrieval-side gaps. It requires no architectural changes—just four evaluations of the same reader under controlled inputs—and we have shown it to be informative across two benchmarks (LongMemEval and LoCoMo), multiple readers, and a range of budgets. Second, EPC uses likely future questions to decide what information to retain during compression, substantially reducing the write-side gap on both benchmarks and shifting the remaining bottleneck toward retrieval. Third, the write-retrieval balance is not fixed. It depends on the system, the budget, and the question distribution. Most systems we tested operate in a regime where improving the write stage would help more than improving retrieval—but this changes as budgets grow or as compression methods improve. The diagnostic protocol makes this regime visible and reduces the risk of optimizing a non-limiting stage. Future work includes reducing reliance on human evidence annotations via LLM-generated silver evidence, exploring adaptive compression that adjusts strategy based on per-session diagnostic signals, and evaluating on longer conversations and more diverse domains. Limitations The diagnostic indicators are conditioned on the chosen reader and metric. EPC’s self-questioning step adds write-time latency. While we evaluate on two benchmarks (LongMemEval and LoCoMo), both rely on gold evidence annotations for the OE condition. This is an experimental choice rather than a protocol limitation: the four-condition structure is agnostic to how evidence is obtained. In practice, a practitioner could approximate OE with silver annotations—e.g., prompting an LLM to identify the minimal supporting turns for each question—which would introduce annotation noise but may preserve the directional diagnosis (write-dominant vs. retrieval-dominant), since the diagnosis rule already tolerates small perturbations via the margin ϵ \\epsilon . Empirically validating this silver-annotation path remains future work. LoCoMo’s shorter context ( ∼ {\\sim} 9K tokens) means the compression challenge is milder than in LongMemEval; evaluating on benchmarks with longer contexts and more diverse domains would further strengthen generalizability claims. Ethics and Reproducibility Long-term memory benchmarks and systems necessarily involve storing user-specific facts, preferences, dates, and other potentially sensitive information. Because EPC explicitly tries to preserve supporting evidence, a deployed version could also preserve sensitive information more reliably than a generic summary unless retention, deletion, access control, and redaction policies are carefully designed. More broadly, the work studies diagnostic structure rather than downstream social impact, so it should not be interpreted as an argument for indiscriminate memory retention in real applications. Reproducibility is also limited by our use of proprietary LLM readers and writers, whose behavior may change over time. References Baumel et al. (2018) T. Baumel, M. Eyal, and M. Elhadad Query focused abstractive summarization: incorporating query relevance, multi-document coverage, and summary length constraints into seq2seq models . arXiv preprint arXiv:1801.07704 . External Links: Link Cited by: §2 . Chen et al. (2024) H. Chen, R. Pasunuru, J. Weston, and A. Celikyilmaz Walking down the memory maze: beyond context limit through interactive reading . In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics , External Links: Link , Document Cited by: §1 , §2 , §5.2 . Cover and Thomas (2006) T. M. Cover and J. A. Thomas Elements of information theory . 2 edition , Wiley-Interscience . External Links: Link , Document Cited by: §4.1 . Daumé III and Marcu (2006) H. Daumé III and D. Marcu Bayesian query-focused summarization . In Proceedings of the 21st International Conference on Computational Linguistics and 44th Annual Meeting of the ACL , pp. 305–312 . External Links: Link , Document Cited by: §2 . Jiang et al. (2023) H. Jiang, Q. Wu, X. Luo, S. Ahn, Z. Ma, Z. Liu, C. Lin, and Y. Yang LLMLingua: compressing prompts for accelerated inference of large language models . In Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing , External Links: Link , Document Cited by: §2 . Lee et al. (2024) K. Lee, D. Ippolito, A. Nishi, Y. Ren, and Z. Parekh A human-inspired reading agent with gist memory of very long contexts . In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics , External Links: Link , Document Cited by: §1 , §2 , §5.2 . Lewis et al. (2020) P. Lewis, E. Perez, A. Piktus, F. Petroni, V. Karpu",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Skip to main content",
+      "url": "https://arxiv.org/html/2605.24579v1#infobox"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/IgnoreMe"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "Why HTML?",
+      "url": "https://info.arxiv.org/about/accessible_HTML.html"
+    },
+    {
+      "text": "Back to Abstract",
+      "url": "https://arxiv.org/abs/2605.24579v1"
+    },
+    {
+      "text": "Download PDF",
+      "url": "https://arxiv.org/pdf/2605.24579v1"
+    },
+    {
+      "text": "License: arXiv.org perpetual non-exclusive license",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "Lewis et al., 2020",
+      "url": "https://arxiv.org/html/2605.24579v1#bib.bib5"
+    },
+    {
+      "text": "Wang et al., 2024",
+      "url": "https://arxiv.org/html/2605.24579v1#bib.bib7"
+    },
+    {
+      "text": "Chen et al., 2024",
+      "url": "https://arxiv.org/html/2605.24579v1#bib.bib2"
+    },
+    {
+      "text": "Lee et al., 2024",
+      "url": "https://arxiv.org/html/2605.24579v1#bib.bib3"
+    },
+    {
+      "text": "Zhong et al., 2024",
+      "url": "https://arxiv.org/html/2605.24579v1#bib.bib4"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2605.24579v1#S3"
+    },
+    {
+      "text": "Wu et al., 2025",
+      "url": "https://arxiv.org/html/2605.24579v1#bib.bib1"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2605.24579v1#S4"
+    },
+    {
+      "text": "Packer et al., 2024",
+      "url": "https://arxiv.org/html/2605.24579v1#bib.bib9"
+    },
+    {
+      "text": "Zhang et al. (2024)",
+      "url": "https://arxiv.org/html/2605.24579v1#bib.bib8"
+    },
+    {
+      "text": "Xu et al. (2024b)",
+      "url": "https://arxiv.org/html/2605.24579v1#bib.bib6"
+    },
+    {
+      "text": "Jiang et al., 2023",
+      "url": "https://arxiv.org/html/2605.24579v1#bib.bib12"
+    },
+    {
+      "text": "Pan et al., 2024",
+      "url": "https://arxiv.org/html/2605.24579v1#bib.bib14"
+    },
+    {
+      "text": "Xu et al., 2024a",
+      "url": "https://arxiv.org/html/2605.24579v1#bib.bib15"
+    },
+    {
+      "text": "Daumé III and Marcu, 2006",
+      "url": "https://arxiv.org/html/2605.24579v1#bib.bib16"
+    },
+    {
+      "text": "Baumel et al., 2018",
+      "url": "https://arxiv.org/html/2605.24579v1#bib.bib17"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2605.24579v1#S3.F1"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2605.24579v1#S6.T3"
+    },
+    {
+      "text": "Cover and Thomas, 2006",
+      "url": "https://arxiv.org/html/2605.24579v1#bib.bib11"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2605.24579v1#S4.E5"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2605.24579v1#S4.F2"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2605.24579v1#S5.T1"
+    },
+    {
+      "text": "A",
+      "url": "https://arxiv.org/html/2605.24579v1#A1"
+    },
+    {
+      "text": "Reimers and Gurevych, 2019",
+      "url": "https://arxiv.org/html/2605.24579v1#bib.bib10"
+    },
+    {
+      "text": "Wang et al., 2020",
+      "url": "https://arxiv.org/html/2605.24579v1#bib.bib13"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2605.24579v1#S6.T2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2605.24579v1#S6.F3"
+    },
+    {
+      "text": "A.6",
+      "url": "https://arxiv.org/html/2605.24579v1#A1.SS6"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2605.24579v1#S6.F4"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2605.24579v1#S6.F5"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2605.24579v1#S6.F6"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2605.24579v1#S6.F7"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2605.24579v1#S6.T4"
+    },
+    {
+      "text": "Maharana et al., 2024",
+      "url": "https://arxiv.org/html/2605.24579v1#bib.bib18"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2605.24579v1#S6.T5"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2605.24579v1#S6.T6"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/1801.07704"
+    },
+    {
+      "text": "§2",
+      "url": "https://arxiv.org/html/2605.24579v1#S2.SS0.SSS0.Px3.p1.1"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/2310.05029"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.48550/arXiv.2310.05029"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2605.24579v1#S1.p2.1"
+    },
+    {
+      "text": "§2",
+      "url": "https://arxiv.org/html/2605.24579v1#S2.SS0.SSS0.Px1.p1.1"
+    },
+    {
+      "text": "§5.2",
+      "url": "https://arxiv.org/html/2605.24579v1#S5.SS2.SSS0.Px1.p1.1"
+    },
+    {
+      "text": "Link",
+      "url": "https://onlinelibrary.wiley.com/doi/book/10.1002/047174882X"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.1002/047174882X"
+    },
+    {
+      "text": "§4.1",
+      "url": "https://arxiv.org/html/2605.24579v1#S4.SS1.p3.1"
+    },
+    {
+      "text": "Link",
+      "url": "https://aclanthology.org/P06-1039/"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.3115/1220175.1220214"
+    },
+    {
+      "text": "Link",
+      "url": "https://aclanthology.org/2023.emnlp-main.825/"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.18653/v1/2023.emnlp-main.825"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/2402.09727"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.48550/arXiv.2402.09727"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/2005.11401"
+    }
+  ],
+  "matching_link_count": 87,
+  "links_truncated": true,
+  "invalid_links": []
+}

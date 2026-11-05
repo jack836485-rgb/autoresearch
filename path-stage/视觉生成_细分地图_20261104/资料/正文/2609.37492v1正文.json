@@ -1,0 +1,354 @@
+{
+  "url": "https://arxiv.org/html/2609.37492v1",
+  "final_url": "https://arxiv.org/html/2609.37492v1",
+  "status": 200,
+  "title": "Attention-Scoped Guidance: Training-Free Spatial Control for Image Editing",
+  "metadata": {},
+  "paper": {
+    "title": "Attention-Scoped Guidance: Training-Free Spatial Control for Image Editing",
+    "title_warning": null,
+    "abstract": "Abstract Instruction-guided image editing should change what the instruction names and leave the rest of the image untouched. In dual classifier-free guidance (CFG), an editor combines two directions at every denoising step, one that pushes toward the instructed edit and one that pulls back toward the source image, using global weights. We introduce Attention-Scoped Guidance (ASG), a sampler wrapper that makes these weights spatial. It reads a soft support map from the instruction attention that the editor already computes, then weakens text guidance where support is low and strengthens image anchoring where support is high. The wrapper requires no training, no external mask, and no additional network evaluation. On the full MagicBrush and PIE-Bench++ splits, ASG improves preservation-oriented metrics, leading three of four MagicBrush metrics and PIE-Bench++ background PSNR. A dose-matched control that removes the spatial placement loses up to 0.73 CLIP on PIE-Bench++, confirming that the spatial allocation itself carries the gain.",
+    "authors": [
+      {
+        "name": "Zeyan Li",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Wei Zhou",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Hadi Amirpour",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Minghao Zou",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Panqi Yang",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Jianfeng Xu \\sthanks Corresponding author",
+        "affiliations": [],
+        "notes": []
+      }
+    ],
+    "author_block": "Zeyan Li Wei Zhou Hadi Amirpour Minghao Zou Panqi Yang Jianfeng Xu \\sthanks Corresponding author",
+    "arxiv_version": "2609.37492v1",
+    "arxiv_version_date": "2026-09-28",
+    "sections": [
+      {
+        "id": "S1",
+        "heading": "1 Introduction",
+        "level": 1,
+        "text": "Instruction-guided image editing should change the content named by the instruction and leave the rest of the image untouched. Diffusion editors such as InstructPix2Pix (IP2P) [ 3 ] often violate this boundary. A local replacement regenerates the scene, changes the subject’s identity, or modifies an untouched region. MagicBrush makes this tension measurable through paired source, target, and instruction data [ 23 ] . Fig. 1 shows the characteristic failure, where the background changes as requested but the subject changes with it. Localizing an edit to the content the instruction names is therefore the central difficulty. Existing editors pursue this either by changing what the editor learns, through human feedback, task-specific finetuning, or broader instruction data [ 24 , 7 , 6 , 5 ] , or by constraining sampling with attention injection, inversion, or region blending [ 9 , 13 , 1 ] . Both lines improve how faithfully an instruction is followed or how much structure survives, but the guidance weights themselves remain global scalars. Figure 1: An illustrative failure from a ten-case probe, motivating Attention-Scoped Guidance. Left: for a background-only MagicBrush instruction, the underlying editor changes both the scene and the subject. Center: the displayed attention maps retain spatial structure through denoising, with nearly unchanged top-10% mass. Right: the dual-CFG combination uses global text and image weights, motivating explicit spatial allocation. The methods closest to this problem control locality explicitly. Grounded variants obtain a region from an external detector [ 17 ] , ZONE derives one zero-shot from internal attention [ 12 ] , Focus on Your Instruction combines cross-attention modulation with mask-guided disentangled sampling [ 8 ] , and LIME regularizes attention to keep edits local [ 19 ] ; in text-to-image generation, S-CFG makes guidance weights spatially varying across semantic regions [ 18 ] . The underlying attention maps are known to carry spatial semantics [ 20 , 4 ] . S-CFG spatially rescales a single text-guidance weight for text-to-image generation; our focus is the dual-CFG combination in instruction-guided editing, where the edit is committed by two global scalars, the same weight at every pixel. Our ten-case probe confirms the mismatch: instruction attention remains spatially structured through denoising in successful and failed edits alike, and concentrated maps appear in failures as often as in successes. The spatial signal is present, but the sampler never couples it to the edit, so a locally supported instruction leaks through the uniformly weighted text direction into unrelated pixels. Figure 2: Method overview, left to right. Given a source image and an instruction, the frozen editor evaluates three noise predictions at every denoising step. Instruction cross-attention, averaged over heads and layers and summed over tokens and the first ten steps, yields a soft support M ⁡ ( x ) M(x) . From the second step on, this support makes the two CFG weights spatial: the text-edit direction is weakened where M M is low, and the image anchor is strengthened where M M is high; the support freezes after step ten. The reweighted directions are recombined and sampled unchanged, completing the edit within the original sampling trajectory, with no additional network evaluations. We therefore propose Attention-Scoped Guidance (ASG), illustrated in Fig. 2 . ASG reads one soft support from the instruction attention that the editor already computes and uses it to allocate both guidance residuals: the text-edit direction is weakened where support is low, and image anchoring is strengthened where support is high. Spatially varying guidance and attention-derived regions are established ideas [ 18 , 8 ] ; the distinct element is the allocation rule at the dual-CFG combination itself, where a single support assigns different coefficients to the two residuals. A peak-to-mean bypass restores the released sampler whenever attention is diffuse. Experiments on both public benchmarks quantify the benefit. ASG leads three of four MagicBrush metrics and PIE-Bench++ background PSNR against seven released editors, while DIM remains stronger on PIE-Bench++ semantic CLIP, so the method occupies the preservation end of the trade-off. A dose-matched control attributes the gain to the spatial allocation itself, and the dose analysis shows that stronger anchoring begins to resist requested deletions. Our contributions are a training-free sampler wrapper that makes the dual-CFG weights spatial without external input, full-population evidence of its preservation-oriented improvement, and controls and dose analyses that attribute the gain and bound the anchor strength."
+      },
+      {
+        "id": "S2",
+        "heading": "2 Spatial Allocation of Dual Guidance",
+        "level": 1,
+        "text": "IP2P builds on latent diffusion [ 16 ] and classifier-free guidance [ 10 ] . At denoising step s s , it evaluates three predictions: an unconditioned prediction ϵ u ​ ( x ) \\epsilon_{u}(x) , an image-conditioned prediction ϵ i ​ ( x ) \\epsilon_{i}(x) , and an instruction-conditioned prediction ϵ t ​ ( x ) \\epsilon_{t}(x) . These are combined as ϵ s ​ ( x ) = ϵ u ​ ( x ) + c t ​ [ ϵ t ​ ( x ) − ϵ i ​ ( x ) ] + c i ​ [ ϵ i ​ ( x ) − ϵ u ​ ( x ) ] , \\epsilon_{s}(x)=\\epsilon_{u}(x)+c_{t}[\\epsilon_{t}(x)-\\epsilon_{i}(x)]+c_{i}[\\epsilon_{i}(x)-\\epsilon_{u}(x)], (1) where the official weights are c t = 7.5 c_{t}=7.5 and c i = 1.5 c_{i}=1.5 . The first difference is the text-edit direction and the second is the image-identity direction, d t ​ ( x ) \\displaystyle d_{t}(x) = ϵ t ​ ( x ) − ϵ i ​ ( x ) , \\displaystyle=\\epsilon_{t}(x)-\\epsilon_{i}(x), d i ​ ( x ) \\displaystyle d_{i}(x) = ϵ i ​ ( x ) − ϵ u ​ ( x ) . \\displaystyle=\\epsilon_{i}(x)-\\epsilon_{u}(x). (2) The direction d t d_{t} introduces the content required by the instruction, while d i d_{i} pulls the sample back toward the source image. Equation ( 1 ) assigns each direction its own global scalar, so every spatial location receives the same mixture of change and stay. ASG replaces these scalars with spatial weights derived from existing attention. The residuals already carry spatial information, and the intervention adds explicit spatial control over their relative contributions."
+      },
+      {
+        "id": "S2.SS1",
+        "heading": "2.1 Attention-Derived Support",
+        "level": 2,
+        "text": "Let A s k ​ ( x ) A_{s}^{k}(x) denote cross-attention from spatial location x x to instruction token k k , and let ℐ \\mathcal{I} contain the non-special tokens of the edit instruction. We read A A from the cross-attention layers at half the latent resolution, averaged over heads and layers. The support available at step s s accumulates only the attention captured before it and freezes after step ten: a s ​ ( x ) \\displaystyle a_{s}(x) = ∑ j = 0 min ⁡ ( s , 10 ) − 1 ∑ k ∈ ℐ A j k ​ ( x ) , a 0 ​ ( x ) = 0 , \\displaystyle=\\sum_{j=0}^{\\min(s,10)-1}\\sum_{k\\in\\mathcal{I}}A_{j}^{k}(x),\\quad a_{0}(x)=0, (3) a ¯ ​ ( x ) \\displaystyle\\bar{a}(x) = a ⁡ ( x ) − min x ⁡ a ⁡ ( x ) max x ⁡ a ⁡ ( x ) − min x ⁡ a ⁡ ( x ) + ε , \\displaystyle=\\frac{a(x)-\\min_{x}a(x)}{\\max_{x}a(x)-\\min_{x}a(x)+\\varepsilon}, (4) M ⁡ ( x ) \\displaystyle M(x) = σ ​ ( 10 ​ [ a ¯ ​ ( x ) − 0.5 ] ) , \\displaystyle=\\sigma\\!\\left(10[\\bar{a}(x)-0.5]\\right), (5) where ε = 10 − 6 \\varepsilon=10^{-6} . At step s s the gates use a s a_{s} ; we omit the step subscript below for brevity. Min-max normalization places each image’s attention on a common scale, and the sigmoid provides a soft transition between low and high responses, so M M is a soft support rather than a binary mask. We measure the map’s concentration by r pm = max x ⁡ a ⁡ ( x ) | Ω | − 1 ​ ∑ x ∈ Ω a ⁡ ( x ) + ε , r_{\\rm pm}=\\frac{\\max_{x}a(x)}{|\\Omega|^{-1}\\sum_{x\\in\\Omega}a(x)+\\varepsilon}, (6) where Ω \\Omega is the spatial domain of the attention map. If r pm < 1.5 r_{\\rm pm}<1.5 , attention is diffuse and carries no usable spatial signal: ASG is bypassed, and the released coefficients G t ​ ( x ) = 7.5 G_{t}(x)=7.5 and G i ​ ( x ) = 1.5 G_{i}(x)=1.5 apply at every pixel. The spatial rules below apply when this bypass is inactive. The threshold r pm < 1.5 r_{\\rm pm}<1.5 and the sigmoid scale 10 10 were selected on the development split. Accumulating over several steps averages out the noise of any single step’s attention; early steps decide the global layout while later steps refine local detail, so the support is read where the layout is decided and held fixed before texture forms. The peak-to-mean bypass keeps the method conservative: it intervenes only where attention concentrates. Table 1: Main full-population comparison against released external editors. MagicBrush-I and MagicBrush-T denote the independent and iterative MagicBrush test protocols. Best values within each metric are bold. The last row reports Attention-Scoped Guidance. MagicBrush-I MagicBrush-T PIE-Bench++ System CLIP-I ↑ \\uparrow L1 ↓ \\downarrow CLIP-I ↑ \\uparrow L1 ↓ \\downarrow CLIP-W ↑ \\uparrow CLIP-E ↑ \\uparrow PSNR-BG ↑ \\uparrow InstructPix2Pix 0.8509 0.1135 0.8099 0.1491 24.001 23.457 80.656 MagicBrush-IP2P 0.9177 0.0741 0.8849 0.1042 23.612 22.985 81.388 InstructDiffusion 0.9228 0.0706 0.8912 0.0995 23.903 23.155 81.591 MGIE 0.9087 0.0812 0.8745 0.1133 21.357 21.080 79.461 InstructCLIP 0.8794 0.0962 0.8360 0.1291 23.441 22.767 80.985 DIM 0.9256 0.0698 0.8981 0.0973 26.745 25.933 81.023 Kontinuous Kontext 0.9099 0.0814 0.8724 0.1150 25.511 24.718 81.220 Attention-Scoped Guidance 0.9296 0.0624 0.8961 0.0901 23.568 22.858 82.173"
+      },
+      {
+        "id": "S2.SS2",
+        "heading": "2.2 Spatial Dual Guidance",
+        "level": 2,
+        "text": "The two global scalars become two spatial weights. The text-edit direction is attenuated where support is low, G t ​ ( x ) = g lo + ( 7.5 − g lo ) ​ M ​ ( x ) , G_{t}(x)=g_{\\rm lo}+(7.5-g_{\\rm lo})M(x), (7) where g lo = 0 g_{\\rm lo}=0 by default, and the image-conditioned contribution is increased where support is high, G i ​ ( x ) = 1.5 + ( g hi − 1.5 ) ​ M ​ ( x ) . G_{i}(x)=1.5+(g_{\\rm hi}-1.5)M(x). (8) The two weights serve different spatial roles because text and image guidance act on different CFG directions. We set g lo = 0 g_{\\rm lo}=0 so that text guidance is nearly suppressed outside the support. With this default, the selected dose g hi = 3.0 g_{\\rm hi}=3.0 gives a pixel with M ⁡ ( x ) = 0.5 M(x)=0.5 the coefficients G t = 3.75 G_{t}=3.75 and G i = 2.25 G_{i}=2.25 , that is, half-strength edit pressure plus a moderately reinforced anchor. The continuous weights keep the transition zone between the instructed region and its surroundings free of visible seams."
+      },
+      {
+        "id": "S2.SS3",
+        "heading": "2.3 Recombine and Sample",
+        "level": 2,
+        "text": "The gated directions are recombined with the unconditioned prediction, ϵ s AS ​ ( x ) = ϵ u ​ ( x ) + G t ​ ( x ) ​ d t ​ ( x ) + G i ​ ( x ) ​ d i ​ ( x ) . \\epsilon^{\\rm AS}_{s}(x)=\\epsilon_{u}(x)+G_{t}(x)d_{t}(x)+G_{i}(x)d_{i}(x). (9) Subtracting Eq. ( 1 ) makes the intervention explicit, Δ ​ ϵ s ​ ( x ) = − 7.5 ​ [ 1 − M ⁡ ( x ) ] ​ d t ​ ( x ) + ( g hi − 1.5 ) ​ M ​ ( x ) ​ d i ​ ( x ) . \\Delta\\epsilon_{s}(x)=-7.5[1-M(x)]d_{t}(x)+(g_{\\rm hi}-1.5)M(x)d_{i}(x). (10) At the idealized endpoint M ⁡ ( x ) = 0 M(x)=0 the text-edit direction is canceled while the default image anchor is kept; at M ⁡ ( x ) = 1 M(x)=1 the original text guidance is retained and only the image anchor is increased, and intermediate values interpolate continuously. The original sampler is recovered by M ≡ 1 , g hi = 1.5 ⟹ ϵ AS s = ϵ s . M\\equiv 1,\\quad g_{\\rm hi}=1.5\\quad\\Longrightarrow\\quad\\epsilon^{\\rm AS}_{s}=\\epsilon_{s}. (11) When M ≡ 1 M\\equiv 1 , G t = 7.5 G_{t}=7.5 for any g lo g_{\\rm lo} , so the identity holds regardless of the lower bound. The dose study in Table 3 selects g hi = 3.0 g_{\\rm hi}=3.0 from { 2.25 , 3.0 , 4.5 } \\{2.25,3.0,4.5\\} using the development similarity metrics and failure tail. Algorithm 1 assembles one full edit. Algorithm 1 Attention-scoped dual-CFG sampling for one edit. 1: source latent, instruction tokens ℐ \\mathcal{I} , anchor dose g hi g_{\\rm hi} 2: a ⁡ ( ⋅ ) ← 0 a(\\cdot)\\leftarrow 0 3: for s = 0 s=0 to 49 49 do 4: if s = 0 s=0 or r pm ​ ( a ) < 1.5 r_{\\rm pm}(a)<1.5 then ⊳ \\triangleright a a : steps < s <s 5: ( G t , G i ) ≡ ( 7.5 , 1.5 ) (G_{t},G_{i})\\equiv(7.5,1.5) ⊳ \\triangleright bypass: released coefficients 6: else 7: G t ​ ( x ) ← g lo + ( 7.5 − g lo ) ​ M ​ ( x ) G_{t}(x)\\leftarrow g_{\\rm lo}+(7.5-g_{\\rm lo})M(x) ; G i ​ ( x ) ← 1.5 + ( g hi − 1.5 ) ​ M ​ ( x ) G_{i}(x)\\leftarrow 1.5+(g_{\\rm hi}-1.5)M(x) , with M M built from a a (Eq. ( 5 )) 8: end if 9: evaluate ϵ u , ϵ i , ϵ t \\epsilon_{u},\\epsilon_{i},\\epsilon_{t} as in IP2P (Eq. ( 1 )) and update the latent with ϵ s AS ​ ( x ) = ϵ u + G t ​ d t + G i ​ d i \\epsilon^{\\rm AS}_{s}(x)=\\epsilon_{u}+G_{t}d_{t}+G_{i}d_{i} (Eq. ( 9 )) 10: if s < 10 s<10 then 11: a ⁡ ( x ) ← a ⁡ ( x ) + ∑ k ∈ ℐ A s k ​ ( x ) a(x)\\leftarrow a(x)+\\sum_{k\\in\\mathcal{I}}A_{s}^{k}(x) ⊳ \\triangleright gates step s + 1 s{+}1 12: end if 13: end for"
+      },
+      {
+        "id": "S3.SS1",
+        "heading": "3.1 Evaluation Protocol",
+        "level": 2,
+        "text": "We use the full public splits of MagicBrush and PIE-Bench++ [ 11 , 21 ] . PIE-Bench++ retains the 700 PIE-Bench images with revised prompts and annotations; all systems, including the released baselines, are evaluated on this same distribution under one fixed generation seed, so every comparison is matched. MagicBrush has 1,053 turn-level examples in each independent and iterative test protocol, and PIE-Bench++ has 700 examples. We use PIE-Bench++ rather than EditVal [ 2 ] because it supplies both edit and background regions. Background PSNR zeroes the official edit region before comparing; global edits whose mask covers the full image leave no background and return the evaluator’s 100 100 dB cap, so discrimination comes from the 171 171 local edits. Mechanism tests use all 528 MagicBrush development turns with the official pixel-L1 and CLIP-I ViT-B/32 evaluators and the released preprocessing. The CLIP backbone follows [ 15 ] . The no-op reference is the source image itself. We use “catastrophic” as shorthand for a CLIP-I gap to this no-op reference below − 0.10 -0.10 . Every edit uses the same g hi g_{\\rm hi} , and no benchmark mask enters the sampler."
+      },
+      {
+        "id": "S3.SS2",
+        "heading": "3.2 The Preservation–Editability Trade-off",
+        "level": 2,
+        "text": "Table 1 compares ASG with seven released editors [ 3 , 23 , 7 , 6 , 5 , 22 , 14 ] on both benchmarks. ASG leads both MagicBrush independent metrics (0.9296/0.0624) and iterative L1 (0.0901), while DIM leads iterative CLIP-I (0.8981 versus 0.8961), and DIM and Kontinuous Kontext lead both PIE-Bench++ semantic CLIP metrics; ASG gives the highest background PSNR (82.173). The two strongest semantic baselines, DIM and Kontinuous Kontext, exceed ASG on both PIE-Bench++ CLIP scores but trail it by 1.15 and 0.95 dB of background PSNR, widening to 4.7 and 3.9 dB on the 171 local edits with nonempty background. The complete system exceeds base IP2P by 0.0787 CLIP-I and 0.0511 L1 on the independent protocol. The harder margin is against MagicBrush-IP2P, the checkpoint already finetuned for this benchmark, where the gains are 0.0119/0.0117 independently and 0.0112/0.0141 iteratively, from sampling alone. On PIE-Bench++, the background-PSNR lead over the best baseline (InstructDiffusion, 81.591) is 0.582 dB. Table 2: Branch ablations on the 528-turn MagicBrush development split. “Base” is the public IP2P checkpoint; “incumbent” is the finetuned backbone used for the main results. “Cat.” counts turns whose CLIP-I gap to the no-op reference falls below − 0.10 -0.10 . Configuration CLIP-I ↑ \\uparrow L1 ↓ \\downarrow Cat. ↓ \\downarrow Base: uniform CFG 0.8625 0.1104 152 Base: text gating only 0.9303 0.0653 12 Incumbent: uniform CFG 0.9217 0.0725 – Incumbent: image anchor only 0.9274 0.0680 – Incumbent: text gating only 0.9346 0.0615 13 Incumbent: full ASG ( g hi = 3.0 g_{\\rm hi}{=}3.0 ) 0.9380 0.0586 8 Table 3: Dose selection and spatial controls. Panels (a,b) use the MagicBrush development split; new catastrophic turns are counted relative to text-only gating ( g hi = 1.5 g_{\\rm hi}=1.5 ), and (b) uses the 311 turns with source–target CLIP-I ≤ 0.97 \\leq 0.97 . Panel (c) reports PIE-Bench++ controls relative to ASG. (a) Anchor dose: MagicBrush (528 turns) g hi g_{\\rm hi} CLIP-I ↑ \\uparrow L1 ↓ \\downarrow New cat. ↓ \\downarrow 1.50 0.9346 0.0615 0 2.25 0.9367 0.0598 0 3.00 0.9380 0.0586 0 4.50 0.9350 0.0592 3 (b) ASG minus reference (311 turns) Reference Δ \\Delta CLIP-I ↑ \\uparrow Δ \\Delta L1 ↓ \\downarrow N N Uniform CFG + 0.0147 +0.0147 − 0.0145 -0.0145 311 Text-only gating + 0.0031 +0.0031 − 0.0029 -0.0029 311 (c) Control minus ASG: PIE-Bench++ Control Δ \\Delta CLIP-W ↑ \\uparrow Δ \\Delta CLIP-E ↑ \\uparrow Δ \\Delta PSNR-BG ↑ \\uparrow Fixed guidance − 0.273 -0.273 − 0.326 -0.326 + 0.27 +0.27 Per-image mean − 0.726 -0.726 − 0.727 -0.727 + 0.06 +0.06"
+      },
+      {
+        "id": "S3.SS3",
+        "heading": "3.3 Where the Gain Comes From",
+        "level": 2,
+        "text": "In the probe behind Fig. 1 , no concentration statistic separates successes from catastrophic failures — top-10% attention mass stays within 0.13–0.16 across the two outcomes — so the support contributes spatial gating rather than a success signal. Aggregate similarity partly rewards doing nothing: 217 of 528 development targets (41.1%) already exceed CLIP-I 0.97 with their source. Table 3 (b) shows the gain is not confined to these: on the remaining 311 turns, ASG improves both metrics over uniform sampling and text-only gating. Table 2 isolates the two branches. On both checkpoints, text gating alone accounts for most of the improvement; on the incumbent, the image anchor alone improves on uniform sampling but clearly trails text gating, and added on top of text gating it yields the full method and reduces the tail from 13 to 8. Two non-spatial controls on the full 700-image PIE-Bench++ population separate spatial allocation from guidance strength (Table 3 (c)). Collapsing both gates to the strongest development-split fixed dose costs both CLIP scores, and its 0.27 0.27 dB background gain is consistent with under-editing. Replacing each spatial map with its per-example scalar mean keeps the attention-derived dose exactly and still loses up to 0.73 0.73 CLIP: with dose matched and only placement removed, the spatial allocation itself carries the gain, and background PSNR changes by only 0.06 0.06 dB, so flattening the map provides little preservation benefit. The dose sweep (Table 3 (a)) bounds the anchor dose: raising g hi g_{\\rm hi} from 1.5 to 3.0 improves both metrics; at 4.5, CLIP-I falls, three new catastrophic turns appear, and all three are removal edits, consistent with strong anchoring resisting requested deletions. Figure 3: Selected same-seed development comparisons against uniform CFG ( 7.5 , 1.5 ) (7.5,1.5) . Our outputs replace the remote with pizza while retaining facial appearance (a), and recolor the scarf while better retaining its placement (b). Target images provide reference edits. Fig. 3 shows matched-seed development pairs against uniform CFG: the uniform baseline drags unedited content along with the edit, while ASG confines the change to the instructed object, with the face recognizable and the scarf at the neck."
+      },
+      {
+        "id": "S3.SS4",
+        "heading": "3.4 Practical Scope",
+        "level": 2,
+        "text": "The support is read from activations that the IP2P UNet already produces, and all three noise predictions in Eq. ( 1 ) are reused, so the wrapper retains the incumbent’s 1.9-second observed latency on one A100-SXM4. The wrapper stores a single accumulated support map at half the latent resolution and resizes the two gates to the latent grid; the same decomposition extends directly to editors with separate image and text CFG branches. One configuration serves both benchmarks: no weight, threshold, or dose differs between MagicBrush and PIE-Bench++. Given the generation seed, the wrapper is deterministic, so fixed-seed comparisons are exactly reproducible."
+      },
+      {
+        "id": "S4",
+        "heading": "4 Conclusion",
+        "level": 1,
+        "text": "We presented Attention-Scoped Guidance (ASG), a training-free sampler wrapper that makes the dual-CFG weights of instruction-guided editing spatial: a soft support read from the editor’s own instruction attention weakens the text-edit direction outside the instructed region and strengthens the image anchor inside it, within the original sampling trajectory and with no additional network evaluations. On the full MagicBrush and PIE-Bench++ splits, ASG leads three of four MagicBrush metrics and PIE-Bench++ background PSNR against seven released editors, and a dose-matched control attributes the gain to the spatial allocation itself. The construction assumes an editor with separate text and image CFG branches and reads the support at the resolution of the editor’s own cross-attention, with a single fixed configuration serving both benchmarks. Extending the allocation rule to newer editing backbones and adapting the anchor dose per edit are left for future work."
+      },
+      {
+        "id": "bib",
+        "heading": "References",
+        "level": 1,
+        "text": "[1] O. Avrahami, O. Fried, and D. Lischinski (2023) Blended latent diffusion . ACM Transactions on Graphics 42 ( 4 ), pp. 149:1–149:11 . External Links: Document Cited by: §1 . [2] S. Basu, M. Saberi, S. Bhardwaj, A. M. Chegini, D. Massiceti, M. Sanjabi, S. X. Hu, and S. Feizi (2023) EditVal: benchmarking diffusion based text-guided image editing methods . arXiv preprint arXiv:2310.02426 . External Links: Document Cited by: §3.1 . [3] T. Brooks, A. Holynski, and A. A. Efros (2023) InstructPix2Pix: learning to follow image editing instructions . In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 18392–18402 . Cited by: §1 , §3.2 . [4] H. Chefer, Y. Alaluf, Y. Vinker, L. Wolf, and D. Cohen-Or (2023) Attend-and-excite: attention-based semantic guidance for text-to-image diffusion models . ACM Transactions on Graphics 42 ( 4 ), pp. 1–10 . External Links: Document Cited by: §1 . [5] S. X. Chen, M. Sra, and P. Sen (2025) Instruct-CLIP: improving instruction-guided image editing with automated data refinement using contrastive learning . In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 28513–28522 . Cited by: §1 , §3.2 . [6] T. Fu, W. Hu, X. Du, W. Y. Wang, Y. Yang, and Z. Gan (2024) Guiding instruction-based image editing via multimodal large language models . In International Conference on Learning Representations , pp. 54820–54833 . Cited by: §1 , §3.2 . [7] Z. Geng, B. Yang, T. Hang, C. Li, S. Gu, T. Zhang, J. Bao, Z. Zhang, H. Li, H. Hu, D. Chen, and B. Guo (2024) InstructDiffusion: a generalist modeling interface for vision tasks . In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 12709–12720 . Cited by: §1 , §3.2 . [8] Q. Guo and T. Lin (2024) Focus on your instruction: fine-grained and multi-instruction image editing by attention modulation . In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 6986–6996 . Cited by: §1 , §1 . [9] A. Hertz, R. Mokady, J. Tenenbaum, K. Aberman, Y. Pritch, and D. Cohen-Or (2023) Prompt-to-prompt image editing with cross-attention control . In International Conference on Learning Representations , Cited by: §1 . [10] J. Ho and T. Salimans (2021) Classifier-free diffusion guidance . In NeurIPS 2021 Workshop on Deep Generative Models and Downstream Applications , External Links: Document Cited by: §2 . [11] X. Ju, A. Zeng, Y. Bian, S. Liu, and Q. Xu (2024) PnP Inversion: boosting diffusion-based editing with 3 lines of code . In International Conference on Learning Representations , pp. 23395–23422 . Cited by: §3.1 . [12] S. Li, B. Zeng, Y. Feng, S. Gao, X. Liu, J. Liu, L. Li, X. Tang, Y. Hu, J. Liu, and B. Zhang (2024) ZONE: zero-shot instruction-guided local editing . In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 6254–6263 . Cited by: §1 . [13] R. Mokady, A. Hertz, K. Aberman, Y. Pritch, and D. Cohen-Or (2023) NULL-text inversion for editing real images using guided diffusion models . In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 6038–6047 . Cited by: §1 . [14] R. Parihar, O. Patashnik, D. Ostashev, V. B. Radhakrishnan, D. Cohen-Or, and K. J. Wang (2026) Kontinuous Kontext: continuous strength control for instruction-based image editing . In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 37929–37939 . Cited by: §3.2 . [15] A. Radford, J. W. Kim, C. Hallacy, A. Ramesh, G. Goh, S. Agarwal, G. Sastry, A. Askell, P. Mishkin, J. Clark, G. Krueger, and I. Sutskever (2021) Learning transferable visual models from natural language supervision . In Proceedings of the 38th International Conference on Machine Learning , Proceedings of Machine Learning Research , Vol. 139 , pp. 8748–8763 . Cited by: §3.1 . [16] R. Rombach, A. Blattmann, D. Lorenz, P. Esser, and B. Ommer (2022) High-resolution image synthesis with latent diffusion models . In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 10684–10695 . Cited by: §2 . [17] A. Shagidanov, H. Poghosyan, X. Gong, Z. Wang, S. Navasardyan, and H. Shi (2024) Grounded-instruct-pix2pix: improving instruction based image editing with automatic target grounding . In IEEE International Conference on Acoustics, Speech and Signal Processing , pp. 6585–6589 . External Links: Document Cited by: §1 . [18] D. Shen, G. Song, Z. Xue, F. Wang, and Y. Liu (2024) Rethinking the spatial inconsistency in classifier-free diffusion guidance . In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 9370–9379 . External Links: Document Cited by: §1 , §1 . [19] E. Simsar, A. Tonioni, Y. Xian, T. Hofmann, and F. Tombari (2025) LIME: localized image editing via attention regularization in diffusion models . In Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision , pp. 222–231 . External Links: Document Cited by: §1 . [20] R. Tang, L. Liu, A. Pandey, Z. Jiang, G. Yang, K. Kumar, P. Stenetorp, J. Lin, and F. Ture (2023) What the DAAM: interpreting stable diffusion using cross attention . In Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pp. 5644–5659 . External Links: Document Cited by: §1 . [21] UB-CVML Group PIE-Bench++ . Note: https://huggingface.co/datasets/UB-CVML-Group/PIE_Bench_pp Revised-annotation release of PIE-Bench, 700 images Cited by: §3.1 . [22] Z. Zeng, D. J. Zhang, W. Li, and M. Z. Shou (2026) Draw-in-mind: rebalancing designer-painter roles in unified multimodal models benefits image editing . In International Conference on Learning Representations , Cited by: §3.2 . [23] K. Zhang, L. Mo, W. Chen, H. Sun, and Y. Su (2023) MagicBrush: a manually annotated dataset for instruction-guided image editing . In Advances in Neural Information Processing Systems , Vol. 36 , pp. 31428–31449 . External Links: Document Cited by: §1 , §3.2 . [24] S. Zhang, X. Yang, Y. Feng, C. Qin, C. Chen, N. Yu, Z. Chen, H. Wang, S. Savarese, S. Ermon, C. Xiong, and R. Xu (2024) HIVE: harnessing human feedback for instructional visual editing . In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 9026–9036 . Cited by: §1 ."
+      }
+    ]
+  },
+  "text": "Attention-Scoped Guidance: Training-Free Spatial Control for Image Editing Skip to main content Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: Why HTML? Report Issue Back to Abstract Download PDF Contents Reading mode Colour theme License: arXiv.org perpetual non-exclusive license arXiv:2609.37492v1 [cs.CV] 28 Sep 2026 Attention-Scoped Guidance: Training-Free Spatial Control for Image Editing Zeyan Li Wei Zhou Hadi Amirpour Minghao Zou Panqi Yang Jianfeng Xu \\sthanks Corresponding author Abstract Instruction-guided image editing should change what the instruction names and leave the rest of the image untouched. In dual classifier-free guidance (CFG), an editor combines two directions at every denoising step, one that pushes toward the instructed edit and one that pulls back toward the source image, using global weights. We introduce Attention-Scoped Guidance (ASG), a sampler wrapper that makes these weights spatial. It reads a soft support map from the instruction attention that the editor already computes, then weakens text guidance where support is low and strengthens image anchoring where support is high. The wrapper requires no training, no external mask, and no additional network evaluation. On the full MagicBrush and PIE-Bench++ splits, ASG improves preservation-oriented metrics, leading three of four MagicBrush metrics and PIE-Bench++ background PSNR. A dose-matched control that removes the spatial placement loses up to 0.73 CLIP on PIE-Bench++, confirming that the spatial allocation itself carries the gain. Index Terms: instruction-guided image editing, diffusion models, spatial control, training-free editing † † address: 1 Shanghai Jiao Tong University, 2 Cardiff University, 3 University of Klagenfurt, 4 Xi’an Jiaotong University 1 Introduction Instruction-guided image editing should change the content named by the instruction and leave the rest of the image untouched. Diffusion editors such as InstructPix2Pix (IP2P) [ 3 ] often violate this boundary. A local replacement regenerates the scene, changes the subject’s identity, or modifies an untouched region. MagicBrush makes this tension measurable through paired source, target, and instruction data [ 23 ] . Fig. 1 shows the characteristic failure, where the background changes as requested but the subject changes with it. Localizing an edit to the content the instruction names is therefore the central difficulty. Existing editors pursue this either by changing what the editor learns, through human feedback, task-specific finetuning, or broader instruction data [ 24 , 7 , 6 , 5 ] , or by constraining sampling with attention injection, inversion, or region blending [ 9 , 13 , 1 ] . Both lines improve how faithfully an instruction is followed or how much structure survives, but the guidance weights themselves remain global scalars. Figure 1: An illustrative failure from a ten-case probe, motivating Attention-Scoped Guidance. Left: for a background-only MagicBrush instruction, the underlying editor changes both the scene and the subject. Center: the displayed attention maps retain spatial structure through denoising, with nearly unchanged top-10% mass. Right: the dual-CFG combination uses global text and image weights, motivating explicit spatial allocation. The methods closest to this problem control locality explicitly. Grounded variants obtain a region from an external detector [ 17 ] , ZONE derives one zero-shot from internal attention [ 12 ] , Focus on Your Instruction combines cross-attention modulation with mask-guided disentangled sampling [ 8 ] , and LIME regularizes attention to keep edits local [ 19 ] ; in text-to-image generation, S-CFG makes guidance weights spatially varying across semantic regions [ 18 ] . The underlying attention maps are known to carry spatial semantics [ 20 , 4 ] . S-CFG spatially rescales a single text-guidance weight for text-to-image generation; our focus is the dual-CFG combination in instruction-guided editing, where the edit is committed by two global scalars, the same weight at every pixel. Our ten-case probe confirms the mismatch: instruction attention remains spatially structured through denoising in successful and failed edits alike, and concentrated maps appear in failures as often as in successes. The spatial signal is present, but the sampler never couples it to the edit, so a locally supported instruction leaks through the uniformly weighted text direction into unrelated pixels. Figure 2: Method overview, left to right. Given a source image and an instruction, the frozen editor evaluates three noise predictions at every denoising step. Instruction cross-attention, averaged over heads and layers and summed over tokens and the first ten steps, yields a soft support M ⁡ ( x ) M(x) . From the second step on, this support makes the two CFG weights spatial: the text-edit direction is weakened where M M is low, and the image anchor is strengthened where M M is high; the support freezes after step ten. The reweighted directions are recombined and sampled unchanged, completing the edit within the original sampling trajectory, with no additional network evaluations. We therefore propose Attention-Scoped Guidance (ASG), illustrated in Fig. 2 . ASG reads one soft support from the instruction attention that the editor already computes and uses it to allocate both guidance residuals: the text-edit direction is weakened where support is low, and image anchoring is strengthened where support is high. Spatially varying guidance and attention-derived regions are established ideas [ 18 , 8 ] ; the distinct element is the allocation rule at the dual-CFG combination itself, where a single support assigns different coefficients to the two residuals. A peak-to-mean bypass restores the released sampler whenever attention is diffuse. Experiments on both public benchmarks quantify the benefit. ASG leads three of four MagicBrush metrics and PIE-Bench++ background PSNR against seven released editors, while DIM remains stronger on PIE-Bench++ semantic CLIP, so the method occupies the preservation end of the trade-off. A dose-matched control attributes the gain to the spatial allocation itself, and the dose analysis shows that stronger anchoring begins to resist requested deletions. Our contributions are a training-free sampler wrapper that makes the dual-CFG weights spatial without external input, full-population evidence of its preservation-oriented improvement, and controls and dose analyses that attribute the gain and bound the anchor strength. 2 Spatial Allocation of Dual Guidance IP2P builds on latent diffusion [ 16 ] and classifier-free guidance [ 10 ] . At denoising step s s , it evaluates three predictions: an unconditioned prediction ϵ u ​ ( x ) \\epsilon_{u}(x) , an image-conditioned prediction ϵ i ​ ( x ) \\epsilon_{i}(x) , and an instruction-conditioned prediction ϵ t ​ ( x ) \\epsilon_{t}(x) . These are combined as ϵ s ​ ( x ) = ϵ u ​ ( x ) + c t ​ [ ϵ t ​ ( x ) − ϵ i ​ ( x ) ] + c i ​ [ ϵ i ​ ( x ) − ϵ u ​ ( x ) ] , \\epsilon_{s}(x)=\\epsilon_{u}(x)+c_{t}[\\epsilon_{t}(x)-\\epsilon_{i}(x)]+c_{i}[\\epsilon_{i}(x)-\\epsilon_{u}(x)], (1) where the official weights are c t = 7.5 c_{t}=7.5 and c i = 1.5 c_{i}=1.5 . The first difference is the text-edit direction and the second is the image-identity direction, d t ​ ( x ) \\displaystyle d_{t}(x) = ϵ t ​ ( x ) − ϵ i ​ ( x ) , \\displaystyle=\\epsilon_{t}(x)-\\epsilon_{i}(x), d i ​ ( x ) \\displaystyle d_{i}(x) = ϵ i ​ ( x ) − ϵ u ​ ( x ) . \\displaystyle=\\epsilon_{i}(x)-\\epsilon_{u}(x). (2) The direction d t d_{t} introduces the content required by the instruction, while d i d_{i} pulls the sample back toward the source image. Equation ( 1 ) assigns each direction its own global scalar, so every spatial location receives the same mixture of change and stay. ASG replaces these scalars with spatial weights derived from existing attention. The residuals already carry spatial information, and the intervention adds explicit spatial control over their relative contributions. 2.1 Attention-Derived Support Let A s k ​ ( x ) A_{s}^{k}(x) denote cross-attention from spatial location x x to instruction token k k , and let ℐ \\mathcal{I} contain the non-special tokens of the edit instruction. We read A A from the cross-attention layers at half the latent resolution, averaged over heads and layers. The support available at step s s accumulates only the attention captured before it and freezes after step ten: a s ​ ( x ) \\displaystyle a_{s}(x) = ∑ j = 0 min ⁡ ( s , 10 ) − 1 ∑ k ∈ ℐ A j k ​ ( x ) , a 0 ​ ( x ) = 0 , \\displaystyle=\\sum_{j=0}^{\\min(s,10)-1}\\sum_{k\\in\\mathcal{I}}A_{j}^{k}(x),\\quad a_{0}(x)=0, (3) a ¯ ​ ( x ) \\displaystyle\\bar{a}(x) = a ⁡ ( x ) − min x ⁡ a ⁡ ( x ) max x ⁡ a ⁡ ( x ) − min x ⁡ a ⁡ ( x ) + ε , \\displaystyle=\\frac{a(x)-\\min_{x}a(x)}{\\max_{x}a(x)-\\min_{x}a(x)+\\varepsilon}, (4) M ⁡ ( x ) \\displaystyle M(x) = σ ​ ( 10 ​ [ a ¯ ​ ( x ) − 0.5 ] ) , \\displaystyle=\\sigma\\!\\left(10[\\bar{a}(x)-0.5]\\right), (5) where ε = 10 − 6 \\varepsilon=10^{-6} . At step s s the gates use a s a_{s} ; we omit the step subscript below for brevity. Min-max normalization places each image’s attention on a common scale, and the sigmoid provides a soft transition between low and high responses, so M M is a soft support rather than a binary mask. We measure the map’s concentration by r pm = max x ⁡ a ⁡ ( x ) | Ω | − 1 ​ ∑ x ∈ Ω a ⁡ ( x ) + ε , r_{\\rm pm}=\\frac{\\max_{x}a(x)}{|\\Omega|^{-1}\\sum_{x\\in\\Omega}a(x)+\\varepsilon}, (6) where Ω \\Omega is the spatial domain of the attention map. If r pm < 1.5 r_{\\rm pm}<1.5 , attention is diffuse and carries no usable spatial signal: ASG is bypassed, and the released coefficients G t ​ ( x ) = 7.5 G_{t}(x)=7.5 and G i ​ ( x ) = 1.5 G_{i}(x)=1.5 apply at every pixel. The spatial rules below apply when this bypass is inactive. The threshold r pm < 1.5 r_{\\rm pm}<1.5 and the sigmoid scale 10 10 were selected on the development split. Accumulating over several steps averages out the noise of any single step’s attention; early steps decide the global layout while later steps refine local detail, so the support is read where the layout is decided and held fixed before texture forms. The peak-to-mean bypass keeps the method conservative: it intervenes only where attention concentrates. Table 1: Main full-population comparison against released external editors. MagicBrush-I and MagicBrush-T denote the independent and iterative MagicBrush test protocols. Best values within each metric are bold. The last row reports Attention-Scoped Guidance. MagicBrush-I MagicBrush-T PIE-Bench++ System CLIP-I ↑ \\uparrow L1 ↓ \\downarrow CLIP-I ↑ \\uparrow L1 ↓ \\downarrow CLIP-W ↑ \\uparrow CLIP-E ↑ \\uparrow PSNR-BG ↑ \\uparrow InstructPix2Pix 0.8509 0.1135 0.8099 0.1491 24.001 23.457 80.656 MagicBrush-IP2P 0.9177 0.0741 0.8849 0.1042 23.612 22.985 81.388 InstructDiffusion 0.9228 0.0706 0.8912 0.0995 23.903 23.155 81.591 MGIE 0.9087 0.0812 0.8745 0.1133 21.357 21.080 79.461 InstructCLIP 0.8794 0.0962 0.8360 0.1291 23.441 22.767 80.985 DIM 0.9256 0.0698 0.8981 0.0973 26.745 25.933 81.023 Kontinuous Kontext 0.9099 0.0814 0.8724 0.1150 25.511 24.718 81.220 Attention-Scoped Guidance 0.9296 0.0624 0.8961 0.0901 23.568 22.858 82.173 2.2 Spatial Dual Guidance The two global scalars become two spatial weights. The text-edit direction is attenuated where support is low, G t ​ ( x ) = g lo + ( 7.5 − g lo ) ​ M ​ ( x ) , G_{t}(x)=g_{\\rm lo}+(7.5-g_{\\rm lo})M(x), (7) where g lo = 0 g_{\\rm lo}=0 by default, and the image-conditioned contribution is increased where support is high, G i ​ ( x ) = 1.5 + ( g hi − 1.5 ) ​ M ​ ( x ) . G_{i}(x)=1.5+(g_{\\rm hi}-1.5)M(x). (8) The two weights serve different spatial roles because text and image guidance act on different CFG directions. We set g lo = 0 g_{\\rm lo}=0 so that text guidance is nearly suppressed outside the support. With this default, the selected dose g hi = 3.0 g_{\\rm hi}=3.0 gives a pixel with M ⁡ ( x ) = 0.5 M(x)=0.5 the coefficients G t = 3.75 G_{t}=3.75 and G i = 2.25 G_{i}=2.25 , that is, half-strength edit pressure plus a moderately reinforced anchor. The continuous weights keep the transition zone between the instructed region and its surroundings free of visible seams. 2.3 Recombine and Sample The gated directions are recombined with the unconditioned prediction, ϵ s AS ​ ( x ) = ϵ u ​ ( x ) + G t ​ ( x ) ​ d t ​ ( x ) + G i ​ ( x ) ​ d i ​ ( x ) . \\epsilon^{\\rm AS}_{s}(x)=\\epsilon_{u}(x)+G_{t}(x)d_{t}(x)+G_{i}(x)d_{i}(x). (9) Subtracting Eq. ( 1 ) makes the intervention explicit, Δ ​ ϵ s ​ ( x ) = − 7.5 ​ [ 1 − M ⁡ ( x ) ] ​ d t ​ ( x ) + ( g hi − 1.5 ) ​ M ​ ( x ) ​ d i ​ ( x ) . \\Delta\\epsilon_{s}(x)=-7.5[1-M(x)]d_{t}(x)+(g_{\\rm hi}-1.5)M(x)d_{i}(x). (10) At the idealized endpoint M ⁡ ( x ) = 0 M(x)=0 the text-edit direction is canceled while the default image anchor is kept; at M ⁡ ( x ) = 1 M(x)=1 the original text guidance is retained and only the image anchor is increased, and intermediate values interpolate continuously. The original sampler is recovered by M ≡ 1 , g hi = 1.5 ⟹ ϵ AS s = ϵ s . M\\equiv 1,\\quad g_{\\rm hi}=1.5\\quad\\Longrightarrow\\quad\\epsilon^{\\rm AS}_{s}=\\epsilon_{s}. (11) When M ≡ 1 M\\equiv 1 , G t = 7.5 G_{t}=7.5 for any g lo g_{\\rm lo} , so the identity holds regardless of the lower bound. The dose study in Table 3 selects g hi = 3.0 g_{\\rm hi}=3.0 from { 2.25 , 3.0 , 4.5 } \\{2.25,3.0,4.5\\} using the development similarity metrics and failure tail. Algorithm 1 assembles one full edit. Algorithm 1 Attention-scoped dual-CFG sampling for one edit. 1: source latent, instruction tokens ℐ \\mathcal{I} , anchor dose g hi g_{\\rm hi} 2: a ⁡ ( ⋅ ) ← 0 a(\\cdot)\\leftarrow 0 3: for s = 0 s=0 to 49 49 do 4: if s = 0 s=0 or r pm ​ ( a ) < 1.5 r_{\\rm pm}(a)<1.5 then ⊳ \\triangleright a a : steps < s <s 5: ( G t , G i ) ≡ ( 7.5 , 1.5 ) (G_{t},G_{i})\\equiv(7.5,1.5) ⊳ \\triangleright bypass: released coefficients 6: else 7: G t ​ ( x ) ← g lo + ( 7.5 − g lo ) ​ M ​ ( x ) G_{t}(x)\\leftarrow g_{\\rm lo}+(7.5-g_{\\rm lo})M(x) ; G i ​ ( x ) ← 1.5 + ( g hi − 1.5 ) ​ M ​ ( x ) G_{i}(x)\\leftarrow 1.5+(g_{\\rm hi}-1.5)M(x) , with M M built from a a (Eq. ( 5 )) 8: end if 9: evaluate ϵ u , ϵ i , ϵ t \\epsilon_{u},\\epsilon_{i},\\epsilon_{t} as in IP2P (Eq. ( 1 )) and update the latent with ϵ s AS ​ ( x ) = ϵ u + G t ​ d t + G i ​ d i \\epsilon^{\\rm AS}_{s}(x)=\\epsilon_{u}+G_{t}d_{t}+G_{i}d_{i} (Eq. ( 9 )) 10: if s < 10 s<10 then 11: a ⁡ ( x ) ← a ⁡ ( x ) + ∑ k ∈ ℐ A s k ​ ( x ) a(x)\\leftarrow a(x)+\\sum_{k\\in\\mathcal{I}}A_{s}^{k}(x) ⊳ \\triangleright gates step s + 1 s{+}1 12: end if 13: end for 3 Experiments 3.1 Evaluation Protocol We use the full public splits of MagicBrush and PIE-Bench++ [ 11 , 21 ] . PIE-Bench++ retains the 700 PIE-Bench images with revised prompts and annotations; all systems, including the released baselines, are evaluated on this same distribution under one fixed generation seed, so every comparison is matched. MagicBrush has 1,053 turn-level examples in each independent and iterative test protocol, and PIE-Bench++ has 700 examples. We use PIE-Bench++ rather than EditVal [ 2 ] because it supplies both edit and background regions. Background PSNR zeroes the official edit region before comparing; global edits whose mask covers the full image leave no background and return the evaluator’s 100 100 dB cap, so discrimination comes from the 171 171 local edits. Mechanism tests use all 528 MagicBrush development turns with the official pixel-L1 and CLIP-I ViT-B/32 evaluators and the released preprocessing. The CLIP backbone follows [ 15 ] . The no-op reference is the source image itself. We use “catastrophic” as shorthand for a CLIP-I gap to this no-op reference below − 0.10 -0.10 . Every edit uses the same g hi g_{\\rm hi} , and no benchmark mask enters the sampler. 3.2 The Preservation–Editability Trade-off Table 1 compares ASG with seven released editors [ 3 , 23 , 7 , 6 , 5 , 22 , 14 ] on both benchmarks. ASG leads both MagicBrush independent metrics (0.9296/0.0624) and iterative L1 (0.0901), while DIM leads iterative CLIP-I (0.8981 versus 0.8961), and DIM and Kontinuous Kontext lead both PIE-Bench++ semantic CLIP metrics; ASG gives the highest background PSNR (82.173). The two strongest semantic baselines, DIM and Kontinuous Kontext, exceed ASG on both PIE-Bench++ CLIP scores but trail it by 1.15 and 0.95 dB of background PSNR, widening to 4.7 and 3.9 dB on the 171 local edits with nonempty background. The complete system exceeds base IP2P by 0.0787 CLIP-I and 0.0511 L1 on the independent protocol. The harder margin is against MagicBrush-IP2P, the checkpoint already finetuned for this benchmark, where the gains are 0.0119/0.0117 independently and 0.0112/0.0141 iteratively, from sampling alone. On PIE-Bench++, the background-PSNR lead over the best baseline (InstructDiffusion, 81.591) is 0.582 dB. Table 2: Branch ablations on the 528-turn MagicBrush development split. “Base” is the public IP2P checkpoint; “incumbent” is the finetuned backbone used for the main results. “Cat.” counts turns whose CLIP-I gap to the no-op reference falls below − 0.10 -0.10 . Configuration CLIP-I ↑ \\uparrow L1 ↓ \\downarrow Cat. ↓ \\downarrow Base: uniform CFG 0.8625 0.1104 152 Base: text gating only 0.9303 0.0653 12 Incumbent: uniform CFG 0.9217 0.0725 – Incumbent: image anchor only 0.9274 0.0680 – Incumbent: text gating only 0.9346 0.0615 13 Incumbent: full ASG ( g hi = 3.0 g_{\\rm hi}{=}3.0 ) 0.9380 0.0586 8 Table 3: Dose selection and spatial controls. Panels (a,b) use the MagicBrush development split; new catastrophic turns are counted relative to text-only gating ( g hi = 1.5 g_{\\rm hi}=1.5 ), and (b) uses the 311 turns with source–target CLIP-I ≤ 0.97 \\leq 0.97 . Panel (c) reports PIE-Bench++ controls relative to ASG. (a) Anchor dose: MagicBrush (528 turns) g hi g_{\\rm hi} CLIP-I ↑ \\uparrow L1 ↓ \\downarrow New cat. ↓ \\downarrow 1.50 0.9346 0.0615 0 2.25 0.9367 0.0598 0 3.00 0.9380 0.0586 0 4.50 0.9350 0.0592 3 (b) ASG minus reference (311 turns) Reference Δ \\Delta CLIP-I ↑ \\uparrow Δ \\Delta L1 ↓ \\downarrow N N Uniform CFG + 0.0147 +0.0147 − 0.0145 -0.0145 311 Text-only gating + 0.0031 +0.0031 − 0.0029 -0.0029 311 (c) Control minus ASG: PIE-Bench++ Control Δ \\Delta CLIP-W ↑ \\uparrow Δ \\Delta CLIP-E ↑ \\uparrow Δ \\Delta PSNR-BG ↑ \\uparrow Fixed guidance − 0.273 -0.273 − 0.326 -0.326 + 0.27 +0.27 Per-image mean − 0.726 -0.726 − 0.727 -0.727 + 0.06 +0.06 3.3 Where the Gain Comes From In the probe behind Fig. 1 , no concentration statistic separates successes from catastrophic failures — top-10% attention mass stays within 0.13–0.16 across the two outcomes — so the support contributes spatial gating rather than a success signal. Aggregate similarity partly rewards doing nothing: 217 of 528 development targets (41.1%) already exceed CLIP-I 0.97 with their source. Table 3 (b) shows the gain is not confined to these: on the remaining 311 turns, ASG improves both metrics over uniform sampling and text-only gating. Table 2 isolates the two branches. On both checkpoints, text gating alone accounts for most of the improvement; on the incumbent, the image anchor alone improves on uniform sampling but clearly trails text gating, and added on top of text gating it yields the full method and reduces the tail from 13 to 8. Two non-spatial controls on the full 700-image PIE-Bench++ population separate spatial allocation from guidance strength (Table 3 (c)). Collapsing both gates to the strongest development-split fixed dose costs both CLIP scores, and its 0.27 0.27 dB background gain is consistent with under-editing. Replacing each spatial map with its per-example scalar mean keeps the attention-derived dose exactly and still loses up to 0.73 0.73 CLIP: with dose matched and only placement removed, the spatial allocation itself carries the gain, and background PSNR changes by only 0.06 0.06 dB, so flattening the map provides little preservation benefit. The dose sweep (Table 3 (a)) bounds the anchor dose: raising g hi g_{\\rm hi} from 1.5 to 3.0 improves both metrics; at 4.5, CLIP-I falls, three new catastrophic turns appear, and all three are removal edits, consistent with strong anchoring resisting requested deletions. Figure 3: Selected same-seed development comparisons against uniform CFG ( 7.5 , 1.5 ) (7.5,1.5) . Our outputs replace the remote with pizza while retaining facial appearance (a), and recolor the scarf while better retaining its placement (b). Target images provide reference edits. Fig. 3 shows matched-seed development pairs against uniform CFG: the uniform baseline drags unedited content along with the edit, while ASG confines the change to the instructed object, with the face recognizable and the scarf at the neck. 3.4 Practical Scope The support is read from activations that the IP2P UNet already produces, and all three noise predictions in Eq. ( 1 ) are reused, so the wrapper retains the incumbent’s 1.9-second observed latency on one A100-SXM4. The wrapper stores a single accumulated support map at half the latent resolution and resizes the two gates to the latent grid; the same decomposition extends directly to editors with separate image and text CFG branches. One configuration serves both benchmarks: no weight, threshold, or dose differs between MagicBrush and PIE-Bench++. Given the generation seed, the wrapper is deterministic, so fixed-seed comparisons are exactly reproducible. 4 Conclusion We presented Attention-Scoped Guidance (ASG), a training-free sampler wrapper that makes the dual-CFG weights of instruction-guided editing spatial: a soft support read from the editor’s own instruction attention weakens the text-edit direction outside the instructed region and strengthens the image anchor inside it, within the original sampling trajectory and with no additional network evaluations. On the full MagicBrush and PIE-Bench++ splits, ASG leads three of four MagicBrush metrics and PIE-Bench++ background PSNR against seven released editors, and a dose-matched control attributes the gain to the spatial allocation itself. The construction assumes an editor with separate text and image CFG branches and reads the support at the resolution of the editor’s own cross-attention, with a single fixed configuration serving both benchmarks. Extending the allocation rule to newer editing backbones and adapting the anchor dose per edit are left for future work. References [1] O. Avrahami, O. Fried, and D. Lischinski (2023) Blended latent diffusion . ACM Transactions on Graphics 42 ( 4 ), pp. 149:1–149:11 . External Links: Document Cited by: §1 . [2] S. Basu, M. Saberi, S. Bhardwaj, A. M. Chegini, D. Massiceti, M. Sanjabi, S. X. Hu, and S. Feizi (2023) EditVal: benchmarking diffusion based text-guided image editing methods . arXiv preprint arXiv:2310.02426 . External Links: Document Cited by: §3.1 . [3] T. Brooks, A. Holynski, and A. A. Efros (2023) InstructPix2Pix: learning to follow image editing instructions . In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 18392–18402 . Cited by: §1 , §3.2 . [4] H. Chefer, Y. Alaluf, Y. Vinker, L. Wolf, and D. Cohen-Or (2023) Attend-and-excite: attention-based semantic guidance for text-to-image diffusion models . ACM Transactions on Graphics 42 ( 4 ), pp. 1–10 . External Links: Document Cited by: §1 . [5] S. X. Chen, M. Sra, and P. Sen (2025) Instruct-CLIP: improving instruction-guided image editing with automated data refinement using contrastive learning . In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 28513–28522 . Cited by: §1 , §3.2 . [6] T. Fu, W. Hu, X. Du, W. Y. Wang, Y. Yang, and Z. Gan (2024) Guiding instruction-based image editing via multimodal large language models . In International Conference on Learning Representations , pp. 54820–54833 . Cited by: §1 , §3.2 . [7] Z. Geng, B. Yang, T. Hang, C. Li, S. Gu, T. Zhang, J. Bao, Z. Zhang, H. Li, H. Hu, D. Chen, and B. Guo (2024) InstructDiffusion: a generalist modeling interface for vision tasks . In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 12709–12720 . Cited by: §1 , §3.2 . [8] Q. Guo and T. Lin (2024) Focus on your instruction: fine-grained and multi-instruction image editing by attention modulation . In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 6986–6996 . Cited by: §1 , §1 . [9] A. Hertz, R. Mokady, J. Tenenbaum, K. Aberman, Y. Pritch, and D. Cohen-Or (2023) Prompt-to-prompt image editing with cross-attention control . In International Conference on Learning Representations , Cited by: §1 . [10] J. Ho and T. Salimans (2021) Classifier-free diffusion guidance . In NeurIPS 2021 Workshop on Deep Generative Models and Downstream Applications , External Links: Document Cited by: §2 . [11] X. Ju, A. Zeng, Y. Bian, S. Liu, and Q. Xu (2024) PnP Inversion: boosting diffusion-based editing with 3 lines of code . In International Conference on Learning Representations , pp. 23395–23422 . Cited by: §3.1 . [12] S. Li, B. Zeng, Y. Feng, S. Gao, X. Liu, J. Liu, L. Li, X. Tang, Y. Hu, J. Liu, and B. Zhang (2024) ZONE: zero-shot instruction-guided local editing . In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 6254–6263 . Cited by: §1 . [13] R. Mokady, A. Hertz, K. Aberman, Y. Pritch, and D. Cohen-Or (2023) NULL-text inversion for editing real images using guided diffusion models . In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 6038–6047 . Cited by: §1 . [14] R. Parihar, O. Patashnik, D. Ostashev, V. B. Radhakrishnan, D. Cohen-Or, and K. J. Wang (2026) Kontinuous Kontext: continuous strength control for instruction-based image editing . In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 37929–37939 . Cited by: §3.2 . [15] A. Radford, J. W. Kim, C. Hallacy, A. Ramesh, G. Goh, S. Agarwal, G. Sastry, A. Askell, P. Mishkin, J. Clark, G. Krueger, and I. Sutskever (2021) Learning transferable visual models from natural language supervision . In Proceedings of the 38th International Conference on Machine Learning , Proceedings of Machine Learning Research , Vol. 139 , pp. 8748–8763 . Cited by: §3.1 . [16] R. Rombach, A. Blattmann, D. Lorenz, P. Esser, and B. Ommer (2022) High-resolution image synthesis with latent diffusion models . In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 10684–10695 . Cited by: §2 . [17] A. Shagidanov, H. Poghosyan, X. Gong, Z. Wang, S. Navasardyan, and H. Shi (2024) Grounded-instruct-pix2pix: improving instruction based image editing with automatic target grounding . In IEEE International Conference on Acoustics, Speech and Signal Processing , pp. 6585–6589 . External Links: Document Cited by: §1 . [18] D. Shen, G. Song, Z. Xue, F. Wang, and Y. Liu (2024) Rethinking the spatial inconsistency in classifier-free diffusion guidance . In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 9370–9379 . External Links: Document Cited by: §1 , §1 . [19] E. Simsar, A. Tonioni, Y. Xian, T. Hofmann, and F. Tombari (2025) LIME: localized image editing via attention regularization in diffusion models . In Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision , pp. 222–231 . External Links: Document Cited by: §1 . [20] R. Tang, L. Liu, A. Pandey, Z. Jiang, G. Yang, K. Kumar, P. Stenetorp, J. Lin, and F. Ture (2023) What the DAAM: interpreting stable diffusion using cross attention . In Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pp. 5644–5659 . External Links: Document Cited by: §1 . [21] UB-CVML Group PIE-Bench++ . Note: https://huggingface.co/datasets/UB-CVML-Group/PIE_Bench_pp Revised-annotation release of PIE-Bench, 700 images Cited by: §3.1 . [22] Z. Zeng, D. J. Zhang, W. Li, and M. Z. Shou (2026) Draw-in-mind: rebalancing designer-painter roles in unified multimodal models benefits image editing . In International Conference on Learning Representations , Cited by: §3.2 . [23] K. Zhang, L. Mo, W. Chen, H. Sun, and Y. Su (2023) MagicBrush: a manually annotated dataset for instruction-guided image editing . In Advances in Neural Information Processing Systems , Vol. 36 , pp. 31428–31449 . External Links: Document Cited by: §1 , §3.2 . [24] S. Zhang, X. Yang, Y. Feng, C. Qin, C. Chen, N. Yu, Z. Chen, H. Wang, S. Savarese, S. Ermon, C. Xiong, and R. Xu (2024) HIVE: harnessing human feedback for instructional visual editing . In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 9026–9036 . Cited by: §1 .",
+  "text_truncated": false,
+  "links": [
+    {
+      "text": "Skip to main content",
+      "url": "https://arxiv.org/html/2609.37492v1#infobox"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/IgnoreMe"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "Why HTML?",
+      "url": "https://info.arxiv.org/about/accessible_HTML.html"
+    },
+    {
+      "text": "Back to Abstract",
+      "url": "https://arxiv.org/abs/2609.37492v1"
+    },
+    {
+      "text": "Download PDF",
+      "url": "https://arxiv.org/pdf/2609.37492v1"
+    },
+    {
+      "text": "License: arXiv.org perpetual non-exclusive license",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2609.37492v1#bib.bib2"
+    },
+    {
+      "text": "23",
+      "url": "https://arxiv.org/html/2609.37492v1#bib.bib3"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.37492v1#S1.F1"
+    },
+    {
+      "text": "24",
+      "url": "https://arxiv.org/html/2609.37492v1#bib.bib12"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2609.37492v1#bib.bib11"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2609.37492v1#bib.bib13"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2609.37492v1#bib.bib14"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2609.37492v1#bib.bib5"
+    },
+    {
+      "text": "13",
+      "url": "https://arxiv.org/html/2609.37492v1#bib.bib10"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.37492v1#bib.bib4"
+    },
+    {
+      "text": "17",
+      "url": "https://arxiv.org/html/2609.37492v1#bib.bib16"
+    },
+    {
+      "text": "12",
+      "url": "https://arxiv.org/html/2609.37492v1#bib.bib17"
+    },
+    {
+      "text": "8",
+      "url": "https://arxiv.org/html/2609.37492v1#bib.bib9"
+    },
+    {
+      "text": "19",
+      "url": "https://arxiv.org/html/2609.37492v1#bib.bib18"
+    },
+    {
+      "text": "18",
+      "url": "https://arxiv.org/html/2609.37492v1#bib.bib6"
+    },
+    {
+      "text": "20",
+      "url": "https://arxiv.org/html/2609.37492v1#bib.bib20"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2609.37492v1#bib.bib19"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2609.37492v1#S1.F2"
+    },
+    {
+      "text": "16",
+      "url": "https://arxiv.org/html/2609.37492v1#bib.bib8"
+    },
+    {
+      "text": "10",
+      "url": "https://arxiv.org/html/2609.37492v1#bib.bib7"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.37492v1#S2.E1"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2609.37492v1#S3.T3"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.37492v1#alg1"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2609.37492v1#S2.E5"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2609.37492v1#S2.E9"
+    },
+    {
+      "text": "11",
+      "url": "https://arxiv.org/html/2609.37492v1#bib.bib15"
+    },
+    {
+      "text": "21",
+      "url": "https://arxiv.org/html/2609.37492v1#bib.bib1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2609.37492v1#bib.bib21"
+    },
+    {
+      "text": "15",
+      "url": "https://arxiv.org/html/2609.37492v1#bib.bib22"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.37492v1#S2.T1"
+    },
+    {
+      "text": "22",
+      "url": "https://arxiv.org/html/2609.37492v1#bib.bib24"
+    },
+    {
+      "text": "14",
+      "url": "https://arxiv.org/html/2609.37492v1#bib.bib23"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2609.37492v1#S3.T2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2609.37492v1#S3.F3"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.1145/3592450"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2609.37492v1#S1.p2.1"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.48550/arXiv.2310.02426"
+    },
+    {
+      "text": "§3.1",
+      "url": "https://arxiv.org/html/2609.37492v1#S3.SS1.p1.1"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2609.37492v1#S1.p1.1"
+    },
+    {
+      "text": "§3.2",
+      "url": "https://arxiv.org/html/2609.37492v1#S3.SS2.p1.1"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.1145/3592116"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2609.37492v1#S1.p3.1"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2609.37492v1#S1.p4.1"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.48550/arXiv.2207.12598"
+    },
+    {
+      "text": "§2",
+      "url": "https://arxiv.org/html/2609.37492v1#S2.p1.1"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.1109/ICASSP48485.2024.10446377"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.1109/CVPR52733.2024.00895"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.1109/WACV61041.2025.00032"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.18653/v1/2023.acl-long.310"
+    },
+    {
+      "text": "https://huggingface.co/datasets/UB-CVML-Group/PIE_Bench_pp",
+      "url": "https://huggingface.co/datasets/UB-CVML-Group/PIE_Bench_pp"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.52202/075280-1365"
+    }
+  ],
+  "matching_link_count": 58,
+  "links_truncated": false,
+  "invalid_links": []
+}

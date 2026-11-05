@@ -1,0 +1,335 @@
+{
+  "url": "https://arxiv.org/html/2609.30286v1",
+  "final_url": "https://arxiv.org/html/2609.30286v1",
+  "status": 200,
+  "title": "When Does Advection-Aware Graph Nowcasting Help?A Controlled Study of Distributed Solar Ramp Forecastingwith a Self-Supervised Cloud-Motion Estimator",
+  "metadata": {},
+  "paper": {
+    "title": "When Does Advection-Aware Graph Nowcasting Help? A Controlled Study of Distributed Solar Ramp Forecasting with a Self-Supervised Cloud-Motion Estimator",
+    "title_warning": null,
+    "abstract": "Abstract Short-term forecasting of cloud-induced power ramps across a network of\ndistributed photovoltaic (PV) or irradiance sensors is a recognised pain point\nfor grid operators. A natural idea is to make the graph neural network (GNN) advection-aware : connect each site to the sites upwind of it, with edge\ntime-lags set by the cloud-motion vector (CMV), so that a ramp is propagated\nforward before it physically arrives. Using a controlled synthetic testbed with a\nknown wind field, we show that (i) with a realistic cross-correlation CMV\nestimate, an explicit advection graph does not beat a plain static or\nlearned-adjacency spatiotemporal GNN; (ii) roughly half of the benefit available\nfrom a perfect CMV comes simply from providing an accurate motion vector as an\ninput feature, not from graph structure; and (iii) advection helps only when the\nadvective displacement over the forecast horizon, v ⋅ H v\\cdot H , fits inside the\nsensor network. Motivated by (ii), we introduce a small self-supervised cloud-motion estimator—a position-aware encoder trained only on a multi-lag\noptical-flow reconstruction objective with an annealed kernel—that recovers the\ntrue wind vector to 2 ° 2\\text{\\,}\\mathrm{\\SIUnitSymbolDegree} – 4 ° 4\\text{\\,}\\mathrm{\\SIUnitSymbolDegree} median angular error, 2 2 – 4 × 4\\times better than the classical cross-correlation method across every\nwind regime. Freezing this estimator and feeding its vector to the forecaster\ncloses about 60 % 60\\text{\\,}\\mathrm{\\%} of the oracle-CMV RMSE gap at moderate wind\n( 8 % to 15 % 8\\text{\\,}\\mathrm{\\%}15\\text{\\,}\\mathrm{\\%} RMSE reduction over no advection), with no external\nwind data. We also report a negative result for a spatially-coherent\nprobabilistic head. All claims are established on a single synthetic simulator;\nwe discuss why real-network validation is the necessary next step and outline it.",
+    "authors": [
+      {
+        "name": "Phillip Jiang",
+        "affiliations": [
+          "Affiliation: Appsofa LLC"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Phillip Jiang Affiliation: Appsofa LLC Email: phillip.jiang@appsofa.com",
+    "arxiv_version": "2609.30286v1",
+    "arxiv_version_date": "2026-09-08",
+    "sections": [
+      {
+        "id": "S1",
+        "heading": "1 Introduction",
+        "level": 1,
+        "text": "Integrating large amounts of solar generation exposes grid operators to ramps : sudden minutes-scale drops or surges in aggregate PV output as cloud shadows sweep across a region. Deterministic root-mean-square error (RMSE), the usual training and reporting metric, is dominated by smooth clear-sky periods and hides exactly these events. Spatiotemporal GNNs are a popular tool for distributed solar forecasting [ 16 ] , but they almost universally use a static, symmetric graph, which ignores that cloud information has a direction and a travel time set by the wind. This paper asks a simple question: does making the graph advection-aware actually help, and if so, when? We build a controlled synthetic testbed in which clouds are a Gaussian random field advected by a known, slowly varying wind, so that a ground-truth CMV is available for every forecast origin. Against this oracle we can cleanly separate three things that are usually entangled: the benefit of the advection graph , the benefit of an accurate motion feature , and the cost of estimating the motion from data."
+      },
+      {
+        "id": "S1.SS0.SSS0.Px1",
+        "heading": "Contributions.",
+        "level": 3,
+        "text": "1. A controlled decomposition of the advection-aware nowcasting problem (Sec. 5.1 – 5.2 ): with a realistic CMV estimate the advection graph does not beat plain baselines; roughly half the oracle-CMV benefit is an accurate input feature , not graph structure; and the benefit exists only inside a v ⋅ H ≲ v\\cdot H\\lesssim network-extent envelope. 2. A small self-supervised cloud-motion estimator (Sec. 5.3 ) that recovers the true wind to 2 ° to 4 ° 2\\text{\\,}\\mathrm{\\SIUnitSymbolDegree}4\\text{\\,}\\mathrm{\\SIUnitSymbolDegree} median angular error— 2 2 – 4 × 4\\times better than the classical cross-correlation method—using only a multi-lag optical-flow reconstruction loss with an annealed kernel and a position-aware encoder. 3. A frozen two-stage forecaster (Sec. 5.4 ) that uses this estimator and closes ∼ \\sim 60 % 60\\text{\\,}\\mathrm{\\%} of the oracle-CMV RMSE gap at moderate wind, with a clean operating envelope. 4. Negative results, reported plainly: the advection graph alone (Sec. 5.1 ), coupling the motion estimate to the forecast loss (Sec. 5.3 ), and a spatially-coherent probabilistic head (Sec. 5.5 )."
+      },
+      {
+        "id": "S1.SS0.SSS0.Px2",
+        "heading": "Scope.",
+        "level": 3,
+        "text": "Every result here is on one synthetic simulator. The synthetic “true wind” is a generative parameter, so the CMV-recovery result in particular must be read as a controlled sanity check, not a claim about real skies. We are explicit about this in Sec. 6 and describe the real-data study it calls for."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px1",
+        "heading": "Spatiotemporal GNN forecasting.",
+        "level": 3,
+        "text": "Modelling a set of geographically distributed series as signals on a graph and applying graph-convolutional or graph-attention layers with a temporal encoder is now standard in traffic forecasting—DCRNN [ 9 ] , STGCN [ 20 ] , Graph WaveNet [ 18 ] , ASTGCN [ 5 ] —and has been carried over to multi-site PV power forecasting, e.g. the graph-convolutional LSTM/transformer models of Simeunović et al. [16] . The adjacency is almost always static , built from geographic distance or historical correlation; Graph WaveNet additionally learns a global adjacency, which we include as a baseline. None of these encode cloud advection explicitly."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px2",
+        "heading": "Solar nowcasting and cloud motion.",
+        "level": 3,
+        "text": "Minutes-ahead irradiance forecasting has a long history using sky imagers [ 2 ] , satellite imagery, and cloud tracking; see Yang et al. [19] for a review. The dominant non-image approach on a sparse ground network is to estimate a rigid cloud-motion vector (CMV) by cross-correlating pairs of clear-sky-index series and solving a least-squares problem for the translation velocity [ 1 , 10 ] , then “advect the observed field forward” [ 12 ] . Our synthetic-field advection feature is the GNN analogue of that heuristic, and our self-supervised estimator is an optical-flow-style [ 7 ] objective specialised to a sparse sensor layout."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px3",
+        "heading": "Learned advection in weather nowcasting.",
+        "level": 3,
+        "text": "Precipitation nowcasting has moved from ConvLSTM [ 15 ] to large advection-aware neural models such as MetNet [ 17 ] and DGMR [ 13 ] , which learn motion implicitly from dense radar rasters. Distributed solar sensing gives only a sparse, irregular sample of the field, which is the regime we study."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px4",
+        "heading": "Ramp forecasting and probabilistic scores.",
+        "level": 3,
+        "text": "Ramp events lack a single definition; the swinging-door construction of Florita et al. [3] is a common choice, which we adopt for our ramp-capture metrics. For the probabilistic head we use strictly proper multivariate scores—the energy score [ 4 ] and the variogram score [ 14 ] . Clear-sky index uses the Haurwitz model [ 6 ] ; the Ineichen–Perez model [ 8 ] is a common alternative."
+      },
+      {
+        "id": "S3",
+        "heading": "3 Problem setup and synthetic testbed",
+        "level": 1,
+        "text": "We forecast the clear-sky index k t = GHI / GHI cs k_{t}=\\mathrm{GHI}/\\mathrm{GHI}_{\\mathrm{cs}} at N N fixed sites, H H steps ahead ( H = 16 H=16 at 30 s 30\\text{\\,}\\mathrm{s} , i.e. 8 minutes). Clouds are a periodic Gaussian random field of optical depth, translated by a wind vector 𝐯 ⁡ ( t ) \\mathbf{v}(t) that performs a bounded random walk (a steadiness knob controls its variance); an evolving option blends keyframe fields so the pattern also grows and decays. Observed GHI is clear-sky GHI [ 6 ] times a transmittance function of the local optical depth, plus noise. The simulator emits, per origin, the site series, the true 𝐯 ⁡ ( t ) \\mathbf{v}(t) (the oracle CMV), and a classical cross-correlation estimate 𝐯 est \\mathbf{v}_{\\mathrm{est}} [ 1 ] . Default layout: N = 49 N=49 on a 1 km 1\\text{\\,}\\mathrm{k}\\mathrm{m} grid ( ∼ \\sim 7 km 7\\text{\\,}\\mathrm{k}\\mathrm{m} across). We report test RMSE on k t k_{t} and ramp-capture metrics; means are over 2–3 seeds."
+      },
+      {
+        "id": "S4.SS0.SSS0.Px1",
+        "heading": "Advection-aware graph.",
+        "level": 3,
+        "text": "Given a motion vector 𝐯 \\mathbf{v} , for each site j j and horizon h h the arriving cloud is currently near 𝐩 j − 𝐯 ​ h ​ Δ ​ t \\mathbf{p}_{j}-\\mathbf{v}\\,h\\,\\Delta t . We connect j ​ @ ​ h j@h to its k k nearest sensors there with distance-weighted, per- ( j , h ) (j,h) -normalised weights w ∝ exp ( − d 2 / ℓ 2 ) w\\propto\\exp(-d^{2}/\\ell^{2}) , ℓ \\ell the median nearest-neighbour spacing, and pool their embeddings into an ( N , H , d ) (N,H,d) feature for the forecast head—the GNN form of “advect the field forward” [ 12 ] . An off-grid reliability gate down-weights ( j , h ) (j,h) whose upwind point lands far from any sensor."
+      },
+      {
+        "id": "S4.SS0.SSS0.Px2",
+        "heading": "Forecaster.",
+        "level": 3,
+        "text": "A per-site GRU temporal encoder feeds L L heterogeneous message-passing layers over k k -NN and historical-correlation edge types, each with its own message MLP and a gated residual update; the advection feature enters at the head through a gated correction. Baselines: smart persistence, per-site GRU, static-distance GCN, and a learned-adjacency GNN (a Graph WaveNet-style global adjacency [ 18 ] ). Ramp events use the swinging-door construction [ 3 ] ."
+      },
+      {
+        "id": "S4.SS0.SSS0.Px3",
+        "heading": "Self-supervised cloud-motion estimator.",
+        "level": 3,
+        "text": "A rigidly advecting field obeys k t ​ ( 𝐱 , t ) = k t ​ ( 𝐱 − 𝐯 ​ L ​ Δ ​ t , t − L ) k_{t}(\\mathbf{x},t)=k_{t}(\\mathbf{x}-\\mathbf{v}L\\Delta t,\\,t-L) . We train a small position-aware encoder (per-site GRU + + a geometry-preserving DeepSets pool) to output 𝐯 ^ \\hat{\\mathbf{v}} , minimising the residual of this identity, interpolated from the sensor field, summed over several lags L ∈ { 2 , 4 , 6 , 8 , 10 } L\\in\\{2,4,6,8,10\\} (one 𝐯 ^ \\hat{\\mathbf{v}} must explain them all): ℒ rec ( 𝐯 ^ ) = 1 | ℒ | ∑ L ∥ k t ( ⋅ , t ) − ∑ i softmax i ( − ∥ 𝐩 ⋅ − 𝐯 ^ L Δ t − 𝐩 i ∥ 2 / τ 2 ) k t ( 𝐩 i , t − L ) ∥ 2 . \\mathcal{L}_{\\mathrm{rec}}(\\hat{\\mathbf{v}})\\;=\\;\\frac{1}{|\\mathcal{L}|}\\sum_{L}\\Big\\|\\,k_{t}(\\cdot,t)-\\textstyle\\sum_{i}\\mathrm{softmax}_{i}\\!\\big(-\\|\\mathbf{p}_{\\cdot}-\\hat{\\mathbf{v}}L\\Delta t-\\mathbf{p}_{i}\\|^{2}/\\tau^{2}\\big)\\,k_{t}(\\mathbf{p}_{i},t-L)\\,\\Big\\|^{2}. (1) The softmax width τ \\tau is annealed from 0.40 0.40 to 0.10 0.10 of the network diameter (large τ \\tau gives useful gradients far from the optimum; small τ \\tau sharpens the estimate). An optional light MSE-to-reference term stands in for a small amount of numerical-weather-prediction (NWP) wind on real data."
+      },
+      {
+        "id": "S4.SS0.SSS0.Px4",
+        "heading": "Two-stage forecaster.",
+        "level": 3,
+        "text": "We pre-train the estimator, freeze it, and feed 𝐯 ^ \\hat{\\mathbf{v}} into (a) the encoder’s motion input channels and (b) the advection graph. Freezing avoids a failure mode we observed when 𝐯 ^ \\hat{\\mathbf{v}} is trained jointly with the forecast loss: the loss drives 𝐯 ^ → 𝟎 \\hat{\\mathbf{v}}\\to\\mathbf{0} (Sec. 5.3 )."
+      },
+      {
+        "id": "S5.SS1",
+        "heading": "5.1 Does an advection graph help? (E1)",
+        "level": 2,
+        "text": "With the classical CMV estimate, we sweep wind speed and compare the forecaster with and without the advection feature against baselines (Fig. 1 , Table 1 ). The heterogeneous GNN without advection is the best or tied-best model at low–moderate wind; a learned global adjacency wins at high wind and under non-stationary/evolving clouds. Adding the advection feature on top of the estimated CMV never helps and costs up to 10 % 10\\text{\\,}\\mathrm{\\%} RMSE at 10 m / s 10\\text{\\,}\\mathrm{m}\\mathrm{/}\\mathrm{s} . On a dense grid every upwind sensor is already a graph neighbour, so learned spatial mixing captures advection implicitly. Figure 1: E1. Test RMSE vs. wind speed, estimated CMV, 2 seeds ( ± \\pm s.d.). The advection feature (top line) does not beat the heterogeneous GNN without it, nor the learned-adjacency baseline. Table 1: E1 test RMSE (clear-sky index), estimated CMV, 2 seeds. Lower is better; best per column in bold . wind speed (m/s) model 4 10 16 per-site GRU 0.066 0.148 0.154 static-distance GCN 0.034 0.089 0.130 learned adjacency 0.043 0.093 0.120 hetero GNN (no adv.) 0.032 0.087 0.127 hetero GNN + + advection 0.033 0.095 0.133"
+      },
+      {
+        "id": "S5.SS2",
+        "heading": "5.2 The cloud-motion bottleneck (E2 and decomposition)",
+        "level": 2,
+        "text": "Replacing the estimated CMV with the oracle flips the picture: with a perfect wind vector the advection feature cuts RMSE by 14 % to 17 % 14\\text{\\,}\\mathrm{\\%}17\\text{\\,}\\mathrm{\\%} and lifts ramp-down capture (CSI) by about 5 points (Table 2 ). A finer decomposition at 10 m / s 10\\text{\\,}\\mathrm{m}\\mathrm{/}\\mathrm{s} (2 seeds) shows where that benefit lives: no advection 0.087 0.087 ; true wind in the graph only 0.082 0.082 ; true wind in the graph and as an input feature 0.066 0.066 ; oracle skyline 0.064 0.064 . Roughly half of the oracle-CMV advantage is simply an accurate motion vector broadcast as an input feature; the rest is graph structure. Table 2: E2. Advection feature value depends on CMV quality (test RMSE, 2 seeds). wind CMV no adv. + + adv. Δ \\Delta RMSE 10 m / s 10\\text{\\,}\\mathrm{m}\\mathrm{/}\\mathrm{s} estimated 0.086 0.096 + 11 % +11\\% 10 m / s 10\\text{\\,}\\mathrm{m}\\mathrm{/}\\mathrm{s} oracle 0.077 0.066 − 14 % -14\\% 16 m / s 16\\text{\\,}\\mathrm{m}\\mathrm{/}\\mathrm{s} estimated 0.133 0.128 − 4 % -4\\% 16 m / s 16\\text{\\,}\\mathrm{m}\\mathrm{/}\\mathrm{s} oracle 0.124 0.103 − 17 % -17\\%"
+      },
+      {
+        "id": "S5.SS3",
+        "heading": "5.3 Self-supervised cloud-motion estimation",
+        "level": 2,
+        "text": "Trained standalone on ℒ rec \\mathcal{L}_{\\mathrm{rec}} , the estimator’s median angular error is 2 ° to 4 ° 2\\text{\\,}\\mathrm{\\SIUnitSymbolDegree}4\\text{\\,}\\mathrm{\\SIUnitSymbolDegree} in steady wind and 7 ° to 13 ° 7\\text{\\,}\\mathrm{\\SIUnitSymbolDegree}13\\text{\\,}\\mathrm{\\SIUnitSymbolDegree} in variable wind— 2 2 – 4 × 4\\times better than the classical cross-correlation estimate ( 14 ° to 31 ° 14\\text{\\,}\\mathrm{\\SIUnitSymbolDegree}31\\text{\\,}\\mathrm{\\SIUnitSymbolDegree} ) in every regime (Fig. 2 , Table 3 ). A light supervision term (weight 0.1 0.1 ) tightens the hard cases to 2 ° to 8 ° 2\\text{\\,}\\mathrm{\\SIUnitSymbolDegree}8\\text{\\,}\\mathrm{\\SIUnitSymbolDegree} ; it is not required. Ablation: the position-aware encoder is what matters; kernel annealing and the classical-estimate prior are minor. Negative result. An earlier design that reused the forecaster’s embeddings and trained 𝐯 ^ \\hat{\\mathbf{v}} jointly with the forecast loss was unstable (recovered cosine swung 0.3 0.3 – 0.99 0.99 across module and loss variants); feeding 𝐯 ^ \\hat{\\mathbf{v}} to the head while coupled to the forecast loss collapses it to 𝐯 ^ → 𝟎 \\hat{\\mathbf{v}}\\to\\mathbf{0} . Decoupling (standalone encoder, frozen after pre-training) removes this. Figure 2: Self-supervised cloud-motion estimation. Median angular error of 𝐯 ^ \\hat{\\mathbf{v}} vs. the true wind, 3 seeds. The learned estimator beats the classical cross-correlation method in every wind regime. Table 3: CMV estimator median angular error (deg), 3 seeds. regime learned (recon) learned ( + + light sup.) classical steady, 4–16 m/s 3.9–7.5 2.0–3.1 14–31 variable, 4–16 m/s 8.5–12.8 6.9–7.7 15–25"
+      },
+      {
+        "id": "S5.SS4",
+        "heading": "5.4 Frozen two-stage forecaster",
+        "level": 2,
+        "text": "Pre-training the estimator, freezing it, and feeding 𝐯 ^ \\hat{\\mathbf{v}} to the forecaster closes about 60 % 60\\text{\\,}\\mathrm{\\%} of the oracle-CMV RMSE gap at moderate wind ( 8 % to 15 % 8\\text{\\,}\\mathrm{\\%}15\\text{\\,}\\mathrm{\\%} RMSE reduction over no advection), tight across 3 seeds (Fig. 3 , Table 4 ). At ≥ \\geq 16 m / s 16\\text{\\,}\\mathrm{m}\\mathrm{/}\\mathrm{s} advection does not help even with the oracle : the advective displacement over the horizon ( 7.7 km to 9.6 km 7.7\\text{\\,}\\mathrm{k}\\mathrm{m}9.6\\text{\\,}\\mathrm{k}\\mathrm{m} ) exceeds the ∼ \\sim 7 km 7\\text{\\,}\\mathrm{k}\\mathrm{m} network, so there is no on-grid upwind information. The off-grid gate prevents a catastrophic regression but cannot manufacture signal. Operating envelope: advection nowcasting helps iff v ⋅ H v\\cdot H fits within the network. Figure 3: Frozen two-stage forecaster , 3 seeds ( ± \\pm s.d.). Green labels: fraction of the no-advection → \\to oracle gap closed. In the shaded region ( v ⋅ H v\\cdot H off-grid) even the oracle does not beat no advection. Table 4: Frozen two-stage test RMSE (clear-sky index), 3 seeds. wind (m/s) no adv. frozen CMV oracle CMV err. (deg) 8 0.078 0.069 0.064 2.8 12 0.114 0.098 0.085 3.9 16 0.139 0.155 0.147 2.9 20 0.172 0.188 0.186 2.4"
+      },
+      {
+        "id": "S5.SS5",
+        "heading": "5.5 Spatially-coherent probabilistic head (negative)",
+        "level": 2,
+        "text": "We tried a joint low-rank-plus-diagonal Gaussian head across sites (for fleet-aggregate ramp risk), trained by exact Woodbury NLL, versus a diagonal head. It was marginally worse on every metric, including the energy [ 4 ] and variogram [ 14 ] scores it is meant to improve (e.g. at 16 m / s 16\\text{\\,}\\mathrm{m}\\mathrm{/}\\mathrm{s} : variogram 52.6 52.6 vs. 51.0 51.0 ; CRPS 0.065 0.065 vs. 0.063 0.063 ). After conditioning on the graph features the site residuals appear to carry little extra dependence; we report this as a negative result pending a dedicated study."
+      },
+      {
+        "id": "S6.SS0.SSS0.Px1",
+        "heading": "When to use what.",
+        "level": 3,
+        "text": "The results give a concrete rule. If v ⋅ H v\\cdot H fits inside the sensor network and the wind is reasonably steady, an advection-aware feature driven by a good CMV estimate is worth 8 % to 15 % 8\\text{\\,}\\mathrm{\\%}15\\text{\\,}\\mathrm{\\%} RMSE. Otherwise—fast wind, very sparse or irregular networks, strongly non-stationary clouds—a learned global adjacency is the better tool, and the advection feature is at best neutral (with the gate) and at worst a 10 % 10\\text{\\,}\\mathrm{\\%} regression (without it)."
+      },
+      {
+        "id": "S6.SS0.SSS0.Px2",
+        "heading": "The estimator is the reusable piece.",
+        "level": 3,
+        "text": "Independent of the forecasting question, the self-supervised CMV estimator is a drop-in replacement for cross-correlation on any bare sensor network, several times more accurate here, and it needs no labels."
+      },
+      {
+        "id": "S6.SS0.SSS0.Px3",
+        "heading": "Limitations.",
+        "level": 3,
+        "text": "All experiments use one synthetic simulator, and its “true wind” is a generative parameter—so the CMV-recovery numbers are a controlled sanity check, not a measurement on real skies, and the oracle gap that Sec. 5.4 closes is defined by that simulator. Real clouds have multiple layers, shear, growth and decay, and no single motion vector. The necessary next step is validation on a real distributed network—e.g. the NREL Oahu Solar Measurement Grid [ 11 ] (17 sensors, 1 km 1\\text{\\,}\\mathrm{k}\\mathrm{m} , 1 Hz 1\\text{\\,}\\mathrm{H}\\mathrm{z} ) for the forecaster, and a sky-image dataset with optical-flow motion for the estimator. Our released code includes loaders and configs for these; only the raw data acquisition remains."
+      },
+      {
+        "id": "S7",
+        "heading": "7 Conclusion",
+        "level": 1,
+        "text": "On a controlled testbed, an advection-aware graph feature for distributed solar ramp nowcasting helps only within a v ⋅ H ≲ network-extent v\\cdot H\\lesssim\\text{network-extent} envelope, and about half of its value is an accurate motion feature rather than graph structure. A small self-supervised estimator supplies that motion several times more accurately than the classical method, and a frozen two-stage forecaster built on it closes ∼ \\sim 60 % 60\\text{\\,}\\mathrm{\\%} of the oracle-CMV gap at moderate wind. We release the simulator, models, metrics, and experiment scripts."
+      },
+      {
+        "id": "S7.SS0.SSS0.Px1",
+        "heading": "Reproducibility.",
+        "level": 3,
+        "text": "The simulator, models, metrics, baselines, and experiment scripts are available at https://github.com/appsofa-com/gnn-solar-energy (branch solar-ramp-nowcasting ); every table and figure is regenerated from committed result files. pytest covers the simulator, graph construction, metrics, and model shapes (40 tests)."
+      },
+      {
+        "id": "bib",
+        "heading": "References",
+        "level": 1,
+        "text": "[1] J. L. Bosch, Y. Zheng, and J. Kleissl. Deriving cloud velocity from an array of solar radiation measurements. Solar Energy , 87:196–203, 2013. [2] C. W. Chow, B. Urquhart, M. Lave, A. Dominguez, J. Kleissl, J. Shields, and B. Washom. Intra-hour forecasting with a total sky imager at the UC San Diego solar energy testbed. Solar Energy , 85(11):2881–2893, 2011. [3] A. Florita, B.-M. Hodge, and K. Orwig. Identifying wind and solar ramping events. In IEEE Green Technologies Conference , 2013. [4] T. Gneiting and A. E. Raftery. Strictly proper scoring rules, prediction, and estimation. Journal of the American Statistical Association , 102(477):359–378, 2007. [5] S. Guo, Y. Lin, N. Feng, C. Song, and H. Wan. Attention based spatial-temporal graph convolutional networks for traffic flow forecasting. In AAAI Conference on Artificial Intelligence , 2019. [6] B. Haurwitz. Insolation in relation to cloudiness and cloud density. Journal of Meteorology , 2(3):154–166, 1945. [7] B. K. P. Horn and B. G. Schunck. Determining optical flow. Artificial Intelligence , 17(1–3):185–203, 1981. [8] P. Ineichen and R. Perez. A new airmass independent formulation for the Linke turbidity coefficient. Solar Energy , 73(3):151–157, 2002. [9] Y. Li, R. Yu, C. Shahabi, and Y. Liu. Diffusion convolutional recurrent neural network: Data-driven traffic forecasting. In International Conference on Learning Representations (ICLR) , 2018. [10] V. P. A. Lonij, A. E. Brooks, A. D. Cronin, M. Leuthold, and K. Koch. Intra-hour forecasts of solar power production using measurements from a network of irradiance sensors. Solar Energy , 97:58–66, 2013. [11] National Renewable Energy Laboratory. Oahu solar measurement grid (1-year archive): 1-second solar irradiance; Oahu, Hawaii. NREL Data Catalog, DOI 10.7799/1052451, 2010. [12] L. Nonnenmacher and C. F. M. Coimbra. Streamline-based method for intra-day solar forecasting through remote sensing. Solar Energy , 108:447–459, 2014. [13] S. Ravuri, K. Lenc, M. Willson, D. Kangin, R. Lam, P. Mirowski, et al. Skilful precipitation nowcasting using deep generative models of radar. Nature , 597:672–677, 2021. [14] M. Scheuerer and T. M. Hamill. Variogram-based proper scoring rules for probabilistic forecasts of multivariate quantities. Monthly Weather Review , 143(4):1321–1334, 2015. [15] X. Shi, Z. Chen, H. Wang, D.-Y. Yeung, W.-K. Wong, and W.-C. Woo. Convolutional LSTM network: A machine learning approach for precipitation nowcasting. In Advances in Neural Information Processing Systems (NeurIPS) , 2015. [16] J. Simeunović, B. Schubnel, P.-J. Alet, and R. E. Carrillo. Spatio-temporal graph neural networks for multi-site PV power forecasting. IEEE Transactions on Sustainable Energy , 13(2):1210–1220, 2022. [17] C. K. Sønderby, L. Espeholt, J. Heek, M. Dehghani, A. Oliver, T. Salimans, S. Agrawal, J. Hickey, and N. Kalchbrenner. MetNet: A neural weather model for precipitation forecasting. arXiv:2003.12140 , 2020. [18] Z. Wu, S. Pan, G. Long, J. Jiang, and C. Zhang. Graph WaveNet for deep spatial-temporal graph modeling. In International Joint Conference on Artificial Intelligence (IJCAI) , 2019. [19] D. Yang, J. Kleissl, C. A. Gueymard, H. T. C. Pedro, and C. F. M. Coimbra. History and trends in solar irradiance and PV power forecasting: A preliminary assessment and review using text mining. Solar Energy , 168:60–101, 2018. [20] B. Yu, H. Yin, and Z. Zhu. Spatio-temporal graph convolutional networks: A deep learning framework for traffic forecasting. In International Joint Conference on Artificial Intelligence (IJCAI) , 2018."
+      }
+    ]
+  },
+  "text": "When Does Advection-Aware Graph Nowcasting Help?A Controlled Study of Distributed Solar Ramp Forecastingwith a Self-Supervised Cloud-Motion Estimator Skip to main content Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: Why HTML? Report Issue Back to Abstract Download PDF Contents Reading mode Colour theme License: CC BY 4.0 arXiv:2609.30286v1 [cs.LG] 08 Sep 2026 When Does Advection-Aware Graph Nowcasting Help? A Controlled Study of Distributed Solar Ramp Forecasting with a Self-Supervised Cloud-Motion Estimator Phillip Jiang Affiliation: Appsofa LLC Email: phillip.jiang@appsofa.com September 8, 2026 Abstract Short-term forecasting of cloud-induced power ramps across a network of distributed photovoltaic (PV) or irradiance sensors is a recognised pain point for grid operators. A natural idea is to make the graph neural network (GNN) advection-aware : connect each site to the sites upwind of it, with edge time-lags set by the cloud-motion vector (CMV), so that a ramp is propagated forward before it physically arrives. Using a controlled synthetic testbed with a known wind field, we show that (i) with a realistic cross-correlation CMV estimate, an explicit advection graph does not beat a plain static or learned-adjacency spatiotemporal GNN; (ii) roughly half of the benefit available from a perfect CMV comes simply from providing an accurate motion vector as an input feature, not from graph structure; and (iii) advection helps only when the advective displacement over the forecast horizon, v ⋅ H v\\cdot H , fits inside the sensor network. Motivated by (ii), we introduce a small self-supervised cloud-motion estimator—a position-aware encoder trained only on a multi-lag optical-flow reconstruction objective with an annealed kernel—that recovers the true wind vector to 2 ° 2\\text{\\,}\\mathrm{\\SIUnitSymbolDegree} – 4 ° 4\\text{\\,}\\mathrm{\\SIUnitSymbolDegree} median angular error, 2 2 – 4 × 4\\times better than the classical cross-correlation method across every wind regime. Freezing this estimator and feeding its vector to the forecaster closes about 60 % 60\\text{\\,}\\mathrm{\\%} of the oracle-CMV RMSE gap at moderate wind ( 8 % to 15 % 8\\text{\\,}\\mathrm{\\%}15\\text{\\,}\\mathrm{\\%} RMSE reduction over no advection), with no external wind data. We also report a negative result for a spatially-coherent probabilistic head. All claims are established on a single synthetic simulator; we discuss why real-network validation is the necessary next step and outline it. 1 Introduction Integrating large amounts of solar generation exposes grid operators to ramps : sudden minutes-scale drops or surges in aggregate PV output as cloud shadows sweep across a region. Deterministic root-mean-square error (RMSE), the usual training and reporting metric, is dominated by smooth clear-sky periods and hides exactly these events. Spatiotemporal GNNs are a popular tool for distributed solar forecasting [ 16 ] , but they almost universally use a static, symmetric graph, which ignores that cloud information has a direction and a travel time set by the wind. This paper asks a simple question: does making the graph advection-aware actually help, and if so, when? We build a controlled synthetic testbed in which clouds are a Gaussian random field advected by a known, slowly varying wind, so that a ground-truth CMV is available for every forecast origin. Against this oracle we can cleanly separate three things that are usually entangled: the benefit of the advection graph , the benefit of an accurate motion feature , and the cost of estimating the motion from data. Contributions. 1. A controlled decomposition of the advection-aware nowcasting problem (Sec. 5.1 – 5.2 ): with a realistic CMV estimate the advection graph does not beat plain baselines; roughly half the oracle-CMV benefit is an accurate input feature , not graph structure; and the benefit exists only inside a v ⋅ H ≲ v\\cdot H\\lesssim network-extent envelope. 2. A small self-supervised cloud-motion estimator (Sec. 5.3 ) that recovers the true wind to 2 ° to 4 ° 2\\text{\\,}\\mathrm{\\SIUnitSymbolDegree}4\\text{\\,}\\mathrm{\\SIUnitSymbolDegree} median angular error— 2 2 – 4 × 4\\times better than the classical cross-correlation method—using only a multi-lag optical-flow reconstruction loss with an annealed kernel and a position-aware encoder. 3. A frozen two-stage forecaster (Sec. 5.4 ) that uses this estimator and closes ∼ \\sim 60 % 60\\text{\\,}\\mathrm{\\%} of the oracle-CMV RMSE gap at moderate wind, with a clean operating envelope. 4. Negative results, reported plainly: the advection graph alone (Sec. 5.1 ), coupling the motion estimate to the forecast loss (Sec. 5.3 ), and a spatially-coherent probabilistic head (Sec. 5.5 ). Scope. Every result here is on one synthetic simulator. The synthetic “true wind” is a generative parameter, so the CMV-recovery result in particular must be read as a controlled sanity check, not a claim about real skies. We are explicit about this in Sec. 6 and describe the real-data study it calls for. 2 Related work Spatiotemporal GNN forecasting. Modelling a set of geographically distributed series as signals on a graph and applying graph-convolutional or graph-attention layers with a temporal encoder is now standard in traffic forecasting—DCRNN [ 9 ] , STGCN [ 20 ] , Graph WaveNet [ 18 ] , ASTGCN [ 5 ] —and has been carried over to multi-site PV power forecasting, e.g. the graph-convolutional LSTM/transformer models of Simeunović et al. [16] . The adjacency is almost always static , built from geographic distance or historical correlation; Graph WaveNet additionally learns a global adjacency, which we include as a baseline. None of these encode cloud advection explicitly. Solar nowcasting and cloud motion. Minutes-ahead irradiance forecasting has a long history using sky imagers [ 2 ] , satellite imagery, and cloud tracking; see Yang et al. [19] for a review. The dominant non-image approach on a sparse ground network is to estimate a rigid cloud-motion vector (CMV) by cross-correlating pairs of clear-sky-index series and solving a least-squares problem for the translation velocity [ 1 , 10 ] , then “advect the observed field forward” [ 12 ] . Our synthetic-field advection feature is the GNN analogue of that heuristic, and our self-supervised estimator is an optical-flow-style [ 7 ] objective specialised to a sparse sensor layout. Learned advection in weather nowcasting. Precipitation nowcasting has moved from ConvLSTM [ 15 ] to large advection-aware neural models such as MetNet [ 17 ] and DGMR [ 13 ] , which learn motion implicitly from dense radar rasters. Distributed solar sensing gives only a sparse, irregular sample of the field, which is the regime we study. Ramp forecasting and probabilistic scores. Ramp events lack a single definition; the swinging-door construction of Florita et al. [3] is a common choice, which we adopt for our ramp-capture metrics. For the probabilistic head we use strictly proper multivariate scores—the energy score [ 4 ] and the variogram score [ 14 ] . Clear-sky index uses the Haurwitz model [ 6 ] ; the Ineichen–Perez model [ 8 ] is a common alternative. 3 Problem setup and synthetic testbed We forecast the clear-sky index k t = GHI / GHI cs k_{t}=\\mathrm{GHI}/\\mathrm{GHI}_{\\mathrm{cs}} at N N fixed sites, H H steps ahead ( H = 16 H=16 at 30 s 30\\text{\\,}\\mathrm{s} , i.e. 8 minutes). Clouds are a periodic Gaussian random field of optical depth, translated by a wind vector 𝐯 ⁡ ( t ) \\mathbf{v}(t) that performs a bounded random walk (a steadiness knob controls its variance); an evolving option blends keyframe fields so the pattern also grows and decays. Observed GHI is clear-sky GHI [ 6 ] times a transmittance function of the local optical depth, plus noise. The simulator emits, per origin, the site series, the true 𝐯 ⁡ ( t ) \\mathbf{v}(t) (the oracle CMV), and a classical cross-correlation estimate 𝐯 est \\mathbf{v}_{\\mathrm{est}} [ 1 ] . Default layout: N = 49 N=49 on a 1 km 1\\text{\\,}\\mathrm{k}\\mathrm{m} grid ( ∼ \\sim 7 km 7\\text{\\,}\\mathrm{k}\\mathrm{m} across). We report test RMSE on k t k_{t} and ramp-capture metrics; means are over 2–3 seeds. 4 Methods Advection-aware graph. Given a motion vector 𝐯 \\mathbf{v} , for each site j j and horizon h h the arriving cloud is currently near 𝐩 j − 𝐯 ​ h ​ Δ ​ t \\mathbf{p}_{j}-\\mathbf{v}\\,h\\,\\Delta t . We connect j ​ @ ​ h j@h to its k k nearest sensors there with distance-weighted, per- ( j , h ) (j,h) -normalised weights w ∝ exp ( − d 2 / ℓ 2 ) w\\propto\\exp(-d^{2}/\\ell^{2}) , ℓ \\ell the median nearest-neighbour spacing, and pool their embeddings into an ( N , H , d ) (N,H,d) feature for the forecast head—the GNN form of “advect the field forward” [ 12 ] . An off-grid reliability gate down-weights ( j , h ) (j,h) whose upwind point lands far from any sensor. Forecaster. A per-site GRU temporal encoder feeds L L heterogeneous message-passing layers over k k -NN and historical-correlation edge types, each with its own message MLP and a gated residual update; the advection feature enters at the head through a gated correction. Baselines: smart persistence, per-site GRU, static-distance GCN, and a learned-adjacency GNN (a Graph WaveNet-style global adjacency [ 18 ] ). Ramp events use the swinging-door construction [ 3 ] . Self-supervised cloud-motion estimator. A rigidly advecting field obeys k t ​ ( 𝐱 , t ) = k t ​ ( 𝐱 − 𝐯 ​ L ​ Δ ​ t , t − L ) k_{t}(\\mathbf{x},t)=k_{t}(\\mathbf{x}-\\mathbf{v}L\\Delta t,\\,t-L) . We train a small position-aware encoder (per-site GRU + + a geometry-preserving DeepSets pool) to output 𝐯 ^ \\hat{\\mathbf{v}} , minimising the residual of this identity, interpolated from the sensor field, summed over several lags L ∈ { 2 , 4 , 6 , 8 , 10 } L\\in\\{2,4,6,8,10\\} (one 𝐯 ^ \\hat{\\mathbf{v}} must explain them all): ℒ rec ( 𝐯 ^ ) = 1 | ℒ | ∑ L ∥ k t ( ⋅ , t ) − ∑ i softmax i ( − ∥ 𝐩 ⋅ − 𝐯 ^ L Δ t − 𝐩 i ∥ 2 / τ 2 ) k t ( 𝐩 i , t − L ) ∥ 2 . \\mathcal{L}_{\\mathrm{rec}}(\\hat{\\mathbf{v}})\\;=\\;\\frac{1}{|\\mathcal{L}|}\\sum_{L}\\Big\\|\\,k_{t}(\\cdot,t)-\\textstyle\\sum_{i}\\mathrm{softmax}_{i}\\!\\big(-\\|\\mathbf{p}_{\\cdot}-\\hat{\\mathbf{v}}L\\Delta t-\\mathbf{p}_{i}\\|^{2}/\\tau^{2}\\big)\\,k_{t}(\\mathbf{p}_{i},t-L)\\,\\Big\\|^{2}. (1) The softmax width τ \\tau is annealed from 0.40 0.40 to 0.10 0.10 of the network diameter (large τ \\tau gives useful gradients far from the optimum; small τ \\tau sharpens the estimate). An optional light MSE-to-reference term stands in for a small amount of numerical-weather-prediction (NWP) wind on real data. Two-stage forecaster. We pre-train the estimator, freeze it, and feed 𝐯 ^ \\hat{\\mathbf{v}} into (a) the encoder’s motion input channels and (b) the advection graph. Freezing avoids a failure mode we observed when 𝐯 ^ \\hat{\\mathbf{v}} is trained jointly with the forecast loss: the loss drives 𝐯 ^ → 𝟎 \\hat{\\mathbf{v}}\\to\\mathbf{0} (Sec. 5.3 ). 5 Experiments 5.1 Does an advection graph help? (E1) With the classical CMV estimate, we sweep wind speed and compare the forecaster with and without the advection feature against baselines (Fig. 1 , Table 1 ). The heterogeneous GNN without advection is the best or tied-best model at low–moderate wind; a learned global adjacency wins at high wind and under non-stationary/evolving clouds. Adding the advection feature on top of the estimated CMV never helps and costs up to 10 % 10\\text{\\,}\\mathrm{\\%} RMSE at 10 m / s 10\\text{\\,}\\mathrm{m}\\mathrm{/}\\mathrm{s} . On a dense grid every upwind sensor is already a graph neighbour, so learned spatial mixing captures advection implicitly. Figure 1: E1. Test RMSE vs. wind speed, estimated CMV, 2 seeds ( ± \\pm s.d.). The advection feature (top line) does not beat the heterogeneous GNN without it, nor the learned-adjacency baseline. Table 1: E1 test RMSE (clear-sky index), estimated CMV, 2 seeds. Lower is better; best per column in bold . wind speed (m/s) model 4 10 16 per-site GRU 0.066 0.148 0.154 static-distance GCN 0.034 0.089 0.130 learned adjacency 0.043 0.093 0.120 hetero GNN (no adv.) 0.032 0.087 0.127 hetero GNN + + advection 0.033 0.095 0.133 5.2 The cloud-motion bottleneck (E2 and decomposition) Replacing the estimated CMV with the oracle flips the picture: with a perfect wind vector the advection feature cuts RMSE by 14 % to 17 % 14\\text{\\,}\\mathrm{\\%}17\\text{\\,}\\mathrm{\\%} and lifts ramp-down capture (CSI) by about 5 points (Table 2 ). A finer decomposition at 10 m / s 10\\text{\\,}\\mathrm{m}\\mathrm{/}\\mathrm{s} (2 seeds) shows where that benefit lives: no advection 0.087 0.087 ; true wind in the graph only 0.082 0.082 ; true wind in the graph and as an input feature 0.066 0.066 ; oracle skyline 0.064 0.064 . Roughly half of the oracle-CMV advantage is simply an accurate motion vector broadcast as an input feature; the rest is graph structure. Table 2: E2. Advection feature value depends on CMV quality (test RMSE, 2 seeds). wind CMV no adv. + + adv. Δ \\Delta RMSE 10 m / s 10\\text{\\,}\\mathrm{m}\\mathrm{/}\\mathrm{s} estimated 0.086 0.096 + 11 % +11\\% 10 m / s 10\\text{\\,}\\mathrm{m}\\mathrm{/}\\mathrm{s} oracle 0.077 0.066 − 14 % -14\\% 16 m / s 16\\text{\\,}\\mathrm{m}\\mathrm{/}\\mathrm{s} estimated 0.133 0.128 − 4 % -4\\% 16 m / s 16\\text{\\,}\\mathrm{m}\\mathrm{/}\\mathrm{s} oracle 0.124 0.103 − 17 % -17\\% 5.3 Self-supervised cloud-motion estimation Trained standalone on ℒ rec \\mathcal{L}_{\\mathrm{rec}} , the estimator’s median angular error is 2 ° to 4 ° 2\\text{\\,}\\mathrm{\\SIUnitSymbolDegree}4\\text{\\,}\\mathrm{\\SIUnitSymbolDegree} in steady wind and 7 ° to 13 ° 7\\text{\\,}\\mathrm{\\SIUnitSymbolDegree}13\\text{\\,}\\mathrm{\\SIUnitSymbolDegree} in variable wind— 2 2 – 4 × 4\\times better than the classical cross-correlation estimate ( 14 ° to 31 ° 14\\text{\\,}\\mathrm{\\SIUnitSymbolDegree}31\\text{\\,}\\mathrm{\\SIUnitSymbolDegree} ) in every regime (Fig. 2 , Table 3 ). A light supervision term (weight 0.1 0.1 ) tightens the hard cases to 2 ° to 8 ° 2\\text{\\,}\\mathrm{\\SIUnitSymbolDegree}8\\text{\\,}\\mathrm{\\SIUnitSymbolDegree} ; it is not required. Ablation: the position-aware encoder is what matters; kernel annealing and the classical-estimate prior are minor. Negative result. An earlier design that reused the forecaster’s embeddings and trained 𝐯 ^ \\hat{\\mathbf{v}} jointly with the forecast loss was unstable (recovered cosine swung 0.3 0.3 – 0.99 0.99 across module and loss variants); feeding 𝐯 ^ \\hat{\\mathbf{v}} to the head while coupled to the forecast loss collapses it to 𝐯 ^ → 𝟎 \\hat{\\mathbf{v}}\\to\\mathbf{0} . Decoupling (standalone encoder, frozen after pre-training) removes this. Figure 2: Self-supervised cloud-motion estimation. Median angular error of 𝐯 ^ \\hat{\\mathbf{v}} vs. the true wind, 3 seeds. The learned estimator beats the classical cross-correlation method in every wind regime. Table 3: CMV estimator median angular error (deg), 3 seeds. regime learned (recon) learned ( + + light sup.) classical steady, 4–16 m/s 3.9–7.5 2.0–3.1 14–31 variable, 4–16 m/s 8.5–12.8 6.9–7.7 15–25 5.4 Frozen two-stage forecaster Pre-training the estimator, freezing it, and feeding 𝐯 ^ \\hat{\\mathbf{v}} to the forecaster closes about 60 % 60\\text{\\,}\\mathrm{\\%} of the oracle-CMV RMSE gap at moderate wind ( 8 % to 15 % 8\\text{\\,}\\mathrm{\\%}15\\text{\\,}\\mathrm{\\%} RMSE reduction over no advection), tight across 3 seeds (Fig. 3 , Table 4 ). At ≥ \\geq 16 m / s 16\\text{\\,}\\mathrm{m}\\mathrm{/}\\mathrm{s} advection does not help even with the oracle : the advective displacement over the horizon ( 7.7 km to 9.6 km 7.7\\text{\\,}\\mathrm{k}\\mathrm{m}9.6\\text{\\,}\\mathrm{k}\\mathrm{m} ) exceeds the ∼ \\sim 7 km 7\\text{\\,}\\mathrm{k}\\mathrm{m} network, so there is no on-grid upwind information. The off-grid gate prevents a catastrophic regression but cannot manufacture signal. Operating envelope: advection nowcasting helps iff v ⋅ H v\\cdot H fits within the network. Figure 3: Frozen two-stage forecaster , 3 seeds ( ± \\pm s.d.). Green labels: fraction of the no-advection → \\to oracle gap closed. In the shaded region ( v ⋅ H v\\cdot H off-grid) even the oracle does not beat no advection. Table 4: Frozen two-stage test RMSE (clear-sky index), 3 seeds. wind (m/s) no adv. frozen CMV oracle CMV err. (deg) 8 0.078 0.069 0.064 2.8 12 0.114 0.098 0.085 3.9 16 0.139 0.155 0.147 2.9 20 0.172 0.188 0.186 2.4 5.5 Spatially-coherent probabilistic head (negative) We tried a joint low-rank-plus-diagonal Gaussian head across sites (for fleet-aggregate ramp risk), trained by exact Woodbury NLL, versus a diagonal head. It was marginally worse on every metric, including the energy [ 4 ] and variogram [ 14 ] scores it is meant to improve (e.g. at 16 m / s 16\\text{\\,}\\mathrm{m}\\mathrm{/}\\mathrm{s} : variogram 52.6 52.6 vs. 51.0 51.0 ; CRPS 0.065 0.065 vs. 0.063 0.063 ). After conditioning on the graph features the site residuals appear to carry little extra dependence; we report this as a negative result pending a dedicated study. 6 Discussion When to use what. The results give a concrete rule. If v ⋅ H v\\cdot H fits inside the sensor network and the wind is reasonably steady, an advection-aware feature driven by a good CMV estimate is worth 8 % to 15 % 8\\text{\\,}\\mathrm{\\%}15\\text{\\,}\\mathrm{\\%} RMSE. Otherwise—fast wind, very sparse or irregular networks, strongly non-stationary clouds—a learned global adjacency is the better tool, and the advection feature is at best neutral (with the gate) and at worst a 10 % 10\\text{\\,}\\mathrm{\\%} regression (without it). The estimator is the reusable piece. Independent of the forecasting question, the self-supervised CMV estimator is a drop-in replacement for cross-correlation on any bare sensor network, several times more accurate here, and it needs no labels. Limitations. All experiments use one synthetic simulator, and its “true wind” is a generative parameter—so the CMV-recovery numbers are a controlled sanity check, not a measurement on real skies, and the oracle gap that Sec. 5.4 closes is defined by that simulator. Real clouds have multiple layers, shear, growth and decay, and no single motion vector. The necessary next step is validation on a real distributed network—e.g. the NREL Oahu Solar Measurement Grid [ 11 ] (17 sensors, 1 km 1\\text{\\,}\\mathrm{k}\\mathrm{m} , 1 Hz 1\\text{\\,}\\mathrm{H}\\mathrm{z} ) for the forecaster, and a sky-image dataset with optical-flow motion for the estimator. Our released code includes loaders and configs for these; only the raw data acquisition remains. 7 Conclusion On a controlled testbed, an advection-aware graph feature for distributed solar ramp nowcasting helps only within a v ⋅ H ≲ network-extent v\\cdot H\\lesssim\\text{network-extent} envelope, and about half of its value is an accurate motion feature rather than graph structure. A small self-supervised estimator supplies that motion several times more accurately than the classical method, and a frozen two-stage forecaster built on it closes ∼ \\sim 60 % 60\\text{\\,}\\mathrm{\\%} of the oracle-CMV gap at moderate wind. We release the simulator, models, metrics, and experiment scripts. Reproducibility. The simulator, models, metrics, baselines, and experiment scripts are available at https://github.com/appsofa-com/gnn-solar-energy (branch solar-ramp-nowcasting ); every table and figure is regenerated from committed result files. pytest covers the simulator, graph construction, metrics, and model shapes (40 tests). References [1] J. L. Bosch, Y. Zheng, and J. Kleissl. Deriving cloud velocity from an array of solar radiation measurements. Solar Energy , 87:196–203, 2013. [2] C. W. Chow, B. Urquhart, M. Lave, A. Dominguez, J. Kleissl, J. Shields, and B. Washom. Intra-hour forecasting with a total sky imager at the UC San Diego solar energy testbed. Solar Energy , 85(11):2881–2893, 2011. [3] A. Florita, B.-M. Hodge, and K. Orwig. Identifying wind and solar ramping events. In IEEE Green Technologies Conference , 2013. [4] T. Gneiting and A. E. Raftery. Strictly proper scoring rules, prediction, and estimation. Journal of the American Statistical Association , 102(477):359–378, 2007. [5] S. Guo, Y. Lin, N. Feng, C. Song, and H. Wan. Attention based spatial-temporal graph convolutional networks for traffic flow forecasting. In AAAI Conference on Artificial Intelligence , 2019. [6] B. Haurwitz. Insolation in relation to cloudiness and cloud density. Journal of Meteorology , 2(3):154–166, 1945. [7] B. K. P. Horn and B. G. Schunck. Determining optical flow. Artificial Intelligence , 17(1–3):185–203, 1981. [8] P. Ineichen and R. Perez. A new airmass independent formulation for the Linke turbidity coefficient. Solar Energy , 73(3):151–157, 2002. [9] Y. Li, R. Yu, C. Shahabi, and Y. Liu. Diffusion convolutional recurrent neural network: Data-driven traffic forecasting. In International Conference on Learning Representations (ICLR) , 2018. [10] V. P. A. Lonij, A. E. Brooks, A. D. Cronin, M. Leuthold, and K. Koch. Intra-hour forecasts of solar power production using measurements from a network of irradiance sensors. Solar Energy , 97:58–66, 2013. [11] National Renewable Energy Laboratory. Oahu solar measurement grid (1-year archive): 1-second solar irradiance; Oahu, Hawaii. NREL Data Catalog, DOI 10.7799/1052451, 2010. [12] L. Nonnenmacher and C. F. M. Coimbra. Streamline-based method for intra-day solar forecasting through remote sensing. Solar Energy , 108:447–459, 2014. [13] S. Ravuri, K. Lenc, M. Willson, D. Kangin, R. Lam, P. Mirowski, et al. Skilful precipitation nowcasting using deep generative models of radar. Nature , 597:672–677, 2021. [14] M. Scheuerer and T. M. Hamill. Variogram-based proper scoring rules for probabilistic forecasts of multivariate quantities. Monthly Weather Review , 143(4):1321–1334, 2015. [15] X. Shi, Z. Chen, H. Wang, D.-Y. Yeung, W.-K. Wong, and W.-C. Woo. Convolutional LSTM network: A machine learning approach for precipitation nowcasting. In Advances in Neural Information Processing Systems (NeurIPS) , 2015. [16] J. Simeunović, B. Schubnel, P.-J. Alet, and R. E. Carrillo. Spatio-temporal graph neural networks for multi-site PV power forecasting. IEEE Transactions on Sustainable Energy , 13(2):1210–1220, 2022. [17] C. K. Sønderby, L. Espeholt, J. Heek, M. Dehghani, A. Oliver, T. Salimans, S. Agrawal, J. Hickey, and N. Kalchbrenner. MetNet: A neural weather model for precipitation forecasting. arXiv:2003.12140 , 2020. [18] Z. Wu, S. Pan, G. Long, J. Jiang, and C. Zhang. Graph WaveNet for deep spatial-temporal graph modeling. In International Joint Conference on Artificial Intelligence (IJCAI) , 2019. [19] D. Yang, J. Kleissl, C. A. Gueymard, H. T. C. Pedro, and C. F. M. Coimbra. History and trends in solar irradiance and PV power forecasting: A preliminary assessment and review using text mining. Solar Energy , 168:60–101, 2018. [20] B. Yu, H. Yin, and Z. Zhu. Spatio-temporal graph convolutional networks: A deep learning framework for traffic forecasting. In International Joint Conference on Artificial Intelligence (IJCAI) , 2018.",
+  "text_truncated": false,
+  "links": [
+    {
+      "text": "Skip to main content",
+      "url": "https://arxiv.org/html/2609.30286v1#infobox"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/IgnoreMe"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "Why HTML?",
+      "url": "https://info.arxiv.org/about/accessible_HTML.html"
+    },
+    {
+      "text": "Back to Abstract",
+      "url": "https://arxiv.org/abs/2609.30286v1"
+    },
+    {
+      "text": "Download PDF",
+      "url": "https://arxiv.org/pdf/2609.30286v1"
+    },
+    {
+      "text": "License: CC BY 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "16",
+      "url": "https://arxiv.org/html/2609.30286v1#bib.bib16"
+    },
+    {
+      "text": "5.1",
+      "url": "https://arxiv.org/html/2609.30286v1#S5.SS1"
+    },
+    {
+      "text": "5.2",
+      "url": "https://arxiv.org/html/2609.30286v1#S5.SS2"
+    },
+    {
+      "text": "5.3",
+      "url": "https://arxiv.org/html/2609.30286v1#S5.SS3"
+    },
+    {
+      "text": "5.4",
+      "url": "https://arxiv.org/html/2609.30286v1#S5.SS4"
+    },
+    {
+      "text": "5.5",
+      "url": "https://arxiv.org/html/2609.30286v1#S5.SS5"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2609.30286v1#S6.SS0.SSS0.Px3"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2609.30286v1#bib.bib9"
+    },
+    {
+      "text": "20",
+      "url": "https://arxiv.org/html/2609.30286v1#bib.bib20"
+    },
+    {
+      "text": "18",
+      "url": "https://arxiv.org/html/2609.30286v1#bib.bib18"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2609.30286v1#bib.bib5"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2609.30286v1#bib.bib2"
+    },
+    {
+      "text": "Yang et al. [19]",
+      "url": "https://arxiv.org/html/2609.30286v1#bib.bib19"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.30286v1#bib.bib1"
+    },
+    {
+      "text": "10",
+      "url": "https://arxiv.org/html/2609.30286v1#bib.bib10"
+    },
+    {
+      "text": "12",
+      "url": "https://arxiv.org/html/2609.30286v1#bib.bib12"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2609.30286v1#bib.bib7"
+    },
+    {
+      "text": "15",
+      "url": "https://arxiv.org/html/2609.30286v1#bib.bib15"
+    },
+    {
+      "text": "17",
+      "url": "https://arxiv.org/html/2609.30286v1#bib.bib17"
+    },
+    {
+      "text": "13",
+      "url": "https://arxiv.org/html/2609.30286v1#bib.bib13"
+    },
+    {
+      "text": "Florita et al. [3]",
+      "url": "https://arxiv.org/html/2609.30286v1#bib.bib3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2609.30286v1#bib.bib4"
+    },
+    {
+      "text": "14",
+      "url": "https://arxiv.org/html/2609.30286v1#bib.bib14"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2609.30286v1#bib.bib6"
+    },
+    {
+      "text": "8",
+      "url": "https://arxiv.org/html/2609.30286v1#bib.bib8"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.30286v1#S5.F1"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.30286v1#S5.T1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2609.30286v1#S5.T2"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2609.30286v1#S5.F2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2609.30286v1#S5.T3"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2609.30286v1#S5.F3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2609.30286v1#S5.T4"
+    },
+    {
+      "text": "11",
+      "url": "https://arxiv.org/html/2609.30286v1#bib.bib11"
+    },
+    {
+      "text": "https://github.com/appsofa-com/gnn-solar-energy",
+      "url": "https://github.com/appsofa-com/gnn-solar-energy"
+    }
+  ],
+  "matching_link_count": 41,
+  "links_truncated": false,
+  "invalid_links": []
+}

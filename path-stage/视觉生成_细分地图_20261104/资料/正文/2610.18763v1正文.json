@@ -1,0 +1,751 @@
+{
+  "url": "https://arxiv.org/html/2610.18763v1",
+  "final_url": "https://arxiv.org/html/2610.18763v1",
+  "status": 200,
+  "title": "LayerCanvas: Infographic Generation in AI Learning Assistants via Hybrid Layer-Set Diffusion",
+  "metadata": {},
+  "paper": {
+    "title": "LayerCanvas: Infographic Generation in AI Learning Assistants via Hybrid Layer-Set Diffusion",
+    "title_warning": null,
+    "abstract": "Abstract Online learning platforms are increasingly deploying AI assistants to provide personalized, on-demand tutoring. These can leverage infographics to communicate complex information and improve the learning experience. However, automating effective infographic generation remains a challenging task, requiring a combination of visual richness with precise typography, structured layouts, and continued editability.\nExisting representation methods satisfy these goals only in part: Scalable Vector Graphics (SVG) representations preserve geometry, hierarchy, and text but provide limited aesthetic flexibility, while raster diffusion models produce richer appearances by flattening content and layout into a single image. Conditioning a diffusion model on a rasterized SVG does not resolve this conflict because the raster preserves approximate placement but discards element ownership, occlusion relationships, and the structure needed to modify and recompose the result. We introduce LayerCanvas , a hybrid approach that retains SVG as the semantic, structural, and typographic program while using diffusion to aestheticize non-text content. Rather than generating one flattened raster, LayerCanvas partitions SVG elements into z-ordered sets of mutually non-overlapping elements and processes them through communicating parallel RGB generation streams. The resulting layers are independently editable and deterministically recomposed, while text is rendered from preserved vector metadata. Our approach combines rich visual synthesis with accurate typography and localized editing. LayerCanvas substantially improves text fidelity over state-of-the-art raster image generators while achieving the highest overall aesthetic quality. We further demonstrate non-destructive content editing, localization, asset reuse, and animation.",
+    "authors": [
+      {
+        "name": "Keshav Gupta",
+        "affiliations": [
+          "Affiliation: University of California, San Diego"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Jeremy Owen",
+        "affiliations": [
+          "Affiliation: LinkedIn Inc."
+        ],
+        "notes": []
+      },
+      {
+        "name": "Christopher Lloyd",
+        "affiliations": [
+          "Affiliation: LinkedIn Inc."
+        ],
+        "notes": []
+      },
+      {
+        "name": "Shaunak Mishra",
+        "affiliations": [
+          "Affiliation: LinkedIn Inc."
+        ],
+        "notes": []
+      },
+      {
+        "name": "Manav Sharma",
+        "affiliations": [
+          "Affiliation: LinkedIn Inc."
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Keshav Gupta † † thanks: Work done during an internship at LinkedIn Inc. Affiliation: University of California, San Diego Jeremy Owen Affiliation: LinkedIn Inc. Christopher Lloyd Affiliation: LinkedIn Inc. Shaunak Mishra Affiliation: LinkedIn Inc. Manav Sharma Affiliation: LinkedIn Inc.",
+    "arxiv_version": "2610.18763v1",
+    "arxiv_version_date": "2026-10-13",
+    "sections": [
+      {
+        "id": "S1",
+        "heading": "1 Introduction",
+        "level": 1,
+        "text": "Visual explanations are a fundamental component of modern learning platforms, where instructional content is increasingly presented through a combination of text, diagrams, illustrations, and infographics. Pairing words with pictures improves comprehension and retention relative to text alone ( Mayer, 2009 ; Clark and Paivio, 1991 ) , while infographics can make dense information more accessible and memorable ( Bateman et al., 2010 ; Bhat and Alyahya, 2024 ) . As learning platforms increasingly deliver and adapt instructional materials digitally, there is a growing need to automatically generate visual explanations that are both pedagogically effective and easy to revise as content evolves. Such explanations must communicate through precise labels and clear visual hierarchy while also providing the visual richness expected from modern image generators ( Rombach et al., 2022 ; Podell et al., 2024 ; Chen et al., 2025 ) . Meeting these requirements is challenging: precision, structure, and editability are naturally supported by representations such as Scalable Vector Graphics (SVG) ( W3C SVG Working Group, 2011 ) , whereas visual richness is most readily produced by raster generative models. This representational contrast has a fundamental tradeoff. Vector graphics make geometry, grouping, text, and rendering order explicit, which makes direct manipulation possible ( W3C SVG Working Group, 2011 ) , but automatically generated SVGs ( Rodriguez et al., 2025 ; Wu et al., 2023 ; Xing et al., 2024 ; Wu et al., 2024 ) often appear visually rigid, and stylizing them by hand is costly and difficult to scale. On the other hand, diffusion and flow models provide richer aesthetic priors ( Rombach et al., 2022 ; Saharia et al., 2022 ; Esser et al., 2024 ) , but synthesizing the artifact as a single raster makes exact typography and local intervention difficult; even state-of-the-art image models render dense, legible text unreliably, motivating specialized text-rendering methods ( Liu et al., 2023b ; Chen et al., 2023 ; Tuo et al., 2024 ) . These limitations are especially consequential for learning platforms, which must serve learners worldwide by localizing explanations into different languages and adapting layouts across display formats, from desktop interfaces to mobile screens. Supporting these uses requires text to remain disentangled from imagery and layout components to remain independently adjustable, properties that are lost when the infographic is flattened into a raster. A natural way then is to rasterize the SVG layout and use it as a conditioning signal for a diffusion model, letting the vector structure guide where content goes while diffusion supplies appearance. Simply rasterizing an SVG for conditioning does not resolve the mismatch: it preserves coarse spatial placement but discards element ownership, occlusion relationships, and the structure needed to recompose the graphic after an edit. This loss of structure cannot be addressed simply by strengthening raster conditioning. A system designed for editable generation should preserve these compositional units throughout synthesis instead of attempting to recover their ownership from pixels afterward. Motivated by this principle, LayerCanvas combines the structure of SVGs with the visual capabilities of diffusion models. The SVG defines the semantic layout, hierarchy, paint order, and typography. Its non-text elements are partitioned into ordered, non-overlapping layers and generated through communicating parallel RGB streams, which are then alpha-composited according to the SVG z-order. Text nodes are kept outside the diffusion process entirely and rendered directly from their preserved vector metadata (Figure 1 ). Outputs remain editable, so users can replace text, move or hide groups, change the z-order, reuse illustrations, or specify animation trajectories. This makes the representation well suited to visual authoring workflows where generated content needs to remain editable and reusable, including educational content creation. Training such a model requires examples that pair SVG with the corresponding rendered layers and final image. To create this paired supervision, we design a custom multi-agent framework, following recent work on agentic pipelines ( Jain et al., 2026 ; Huang et al., 2026 ) . The agents create concepts and SVG layouts, add illustrations, produce text-free targets and masks, and check that each example renders and reconstructs correctly. Our contributions are: • A hybrid formulation that separates deterministic SVG structure and typography from diffusion-based aestheticization; • A multi-agent pipeline that produces and validates paired SVGs, text-free targets, layers, masks, and provenance metadata; • A rendering-aligned layer representation that supports parallel generation, explicit occlusion modeling, and deterministic z-order composition, yielding over 25 % 25\\% higher placement-exact OCR character accuracy and approximately 27 % 27\\% higher aggregate aesthetic quality than the strongest raster baseline • Practical workflows for non-destructive editing, localization, asset reuse, and animated visual explanations."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px1",
+        "heading": "Visual documents and typography.",
+        "level": 4,
+        "text": "Automatic graphic design combines templates, constraints, retrieval, and learned layouts; neural methods generate sets or sequences of labeled regions, including alignment and overlap structure ( Li et al., 2019 ; Gupta et al., 2021 ; Inoue et al., 2023 ) . Such representations organize posters, slides, and documents, but do not by themselves resolve illustration appearance, occlusion, or editable object ownership. Programmatic graphics preserve structure, yet hand-authored styling and rigid templates scale poorly to open-ended concepts. Image generators provide richer aesthetics, and text-aware methods introduce character encoders, rendered-glyph conditions, OCR objectives, or localized controls ( Chen et al., 2023 ; Yang et al., 2024b ; Tuo et al., 2024 ) . Instead, we retain SVG as the source of truth for geometry and typography, remove text from diffusion targets, and render editable vector text after aestheticization."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px2",
+        "heading": "Controllable, object-centric, and layered generation.",
+        "level": 4,
+        "text": "ControlNet and T2I-Adapter condition pretrained diffusion models on spatial signals ( Zhang et al., 2023 ; Mou et al., 2024 ) , while grounded, reference-conditioned, and regional methods add box, entity, exemplar, or prompt-region controls ( Li et al., 2023 ; Ye et al., 2023 ; Bar-Tal et al., 2023 ) . These approaches improve spatial control but typically produce a single entangled raster or latent field, limiting direct editing after sampling. Object-centric, compositional, and layer-aware models separate entities, concepts, transparency, or foreground/background content ( Burgess et al., 2019 ; Locatello et al., 2020 ; Avrahami et al., 2023 ; Zhang and Agrawala, 2024 ) , with recent methods explicitly generating or recovering editable image layers ( Yang et al., 2024a ; Yin et al., 2025 ; Wang et al., 2026 ) . In contrast, LayerCanvas uses SVG layer identity as explicit conditioning, packing mutually non-overlapping elements into ordered RGB layer sets. This known layer structure makes output decomposition and local intervention intrinsic to the representation, rather than requiring layers to be recovered post hoc."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px3",
+        "heading": "Agentic multimodal curation and differentiation.",
+        "level": 4,
+        "text": "Foundation models have increasingly been used to generate instructions, propose examples, and curate synthetic multimodal supervision ( Wang et al., 2023 ; Liu et al., 2023a ; Gadre et al., 2023 ) . More recent agentic pipelines extend this paradigm by coordinating specialized agents for scientific tasks, including translating NeRF papers into executable code and automating the generation of editable scientific figures ( Jain et al., 2026 ; Huang et al., 2026 ) . These systems demonstrate the potential of agentic workflows for generating and iteratively refining structured scientific artifacts. Our pipeline builds on this agentic paradigm by combining specialized generative and validation agents with deterministic SVG parsing, rendering, OCR, overlap analysis, and alpha-composition checks, producing mechanically validated training records."
+      },
+      {
+        "id": "S3.SS1",
+        "heading": "3.1 Overview",
+        "level": 2,
+        "text": "Infographics combine two capabilities that are usually separated. SVGs provide exact layout and typography, whereas diffusion models provide rich raster appearance but collapse the scene into one pixel grid ( Podell et al., 2024 ; Rombach et al., 2022 ) . Conditioning diffusion on a rasterized SVG preserves coarse geometry but loses element boundaries and information about which elements cover others. LayerCanvas instead keeps the SVG as the main scene description and generates its non-text content as an ordered set of editable raster layers. Figure 2 summarizes the approach. A renderer creates training layers from the SVG, elements that do not overlap are packed into ordered groups, and all groups are denoised in parallel by a frozen image backbone. A trainable adapter identifies each layer and exchanges messages based on SVG overlap and parent-child links. The generated layers are then combined in SVG paint order and exact vector text is added back."
+      },
+      {
+        "id": "S3.SS2",
+        "heading": "3.2 Problem setup and hybrid output",
+        "level": 2,
+        "text": "We represent an infographic as an SVG scene S = ( ℰ , 𝒯 , ℋ , 𝐳 , ℳ ) , S=(\\mathcal{E},\\mathcal{T},\\mathcal{H},\\mathbf{z},\\mathcal{M}), (1) where ℰ = { e i } i = 1 N \\mathcal{E}=\\{e_{i}\\}_{i=1}^{N} contains non-text elements, 𝒯 \\mathcal{T} stores text and typography, ℋ \\mathcal{H} stores parent-child links, z i z_{i} is the paint index, and ℳ \\mathcal{M} contains element type τ i \\tau_{i} , normalized bounding box b i b_{i} , and renderer-derived masks. In particular, A i A_{i} is the full (amodal) mask of element e i e_{i} , while V i V_{i} is the part that remains visible after later elements cover it. Keeping both masks provides training targets for content that becomes visible after deletion, translation, or z-order edits. The output is a hybrid artifact, 𝒜 = ( S , { L ^ g } g = 1 G , R ) , I ^ = Over ⁡ ( R text ​ ( 𝒯 ) , Comp z ⁡ ( L ^ 1 , … , L ^ G ) ) , \\mathcal{A}=\\left(S,\\{\\widehat{L}_{g}\\}_{g=1}^{G},R\\right),\\qquad\\widehat{I}=\\operatorname{Over}\\!\\left(R_{\\rm text}(\\mathcal{T}),\\operatorname{Comp}_{z}(\\widehat{L}_{1},\\ldots,\\widehat{L}_{G})\\right), (2) where L ^ g = ( C ^ g , α ^ g ) \\widehat{L}_{g}=(\\widehat{C}_{g},\\widehat{\\alpha}_{g}) is an editable RGB layer and Comp z \\operatorname{Comp}_{z} composes layers in paint order. Diffusion therefore generates the non-text appearance, while the SVG continues to define geometry, ownership, which elements cover others, and exact text."
+      },
+      {
+        "id": "S3.SS3",
+        "heading": "3.3 Ordered non-overlapping layer sets",
+        "level": 2,
+        "text": "Assigning one diffusion path to every SVG element preserves ownership but is unnecessarily expensive: many elements never overlap and can share a path without competing for pixels. Unlike pixel-derived layer decomposition ( Zhang and Agrawala, 2024 ) , we use the SVG’s explicit element ownership to form ordered groups 𝒢 = ( G 1 , … , G G ) \\mathcal{G}=(G_{1},\\ldots,G_{G}) of ℰ \\mathcal{E} . Elements within a group have non-overlapping full masks, A i ⊙ A j = 0 , i ≠ j , e i , e j ∈ G g , A_{i}\\odot A_{j}=0,\\qquad i\\neq j,\\quad e_{i},e_{j}\\in G_{g}, (3) while every overlap respects paint order: if A i ⊙ A j ≠ 0 A_{i}\\odot A_{j}\\neq 0 and z i < z j z_{i}<z_{j} , then g ⁡ ( i ) < g ⁡ ( j ) g(i)<g(j) . Consequently, non-overlapping elements may share one generated layer, but an element in front and the element behind it remain separately editable. We create the groups by processing elements in ascending ( z i , i ) (z_{i},i) order: g ( i ) = { 1 , 𝒫 i = ∅ , 1 + max j ∈ 𝒫 i ⁡ g ⁡ ( j ) , otherwise , 𝒫 i = { j : z j ≤ z i , A j ⊙ A i ≠ 0 , j processed } . g(i)=\\begin{cases}1,&\\mathcal{P}_{i}=\\varnothing,\\\\ 1+\\max_{j\\in\\mathcal{P}_{i}}g(j),&\\text{otherwise},\\end{cases}\\quad\\mathcal{P}_{i}=\\{j:z_{j}\\leq z_{i},\\ A_{j}\\odot A_{i}\\neq 0,\\ j\\text{ processed}\\}. (4) This rule cannot place a front element behind an element that it covers. Group masks are unions, A g = max i ∈ G g ⁡ A i A_{g}=\\max_{i\\in G_{g}}A_{i} and V g = max i ∈ G g ⁡ V i V_{g}=\\max_{i\\in G_{g}}V_{i} , and each layer path receives its grouped control raster, type, box, paint order, and owned illustration prompt. The number of paths therefore depends on how many layers overlap, rather than the number of SVG elements. For premultiplied color P g = α g ​ C g P_{g}=\\alpha_{g}C_{g} , the final raster is obtained by back-to-front alpha composition, ( P ( g ) , α ( g ) ) = ( P g + ( 1 − α g ) ​ P ( g − 1 ) , α g + ( 1 − α g ) ​ α ( g − 1 ) ) , (P^{(g)},\\alpha^{(g)})=\\big(P_{g}+(1-\\alpha_{g})P^{(g-1)},\\alpha_{g}+(1-\\alpha_{g})\\alpha^{(g-1)}\\big), (5) starting from a transparent canvas. Paint order controls composition, not generation order: all valid groups are denoised in parallel, and individual layers can later be translated, removed, or reordered without regenerating unrelated groups."
+      },
+      {
+        "id": "S3.SS4",
+        "heading": "3.4 Generating coordinated layers",
+        "level": 2,
+        "text": "LayerCanvas generates all layers together, but separate layers can easily drift toward different colors, lighting, or object identities. Following the continuous interpolation used in flow matching ( Lipman et al., 2023 ) , we give them part of the same starting noise and use the same denoising timestep. This encourages a common look while preserving private noise for layer-specific detail. Shared noise cannot make one layer respond to another, however, so the frozen image backbone needs a small trainable adapter. The adapter follows the efficient frozen-backbone conditioning strategy of ControlNet and T2I-Adapter ( Zhang et al., 2023 ; Mou et al., 2024 ) , but operates across an ordered layer set so that each layer is influenced by the other. It answers three questions: which layer is being generated, which other layers matter to it, and whether their effect should be global or limited to a shared boundary. Figure 2: LayerCanvas layer generation. Top: Parallel denoising produces aligned non-text layers, which are composed in paint order before exact SVG text is restored. Bottom: Layer-set attention produces residuals for shared frozen MMDiT updates, and the solver advances every layer."
+      },
+      {
+        "id": "S3.SS4.SSS0.Px1",
+        "heading": "Identifying each layer.",
+        "level": 4,
+        "text": "The frozen backbone normally generates one image and has no reason to know whether a batch item represents a background, a foreground illustration, or a later paint-order layer. For group g g , the model’s variational autoencoder (VAE) ( Kingma and Welling, 2013 ) converts the grouped control raster into internal features s g s_{g} . The trainable grouped layer-control adapter then adds learned identifiers for paint order and the main element type: q g = LN ⁡ ( s g ) + E z ​ [ g ] + E τ ​ [ τ g ] , r g ( 0 ) = W 0 ​ q g , r g ( d ) = W d ​ ϕ ​ ( W s ​ q g ) . q_{g}=\\operatorname{LN}(s_{g})+E_{z}[g]+E_{\\tau}[\\tau_{g}],\\qquad r_{g}^{(0)}=W_{0}q_{g},\\quad r_{g}^{(d)}=W_{d}\\phi(W_{s}q_{g}). (6) Here, LN ⁡ ( s g ) \\operatorname{LN}(s_{g}) describes the layer’s visual control, E z ​ [ g ] E_{z}[g] tells the model where it appears in paint order, and E τ ​ [ τ g ] E_{\\tau}[\\tau_{g}] tells it the main element type. The projections W 0 W_{0} and W d W_{d} turn this combined description into small adjustments at the transformer input and selected depths. These outputs start at zero, so the adapter initially leaves the pretrained backbone unchanged. The adjustments are added at a small set of backbone depths."
+      },
+      {
+        "id": "S3.SS4.SSS0.Px2",
+        "heading": "Sharing information between layers.",
+        "level": 4,
+        "text": "Layer identifiers solve ownership, but the backbone still processes every layer independently. Dense communication between every image location would be costly and would ignore the overlap and parent-child links already available in the SVG. Instead, each LayerSetCommunicationBlock builds one compact summary h g h_{g} per layer. For a receiving layer g g , a sending layer h h , and attention head a a , the block first computes a pairwise score ℓ g ​ h a \\ell_{gh}^{a} , converts the scores into weights π g ​ h a \\pi_{gh}^{a} , and uses those weights to combine the sending-layer summaries: ℓ g ​ h a \\displaystyle\\ell_{gh}^{a} = ⟨ W Q a ​ h g , W K a ​ h h ⟩ d a + ( w E a ) ⊤ ​ E g ​ h , \\displaystyle=\\frac{\\langle W_{Q}^{a}h_{g},W_{K}^{a}h_{h}\\rangle}{\\sqrt{d_{a}}}+(w_{E}^{a})^{\\top}E_{gh}, (7) π g ​ h a \\displaystyle\\pi_{gh}^{a} = softmax h ⁡ ( ℓ g ​ h a ) , \\displaystyle=\\operatorname{softmax}_{h}(\\ell_{gh}^{a}), h ~ g \\displaystyle\\widetilde{h}_{g} = W O ​ Concat a ⁡ ( ∑ h π g ​ h a ​ W V a ​ h h ) . \\displaystyle=W_{O}\\operatorname{Concat}_{a}\\!\\left(\\sum_{h}\\pi_{gh}^{a}W_{V}^{a}h_{h}\\right). The first part of ℓ g ​ h a \\ell_{gh}^{a} measures similarity between the two layers; the second adds their SVG relationship from E g ​ h E_{gh} . π g ​ h a \\pi_{gh}^{a} says how much layer g g should listen to layer h h , and h ~ g \\widetilde{h}_{g} is the resulting information received by layer g g after all attention heads are combined. Because the SVG links have directions, a covered background can receive a different message from the element in front of it."
+      },
+      {
+        "id": "S3.SS4.SSS0.Px3",
+        "heading": "Applying shared information.",
+        "level": 4,
+        "text": "Not every cross-layer change should affect the same area. A shared palette or lighting choice should act smoothly across a layer, while an overlap correction should stay near the touching edges. We therefore split the received summary h ~ g \\widetilde{h}_{g} into a style path and a boundary path. Let x g x_{g} denote the current spatial features of layer g g : r g sty \\displaystyle r_{g}^{\\rm sty} = F sty ​ ( h ~ g ) , \\displaystyle=F_{\\rm sty}(\\widetilde{h}_{g}), (8) r g bnd \\displaystyle r_{g}^{\\rm bnd} = F bnd ​ ( x g , h ~ g ) , \\displaystyle=F_{\\rm bnd}(x_{g},\\widetilde{h}_{g}), r g \\displaystyle r_{g} = σ ⁡ ( γ g sty ) ​ r g sty + σ ⁡ ( γ g bnd ) ​ B g ⊙ r g bnd . \\displaystyle=\\sigma(\\gamma_{g}^{\\rm sty})\\,r_{g}^{\\rm sty}+\\sigma(\\gamma_{g}^{\\rm bnd})\\,B_{g}\\odot r_{g}^{\\rm bnd}. The style function turns h ~ g \\widetilde{h}_{g} into a smooth layer-wide change. The boundary function combines h ~ g \\widetilde{h}_{g} with the current features x g x_{g} , while B g B_{g} keeps its change near layer edges. The learned gates γ g sty \\gamma_{g}^{\\rm sty} and γ g bnd \\gamma_{g}^{\\rm bnd} decide how strongly each path should act. Their weighted sum is the final residual r g r_{g} , which is added back to layer g g at that depth of the frozen MMDiT image backbone. As above, the added outputs start at zero, so communication is introduced gradually during training."
+      },
+      {
+        "id": "S3.SS4.SSS0.Px4",
+        "heading": "Training and exact text.",
+        "level": 4,
+        "text": "Training checks each layer, the final combined image, hidden areas and boundaries. These losses check both individual ownership and the assembled image. Typography is excluded from diffusion targets and added back from the retained SVG strings. This guarantees exact editable text rather than asking diffusion to paint glyphs, as in text-aware raster generators ( Chen et al., 2023 ; Tuo et al., 2024 ) . Appendix B.1 gives the full training path, loss and text-composition procedure. Table 1: Primary comparison on test set. Char and Exact measure placement-exact OCR, while Recall measures text recovered anywhere in the image. Appeal, Typog., and Cov. are VLM scores from 0-5, with Avg denoting their mean. Best synthesis result in each column is bold . Text fidelity VLM judge (0-5) Method Char Exact Recall Appeal Typog. Cov. Avg SVG (LLM-authored) 0.856 0.676 0.964 2.37 4.02 4.90 3.76 Qwen-Image-2512 ( Qwen Team, 2025a ) 0.080 0.002 0.149 2.69 1.00 1.45 1.71 Ideogram-4 ( Ideogram AI, 2026 ) 0.657 0.360 0.744 2.92 2.29 3.89 3.03 LayerCanvas (Ours) 0.822 0.623 0.942 2.99 3.81 4.75 3.85 Figure 3: Qualitative four-way comparison Columns show, left to right, the SVG control, two prompt-only SOTA diffusion baselines (Qwen-Image-2512 Qwen Team (2025a) and Ideogram-4 Ideogram AI (2026) ), and LayerCanvas. The corresponding next row shows the zoomed in regions for the highlighted text regions. Prompt-only models produce appealing raster illustrations but garble or invent text and drift from the prescribed layout whereas LayerCanvas keeps the layer layout and composites exact, legible vector text."
+      },
+      {
+        "id": "S4.SS1.SSS0.Px1",
+        "heading": "Dataset -",
+        "level": 4,
+        "text": "We develop InfoLayers, a corpus of 23,960 paired infographic records on a 768 × 512 768\\times 512 canvas with a multi-agent pipeline. Each sample pairs a structural SVG with a text-free and a composited target, together with the per-layer supervision our model consumes: amodal and visible masks, paint order, and a hierarchy/overlap graph. Construction and layout statistics are given in Appendix A ."
+      },
+      {
+        "id": "S4.SS1.SSS0.Px2",
+        "heading": "Baselines -",
+        "level": 4,
+        "text": "We compare four methods on shared held-out layouts. The LLM-authored SVG reference recolors and completes the structural SVG and renders it, giving exact vector text by construction but no learned aestheticization. The two prompt-only open-weight SOTA diffusion baselines, Qwen-Image-2512 ( Qwen Team, 2025a ) and Ideogram-4 ( Ideogram AI, 2026 ) , are each conditioned on the design-concept prompt derived from the input SVG layout; for Ideogram-4 this prompt is constructed from the same SVG layout, with its structural elements serialized into the structured prompt format the model expects. LayerCanvas is our grouped layer-set diffusion model with deterministic exact-SVG text compositing with the MMDiT backbone as Ideogram AI (2026) . For evaluation, all methods are placed on a 768 × 512 768{\\times}512 canvas."
+      },
+      {
+        "id": "S4.SS1.SSS0.Px3",
+        "heading": "Metrics -",
+        "level": 4,
+        "text": "Text fidelity is scored two ways. Placement-exact fidelity uses ground-truth-region OCR Tesseract OCR contributors (2026) at 768 × 512 768{\\times}512 , and reports character accuracy and exact-match rate. Placement-agnostic fidelity runs full-image OCR at the same resolution and measures word recall, how much of the ground-truth text appears anywhere in the image, so a baseline that renders readable text at the wrong position still gets credit. The two exact-text methods place text from the SVG by construction, so their remaining gap from 1.0 1.0 is OCR error rather than real text mistakes. For visual quality we use a VLM as a judge : Claude Opus 4.8 ( Anthropic, 2026 ) scores each design from 0 0 to 5 5 on illustration appeal, typography, and semantic coverage, and we report Avg , the mean of the three. The full evaluation protocol is given in Appendix B.2 ."
+      },
+      {
+        "id": "S4.SS2",
+        "heading": "4.2 Main comparison",
+        "level": 2,
+        "text": "Table 1 reports the comparison on the test set (construction in Appendix B ). LayerCanvas combines strong visual appeal with text fidelity, outperforming both raster baselines across all text metrics while approaching the exact-text SVG reference. Ideogram-4 Ideogram AI (2026) generates aesthetic looking samples, but it still trails LayerCanvas on text fidelity; Qwen-Image-2512 Qwen Team (2025a) performs poorly on both text placement and recovery. Under the primary Claude judge, LayerCanvas is the strongest learned method across illustration appeal, typography, semantic coverage, and aggregate quality, and slightly exceeds the SVG reference overall. The same learned-method ranking holds under independent Gemini 3.7 Flash ( Google DeepMind, 2026 ) and GPT-5.6 Sol ( OpenAI, 2026 ) judges (Appendix Table 5 ). Figure 3 shows the same appeal-text trade-off qualitatively. Additional results are in Appendix B.3 . Inference compute details for LayerCanvas are in Appendix B.4.2 ."
+      },
+      {
+        "id": "S4.SS3",
+        "heading": "4.3 Representation ablation",
+        "level": 2,
+        "text": "We compare grouped LayerCanvas with a single-raster conditioning baseline to test whether explicit layer separation improves editability. The baseline conditions the same MMDiT model ( Ideogram AI, 2026 ) directly on the rasterized SVG using T2I-Adapter ( Mou et al., 2024 ) . A single stream must learn to render the whole graphic at once, which becomes harder as the layout grows denser. In contrast, each LayerCanvas layer contains non-overlapping elements, making it simpler to learn before the layers are composed. Under fixed noise, LayerCanvas better preserves the moved element and surrounding layout, while the control redraws unrelated content (Figure 4 ). It also improves text recall and all VLM scores, raising average quality from 3.55 to 3.77 (Table 2 ). Figure 4: Representation ablation: Each column shows the source SVG, fixed-noise base generation, and the translated version by perturbing the base SVG for LayerCanvas and the single-raster as control. Red arrows show the shift from the base position in the translated cases. LayerCanvas better preserves object identity and unrelated layout content. Table 2: Comparison of Different Conditioning Representations on validation set Method Char Exact Recall Appeal Typog. Cov. Avg Single-raster Conditioning 0.851 0.568 0.783 2.78 3.56 4.32 3.55 LayerCanvas 0.823 0.530 0.795 2.84 3.76 4.72 3.77"
+      },
+      {
+        "id": "S5",
+        "heading": "5 Downstream applications",
+        "level": 1,
+        "text": "Because LayerCanvas preserves SVG structure alongside independently addressable raster layers, a generated design can be adapted without regenerating the whole image. Vector text supports changes to wording, typography, and language, while separate visual layers enable animation, asset reuse, and local element edits such as removing a card or swapping an icon while preserving unaffected content. Retained grouping and paint order further support layout retargeting, re-theming, and SVG-level corrections while limiting changes to the intended components. Together, these capabilities turn a generated infographic into a reusable authoring artifact. We highlight three below; the rest are detailed in Appendix C ."
+      },
+      {
+        "id": "S5.SS1",
+        "heading": "5.1 Text editing and localization",
+        "level": 2,
+        "text": "End-to-end raster generators must repaint text whenever wording, typography, or language changes. LayerCanvas instead generates only the visual substrate and preserves typography as styled SVG nodes, so copy, style, and locale changes require no diffusion pass and cannot alter the generated artwork (Figure 13 )."
+      },
+      {
+        "id": "S5.SS2",
+        "heading": "5.2 Independent layer animation",
+        "level": 2,
+        "text": "We adapt the zero-shot animation principle of Text2Video-Zero ( Khachatryan et al., 2023 ) , in which the motion and appearance priors of a pretrained text-to-image diffusion model produce a temporally linked sequence without video-specific training. Whereas a flattened document would expose the complete page to this update, LayerCanvas lets the temporal operation target one named image layer while all other layers remain fixed: every unselected image layer and the full-resolution SVG typography are copied identically into every frame. Figure 5: Independent animation of one LayerCanvas region. A Text2Video-Zero-inspired image-diffusion trajectory produces an open-to-closed blink. Only the selected eye region changes across the five frames; the surrounding illustration, layout, and vector typography remain fixed."
+      },
+      {
+        "id": "S5.SS3",
+        "heading": "5.3 SVG-space refinement and faithful diffusion propagation",
+        "level": 2,
+        "text": "An upstream layout proposal may contain a misplaced, mislabeled, or incorrectly styled element. In LayerCanvas, the SVG is a persistent control surface: the element can be corrected directly, and the model propagates that correction to the raster without retraining or redesigning the rest of the document. Figure 6: Closed-loop SVG correction. Each row shows an incorrect SVG and render, the direct SVG edit, and the corrected render. The edited element moves to the requested location while unrelated content remains stable."
+      },
+      {
+        "id": "S6",
+        "heading": "6 Conclusion",
+        "level": 1,
+        "text": "We formulate infographic generation as structured aestheticization: a deterministic SVG supplies geometry, hierarchy, typography, while parallel layer-set generation supplies visual appearance. Aligning this representation with the renderer supports many downstream applications like editing and artifact reuse. Enforcing generalization to more layouts and improving transformations under changed occlusion remain important research directions."
+      },
+      {
+        "id": "bib",
+        "heading": "References",
+        "level": 1,
+        "text": "Anthropic (2026) Anthropic Introducing Claude Opus 4.8 . Note: https://www.anthropic.com/news/claude-opus-4-8 Product announcement, May 28, 2026 Cited by: §A.6 , §B.2 , Table 5 , §4.1 . Avrahami et al. (2023) O. Avrahami, K. Aberman, O. Fried, D. Cohen-Or, and D. Lischinski Break-a-scene: extracting multiple concepts from a single image . In SIGGRAPH Asia 2023 Conference Papers , External Links: Document Cited by: §2 . Bar-Tal et al. (2023) O. Bar-Tal, L. Yariv, Y. Lipman, and T. Dekel MultiDiffusion: fusing diffusion paths for controlled image generation . In International Conference on Machine Learning , Cited by: §2 . Bateman et al. (2010) S. Bateman, R. L. Mandryk, C. Gutwin, A. Genest, D. McDine, and C. Brooks Useful junk? the effects of visual embellishment on comprehension and memorability of charts . In Proceedings of the SIGCHI Conference on Human Factors in Computing Systems (CHI) , pp. 2573–2582 . Cited by: §1 . Bhat and Alyahya (2024) S. A. Bhat and S. Alyahya Infographics in educational settings: a literature review . IEEE Access 12 , pp. 1633–1649 . External Links: Document Cited by: §1 . Burgess et al. (2019) C. P. Burgess, L. Matthey, N. Watters, R. Kabra, I. Higgins, M. Botvinick, and A. Lerchner MONet: unsupervised scene decomposition and representation . arXiv preprint . Cited by: §2 . Chen et al. (2025) H. Chen, Q. Xiang, J. Hu, M. Ye, C. Yu, H. Cheng, and L. Zhang Comprehensive exploration of diffusion models in image generation: a survey . Artificial Intelligence Review 58 ( 99 ). External Links: Document Cited by: §1 . Chen et al. (2023) J. Chen, Y. Huang, T. Lv, L. Cui, Q. Chen, and F. Wei TextDiffuser: diffusion models as text painters . In Advances in Neural Information Processing Systems , Cited by: §1 , §2 , §3.4 . Clark and Paivio (1991) J. M. Clark and A. Paivio Dual coding theory and education . Educational Psychology Review 3 ( 3 ), pp. 149–210 . Cited by: §1 . Esser et al. (2024) P. Esser, S. Kulal, A. Blattmann, R. Entezari, J. Müller, H. Saini, Y. Levi, D. Lorenz, A. Sauer, F. Boesel, D. Podell, T. Dockhorn, Z. English, K. Lacey, A. Goodwin, Y. Marek, and R. Rombach Scaling rectified flow transformers for high-resolution image synthesis . In International Conference on Machine Learning (ICML) , Cited by: §1 . Gadre et al. (2023) S. Y. Gadre, G. Ilharco, A. Fang, J. Hayase, G. Smyrnis, T. Nguyen, R. Marten, M. Wortsman, et al. DataComp: in search of the next generation of multimodal datasets . In Advances in Neural Information Processing Systems , Cited by: §2 . Gatis (2025) Rembg: a tool to remove image backgrounds Note: MIT-licensed software External Links: Link Cited by: §A.2 , §A.6 . Google DeepMind (2026) Google DeepMind Gemini 3.7 Flash model card . Note: https://deepmind.google/models/model-cards/gemini-3-7-flash/ Published August 13, 2026 Cited by: §B.2 , Table 5 , §4.2 . Gupta et al. (2021) K. Gupta, J. Lazarow, A. Achille, L. S. Davis, and V. Mahadevan LayoutTransformer: layout generation and completion with self-attention . In IEEE/CVF International Conference on Computer Vision , Cited by: §2 . Huang et al. (2026) S. Huang, Y. Zhou, Y. Gao, Z. Yin, J. Bai, X. Liu, R. Chellappa, C. P. Lau, C. Peng, S. Nag, and S. Pramanick SciFig: towards automating editable figure generation for scientific papers . External Links: 2601.04390 Cited by: §1 , §2 . Ideogram AI (2026) Ideogram AI Ideogram 4.0 . Note: https://ideogram.ai/blog/ideogram-4.0/ Technical blog Cited by: §B.2 , Figure 1 , Figure 3 , Table 1 , §4.1 , §4.2 , §4.3 . Inoue et al. (2023) N. Inoue, K. Kikuchi, E. Simo-Serra, M. Otani, and K. Yamaguchi LayoutDM: discrete diffusion model for controllable layout generation . In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pp. 10167–10176 . Cited by: §2 . Jain et al. (2026) S. Jain, K. Gupta, K. Gupta, and M. Chandraker NERFIFY: a multi-agent framework for turning nerf papers into code . In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pp. 24384–24394 . Cited by: §1 , §2 . Khachatryan et al. (2023) L. Khachatryan, A. Movsisyan, V. Tadevosyan, R. Henschel, Z. Wang, S. Navasardyan, and H. Shi Text2Video-zero: text-to-image diffusion models are zero-shot video generators . In Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) , pp. 15954–15964 . External Links: Document Cited by: §C.2 , §5.2 . Kingma and Welling (2013) D. P. Kingma and M. Welling Auto-encoding variational bayes . arXiv preprint arXiv:1312.6114 . Cited by: §3.4 . Lachowicz et al. (2014) D. Lachowicz C. Moore et al. rsvg-convert: turn SVG files into raster images . librsvg . Note: Ubuntu 14.04 manual page External Links: Link Cited by: §A.6 , §B.2 , §B.2 . Li et al. (2019) J. Li, J. Yang, A. Hertzmann, J. Zhang, and T. Xu LayoutGAN: generating graphic layouts with wireframe discriminators . In International Conference on Learning Representations , Cited by: §2 . Li et al. (2023) Y. Li, H. Liu, Q. Wu, F. Mu, J. Yang, J. Gao, C. Li, and Y. J. Lee GLIGEN: open-set grounded text-to-image generation . In IEEE/CVF Conference on Computer Vision and Pattern Recognition , Cited by: §2 . Lipman et al. (2023) Y. Lipman, R. T. Q. Chen, H. Ben-Hamu, M. Nickel, and M. Le Flow matching for generative modeling . In International Conference on Learning Representations , Cited by: §3.4 . Liu et al. (2023a) H. Liu, C. Li, Q. Wu, and Y. J. Lee Visual instruction tuning . In Advances in Neural Information Processing Systems , Cited by: §2 . Liu et al. (2023b) R. Liu, D. Garrette, C. Saharia, W. Chan, A. Roberts, S. Narang, I. Blok, R. Mical, M. Norouzi, and N. Constant Character-aware models improve visual text rendering . In Annual Meeting of the Association for Computational Linguistics (ACL) , Cited by: §1 . Locatello et al. (2020) F. Locatello, D. Weissenborn, T. Unterthiner, A. Mahendran, G. Heigold, J. Uszkoreit, A. Dosovitskiy, and T. Kipf Object-centric learning with slot attention . In Advances in Neural Information Processing Systems , Cited by: §2 . Mayer (2009) R. E. Mayer Multimedia learning . 2nd edition , Cambridge University Press . Cited by: §1 . Mou et al. (2024) C. Mou, X. Wang, L. Xie, Y. Wu, J. Zhang, Z. Qi, and Y. Shan T2I-adapter: learning adapters to dig out more controllable ability for text-to-image diffusion models . In Proceedings of the AAAI Conference on Artificial Intelligence , Vol. 38 , pp. 4296–4304 . Cited by: §2 , §3.4 , §4.3 . OpenAI (2026) OpenAI GPT-5.6 Sol model . Note: https://developers.openai.com/api/docs/models/gpt-5.6-sol Model documentation Cited by: §B.2 , Table 5 , §4.2 . Podell et al. (2024) D. Podell, Z. English, K. Lacey, A. Blattmann, T. Dockhorn, J. Müller, J. Penna, and R. Rombach SDXL: improving latent diffusion models for high-resolution image synthesis . In International Conference on Learning Representations (ICLR) , Cited by: §1 , §3.1 . Qwen Team (2025a) Qwen Team Qwen-Image-2512 . Note: https://qwen.ai/blog?id=qwen-image-2512 Technical blog Cited by: §A.6 , §B.2 , Figure 1 , Figure 3 , Table 1 , §4.1 , §4.2 . Qwen Team (2025b) Qwen Team Qwen-Image-Edit: image editing with higher quality and efficiency . Note: https://qwen.ai/blog?id=qwen-image-edit Technical blog Cited by: §A.2 , §A.6 . Rodriguez et al. (2025) J. A. Rodriguez, A. Puri, S. Agarwal, I. H. Laradji, P. Rodriguez, S. Rajeswar, D. Vazquez, C. Pal, and M. Pedersoli StarVector: generating scalable vector graphics code from images and text . In IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , Cited by: §1 . Rombach et al. (2022) R. Rombach, A. Blattmann, D. Lorenz, P. Esser, and B. Ommer High-resolution image synthesis with latent diffusion models . In IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , Cited by: §1 , §1 , §3.1 . Saharia et al. (2022) C. Saharia, W. Chan, S. Saxena, L. Li, J. Whang, E. Denton, S. K. S. Ghasemipour, B. K. Ayan, S. S. Mahdavi, R. G. Lopes, T. Salimans, J. Ho, D. J. Fleet, and M. Norouzi Photorealistic text-to-image diffusion models with deep language understanding . In Advances in Neural Information Processing Systems (NeurIPS) , Cited by: §1 . Tesseract OCR contributors (2026) Tesseract OCR contributors Tesseract: open source OCR engine . Note: https://github.com/tesseract-ocr/tesseract Software repository; accessed September 2, 2026 Cited by: §B.2 , §4.1 . Tuo et al. (2024) Y. Tuo, W. Xiang, J. He, Y. Geng, and X. Xie AnyText: multilingual visual text generation and editing . In International Conference on Learning Representations , Cited by: §1 , §2 , §3.4 . van der Walt et al. (2014) S. van der Walt, J. L. Schönberger, J. Nunez-Iglesias, F. Boulogne, J. D. Warner, N. Yager, E. Gouillart, and T. Yu Scikit-image: image processing in python . PeerJ 2 , pp. e453 . External Links: ISSN 2167-8359 , Link , Document Cited by: §A.6 . W3C SVG Working Group (2011) W3C SVG Working Group Scalable Vector Graphics (SVG) 1.1 (Second Edition) . Note: W3C Recommendation External Links: Link Cited by: §1 , §1 . Wang et al. (2026) B. Wang, S. Zhao, B. Cheng, Q. Ji, Y. Ma, L. Wu, S. Liu, D. Leng, and Y. Yin RevealLayer: disentangling hidden and visible layers via occlusion-aware image decomposition . External Links: 2605.11818 , Link Cited by: §2 . Wang et al. (2023) Y. Wang, Y. Kordi, S. Mishra, A. Liu, N. A. Smith, D. Khashabi, and H. Hajishirzi Self-instruct: aligning language models with self-generated instructions . In Annual Meeting of the Association for Computational Linguistics , Cited by: §2 . Wu et al. (2024) R. Wu, W. Su, and J. Liao Chat2SVG: vector graphics generation with large language models and image diffusion models . arXiv preprint arXiv:2411.16602 . Cited by: §1 . Wu et al. (2023) R. Wu, W. Su, K. Ma, and J. Liao IconShop: text-guided vector icon synthesis with autoregressive transformers . ACM Transactions on Graphics . Cited by: §1 . Xing et al. (2024) X. Xing, J. Hu, G. Liang, J. Zhang, D. Xu, and Q. Yu Empowering llms to understand and generate complex vector graphics . arXiv preprint arXiv:2412.11102 . Cited by: §1 . Yang et al. (2024a) J. Yang, Q. Liu, Y. Li, S. Y. Kim, D. Pakhomov, M. Ren, J. Zhang, Z. Lin, C. Xie, and Y. Zhou Generative image layer decomposition with visual effects . External Links: 2411.17864 , Link Cited by: §2 . Yang et al. (2024b) Y. Yang, D. Gui, Y. Yuan, W. Liang, H. Ding, H. Hu, and K. Chen GlyphControl: glyph conditional control for visual text generation . In Advances in Neural Information Processing Systems , Vol. 36 . Cited by: §2 . Ye et al. (2023) H. Ye, J. Zhang, S. Liu, X. Han, and W. Yang IP-adapter: text compatible image prompt adapter for text-to-image diffusion models . arXiv preprint . Cited by: §2 . Yin et al. (2025) S. Yin, Z. Zhang, Z. Tang, K. Gao, X. Xu, K. Yan, J. Li, Y. Chen, Y. Chen, H. Shum, L. M. Ni, J. Zhou, J. Lin, and C. Wu Qwen-Image-Layered: towards inherent editability via layer decomposition . External Links: 2512.15603 , Link Cited by: §2 . Zhang and Agrawala (2024) L. Zhang and M. Agrawala Transparent image layer diffusion using latent transparency . arXiv preprint . Cited by: §2 , §3.3 . Zhang et al. (2023) L. Zhang, A. Rao, and M. Agrawala Adding conditional control to text-to-image diffusion models . In IEEE/CVF International Conference on Computer Vision , Cited by: §2 , §3.4 ."
+      },
+      {
+        "id": "A0.SSx1",
+        "heading": "Contents",
+        "level": 2,
+        "text": "• Appendix A : Data – A.1 Concept sourcing and topical scope – A.2 Multi-agent generation pipeline – A.3 Layer decomposition, augmentation, and validation – A.4 Dataset composition, splits, and provenance – A.5 Dataset analysis: color composition is coupled and learnable – A.6 Implementation details • Appendix B : Additional Details and Experiments – B.1 Additional method details – B.2 Evaluation details – B.3 Additional comparisons – B.4 Systems profile • Appendix C : Downstream Applications – C.1 Text editing and localization – C.2 Animation and progressive reveal – C.3 Asset reuse and cross-document recomposition – C.4 Layout retargeting and responsive resize – C.5 Command-driven interactive editing – C.6 SVG-space refinement and faithful diffusion propagation • Appendix D : Limitations, ethics, and broader impact"
+      },
+      {
+        "id": "A1",
+        "heading": "Appendix A Data",
+        "level": 1,
+        "text": "Training LayerCanvas requires a form of supervision that, to our knowledge, no existing corpus provides: infographics paired at the level of individual, renderer-aligned layers. A usable training record must expose, for a single graphic, (i) a structural program that fixes geometry, hierarchy, paint order, and typography; (ii) an aestheticized, text-free rendering of that program; and (iii) a decomposition of that rendering into ordered, mutually non-overlapping RGBA layers with amodal and visible masks. Public SVG datasets supply programs but no rich appearance, while raster infographic collections supply appearance but discard element ownership, occlusion, and text metadata. We therefore synthesize the corpus with a multi-agent generation pipeline that couples a large language model, which designs and validates editable SVG programs, with a diffusion image editor, which aestheticizes only the non-text visual content. The pipeline is designed so that every artifact LayerCanvas consumes at training time, namely the colorless structural input, the text-free target, the per-layer amodal/visible assets, and the graph of overlap and hierarchy relations, is produced deterministically from an SVG the agent has already checked, rather than recovered from pixels after the fact. This section describes how concepts are sourced from an educational course catalog (§ A.1 ), how the multi-agent pipeline turns each concept into a validated paired record (§ A.2 ), how those records are decomposed into layers, augmented, and validated (§ A.3 ), the resulting scale, splits, and provenance (§ A.4 ), an analysis of the appearance statistics the pipeline induces (§ A.5 ), and the implementation and compute details needed to reproduce it (§ A.6 ). Figure 7: The paired training record. Each column is one artifact the pipeline emits for the same sample. Left: the structural input, an SVG with color, fonts, and textures stripped and text set in a neutral face, which supplies geometry, hierarchy, and paint order without leaking target appearance. Middle: the aestheticized, text-free target that the diffusion streams are trained to produce; the editable-visual regions have been restyled into rich illustrations while every text region is left blank. Right: the final paired target after the preserved vector text layer is composited on top. Diffusion is never asked to render glyphs."
+      },
+      {
+        "id": "A1.SS1",
+        "heading": "A.1 Concept sourcing and topical scope",
+        "level": 2,
+        "text": "We seed generation with concepts drawn from popular online educational courses. Each concept is a short, self-contained instructional idea (for example, “handling missing values in Python,” “the tip-of-the-iceberg model of specialist agents,” or “the Power BI ↔ \\leftrightarrow Excel round-trip”), and it carries the identifier and title of the course it was extracted from. Anchoring the corpus in real course material keeps the distribution of topics, terminology, and visual conventions close to genuine educational infographics (dense labels, step-wise procedures, comparisons, cycles, and metaphorical scenes) rather than to generic stock imagery. The course identifier is retained on every derived record and is used both for provenance and, critically, for constructing leakage-free splits (§ A.4 )."
+      },
+      {
+        "id": "A1.SS2",
+        "heading": "A.2 Multi-agent generation pipeline",
+        "level": 2,
+        "text": "The pipeline proceeds in four stages. A design stage authors a structured, editable SVG program from a concept; an extraction stage renders the structural input and the text-free layout and serializes structured conditioning; an aestheticization stage restyles each editable region with a diffusion image editor; and a composition stage mattes and reinserts the styled illustrations in paint order. All appearance in the final target originates in the SVG program or in the diffusion edits of its tagged regions, never in a free-form raster of the whole scene."
+      },
+      {
+        "id": "A1.SS2.SSS0.Px1",
+        "heading": "Stage A: structured SVG design (LLM).",
+        "level": 4,
+        "text": "A design agent, built on a large language model, turns a concept into a complete, standalone SVG on a fixed 1536 × 1024 1536\\times 1024 canvas. Beyond producing an aesthetic educational layout, the agent must mark at least one editable-visual group: a coarse vector placeholder standing in for a tangible, photographable subject (a robot, a database cylinder, a brass scale, a stack of coins). Each such group is emitted with a strict, machine-parseable signature, <g id=\"editable-visual- k \" data-role=\"editable-visual\" data-visual-desc=\"…\" data-edit-prompt=\"…\">…</g> , where data-edit-prompt is the exact, self-contained instruction later handed to the diffusion editor. To prevent the corpus from collapsing onto a single visual template, the agent is assigned one of fourteen layout archetypes per concept (hero-left, hub-and-spoke, comparison-split, circular-cycle, above-below, quadrant-grid, timeline, and others), rotated deterministically across a batch and treated as an adaptable starting structure rather than a rigid template. The prompt enforces explicit layout discipline (shared alignment gridlines, equal gaps for repeated elements, symmetry matched to the number of editable visuals) and an aesthetic direction tuned for legibility (light airy backgrounds, per-section color coding, a strong title/subtitle/takeaway hierarchy). A guard explicitly forbids screens, dashboards, spreadsheets, and other flat, text-bearing objects from being marked editable, because such subjects photorealize poorly and reintroduce garbled text; those elements remain crisp vector content. The agent operates in a render-and-inspect loop: it rasterizes its SVG, examines the image, and performs at least one revision pass to correct misalignment, uneven spacing, dead space, or low-contrast text before emitting a manifest of its editable groups."
+      },
+      {
+        "id": "A1.SS2.SSS0.Px2",
+        "heading": "Stage B: structural extraction and conditioning.",
+        "level": 4,
+        "text": "From the validated SVG we deterministically derive the model’s inputs. The structural input (Fig. 7 , left) is produced by “rawifying” the SVG, that is, stripping color, fonts, gradients, and textures, setting text in a neutral face, and rendering to a flat raster, so that it encodes placement, grouping, and paint order without revealing target appearance. We also render a text-free layout in which all recursive text nodes are removed. The record captures the scene as typed metadata: every text run with its content, semantic role (title/heading/label), normalized bounding box, font family, size, weight, and fill; every illustration with its identifier, description, the data-edit-prompt , its bounding box, and its z-index; and a global style block listing the design palette (hex swatches), font families, and mean corner radius. This record is the interface between deterministic structure and diffusion aestheticization used throughout the method."
+      },
+      {
+        "id": "A1.SS2.SSS0.Px3",
+        "heading": "Stage C: illustration aestheticization (diffusion editor).",
+        "level": 4,
+        "text": "Each editable-visual crop is rendered in isolation and passed to a diffusion image editor (Qwen-Image-Edit Qwen Team (2025b) ) that repaints only that region into a rich illustration on a plain white studio background. A style controller makes the requested look dominant: it strips residual realism adjectives from the agent’s subject description, prepends a leading style directive, and swaps a matching negative prompt, so a single subject can be realized in any of six styles ( photoreal , flat2d , soft3d , cartoon , watercolor , isometric ) while its identity and composition are preserved. The middle column of Fig. 7 shows the resulting text-free targets, in which the coarse placeholders have become detailed objects but every label region remains blank."
+      },
+      {
+        "id": "A1.SS2.SSS0.Px4",
+        "heading": "Stage D: matting and z-ordered composition.",
+        "level": 4,
+        "text": "The styled illustration is cut from its white background with an alpha matte (rembg/u2net ( Gatis, 2025 ) ), cleaned to its largest connected component and feathered, fitted to the placeholder’s bounding box, and composited back into the scene at exactly the illustration’s original z-index. Because the surrounding layout is rebuilt from the SVG with the editable groups removed, the realistic render occupies the placeholder footprint without disturbing any text or vector element, and soft contact shadows are added programmatically and kept off text and table regions. The output is the final paired target (Fig. 7 , right): the aestheticized, text-free composite with the preserved vector text layer rendered crisply on top."
+      },
+      {
+        "id": "A1.SS3.SSS0.Px1",
+        "heading": "Ordered non-overlap layer decomposition.",
+        "level": 4,
+        "text": "For every sample we additionally emit the amodal layer decomposition. Each top-level layer is rendered in isolation to recover its amodal silhouette (its complete support as if nothing occluded it) and its visible mask (the pixels surviving occlusion by all higher-z layers); their difference is exactly the occluded region. Editable layers take their amodal pixels from the matted realistic render, reconstructed with the same parameters used in composition, so that they agree with the final target. We also record, for every pair of layers whose amodal silhouettes intersect, an overlap edge annotated with the back/front assignment and the covered fraction. These masks and edges are what make the ordered non-overlap layer sets and the graph-biased communication of the method well defined; they are computed deterministically from the renderer, not discovered from pixels."
+      },
+      {
+        "id": "A1.SS3.SSS0.Px2",
+        "heading": "Style augmentation via illustration reuse.",
+        "level": 4,
+        "text": "Because Stage A (LLM design) and Stage B (structural extraction) are the expensive, language-model-dependent parts of the pipeline, we amortize them: given an already-built sample with its per-layer amodal RGBA and its tagged editable-visual illustration, we generate additional ( input → target ) (\\text{input}\\to\\text{target}) pairs whose only difference is the visual style of the illustration. The existing target layers and structured conditioning are reused verbatim; only Stage C (re-style the illustration) and Stage D (re-matte, re-compose) are rerun on-GPU. This yields multiple stylistic realizations of the same structural layout at a fraction of the cost, and a denser-composition variant reuses previously generated illustrations inside new, higher-overlap layouts to increase occlusion depth."
+      },
+      {
+        "id": "A1.SS3.SSS0.Px3",
+        "heading": "Validation and quality control.",
+        "level": 4,
+        "text": "Records are filtered at several points. The design agent’s own inspect-and-revise loop rejects layouts with misalignment, empty regions, or unreadable text before a sample is emitted. Structural extraction validates that text nodes are fully removed from visual targets and that every illustration crop is isolated with clear margins. Composition validates alpha coverage of the matte and geometric fit within the target footprint, and layer reconstruction is checked against the composite so that within-group elements do not overwrite one another and every cross-group overlap follows SVG paint order. Samples failing these checks are regenerated or dropped."
+      },
+      {
+        "id": "A1.SS4",
+        "heading": "A.4 Dataset composition, splits, and provenance",
+        "level": 2,
+        "text": "Figure 8: Representative dataset infographics. The corpus spans diverse layout archetypes (above-below iceberg, circular cycle, hero-plus-steps, comparison split, guided procedure, staged timeline), both light and dark themes, and a range of illustration styles, while preserving crisp typography and clean editable-visual footprints in every sample. Text is always rendered from vector metadata, never by the diffusion editor. The merged corpus contains 23,960 23{,}960 paired records, combining an initial generation pass (roughly 8.4 8.4 K pairs) with the style-augmentation and dense-reuse passes (roughly 15.5 15.5 K pairs); the passes are merged so that no structural layout appears across the boundary in conflicting roles. Every record carries the full training tuple: the structural input, the text-free and final targets, the per-layer amodal/visible masks, the overlap and hierarchy graph, and the structured conditioning metadata. Illustration styles are distributed roughly evenly across the six style families, and the samples span the fourteen layout archetypes. Figure 8 shows representative final targets."
+      },
+      {
+        "id": "A1.SS4.SSS0.Px1",
+        "heading": "Leakage-free, course-disjoint splits.",
+        "level": 4,
+        "text": "Splits are constructed at the granularity of the source course , not the individual sample, so that no concept from a course used for evaluation can also appear in training. Courses are ordered by a fixed hash of their identifier, and a subset-sum procedure selects a set of whole courses summing to 200 200 samples for the test split and, from the remainder, another 200 200 for validation; all remaining courses form the training split. Because a course contributes all of its concepts to exactly one split, the evaluation sets measure generalization to unseen courses and topics rather than memorization of a familiar course’s visual style."
+      },
+      {
+        "id": "A1.SS4.SSS0.Px2",
+        "heading": "Provenance.",
+        "level": 4,
+        "text": "Each record retains its course identifier and title, the assigned layout archetype, the editable-visual descriptions and edit prompts, the diffusion style and seed, and the compositing parameters, so that any sample can be traced back to its concept and regenerated. Concepts are used as textual seeds for synthesis; the visual content of every target is generated by our own pipeline."
+      },
+      {
+        "id": "A1.SS5",
+        "heading": "A.5 Dataset analysis: color composition is coupled and learnable",
+        "level": 2,
+        "text": "A natural question for a synthesized corpus is whether it contains learnable structure beyond each element in isolation, in particular, whether the colors of different elements within a graphic are related, as they are in human-designed infographics where palette choices are made jointly. We quantify this on a 1,000 1{,}000 -sample subset by comparing, within each graphic, the colors of the vector design and the colors of the diffusion-generated illustrations, all in perceptual CIELAB space. Two findings emerge (Fig. 9 ). First, the vector side is palette-coherent by construction: text fills are drawn verbatim from the design palette (median Δ ​ E = 0 \\Delta E=0 to the nearest palette swatch), confirming that the LLM designs a single coherent color scheme per graphic. Second, and less trivially, the diffusion-generated illustrations are measurably coupled to that vector palette even though the editor sees only a per-illustration subject prompt. Aggregate illustration color and palette color are positively correlated per channel, most strongly on the blue-yellow ( b ∗ b^{\\ast} , r = 0.35 r=0.35 ) and red-green ( a ∗ a^{\\ast} , r = 0.22 r=0.22 ) axes and weakest on lightness ( L ∗ L^{\\ast} , r = 0.11 r=0.11 ); a permutation test rejects independence ( p perm < 10 − 3 p_{\\mathrm{perm}}<10^{-3} , observed-to-null coupling ratio 1.14 × 1.14\\times ); and a canonical correlation analysis between illustration and palette color reaches a first correlation of ρ 1 = 0.41 \\rho_{1}=0.41 . The coupling is also learnable : knowing the palette improves prediction of an illustration’s b ∗ b^{\\ast} by Δ ​ R 2 = + 0.13 \\Delta R^{2}=+0.13 beyond the style label alone, and the leading two principal components of the joint color representation explain 0.44 0.44 of the variance versus 0.24 0.24 under a shuffled null. Mechanistically, this coupling is authorial rather than injected: the same language model writes both the design palette and each illustration’s subject prompt, so color intent leaks through word choice, and it survives the editor’s independent re-styling. This is a desirable property for our setting: it means the corpus rewards a model that coordinates appearance across layers rather than styling each layer in isolation, which is precisely the behavior the correlated, communicating streams of LayerCanvas are designed to capture. Figure 9: Cross-element color structure ( n = 1,000 n=1{,}000 ). (a) Per-channel Pearson correlation in CIELAB between mean illustration color and mean palette color; coupling is strongest on the b ∗ b^{\\ast} (blue-yellow) axis. (b) Observed illustration ↔ \\leftrightarrow palette coupling exceeds a shuffled null ( p perm < 10 − 3 p_{\\mathrm{perm}}<10^{-3} ). (c) Joint-structure and learnability summaries: canonical correlation ρ 1 \\rho_{1} , variance explained by the first two joint principal components versus a null, and the R 2 R^{2} gain on b ∗ b^{\\ast} from conditioning on the palette. Together these show the dataset induces coordinated, non-random color composition across layers."
+      },
+      {
+        "id": "A1.SS6",
+        "heading": "A.6 Implementation details",
+        "level": 2,
+        "text": "The design agent is driven by a large language model (Claude Opus 4.8 Anthropic (2026) ), accessed through a standard chat-completion API, and invoked with a render-and-inspect tool loop that supplies the rasterized SVG back to the model for revision. SVGs are rendered with rsvg-convert ( Lachowicz et al., 2014 ) at the fixed 1536 × 1024 1536\\times 1024 canvas. Illustration aestheticization uses the Qwen-Image-Edit Qwen Team (2025b) diffusion image editor in bfloat16 , with classifier-free guidance 5.0 5.0 , 40 40 denoising steps, and a fixed seed for reproducibility; crop sizes are snapped to multiples of 32 32 within [ 256 , 1024 ] [256,1024] . Standalone asset generation, where needed, uses the Qwen-Image Qwen Team (2025a) text-to-image model. Background removal uses rembg Gatis (2025) with the u2net matting model; a border-connected white-key matte is available as a fast alternative for saturated subjects. Color analysis is performed in CIELAB (via scikit-image ( van der Walt et al., 2014 ) ) with k k -means dominant-color extraction and permutation, canonical-correlation, and PCA baselines. The stages have different resource needs, so we separate them. The language-model stage requires only API access and runs on a CPU host, while the GPU stages (aestheticization, matting, composition, and layer rendering) run on NVIDIA H100 and H200 GPUs. Large batches are executed on 8 × \\times H100 and 8 × \\times H200 nodes. The style-augmentation and dense-reuse passes require no language-model access, since they reuse the previously validated structural layers and only rerun the GPU restyle-and-compose steps."
+      },
+      {
+        "id": "A2",
+        "heading": "Appendix B Additional Details and Experiments",
+        "level": 1,
+        "text": "This section provides the complete method specification followed by supplementary experimental details, comparisons, and analyses."
+      },
+      {
+        "id": "A2.SS1.SSS0.Px1",
+        "heading": "Renderer-derived masks and hidden areas.",
+        "level": 4,
+        "text": "The offline renderer removes all SVG text nodes and records a text-free target, per-element RGBA assets, element types, normalized boxes, parent-child links, paint order, and masks. For element e i e_{i} , the full (amodal) mask A i A_{i} covers its entire area before later elements are painted, while V i V_{i} retains only the pixels visible in the final rendering. Their difference H i = ( A i − V i ) + H_{i}=(A_{i}-V_{i})_{+} identifies content hidden by an element in front. Because per-element assets are rendered before composition, H i H_{i} contains the element’s true appearance rather than a blank region. This provides a direct training target for content revealed by deletion, translation, or z-order edits. Illustration prompts and text regions are routed to their owning visual elements, although text remains absent from image targets."
+      },
+      {
+        "id": "A2.SS1.SSS0.Px2",
+        "heading": "Properties of ordered grouping.",
+        "level": 4,
+        "text": "The rule in Eq. ( 4 ) never places an element in the same or an earlier group than an already processed element that it overlaps. Thus every overlap keeps SVG paint order, while Eq. ( 3 ) guarantees that elements sharing a generated layer cannot overwrite one another. The groups are not based on meaning or element type: different element types may share a generated layer whenever their full masks do not overlap. The layers are also not generated one at a time; the group index determines composition order but all layers are sampled simultaneously. After a geometric edit, grouping and graph information are recomputed without resampling unaffected layers."
+      },
+      {
+        "id": "A2.SS1.SSS0.Px3",
+        "heading": "Correlated layer-wise flow matching.",
+        "level": 4,
+        "text": "Let x 1 , g ∈ ℝ K × D x_{1,g}\\in\\mathbb{R}^{K\\times D} be the packed internal VAE features of the clean target for group g g . We combine shared and private Gaussian noise, ϵ g = ρ ​ ϵ sh + 1 − ρ ​ ϵ g pr , ϵ sh , ϵ g pr ∼ 𝒩 ⁡ ( 0 , I ) , \\epsilon_{g}=\\sqrt{\\rho}\\,\\epsilon_{\\rm sh}+\\sqrt{1-\\rho}\\,\\epsilon_{g}^{\\rm pr},\\quad\\epsilon_{\\rm sh},\\epsilon_{g}^{\\rm pr}\\sim\\mathcal{N}(0,I), (9) where the shared component encourages a consistent scene-level look and the private component preserves layer-specific variation. The current schedule samples ρ ∼ 𝒰 ⁡ ( 0.5 , 1 ) \\rho\\sim\\mathcal{U}(0.5,1) . Each example uses one common timestep t t , so communication always relates layers at the same noise level. The implemented linear path is x t , g = ( 1 − t ) ​ ϵ g + t ​ x 1 , g , u g = x 1 , g − ϵ g , t ∼ 𝒰 ⁡ ( 0 , 1 ) , x_{t,g}=(1-t)\\epsilon_{g}+tx_{1,g},\\qquad u_{g}=x_{1,g}-\\epsilon_{g},\\qquad t\\sim\\mathcal{U}(0,1), (10) with primary objective ℒ layer = ∑ g m g ​ ‖ v θ , g − u g ‖ 2 2 ∑ g m g , x ^ 1 , g = x t , g + ( 1 − t ) ​ v θ , g , \\mathcal{L}_{\\rm layer}=\\frac{\\sum_{g}m_{g}\\|v_{\\theta,g}-u_{g}\\|_{2}^{2}}{\\sum_{g}m_{g}},\\qquad\\widehat{x}_{1,g}=x_{t,g}+(1-t)v_{\\theta,g}, (11) where m g m_{g} ignores empty layer slots added for batching. During generation, these partly shared starting states are updated in parallel. Shared noise only helps align the overall look: without the communication block, the frozen backbone still processes each group independently and cannot react to another layer’s evolving content or boundary. Figure 2 shows the full noise-to-layer path and expands one repeated denoising step."
+      },
+      {
+        "id": "A2.SS1.SSS0.Px4",
+        "heading": "Communication summaries and graph bias.",
+        "level": 4,
+        "text": "At a selected backbone depth, each layer is summarized using nine compact feature groups: summary statistics from the full and hidden areas, averages from visible areas and boundary bands, 2 × 2 2\\times 2 pooled spatial context, type, box, paint order, timestep, local text context, and a global feature average. These values are combined into the group summary h g h_{g} . The graph tensor E g ​ h ∈ ℝ 4 E_{gh}\\in\\mathbb{R}^{4} stores directed back-to-front overlap, front-to-back overlap, parent-to-child links, and child-to-parent links. A learned linear map produces one added bias per attention head, as formalized in Eq. ( 7 ); invalid padded groups are masked from both keys and outputs."
+      },
+      {
+        "id": "A2.SS1.SSS0.Px5",
+        "heading": "Style and boundary paths.",
+        "level": 4,
+        "text": "The communicated summary h ~ g \\widetilde{h}_{g} is returned to the image features through the two paths in Eq. ( 8 ). The style path predicts a coarse 2 × 2 2\\times 2 cell grid and enlarges it to provide smooth appearance corrections. The boundary path combines local hidden states with h ~ g \\widetilde{h}_{g} and is multiplied by a narrow band B g B_{g} , limiting its effect to silhouettes and cross-layer contacts. Their learned gate biases are initialized to [ − 2.0 , − 2.5 ] [-2.0,-2.5] , giving initial gate strengths of approximately 0.12 0.12 and 0.076 0.076 . These gates start small but not at zero. The block makes no change at the start of training because the style and boundary output layers start at zero."
+      },
+      {
+        "id": "A2.SS1.SSS0.Px6",
+        "heading": "Composition and structure losses.",
+        "level": 4,
+        "text": "The loss for each layer does not by itself check the result after the layers are combined. The composition loss sorts groups by paint order and compares their masked reconstruction with the clean composite. ℒ hid \\mathcal{L}_{\\rm hid} supervises the hidden area H g = ( A g − V g ) + H_{g}=(A_{g}-V_{g})_{+} , and ℒ bnd \\mathcal{L}_{\\rm bnd} matches values and spatial gradients near ancestor boundaries. For every auxiliary term, we first recover the one-step clean estimate x ^ 1 , g \\widehat{x}_{1,g} for each group from its noisy state and predicted velocity using Eq. ( 11 ). This estimate remains in the packed model representation; training does not decode a full RGB image through the VAE for these losses. Only the composition loss combines the estimated groups: it applies their amodal masks, sorts them by SVG paint order, and compares the result with the corresponding composition of the clean target groups. The remaining auxiliary losses operate directly on individual clean group estimates. The full objective is ℒ = λ layer ​ ℒ layer + λ comp ​ ℒ comp + λ hid ​ ℒ hid + λ bnd ​ ℒ bnd \\mathcal{L}=\\lambda_{\\rm layer}\\mathcal{L}_{\\rm layer}+\\lambda_{\\rm comp}\\mathcal{L}_{\\rm comp}+\\lambda_{\\rm hid}\\mathcal{L}_{\\rm hid}+\\lambda_{\\rm bnd}\\mathcal{L}_{\\rm bnd} (12)"
+      },
+      {
+        "id": "A2.SS1.SSS0.Px7",
+        "heading": "Exact typography.",
+        "level": 4,
+        "text": "All SVG text nodes are removed from diffusion targets, and prompts request blank title, label, and caption regions. We retain the Unicode string, role, bounding box, font family and style, alignment, transforms, hierarchy, and owning visual element. During generation, the text-free composite is placed beneath a transparent vector-rendered text layer R text ​ ( 𝒯 ) R_{\\rm text}(\\mathcal{T}) , as specified in Eq. ( 2 ). Spelling, line breaks, alignment, and font edits therefore require only vector re-rendering, not another diffusion pass."
+      },
+      {
+        "id": "A2.SS2.SSS0.Px1",
+        "heading": "Compared methods.",
+        "level": 4,
+        "text": "The primary comparison (Table 1 ) evaluates four methods: (i) SVG (LLM-generated) , a reference in which an LLM (Claude Opus 4.8 Anthropic (2026) ) recolors and completes the structural SVG, which is then rasterized with rsvg-convert Lachowicz et al. (2014) ; this yields exact vector text by construction but is not a photorealistic synthesizer; (ii) Qwen-Image-2512 ( Qwen Team, 2025a ) , a prompt-only diffusion model conditioned on the design-concept prompt which is itself derived from the same SVG layout (for fairness in evaluation); (iii) Ideogram-4 ( Ideogram AI, 2026 ) , a prompt-only open-weights system whose prompt is constructed from the same SVG layout, with its structural elements serialized into the structured prompt format the model expects; and (iv) LayerCanvas , grouped layer-set diffusion followed by exact SVG text compositing. Prompt-only baselines receive the concept prompt reconstructed from each record’s structured conditioning; LayerCanvas additionally consumes the structural layer set."
+      },
+      {
+        "id": "A2.SS2.SSS0.Px2",
+        "heading": "Generation configuration.",
+        "level": 4,
+        "text": "Diffusion baselines and LayerCanvas are run at matched prompts and seeds; the editor backbone runs in bf16 with classifier-free guidance 5.0 and 40 denoising steps. LayerCanvas adds text exactly from the source SVG after raster synthesis."
+      },
+      {
+        "id": "A2.SS2.SSS0.Px3",
+        "heading": "Text-fidelity protocol.",
+        "level": 4,
+        "text": "Text fidelity is measured two ways. Placement-exact fidelity uses ground-truth-region OCR: for each ground-truth text box (taken from the stored structured conditioning) we crop the corresponding region and OCR it with Tesseract Tesseract OCR contributors (2026) . The primary results use a strict 768 × 512 768{\\times}512 evaluation canvas. Both exact-text methods are rendered with rsvg-convert Lachowicz et al. (2014) on the same host with Georgia, Helvetica, and Arial available through fontconfig. We report character accuracy ( 1 − 1- normalized edit distance, averaged over regions) and exact-match rate. Placement-agnostic fidelity instead runs location-independent full-image OCR and reports word recall, the fraction of ground-truth content tokens (length ≥ 3 \\geq 3 , NFKC-normalized) recovered anywhere in the image; this credits a baseline that renders legible text at the wrong position. For the two exact-text methods the remaining gap from 1.0 1.0 reflects OCR error rather than genuine text mistakes, since the text is placed by construction. The two prompt-only baselines behave differently under the two scores: both are near zero on placement-exact OCR because their glyphs are not at the ground-truth boxes, but on word recall Ideogram-4 recovers most text (partially readable yet mislocated) while Qwen-Image-2512 stays low (text is genuinely garbled)."
+      },
+      {
+        "id": "A2.SS2.SSS0.Px4",
+        "heading": "Judge protocol.",
+        "level": 4,
+        "text": "Aesthetic and typographic quality is scored by a VLM judge using the human-preference variant of our static-quality rubric. The primary judge (Claude Opus 4.8) scores each image on 0 0 - 5 5 across three criteria- illustration appeal , typography quality , semantic coverage plus a holistic overall score that we omit in the reported tables in favor of Avg , the transparent mean of illustration appeal, typography, and semantic coverage. The appeal criterion uses strict, anchored bands so that coarse, flat, or generic illustrations stay in the low range regardless of how clean the surrounding layout is, and richly rendered, detailed artwork is required for the top bands; this keeps the score aligned with what a human would actually prefer without the rubric explicitly naming photorealism. The design concept passed to the judge is reconstructed from the stored structured conditioning, and judgments are disk-cached for reproducibility. We additionally repeat the identical image-rubric judgments with Gemini 3.7 Flash Google DeepMind (2026) and GPT-5.6 Sol OpenAI (2026) . All three judges receive the same 768 × 512 768{\\times}512 resolution."
+      },
+      {
+        "id": "A2.SS2.SSS0.Px5",
+        "heading": "Full results.",
+        "level": 4,
+        "text": "Table 3 reports the judge criteria alongside both text-fidelity metrics. Table 3: Full evaluation, including the craft judge criterion omitted from Table 1 . Text fidelity is measured at 768 × 512 768{\\times}512 and includes placement-exact ground-truth-region OCR (char / exact) and placement-agnostic full-image word recall ( Recall ); judge criteria are 0 0 - 5 5 , higher better; Avg is the mean of appeal, typography, and coverage. † LLM-authored SVG recolor reference. Text fidelity VLM judge (0-5) Method Char Exact Recall Appeal Typog. Cov. Craft Avg SVG (LLM-authored) † 0.856 0.676 0.964 2.37 4.02 4.90 3.91 3.76 Qwen-Image-2512 0.080 0.002 0.149 2.69 1.00 1.45 1.51 1.71 Ideogram-4 0.657 0.360 0.744 2.92 2.29 3.89 2.49 3.03 LayerCanvas (Ours) 0.822 0.623 0.942 2.99 3.81 4.75 3.59 3.85 Table 4: OCR resolution sensitivity. Placement-exact character accuracy ( Char ) and exact-match rate ( Exact ), together with placement-agnostic word recall ( Recall ). 768 × 512 768{\\times}512 OCR 4096-pixel OCR Method Char Exact Recall Char Exact Recall SVG (LLM-authored) † 0.856 0.676 0.964 0.883 0.595 0.814 Qwen-Image-2512 0.080 0.002 0.149 0.077 0.002 0.150 Ideogram-4 0.657 0.360 0.744 0.643 0.268 0.727 LayerCanvas (Ours) 0.822 0.623 0.942 0.853 0.543 0.806 Table 5: Multi-judge robustness at 768 × 512 768{\\times}512 . Each entry is the mean of illustration appeal, typography quality, and semantic coverage. LayerCanvas is the highest-scoring learned synthesis method under every judge. Judge SVG Qwen Ideogram LayerCanvas Claude Opus 4.8 Anthropic (2026) 3.76 1.71 3.03 3.85 Gemini 3.7 Flash Google DeepMind (2026) 3.93 1.99 3.54 3.99 GPT-5.6 Sol OpenAI (2026) 3.81 1.99 3.32 3.81 Across judges, LayerCanvas’s Avg is 3.88 ± 0.08 3.88\\pm 0.08 (population standard deviation), compared with 1.90 ± 0.13 1.90\\pm 0.13 for Qwen and 3.30 ± 0.21 3.30\\pm 0.21 for Ideogram. This slightly exceeds the SVG reference’s 3.83 ± 0.07 3.83\\pm 0.07 cross-judge mean. Judges differ in absolute calibration but preserve the learned-method ranking."
+      },
+      {
+        "id": "A2.SS3",
+        "heading": "B.3 Additional comparisons",
+        "level": 2,
+        "text": "Figures 10 and 11 provide additional qualitative comparisons, showing that LayerCanvas preserves the source layout and legible text while enriching the illustrations and avoiding the text failures of raster baselines. Figure 10: Additional qualitative comparisons. Columns show the LLM-authored SVG reference, Qwen-Image-2512, Ideogram-4, and LayerCanvas, respectively. Figure 11: Additional qualitative comparisons. Columns show the LLM-authored SVG reference, Qwen-Image-2512, Ideogram-4, and LayerCanvas, respectively."
+      },
+      {
+        "id": "A2.SS4.SSS1",
+        "heading": "B.4.1 Training compute",
+        "level": 3,
+        "text": "With full gradient checkpointing, a single-H200 training step takes 10.33 s and uses 30.8 GiB of peak GPU memory. Backward recomputation takes 7.18 s, forward execution 2.29 s, and input preparation 0.83 s. Checkpointing half of the transformer blocks reduces the step time to approximately 9.2 s but raises peak GPU memory to approximately 108 GiB. Quarter and no-checkpointing profiles exceed 133 GiB and run out of memory on a 141 GB H200."
+      },
+      {
+        "id": "A2.SS4.SSS2.Px1",
+        "heading": "Layer generation.",
+        "level": 4,
+        "text": "A matched single-H200 profile uses two validation examples at each grouped layer count from three through seven. End-to-end generation takes 24.0 s per sample on average and 23.4 s at the median, with a measured range of 16.8-31.9 s over 10 generations. Peak allocated GPU memory rises from 20.7 GiB at three grouped layers to 28.1 GiB at seven. The trend is shown in Figure 12 . Figure 12: Diffusion inference compute. Generation time and peak allocated GPU memory on one H200 increase with the number of grouped layers. Each point is the mean of two 20-step generations; error bars show the measured minimum and maximum."
+      },
+      {
+        "id": "A3",
+        "heading": "Appendix C Downstream Applications",
+        "level": 1,
+        "text": "This section demonstrates how the hybrid raster-SVG layer-set representation supports deterministic editing and reuse after generation. Each application uses the trained grouped layer-set model or a previously generated output from that model; operations performed only on the persistent structured representation are identified explicitly."
+      },
+      {
+        "id": "A3.SS1",
+        "heading": "C.1 Text editing and localization",
+        "level": 2,
+        "text": "End-to-end raster generators must repaint text whenever wording, typography, or language changes. Because their glyph generation is data-driven, they may also favor the visual conventions of a dominant training language rather than faithfully rendering a requested, less represented script. LayerCanvas instead generates only the visual substrate and preserves typography as styled SVG nodes. Copy, style, and locale changes therefore require no diffusion pass and cannot alter the generated artwork."
+      },
+      {
+        "id": "A3.SS1.SSS0.Px1",
+        "heading": "Implementation.",
+        "level": 4,
+        "text": "Each text node retains its Unicode content, position, font family, size, weight, style, anchor, fill color, transforms, and parent ownership. Editing replaces only the requested attributes before the text-only SVG is rasterized and alpha-composited over the unchanged model output. Localization uses a script-appropriate local font and shaping direction; nonlinguistic values such as numbers and code may remain unchanged. Figure 13 shows the same generated layers with text rendered in four languages. Figure 13: Editable text representation and localization. A held-out LayerCanvas result is generated without glyphs, while the source SVG text nodes remain a separate editable vector layer. Their composition produces the final document. The lower row localizes the same unchanged generated image layers into French, Arabic, and Japanese by re-rendering only the text layer."
+      },
+      {
+        "id": "A3.SS1.SSS0.Px2",
+        "heading": "Deterministic behavior.",
+        "level": 4,
+        "text": "This operation is a property of the representation rather than a learned prediction: the requested node attributes are written directly into SVG and rendered by the vector-text runtime. Thus the rendered language follows the provided Unicode content and selected font rather than a language distribution learned by the image model. The only external requirements are an available font with the requested glyphs and enough space in the retained text box for the new copy. If a translation changes line length substantially, standard SVG layout operations can resize or reflow the text box without regenerating any image layer."
+      },
+      {
+        "id": "A3.SS2",
+        "heading": "C.2 Independent layer animation",
+        "level": 2,
+        "text": "We adapt the zero-shot animation principle of Text2Video-Zero Khachatryan et al. (2023) , which shows that the motion and appearance priors of a pretrained text-to-image diffusion model can produce a temporally linked sequence without video-specific training. A flattened document would still expose the complete page to this generative update, allowing unrelated illustrations, layout, and typography to drift. LayerCanvas instead lets the temporal operation target one named image layer while all other layers remain fixed."
+      },
+      {
+        "id": "A3.SS2.SSS0.Px1",
+        "heading": "Implementation.",
+        "level": 4,
+        "text": "Following Text2Video-Zero, we derive a short motion trajectory from an image diffusion prior rather than training a video model. The user selects an image layer, optionally together with a bounded subregion, and specifies endpoint states or a motion transform. Intermediate states are produced through latent interpolation or motion-guided warping, decoded only for the selected content, and alpha-composited over the unchanged layer set at each timestep. This final step is specific to our representation: every unselected image layer and the full-resolution SVG typography are copied identically into every frame. In Figure 5 , the selected subregion is an eye band covering 6.6 % 6.6\\% of the canvas."
+      },
+      {
+        "id": "A3.SS2.SSS0.Px2",
+        "heading": "Discussion.",
+        "level": 4,
+        "text": "The generative component supplies motion only; spatial isolation comes from the LayerCanvas representation. Pixels outside the selected region and the complete vector-text layer are not predicted at subsequent timesteps, so they remain bit-identical by construction. This converts a global zero-shot image animation method into a local document operation and avoids spending temporal model capacity on content that should not move."
+      },
+      {
+        "id": "A3.SS3",
+        "heading": "C.3 Asset reuse and recomposition",
+        "level": 2,
+        "text": "A flattened image binds every illustration, diagram, and decorative element to its original page. Reusing one of them requires segmentation followed by inpainting or regeneration of the surrounding content. LayerCanvas instead keeps generated visual groups as addressable image layers with their own alpha and paint order, so an element can become a reusable asset after generation."
+      },
+      {
+        "id": "A3.SS3.SSS0.Px1",
+        "heading": "Implementation.",
+        "level": 4,
+        "text": "A selected layer is copied with its image content and alpha mask. Standard layer operations then translate or scale it, adjust its appearance within the mask, and assign a new position in the target paint order. Multiple selected layers may be placed onto a new background and combined with newly authored SVG text. These operations act on the saved representation and do not require segmentation, inpainting, or another diffusion pass. Figure 14 shows three layers reused in a new composition. Figure 14: Asset reuse. Three generated layers are taken from one document and arranged into a new composition. Each layer carries its own alpha, allowing independent repositioning, scaling, restyling, and reordering."
+      },
+      {
+        "id": "A3.SS3.SSS0.Px2",
+        "heading": "Discussion.",
+        "level": 4,
+        "text": "Reuse preserves the generated appearance of an asset while decoupling it from the document in which it first appeared. A collection of generated layers can therefore serve as a project-specific asset library: recurring illustrations or diagram components may be placed across related documents while layout and text remain independently editable. The resulting composition is still structured, so the reused layer can be moved, hidden, or replaced again later."
+      },
+      {
+        "id": "A3.SS4",
+        "heading": "C.4 Layout retargeting and responsive resize",
+        "level": 2,
+        "text": "A design may need to appear as a presentation slide, poster, and mobile graphic. Resizing a flattened page either distorts its elements or removes content through cropping. LayerCanvas retains the document as addressable groups, allowing the same generated content to be arranged for a different canvas."
+      },
+      {
+        "id": "A3.SS4.SSS0.Px1",
+        "heading": "Implementation.",
+        "level": 4,
+        "text": "Each illustration, diagram, card, and text block carries a bounding box and group assignment. A simple reflow solver packs these groups in reading order, using more columns on wide canvases and a vertical stack on narrow ones. Generated image groups are scaled uniformly, while SVG text can be re-rendered for the new box. The operation changes only layout metadata and recomposition; the image layers are not generated again. Figure 15 shows the same content adapted to slide, poster, and mobile layouts. Figure 15: Layout retargeting. The same generated module illustration, code panels, and explanatory cards are rearranged for slide, poster, and mobile canvases. Image groups preserve their aspect ratios, while text remains separately renderable for each target layout."
+      },
+      {
+        "id": "A3.SS4.SSS0.Px2",
+        "heading": "Discussion.",
+        "level": 4,
+        "text": "Retargeting becomes a document-layout problem rather than an image-generation problem. Groups may be reprioritized, resized, or moved between rows without changing their generated appearance, and the result remains editable after recomposition. More advanced layout objectives or design templates can replace the simple solver without changing the underlying representation."
+      },
+      {
+        "id": "A3.SS5",
+        "heading": "C.5 Command-driven interactive editing",
+        "level": 2,
+        "text": "Interactive authoring is naturally expressed through commands such as “remove this card,” “emphasize this panel,” or “swap this icon.” Prompt-based regeneration may redraw the entire canvas. Named layer groups instead allow the command to be grounded to one element and executed as a local, reversible edit."
+      },
+      {
+        "id": "A3.SS5.SSS0.Px1",
+        "heading": "Implementation.",
+        "level": 4,
+        "text": "A lightweight interpreter maps a command to { action , target } \\{\\textsc{action},\\textsc{target}\\} using action phrases and aliases for the document’s semantic groups. We support removing, emphasizing, swapping, and adding elements. The executor applies the operation to the targeted SVG group or model-rendered layer. Full-resolution alpha masks define the affected region, allowing the result to be recomposited without resampling unrelated content. Figure 16 shows remove, swap, and add commands applied to selected regions. Figure 16: Command-driven editing. Three natural-language commands are converted to targeted remove, swap, and add operations. Red boxes indicate the edited regions; unselected layers are reused unchanged."
+      },
+      {
+        "id": "A3.SS5.SSS0.Px2",
+        "heading": "Discussion.",
+        "level": 4,
+        "text": "The language interface does not edit pixels directly. It selects an operation and resolves a semantic target, after which the persistent layer representation defines the exact region and compositing behavior. Commands can therefore be previewed, reversed, or chained without resampling the full document. A learned language parser could replace the lightweight interpreter without changing the underlying editing operations or their locality."
+      },
+      {
+        "id": "A3.SS6",
+        "heading": "C.6 SVG-space refinement and faithful diffusion propagation",
+        "level": 2,
+        "text": "An upstream layout proposal may contain a misplaced, mislabeled, or incorrectly styled element. In a raster-only pipeline this often requires a new prompt or manual pixel editing. In LayerCanvas, the SVG is a persistent control surface: the element can be corrected directly, and the model propagates that correction to the raster without retraining or redesigning the rest of the document."
+      },
+      {
+        "id": "A3.SS6.SSS0.Px1",
+        "heading": "Implementation.",
+        "level": 4,
+        "text": "We deliberately perturb one SVG element by translating, resizing, recoloring, relabeling, or replacing it. The incorrect and corrected conditions use the same sampling noise so that differences are attributable to the structural edit. Composition uses each group’s full-resolution vector alpha mask rather than an upsampled latent-grid mask. Figure 6 presents the incorrect condition, the SVG edit, and the corrected render as a matched triptych."
+      },
+      {
+        "id": "A3.SS6.SSS0.Px2",
+        "heading": "Discussion.",
+        "level": 4,
+        "text": "The structured intermediate remains editable after an initial generation rather than becoming a disposable prompt. A user or upstream layout system can inspect the result, correct the responsible SVG group, and regenerate the affected visual content under the revised condition. Fixed noise helps preserve the remaining appearance, while recomputing masks and overlap relations allows changes in position, scale, or occlusion to propagate consistently."
+      },
+      {
+        "id": "A4",
+        "heading": "Appendix D Limitations, ethics, and broader impact.",
+        "level": 1,
+        "text": "Despite these benefits, LayerCanvas requires a valid source SVG and inherits errors and biases in its content, layout, and training data. Deterministic typography preserves supplied text but does not ensure factuality, accessibility, or culturally appropriate localization, while edits that change occlusion or z-order may affect unintended regions. Responsible deployment therefore requires documented data provenance, license and bias checks, generated-content disclosure, and human review."
+      }
+    ]
+  },
+  "text": "LayerCanvas: Infographic Generation in AI Learning Assistants via Hybrid Layer-Set Diffusion Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: CC BY 4.0 arXiv:2610.18763v1 [cs.CV] 13 Oct 2026 LayerCanvas: Infographic Generation in AI Learning Assistants via Hybrid Layer-Set Diffusion Keshav Gupta † † thanks: Work done during an internship at LinkedIn Inc. Affiliation: University of California, San Diego Jeremy Owen Affiliation: LinkedIn Inc. Christopher Lloyd Affiliation: LinkedIn Inc. Shaunak Mishra Affiliation: LinkedIn Inc. Manav Sharma Affiliation: LinkedIn Inc. Abstract Online learning platforms are increasingly deploying AI assistants to provide personalized, on-demand tutoring. These can leverage infographics to communicate complex information and improve the learning experience. However, automating effective infographic generation remains a challenging task, requiring a combination of visual richness with precise typography, structured layouts, and continued editability. Existing representation methods satisfy these goals only in part: Scalable Vector Graphics (SVG) representations preserve geometry, hierarchy, and text but provide limited aesthetic flexibility, while raster diffusion models produce richer appearances by flattening content and layout into a single image. Conditioning a diffusion model on a rasterized SVG does not resolve this conflict because the raster preserves approximate placement but discards element ownership, occlusion relationships, and the structure needed to modify and recompose the result. We introduce LayerCanvas , a hybrid approach that retains SVG as the semantic, structural, and typographic program while using diffusion to aestheticize non-text content. Rather than generating one flattened raster, LayerCanvas partitions SVG elements into z-ordered sets of mutually non-overlapping elements and processes them through communicating parallel RGB generation streams. The resulting layers are independently editable and deterministically recomposed, while text is rendered from preserved vector metadata. Our approach combines rich visual synthesis with accurate typography and localized editing. LayerCanvas substantially improves text fidelity over state-of-the-art raster image generators while achieving the highest overall aesthetic quality. We further demonstrate non-destructive content editing, localization, asset reuse, and animation. Figure 1: LayerCanvas generates editable, text-faithful infographics. Current SOTA text-to-image models such as Qwen-Image-2512 ( Qwen Team, 2025a ) and Ideogram-4 ( Ideogram AI, 2026 ) flatten the graphic and often garble text (top). Given a vector layout, LayerCanvas generates ordered RGB layers and composes them with exact vector text (middle), enabling localization and illustration edits without changing unrelated content (bottom). 1 Introduction Visual explanations are a fundamental component of modern learning platforms, where instructional content is increasingly presented through a combination of text, diagrams, illustrations, and infographics. Pairing words with pictures improves comprehension and retention relative to text alone ( Mayer, 2009 ; Clark and Paivio, 1991 ) , while infographics can make dense information more accessible and memorable ( Bateman et al., 2010 ; Bhat and Alyahya, 2024 ) . As learning platforms increasingly deliver and adapt instructional materials digitally, there is a growing need to automatically generate visual explanations that are both pedagogically effective and easy to revise as content evolves. Such explanations must communicate through precise labels and clear visual hierarchy while also providing the visual richness expected from modern image generators ( Rombach et al., 2022 ; Podell et al., 2024 ; Chen et al., 2025 ) . Meeting these requirements is challenging: precision, structure, and editability are naturally supported by representations such as Scalable Vector Graphics (SVG) ( W3C SVG Working Group, 2011 ) , whereas visual richness is most readily produced by raster generative models. This representational contrast has a fundamental tradeoff. Vector graphics make geometry, grouping, text, and rendering order explicit, which makes direct manipulation possible ( W3C SVG Working Group, 2011 ) , but automatically generated SVGs ( Rodriguez et al., 2025 ; Wu et al., 2023 ; Xing et al., 2024 ; Wu et al., 2024 ) often appear visually rigid, and stylizing them by hand is costly and difficult to scale. On the other hand, diffusion and flow models provide richer aesthetic priors ( Rombach et al., 2022 ; Saharia et al., 2022 ; Esser et al., 2024 ) , but synthesizing the artifact as a single raster makes exact typography and local intervention difficult; even state-of-the-art image models render dense, legible text unreliably, motivating specialized text-rendering methods ( Liu et al., 2023b ; Chen et al., 2023 ; Tuo et al., 2024 ) . These limitations are especially consequential for learning platforms, which must serve learners worldwide by localizing explanations into different languages and adapting layouts across display formats, from desktop interfaces to mobile screens. Supporting these uses requires text to remain disentangled from imagery and layout components to remain independently adjustable, properties that are lost when the infographic is flattened into a raster. A natural way then is to rasterize the SVG layout and use it as a conditioning signal for a diffusion model, letting the vector structure guide where content goes while diffusion supplies appearance. Simply rasterizing an SVG for conditioning does not resolve the mismatch: it preserves coarse spatial placement but discards element ownership, occlusion relationships, and the structure needed to recompose the graphic after an edit. This loss of structure cannot be addressed simply by strengthening raster conditioning. A system designed for editable generation should preserve these compositional units throughout synthesis instead of attempting to recover their ownership from pixels afterward. Motivated by this principle, LayerCanvas combines the structure of SVGs with the visual capabilities of diffusion models. The SVG defines the semantic layout, hierarchy, paint order, and typography. Its non-text elements are partitioned into ordered, non-overlapping layers and generated through communicating parallel RGB streams, which are then alpha-composited according to the SVG z-order. Text nodes are kept outside the diffusion process entirely and rendered directly from their preserved vector metadata (Figure 1 ). Outputs remain editable, so users can replace text, move or hide groups, change the z-order, reuse illustrations, or specify animation trajectories. This makes the representation well suited to visual authoring workflows where generated content needs to remain editable and reusable, including educational content creation. Training such a model requires examples that pair SVG with the corresponding rendered layers and final image. To create this paired supervision, we design a custom multi-agent framework, following recent work on agentic pipelines ( Jain et al., 2026 ; Huang et al., 2026 ) . The agents create concepts and SVG layouts, add illustrations, produce text-free targets and masks, and check that each example renders and reconstructs correctly. Our contributions are: • A hybrid formulation that separates deterministic SVG structure and typography from diffusion-based aestheticization; • A multi-agent pipeline that produces and validates paired SVGs, text-free targets, layers, masks, and provenance metadata; • A rendering-aligned layer representation that supports parallel generation, explicit occlusion modeling, and deterministic z-order composition, yielding over 25 % 25\\% higher placement-exact OCR character accuracy and approximately 27 % 27\\% higher aggregate aesthetic quality than the strongest raster baseline • Practical workflows for non-destructive editing, localization, asset reuse, and animated visual explanations. 2 Related Work Visual documents and typography. Automatic graphic design combines templates, constraints, retrieval, and learned layouts; neural methods generate sets or sequences of labeled regions, including alignment and overlap structure ( Li et al., 2019 ; Gupta et al., 2021 ; Inoue et al., 2023 ) . Such representations organize posters, slides, and documents, but do not by themselves resolve illustration appearance, occlusion, or editable object ownership. Programmatic graphics preserve structure, yet hand-authored styling and rigid templates scale poorly to open-ended concepts. Image generators provide richer aesthetics, and text-aware methods introduce character encoders, rendered-glyph conditions, OCR objectives, or localized controls ( Chen et al., 2023 ; Yang et al., 2024b ; Tuo et al., 2024 ) . Instead, we retain SVG as the source of truth for geometry and typography, remove text from diffusion targets, and render editable vector text after aestheticization. Controllable, object-centric, and layered generation. ControlNet and T2I-Adapter condition pretrained diffusion models on spatial signals ( Zhang et al., 2023 ; Mou et al., 2024 ) , while grounded, reference-conditioned, and regional methods add box, entity, exemplar, or prompt-region controls ( Li et al., 2023 ; Ye et al., 2023 ; Bar-Tal et al., 2023 ) . These approaches improve spatial control but typically produce a single entangled raster or latent field, limiting direct editing after sampling. Object-centric, compositional, and layer-aware models separate entities, concepts, transparency, or foreground/background content ( Burgess et al., 2019 ; Locatello et al., 2020 ; Avrahami et al., 2023 ; Zhang and Agrawala, 2024 ) , with recent methods explicitly generating or recovering editable image layers ( Yang et al., 2024a ; Yin et al., 2025 ; Wang et al., 2026 ) . In contrast, LayerCanvas uses SVG layer identity as explicit conditioning, packing mutually non-overlapping elements into ordered RGB layer sets. This known layer structure makes output decomposition and local intervention intrinsic to the representation, rather than requiring layers to be recovered post hoc. Agentic multimodal curation and differentiation. Foundation models have increasingly been used to generate instructions, propose examples, and curate synthetic multimodal supervision ( Wang et al., 2023 ; Liu et al., 2023a ; Gadre et al., 2023 ) . More recent agentic pipelines extend this paradigm by coordinating specialized agents for scientific tasks, including translating NeRF papers into executable code and automating the generation of editable scientific figures ( Jain et al., 2026 ; Huang et al., 2026 ) . These systems demonstrate the potential of agentic workflows for generating and iteratively refining structured scientific artifacts. Our pipeline builds on this agentic paradigm by combining specialized generative and validation agents with deterministic SVG parsing, rendering, OCR, overlap analysis, and alpha-composition checks, producing mechanically validated training records. 3 Problem Setup and Method 3.1 Overview Infographics combine two capabilities that are usually separated. SVGs provide exact layout and typography, whereas diffusion models provide rich raster appearance but collapse the scene into one pixel grid ( Podell et al., 2024 ; Rombach et al., 2022 ) . Conditioning diffusion on a rasterized SVG preserves coarse geometry but loses element boundaries and information about which elements cover others. LayerCanvas instead keeps the SVG as the main scene description and generates its non-text content as an ordered set of editable raster layers. Figure 2 summarizes the approach. A renderer creates training layers from the SVG, elements that do not overlap are packed into ordered groups, and all groups are denoised in parallel by a frozen image backbone. A trainable adapter identifies each layer and exchanges messages based on SVG overlap and parent-child links. The generated layers are then combined in SVG paint order and exact vector text is added back. 3.2 Problem setup and hybrid output We represent an infographic as an SVG scene S = ( ℰ , 𝒯 , ℋ , 𝐳 , ℳ ) , S=(\\mathcal{E},\\mathcal{T},\\mathcal{H},\\mathbf{z},\\mathcal{M}), (1) where ℰ = { e i } i = 1 N \\mathcal{E}=\\{e_{i}\\}_{i=1}^{N} contains non-text elements, 𝒯 \\mathcal{T} stores text and typography, ℋ \\mathcal{H} stores parent-child links, z i z_{i} is the paint index, and ℳ \\mathcal{M} contains element type τ i \\tau_{i} , normalized bounding box b i b_{i} , and renderer-derived masks. In particular, A i A_{i} is the full (amodal) mask of element e i e_{i} , while V i V_{i} is the part that remains visible after later elements cover it. Keeping both masks provides training targets for content that becomes visible after deletion, translation, or z-order edits. The output is a hybrid artifact, 𝒜 = ( S , { L ^ g } g = 1 G , R ) , I ^ = Over ⁡ ( R text ​ ( 𝒯 ) , Comp z ⁡ ( L ^ 1 , … , L ^ G ) ) , \\mathcal{A}=\\left(S,\\{\\widehat{L}_{g}\\}_{g=1}^{G},R\\right),\\qquad\\widehat{I}=\\operatorname{Over}\\!\\left(R_{\\rm text}(\\mathcal{T}),\\operatorname{Comp}_{z}(\\widehat{L}_{1},\\ldots,\\widehat{L}_{G})\\right), (2) where L ^ g = ( C ^ g , α ^ g ) \\widehat{L}_{g}=(\\widehat{C}_{g},\\widehat{\\alpha}_{g}) is an editable RGB layer and Comp z \\operatorname{Comp}_{z} composes layers in paint order. Diffusion therefore generates the non-text appearance, while the SVG continues to define geometry, ownership, which elements cover others, and exact text. 3.3 Ordered non-overlapping layer sets Assigning one diffusion path to every SVG element preserves ownership but is unnecessarily expensive: many elements never overlap and can share a path without competing for pixels. Unlike pixel-derived layer decomposition ( Zhang and Agrawala, 2024 ) , we use the SVG’s explicit element ownership to form ordered groups 𝒢 = ( G 1 , … , G G ) \\mathcal{G}=(G_{1},\\ldots,G_{G}) of ℰ \\mathcal{E} . Elements within a group have non-overlapping full masks, A i ⊙ A j = 0 , i ≠ j , e i , e j ∈ G g , A_{i}\\odot A_{j}=0,\\qquad i\\neq j,\\quad e_{i},e_{j}\\in G_{g}, (3) while every overlap respects paint order: if A i ⊙ A j ≠ 0 A_{i}\\odot A_{j}\\neq 0 and z i < z j z_{i}<z_{j} , then g ⁡ ( i ) < g ⁡ ( j ) g(i)<g(j) . Consequently, non-overlapping elements may share one generated layer, but an element in front and the element behind it remain separately editable. We create the groups by processing elements in ascending ( z i , i ) (z_{i},i) order: g ( i ) = { 1 , 𝒫 i = ∅ , 1 + max j ∈ 𝒫 i ⁡ g ⁡ ( j ) , otherwise , 𝒫 i = { j : z j ≤ z i , A j ⊙ A i ≠ 0 , j processed } . g(i)=\\begin{cases}1,&\\mathcal{P}_{i}=\\varnothing,\\\\ 1+\\max_{j\\in\\mathcal{P}_{i}}g(j),&\\text{otherwise},\\end{cases}\\quad\\mathcal{P}_{i}=\\{j:z_{j}\\leq z_{i},\\ A_{j}\\odot A_{i}\\neq 0,\\ j\\text{ processed}\\}. (4) This rule cannot place a front element behind an element that it covers. Group masks are unions, A g = max i ∈ G g ⁡ A i A_{g}=\\max_{i\\in G_{g}}A_{i} and V g = max i ∈ G g ⁡ V i V_{g}=\\max_{i\\in G_{g}}V_{i} , and each layer path receives its grouped control raster, type, box, paint order, and owned illustration prompt. The number of paths therefore depends on how many layers overlap, rather than the number of SVG elements. For premultiplied color P g = α g ​ C g P_{g}=\\alpha_{g}C_{g} , the final raster is obtained by back-to-front alpha composition, ( P ( g ) , α ( g ) ) = ( P g + ( 1 − α g ) ​ P ( g − 1 ) , α g + ( 1 − α g ) ​ α ( g − 1 ) ) , (P^{(g)},\\alpha^{(g)})=\\big(P_{g}+(1-\\alpha_{g})P^{(g-1)},\\alpha_{g}+(1-\\alpha_{g})\\alpha^{(g-1)}\\big), (5) starting from a transparent canvas. Paint order controls composition, not generation order: all valid groups are denoised in parallel, and individual layers can later be translated, removed, or reordered without regenerating unrelated groups. 3.4 Generating coordinated layers LayerCanvas generates all layers together, but separate layers can easily drift toward different colors, lighting, or object identities. Following the continuous interpolation used in flow matching ( Lipman et al., 2023 ) , we give them part of the same starting noise and use the same denoising timestep. This encourages a common look while preserving private noise for layer-specific detail. Shared noise cannot make one layer respond to another, however, so the frozen image backbone needs a small trainable adapter. The adapter follows the efficient frozen-backbone conditioning strategy of ControlNet and T2I-Adapter ( Zhang et al., 2023 ; Mou et al., 2024 ) , but operates across an ordered layer set so that each layer is influenced by the other. It answers three questions: which layer is being generated, which other layers matter to it, and whether their effect should be global or limited to a shared boundary. Figure 2: LayerCanvas layer generation. Top: Parallel denoising produces aligned non-text layers, which are composed in paint order before exact SVG text is restored. Bottom: Layer-set attention produces residuals for shared frozen MMDiT updates, and the solver advances every layer. Identifying each layer. The frozen backbone normally generates one image and has no reason to know whether a batch item represents a background, a foreground illustration, or a later paint-order layer. For group g g , the model’s variational autoencoder (VAE) ( Kingma and Welling, 2013 ) converts the grouped control raster into internal features s g s_{g} . The trainable grouped layer-control adapter then adds learned identifiers for paint order and the main element type: q g = LN ⁡ ( s g ) + E z ​ [ g ] + E τ ​ [ τ g ] , r g ( 0 ) = W 0 ​ q g , r g ( d ) = W d ​ ϕ ​ ( W s ​ q g ) . q_{g}=\\operatorname{LN}(s_{g})+E_{z}[g]+E_{\\tau}[\\tau_{g}],\\qquad r_{g}^{(0)}=W_{0}q_{g},\\quad r_{g}^{(d)}=W_{d}\\phi(W_{s}q_{g}). (6) Here, LN ⁡ ( s g ) \\operatorname{LN}(s_{g}) describes the layer’s visual control, E z ​ [ g ] E_{z}[g] tells the model where it appears in paint order, and E τ ​ [ τ g ] E_{\\tau}[\\tau_{g}] tells it the main element type. The projections W 0 W_{0} and W d W_{d} turn this combined description into small adjustments at the transformer input and selected depths. These outputs start at zero, so the adapter initially leaves the pretrained backbone unchanged. The adjustments are added at a small set of backbone depths. Sharing information between layers. Layer identifiers solve ownership, but the backbone still processes every layer independently. Dense communication between every image location would be costly and would ignore the overlap and parent-child links already available in the SVG. Instead, each LayerSetCommunicationBlock builds one compact summary h g h_{g} per layer. For a receiving layer g g , a sending layer h h , and attention head a a , the block first computes a pairwise score ℓ g ​ h a \\ell_{gh}^{a} , converts the scores into weights π g ​ h a \\pi_{gh}^{a} , and uses those weights to combine the sending-layer summaries: ℓ g ​ h a \\displaystyle\\ell_{gh}^{a} = ⟨ W Q a ​ h g , W K a ​ h h ⟩ d a + ( w E a ) ⊤ ​ E g ​ h , \\displaystyle=\\frac{\\langle W_{Q}^{a}h_{g},W_{K}^{a}h_{h}\\rangle}{\\sqrt{d_{a}}}+(w_{E}^{a})^{\\top}E_{gh}, (7) π g ​ h a \\displaystyle\\pi_{gh}^{a} = softmax h ⁡ ( ℓ g ​ h a ) , \\displaystyle=\\operatorname{softmax}_{h}(\\ell_{gh}^{a}), h ~ g \\displaystyle\\widetilde{h}_{g} = W O ​ Concat a ⁡ ( ∑ h π g ​ h a ​ W V a ​ h h ) . \\displaystyle=W_{O}\\operatorname{Concat}_{a}\\!\\left(\\sum_{h}\\pi_{gh}^{a}W_{V}^{a}h_{h}\\right). The first part of ℓ g ​ h a \\ell_{gh}^{a} measures similarity between the two layers; the second adds their SVG relationship from E g ​ h E_{gh} . π g ​ h a \\pi_{gh}^{a} says how much layer g g should listen to layer h h , and h ~ g \\widetilde{h}_{g} is the resulting information received by layer g g after all attention heads are combined. Because the SVG links have directions, a covered background can receive a different message from the element in front of it. Applying shared information. Not every cross-layer change should affect the same area. A shared palette or lighting choice should act smoothly across a layer, while an overlap correction should stay near the touching edges. We therefore split the received summary h ~ g \\widetilde{h}_{g} into a style path and a boundary path. Let x g x_{g} denote the current spatial features of layer g g : r g sty \\displaystyle r_{g}^{\\rm sty} = F sty ​ ( h ~ g ) , \\displaystyle=F_{\\rm sty}(\\widetilde{h}_{g}), (8) r g bnd \\displaystyle r_{g}^{\\rm bnd} = F bnd ​ ( x g , h ~ g ) , \\displaystyle=F_{\\rm bnd}(x_{g},\\widetilde{h}_{g}), r g \\displaystyle r_{g} = σ ⁡ ( γ g sty ) ​ r g sty + σ ⁡ ( γ g bnd ) ​ B g ⊙ r g bnd . \\displaystyle=\\sigma(\\gamma_{g}^{\\rm sty})\\,r_{g}^{\\rm sty}+\\sigma(\\gamma_{g}^{\\rm bnd})\\,B_{g}\\odot r_{g}^{\\rm bnd}. The style function turns h ~ g \\widetilde{h}_{g} into a smooth layer-wide change. The boundary function combines h ~ g \\widetilde{h}_{g} with the current features x g x_{g} , while B g B_{g} keeps its change near layer edges. The learned gates γ g sty \\gamma_{g}^{\\rm sty} and γ g bnd \\gamma_{g}^{\\rm bnd} decide how strongly each path should act. Their weighted sum is the final residual r g r_{g} , which is added back to layer g g at that depth of the frozen MMDiT image backbone. As above, the added outputs start at zero, so communication is introduced gradually during training. Training and exact text. Training checks each layer, the final combined image, hidden areas and boundaries. These losses check both individual ownership and the assembled image. Typography is excluded from diffusion targets and added back from the retained SVG strings. This guarantees exact editable text rather than asking diffusion to paint glyphs, as in text-aware raster generators ( Chen et al., 2023 ; Tuo et al., 2024 ) . Appendix B.1 gives the full training path, loss and text-composition procedure. Table 1: Primary comparison on test set. Char and Exact measure placement-exact OCR, while Recall measures text recovered anywhere in the image. Appeal, Typog., and Cov. are VLM scores from 0-5, with Avg denoting their mean. Best synthesis result in each column is bold . Text fidelity VLM judge (0-5) Method Char Exact Recall Appeal Typog. Cov. Avg SVG (LLM-authored) 0.856 0.676 0.964 2.37 4.02 4.90 3.76 Qwen-Image-2512 ( Qwen Team, 2025a ) 0.080 0.002 0.149 2.69 1.00 1.45 1.71 Ideogram-4 ( Ideogram AI, 2026 ) 0.657 0.360 0.744 2.92 2.29 3.89 3.03 LayerCanvas (Ours) 0.822 0.623 0.942 2.99 3.81 4.75 3.85 Figure 3: Qualitative four-way comparison Columns show, left to right, the SVG control, two prompt-only SOTA diffusion baselines (Qwen-Image-2512 Qwen Team (2025a) and Ideogram-4 Ideogram AI (2026) ), and LayerCanvas. The corresponding next row shows the zoomed in regions for the highlighted text regions. Prompt-only models produce appealing raster illustrations but garble or invent text and drift from the prescribed layout whereas LayerCanvas keeps the layer layout and composites exact, legible vector text. 4 Experiments 4.1 Setup Dataset - We develop InfoLayers, a corpus of 23,960 paired infographic records on a 768 × 512 768\\times 512 canvas with a multi-agent pipeline. Each sample pairs a structural SVG with a text-free and a composited target, together with the per-layer supervision our model consumes: amodal and visible masks, paint order, and a hierarchy/overlap graph. Construction and layout statistics are given in Appendix A . Baselines - We compare four methods on shared held-out layouts. The LLM-authored SVG reference recolors and completes the structural SVG and renders it, giving exact vector text by construction but no learned aestheticization. The two prompt-only open-weight SOTA diffusion baselines, Qwen-Image-2512 ( Qwen Team, 2025a ) and Ideogram-4 ( Ideogram AI, 2026 ) , are each conditioned on the design-concept prompt derived from the input SVG layout; for Ideogram-4 this prompt is constructed from the same SVG layout, with its structural elements serialized into the structured prompt format the model expects. LayerCanvas is our grouped layer-set diffusion model with deterministic exact-SVG text compositing with the MMDiT backbone as Ideogram AI (2026) . For evaluation, all methods are placed on a 768 × 512 768{\\times}512 canvas. Metrics - Text fidelity is scored two ways. Placement-exact fidelity uses ground-truth-region OCR Tesseract OCR contributors (2026) at 768 × 512 768{\\times}512 , and reports character accuracy and exact-match rate. Placement-agnostic fidelity runs full-image OCR at the same resolution and measures word recall, how much of the ground-truth text appears anywhere in the image, so a baseline that renders readable text at the wrong position still gets credit. The two exact-text methods place text from the SVG by construction, so their remaining gap from 1.0 1.0 is OCR error rather than real text mistakes. For visual quality we use a VLM as a judge : Claude Opus 4.8 ( Anthropic, 2026 ) scores each design from 0 0 to 5 5 on illustration appeal, typography, and semantic coverage, and we report Avg , the mean of the three. The full evaluation protocol is given in Appendix B.2 . 4.2 Main comparison Table 1 reports the comparison on the test set (construction in Appendix B ). LayerCanvas combines strong visual appeal with text fidelity, outperforming both raster baselines across all text metrics while approaching the exact-text SVG reference. Ideogram-4 Ideogram AI (2026) generates aesthetic looking samples, but it still trails LayerCanvas on text fidelity; Qwen-Image-2512 Qwen Team (2025a) performs poorly on both text placement and recovery. Under the primary Claude judge, LayerCanvas is the strongest learned method across illustration appeal, typography, semantic coverage, and aggregate quality, and slightly exceeds the SVG reference overall. The same learned-method ranking holds under independent Gemini 3.7 Flash ( Google DeepMind, 2026 ) and GPT-5.6 Sol ( OpenAI, 2026 ) judges (Appendix Table 5 ). Figure 3 shows the same appeal-text trade-off qualitatively. Additional results are in Appendix B.3 . Inference compute details for LayerCanvas are in Appendix B.4.2 . 4.3 Representation ablation We compare grouped LayerCanvas with a single-raster conditioning baseline to test whether explicit layer separation improves editability. The baseline conditions the same MMDiT model ( Ideogram AI, 2026 ) directly on the rasterized SVG using T2I-Adapter ( Mou et al., 2024 ) . A single stream must learn to render the whole graphic at once, which becomes harder as the layout grows denser. In contrast, each LayerCanvas layer contains non-overlapping elements, making it simpler to learn before the layers are composed. Under fixed noise, LayerCanvas better preserves the moved element and surrounding layout, while the control redraws unrelated content (Figure 4 ). It also improves text recall and all VLM scores, raising average quality from 3.55 to 3.77 (Table 2 ). Figure 4: Representation ablation: Each column shows the source SVG, fixed-noise base generation, and the translated version by perturbing the base SVG for LayerCanvas and the single-raster as control. Red arrows show the shift from the base position in the translated cases. LayerCanvas better preserves object identity and unrelated layout content. Table 2: Comparison of Different Conditioning Representations on validation set Method Char Exact Recall Appeal Typog. Cov. Avg Single-raster Conditioning 0.851 0.568 0.783 2.78 3.56 4.32 3.55 LayerCanvas 0.823 0.530 0.795 2.84 3.76 4.72 3.77 5 Downstream applications Because LayerCanvas preserves SVG structure alongside independently addressable raster layers, a generated design can be adapted without regenerating the whole image. Vector text supports changes to wording, typography, and language, while separate visual layers enable animation, asset reuse, and local element edits such as removing a card or swapping an icon while preserving unaffected content. Retained grouping and paint order further support layout retargeting, re-theming, and SVG-level corrections while limiting changes to the intended components. Together, these capabilities turn a generated infographic into a reusable authoring artifact. We highlight three below; the rest are detailed in Appendix C . 5.1 Text editing and localization End-to-end raster generators must repaint text whenever wording, typography, or language changes. LayerCanvas instead generates only the visual substrate and preserves typography as styled SVG nodes, so copy, style, and locale changes require no diffusion pass and cannot alter the generated artwork (Figure 13 ). 5.2 Independent layer animation We adapt the zero-shot animation principle of Text2Video-Zero ( Khachatryan et al., 2023 ) , in which the motion and appearance priors of a pretrained text-to-image diffusion model produce a temporally linked sequence without video-specific training. Whereas a flattened document would expose the complete page to this update, LayerCanvas lets the temporal operation target one named image layer while all other layers remain fixed: every unselected image layer and the full-resolution SVG typography are copied identically into every frame. Figure 5: Independent animation of one LayerCanvas region. A Text2Video-Zero-inspired image-diffusion trajectory produces an open-to-closed blink. Only the selected eye region changes across the five frames; the surrounding illustration, layout, and vector typography remain fixed. 5.3 SVG-space refinement and faithful diffusion propagation An upstream layout proposal may contain a misplaced, mislabeled, or incorrectly styled element. In LayerCanvas, the SVG is a persistent control surface: the element can be corrected directly, and the model propagates that correction to the raster without retraining or redesigning the rest of the document. Figure 6: Closed-loop SVG correction. Each row shows an incorrect SVG and render, the direct SVG edit, and the corrected render. The edited element moves to the requested location while unrelated content remains stable. 6 Conclusion We formulate infographic generation as structured aestheticization: a deterministic SVG supplies geometry, hierarchy, typography, while parallel layer-set generation supplies visual appearance. Aligning this representation with the renderer supports many downstream applications like editing and artifact reuse. Enforcing generalization to more layouts and improving transformations under changed occlusion remain important research directions. References Anthropic (2026) Anthropic Introducing Claude Opus 4.8 . Note: https://www.anthropic.com/news/claude-opus-4-8 Product announcement, May 28, 2026 Cited by: §A.6 , §B.2 , Table 5 , §4.1 . Avrahami et al. (2023) O. Avrahami, K. Aberman, O. Fried, D. Cohen-Or, and D. Lischinski Break-a-scene: extracting multiple concepts from a single image . In SIGGRAPH Asia 2023 Conference Papers , External Links: Document Cited by: §2 . Bar-Tal et al. (2023) O. Bar-Tal, L. Yariv, Y. Lipman, and T. Dekel MultiDiffusion: fusing diffusion paths for controlled image generation . In International Conference on Machine Learning , Cited by: §2 . Bateman et al. (2010) S. Bateman, R. L. Mandryk, C. Gutwin, A. Genest, D. McDine, and C. Brooks Useful junk? the effects of visual embellishment on comprehension and memorability of charts . In Proceedings of the SIGCHI Conference on Human Factors in Computing Systems (CHI) , pp. 2573–2582 . Cited by: §1 . Bhat and Alyahya (2024) S. A. Bhat and S. Alyahya Infographics in educational settings: a literature review . IEEE Access 12 , pp. 1633–1649 . External Links: Document Cited by: §1 . Burgess et al. (2019) C. P. Burgess, L. Matthey, N. Watters, R. Kabra, I. Higgins, M. Botvinick, and A. Lerchner MONet: unsupervised scene decomposition and representation . arXiv preprint . Cited by: §2 . Chen et al. (2025) H. Chen, Q. Xiang, J. Hu, M. Ye, C. Yu, H. Cheng, and L. Zhang Comprehensive exploration of diffusion models in image generation: a survey . Artificial Intelligence Review 58 ( 99 ). External Links: Document Cited by: §1 . Chen et al. (2023) J. Chen, Y. Huang, T. Lv, L. Cui, Q. Chen, and F. Wei TextDiffuser: diffusion models as text painters . In Advances in Neural Information Processing Systems , Cited by: §1 , §2 , §3.4 . Clark and Paivio (1991) J. M. Clark and A. Paivio Dual coding theory and education . Educational Psychology Review 3 ( 3 ), pp. 149–210 . Cited by: §1 . Esser et al. (2024) P. Esser, S. Kulal, A. Blattmann, R. Entezari, J. Müller, H. Saini, Y. Levi, D. Lorenz, A. Sauer, F. Boesel, D. Podell, T. Dockhorn, Z. English, K. Lacey, A. Goodwin, Y. Marek, and R. Rombach Scaling rectified flow transformers for high-resolution image synthesis . In International Conference on Machine Learning (ICML) , Cited by: §1 . Gadre et al. (2023) S. Y. Gadre, G. Ilharco, A. Fang, J. Hayase, G. Smyrnis, T. Nguyen, R. Marten, M. Wortsman, et al. DataComp: in search of the next generation of multimodal datasets . In Advances in Neural Information Processing Systems , Cited by: §2 . Gatis (2025) Rembg: a tool to remove image backgrounds Note: MIT-licensed software External Links: Link Cited by: §A.2 , §A.6 . Google DeepMind (2026) Google DeepMind Gemini 3.7 Flash model card . Note: https://deepmind.google/models/model-cards/gemini-3-7-flash/ Published August 13, 2026 Cited by: §B.2 , Table 5 , §4.2 . Gupta et al. (2021) K. Gupta, J. Lazarow, A. Achille, L. S. Davis, and V. Mahadevan LayoutTransformer: layout generation and completion with self-attention . In IEEE/CVF International Conference on Computer Vision , Cited by: §2 . Huang et al. (2026) S. Huang, Y. Zhou, Y. Gao, Z. Yin, J. Bai, X. Liu, R. Chellappa, C. P. Lau, C. Peng, S. Nag, and S. Pramanick SciFig: towards automating editable figure generation for scientific papers . External Links: 2601.04390 Cited by: §1 , §2 . Ideogram AI (2026) Ideogram AI Ideogram 4.0 . Note: https://ideogram.ai/blog/ideogram-4.0/ Technical blog Cited by: §B.2 , Figure 1 , Figure 3 , Table 1 , §4.1 , §4.2 , §4.3 . Inoue et al. (2023) N. Inoue, K. Kikuchi, E. Simo-Serra, M. Otani, and K. Yamaguchi LayoutDM: discrete diffusion model for controllable layout generation . In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pp. 10167–10176 . Cited by: §2 . Jain et al. (2026) S. Jain, K. Gupta, K. Gupta, and M. Chandraker NERFIFY: a multi-agent framework for turning nerf papers into code . In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pp. 24384–24394 . Cited by: §1 , §2 . Khachatryan et al. (2023) L. Khachatryan, A. Movsisyan, V. Tadevosyan, R. Henschel, Z. Wang, S. Navasardyan, and H. Shi Text2Video-zero: text-to-image diffusion models are zero-shot video generators . In Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) , pp. 15954–15964 . External Links: Document Cited by: §C.2 , §5.2 . Kingma and Welling (2013) D. P. Kingma and M. Welling Auto-encoding variational bayes . arXiv preprint arXiv:1312.6114 . Cited by: §3.4 . Lachowicz et al. (2014) D. Lachowicz C. Moore et al. rsvg-convert: turn SVG files into raster images . librsvg . Note: Ubuntu 14.04 manual page External Links: Link Cited by: §A.6 , §B.2 , §B.2 . Li et al. (2019) J. Li, J. Yang, A. Hertzmann, J. Zhang, and T. Xu LayoutGAN: generating graphic layouts with wireframe discriminators . In International Conference on Learning Representations , Cited by: §2 . Li et al. (2023) Y. Li, H. Liu, Q. Wu, F. Mu, J. Yang, J. Gao, C. Li, and Y. J. Lee GLIGEN: open-set grounded text-to-image generation . In IEEE/CVF Conference on Computer Vision and Pattern Recognition , Cited by: §2 . Lipman et al. (2023) Y. Lipman, R. T. Q. Chen, H. Ben-Hamu, M. Nickel, and M. Le Flow matching for generative modeling . In International Conference on Learning Representations , Cited by: §3.4 . Liu et al. (2023a) H. Liu, C. Li, Q. Wu, and Y. J. Lee Visual instruction tuning . In Advances in Neural Information Processing Systems , Cited by: §2 . Liu et al. (2023b) R. Liu, D. Garrette, C. Saharia, W. Chan, A. Roberts, S. Narang, I. Blok, R. Mical, M. Norouzi, and N. Constant Character-aware models improve visual text rendering . In Annual Meeting of the Association for Computational Linguistics (ACL) , Cited by: §1 . Locatello et al. (2020) F. Locatello, D. Weissenborn, T. Unterthiner, A. Mahendran, G. Heigold, J. Uszkoreit, A. Dosovitskiy, and T. Kipf Object-centric learning with slot attention . In Advances in Neural Information Processing Systems , Cited by: §2 . Mayer (2009) R. E. Mayer Multimedia learning . 2nd edition , Cambridge University Press . Cited by: §1 . Mou et al. (2024) C. Mou, X. Wang, L. Xie, Y. Wu, J. Zhang, Z. Qi, and Y. Shan T2I-adapter: learning adapters to dig out more controllable ability for text-to-image diffusion models . In Proceedings of the AAAI Conference on Artificial Intelligence , Vol. 38 , pp. 4296–4304 . Cited by: §2 , §3.4 , §4.3 . OpenAI (2026) OpenAI GPT-5.6 Sol model . Note: https://developers.openai.com/api/docs/models/gpt-5.6-sol Model documentation Cited by: §B.2 , Table 5 , §4.2 . Podell et al. (2024) D. Podell, Z. English, K. Lacey, A. Blattmann, T. Dockhorn, J. Müller, J. Penna, and R. Rombach SDXL: improving latent diffusion models for high-resolution image synthesis . In International Conference on Learning Representations (ICLR) , Cited by: §1 , §3.1 . Qwen Team (2025a) Qwen Team Qwen-Image-2512 . Note: https://qwen.ai/blog?id=qwen-image-2512 Technical blog Cited by: §A.6 , §B.2 , Figure 1 , Figure 3 , Table 1 , §4.1 , §4.2 . Qwen Team (2025b) Qwen Team Qwen-Image-Edit: image editing with higher quality and efficiency . Note: https://qwen.ai/blog?id=qwen-image-edit Technical blog Cited by: §A.2 , §A.6 . Rodriguez et al. (2025) J. A. Rodriguez, A. Puri, S. Agarwal, I. H. Laradji, P. Rodriguez, S. Rajeswar, D. Vazquez, C. Pal, and M. Pedersoli StarVector: generating scalable vector graphics code from images and text . In IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , Cited by: §1 . Rombach et al. (2022) R. Rombach, A. Blattmann, D. Lorenz, P. Esser, and B. Ommer High-resolution image synthesis with latent diffusion models . In IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , Cited by: §1 , §1 , §3.1 . Saharia et al. (2022) C. Saharia, W. Chan, S. Saxena, L. Li, J. Whang, E. Denton, S. K. S. Ghasemipour, B. K. Ayan, S. S. Mahdavi, R. G. Lopes, T. Salimans, J. Ho, D. J. Fleet, and M. Norouzi Photorealistic text-to-image diffusion models with deep language understanding . In Advances in Neural Information Processing Systems (NeurIPS) , Cited by: §1 . Tesseract OCR contributors (2026) Tesseract OCR contributors Tesseract: open source OCR engine . Note: https://github.com/tesseract-ocr/tesseract Software repository; accessed September 2, 2026 Cited by: §B.2 , §4.1 . Tuo et al. (2024) Y. Tuo, W. Xiang, J. He, Y. Geng, and X. Xie AnyText: multilingual visual text generation and editing . In International Conference on Learning Representations , Cited by: §1 , §2 , §3.4 . van der Walt et al. (2014) S. van der Walt, J. L. Schönberger, J. Nunez-Iglesias, F. Boulogne, J. D. Warner, N. Yager, E. Gouillart, and T. Yu Scikit-image: image processing in python . PeerJ 2 , pp. e453 . External Links: ISSN 2167-8359 , Link , Document Cited by: §A.6 . W3C SVG Working Group (2011) W3C SVG Working Group Scalable Vector Graphics (SVG) 1.1 (Second Edition) . Note: W3C Recommendation External Links: Link Cited by: §1 , §1 . Wang et al. (2026) B. Wang, S. Zhao, B. Cheng, Q. Ji, Y. Ma, L. Wu, S. Liu, D. Leng, and Y. Yin RevealLayer: disentangling hidden and visible layers via occlusion-aware image decomposition . External Links: 2605.11818 , Link C",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: CC BY 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "Qwen Team, 2025a",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib37"
+    },
+    {
+      "text": "Ideogram AI, 2026",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib43"
+    },
+    {
+      "text": "Mayer, 2009",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib21"
+    },
+    {
+      "text": "Clark and Paivio, 1991",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib22"
+    },
+    {
+      "text": "Bateman et al., 2010",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib23"
+    },
+    {
+      "text": "Bhat and Alyahya, 2024",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib24"
+    },
+    {
+      "text": "Rombach et al., 2022",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib31"
+    },
+    {
+      "text": "Podell et al., 2024",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib33"
+    },
+    {
+      "text": "Chen et al., 2025",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib34"
+    },
+    {
+      "text": "W3C SVG Working Group, 2011",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib47"
+    },
+    {
+      "text": "Rodriguez et al., 2025",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib27"
+    },
+    {
+      "text": "Wu et al., 2023",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib28"
+    },
+    {
+      "text": "Xing et al., 2024",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib29"
+    },
+    {
+      "text": "Wu et al., 2024",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib30"
+    },
+    {
+      "text": "Saharia et al., 2022",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib32"
+    },
+    {
+      "text": "Esser et al., 2024",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib35"
+    },
+    {
+      "text": "Liu et al., 2023b",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib36"
+    },
+    {
+      "text": "Chen et al., 2023",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib5"
+    },
+    {
+      "text": "Tuo et al., 2024",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib7"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2610.18763v1#S0.F1"
+    },
+    {
+      "text": "Jain et al., 2026",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib25"
+    },
+    {
+      "text": "Huang et al., 2026",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib26"
+    },
+    {
+      "text": "Li et al., 2019",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib2"
+    },
+    {
+      "text": "Gupta et al., 2021",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib3"
+    },
+    {
+      "text": "Inoue et al., 2023",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib4"
+    },
+    {
+      "text": "Yang et al., 2024b",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib6"
+    },
+    {
+      "text": "Zhang et al., 2023",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib8"
+    },
+    {
+      "text": "Mou et al., 2024",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib9"
+    },
+    {
+      "text": "Li et al., 2023",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib10"
+    },
+    {
+      "text": "Ye et al., 2023",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib11"
+    },
+    {
+      "text": "Bar-Tal et al., 2023",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib12"
+    },
+    {
+      "text": "Burgess et al., 2019",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib13"
+    },
+    {
+      "text": "Locatello et al., 2020",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib14"
+    },
+    {
+      "text": "Avrahami et al., 2023",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib15"
+    },
+    {
+      "text": "Zhang and Agrawala, 2024",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib16"
+    },
+    {
+      "text": "Yang et al., 2024a",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib49"
+    },
+    {
+      "text": "Yin et al., 2025",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib50"
+    },
+    {
+      "text": "Wang et al., 2026",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib51"
+    },
+    {
+      "text": "Wang et al., 2023",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib18"
+    },
+    {
+      "text": "Liu et al., 2023a",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib19"
+    },
+    {
+      "text": "Gadre et al., 2023",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib20"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2610.18763v1#S3.F2"
+    },
+    {
+      "text": "Lipman et al., 2023",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib17"
+    },
+    {
+      "text": "Kingma and Welling, 2013",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib48"
+    },
+    {
+      "text": "B.1",
+      "url": "https://arxiv.org/html/2610.18763v1#A2.SS1"
+    },
+    {
+      "text": "A",
+      "url": "https://arxiv.org/html/2610.18763v1#A1"
+    },
+    {
+      "text": "Tesseract OCR contributors (2026)",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib42"
+    },
+    {
+      "text": "Anthropic, 2026",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib44"
+    },
+    {
+      "text": "B.2",
+      "url": "https://arxiv.org/html/2610.18763v1#A2.SS2"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2610.18763v1#S3.T1"
+    },
+    {
+      "text": "B",
+      "url": "https://arxiv.org/html/2610.18763v1#A2"
+    },
+    {
+      "text": "Google DeepMind, 2026",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib46"
+    },
+    {
+      "text": "OpenAI, 2026",
+      "url": "https://arxiv.org/html/2610.18763v1#bib.bib45"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2610.18763v1#A2.T5"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2610.18763v1#S3.F3"
+    },
+    {
+      "text": "B.3",
+      "url": "https://arxiv.org/html/2610.18763v1#A2.SS3"
+    },
+    {
+      "text": "B.4.2",
+      "url": "https://arxiv.org/html/2610.18763v1#A2.SS4.SSS2"
+    }
+  ],
+  "matching_link_count": 150,
+  "links_truncated": true,
+  "invalid_links": []
+}

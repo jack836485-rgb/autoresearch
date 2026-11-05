@@ -1,0 +1,421 @@
+{
+  "url": "https://arxiv.org/html/2605.28427v1",
+  "final_url": "https://arxiv.org/html/2605.28427v1",
+  "status": 200,
+  "title": "Latent Diffusion for Missing Data",
+  "metadata": {},
+  "paper": {
+    "title": "Latent Diffusion for Missing Data",
+    "title_warning": null,
+    "abstract": "Abstract Diffusion models have emerged as powerful generative approaches for missing-data imputation, yet most existing methods operate directly in data space and degrade when training data are heavily incomplete. We investigate whether shifting diffusion to a learned latent representation improves robustness under missing-completely-at-random (MCAR) corruption. To this end, we propose a two-stage framework: a robust VAE-based imputer first learns compact semantic features from incomplete observations, and a diffusion model is then trained in the resulting latent space. Across training missing rates, we perform a controlled comparison against pixel-space diffusion models under the same incomplete-data setting. The latent diffusion model maintains high sample quality and remains stable up to 50% missingness, while pixel-space diffusion degrades progressively as missingness increases. For downstream imputation, latent diffusion also achieves consistently better performance than pixel-space diffusion. These findings indicate that latent-space modeling mitigates artifact amplification from zero-imputed inputs and provides a more robust generative prior for incomplete-data learning. Overall, our results support latent diffusion as a strong and practically useful alternative to pixel-space diffusion for missing-data problems.",
+    "authors": [
+      {
+        "name": "Alberte Heering Estad",
+        "affiliations": [
+          "Affiliation: Technical University of Denmark"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Ignacio Peis",
+        "affiliations": [
+          "Affiliation: Technical University of Denmark",
+          "Affiliation: Pioneer Centre for Artificial Intelligence"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Jes Frellsen",
+        "affiliations": [
+          "Affiliation: Technical University of Denmark",
+          "Affiliation: Pioneer Centre for Artificial Intelligence"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Alberte Heering Estad Affiliation: Technical University of Denmark Ignacio Peis Affiliation: Technical University of Denmark Affiliation: Pioneer Centre for Artificial Intelligence Jes Frellsen Affiliation: Technical University of Denmark Affiliation: Pioneer Centre for Artificial Intelligence",
+    "arxiv_version": "2605.28427v1",
+    "arxiv_version_date": "2026-05-27",
+    "sections": [
+      {
+        "id": "S1",
+        "heading": "1 Introduction",
+        "level": 1,
+        "text": "Real-world datasets are often incomplete. Missing values arise from from varied sources including loss to follow-up in clinical studies, incomplete documentation in electronic health records, and practical constraints in data collection ( Wells et al., 2013 ; Chang et al., 2021 ) . The missing data mechanism is typically categorized as missing completely at random (MCAR), missing at random (MAR), or missing not at random (MNAR) ( Little and Rubin, 2002 ) . Probabilistic generative models offer a principled approach to this problem, as they can learn the data distribution from incomplete observations and impute missing values by sampling from the conditional. Deep generative approaches based on VAEs ( Nazabal et al., 2020 ; Peis et al., 2022 ; Mattei and Frellsen, 2019 ) , GANs ( Yoon et al., 2018 ; Li et al., 2019 ) and Flows ( Richardson et al., 2020 ) have shown strong results for imputation. More recently, diffusion models have been applied to this task ( Zhang et al., 2025 ; Givens et al., 2025 ; Ouyang et al., 2023 ; Zheng and Charoenphakdee, 2023 ; Tashiro et al., 2021 ) , leveraging the connection between score-based generative modeling and conditional generation ( Song et al., 2021 ) . However, existing diffusion-based methods typically operate in the data space and often assume complete training data. The question of how the choice of either pixel or latent representation space affects both generation quality and imputation performance when training on incomplete data has, to the best of our knowledge, not been studied. In this work, we present a systematic comparison between diffusion models for missing data in pixel space and our proposed method, denoted LDMiss, which performs diffusion in a latent space learned by a VAE for incomplete data. Both models are trained on MNIST under MCAR missingness at varying rates. We evaluate both generative sample quality and imputation performance. Our results show that LDMiss retains higher sample quality as missingness increases and achieves superior imputation performance compared with the pixel-space DDPM."
+      },
+      {
+        "id": "S2",
+        "heading": "2 Score-Based Diffusion Models",
+        "level": 1,
+        "text": "Diffusion models ( Sohl-Dickstein et al., 2015 ; Song et al., 2021 ; Ho et al., 2020 ) generate data by progressively corrupting training samples with noise and then learning the reverse denoising process. Denoising Diffusion Probabilistic Models (DDPMs; Ho et al. (2020) ) formulate this process as a discrete-time Markov chain. In contrast, score-based diffusion models ( Song et al., 2021 ) define a continuous-time forward process { 𝐱 t } t = 0 T \\{\\mathbf{x}_{t}\\}^{T}_{t=0} with t ∈ [ 0 , T ] t\\in[0,T] through the stochastic differential equation (SDE) d ​ 𝐱 = 𝐟 ⁡ ( 𝐱 , t ) ​ d ​ t + g ⁡ ( t ) ​ d ​ 𝐰 \\text{d}\\mathbf{x}=\\mathbf{f}(\\mathbf{x},t)\\,\\text{d}t+g(t)\\,\\text{d}\\mathbf{w} . The process starts from data 𝐱 0 ∼ p 0 {\\mathbf{x}}_{0}\\sim p_{0} and evolves toward a prior distribution 𝐱 T ∼ p T {\\mathbf{x}}_{T}\\sim p_{T} that contains no information about p 0 p_{0} . The generative process is characterized by the corresponding reverse SDE: d ​ 𝐱 = [ 𝐟 ⁡ ( 𝐱 , t ) − g ​ ( t ) 2 ​ ∇ 𝐱 ​ log ⁡ p t ​ ( 𝐱 ) ] ​ d ​ t + g ⁡ ( t ) ​ d ​ 𝐰 \\text{d}{\\mathbf{x}}=\\left[{\\mathbf{f}}({\\mathbf{x}},t)-g(t)^{2}\\nabla_{{\\mathbf{x}}}\\log p_{t}({\\mathbf{x}})\\right]\\text{d}t+g(t)\\text{d}{\\mathbf{w}} . This reverse SDE depends only on the time-dependent gradient field ∇ 𝐱 ​ log ​ p t ​ ( 𝐱 ) \\nabla_{{\\mathbf{x}}}\\log p_{t}({\\mathbf{x}}) , known as the score, of the transformed data distribution. The score can be estimated by training a time-dependent neural network 𝐬 θ {\\mathbf{s}}_{\\theta} via the Denoising Score-Matching objective ( Vincent, 2011 ) : ℒ ⁡ ( θ ) = 𝔼 t ∼ 𝒰 ⁡ ( τ , 1 ) ​ { λ t ​ 𝔼 𝐱 0 ∼ p 0 ​ 𝔼 𝐱 t ∼ p 0 ​ t ​ ( 𝐱 t | 𝐱 0 ) ​ [ ‖ 𝐬 θ ​ ( 𝐱 t , t ) − ∇ 𝐱 t ​ log ​ p 0 ​ t ​ ( 𝐱 t | 𝐱 0 ) ‖ 2 2 ] } \\displaystyle\\mathcal{L}(\\theta)=\\mathbb{E}_{t\\sim\\mathcal{U}(\\tau,1)}\\left\\{\\lambda_{t}\\>\\mathbb{E}_{\\mathbf{x}_{0}\\sim p_{0}}\\mathbb{E}_{\\mathbf{x}_{t}\\sim p_{0t}(\\mathbf{x}_{t}|\\mathbf{x}_{0})}\\left[\\>\\left\\|\\>{\\mathbf{s}}_{\\theta}(\\mathbf{x}_{t},t)-\\nabla_{\\mathbf{x}_{t}}\\log p_{0t}(\\mathbf{x}_{t}\\>|\\>\\mathbf{x}_{0})\\>\\right\\|_{2}^{2}\\>\\right]\\right\\} (1) Once 𝐬 θ {\\mathbf{s}}_{\\theta} is obtained, the reverse SDE can be simulated using numerical methods such as Euler-Maruyama ( Kloeden and Platen, 1992 ) to sample new data. Song et al. (2021) show that the DDPM perturbation kernels converge to the Variance-Preserving (VP) SDE: d ​ 𝐱 = − 1 2 ​ β ​ ( t ) ​ 𝐱 ​ d ​ t + β ⁡ ( t ) ​ d ​ 𝐰 \\text{d}\\mathbf{x}=-\\frac{1}{2}\\beta(t)\\mathbf{x}\\,\\text{d}t+\\sqrt{\\beta(t)}\\,\\text{d}\\mathbf{w} , with noise schedule β ⁡ ( t ) = β m ​ i ​ n + t ⁡ ( β m ​ a ​ x − β m ​ i ​ n ) \\beta(t)=\\beta_{min}+t(\\beta_{max}-\\beta_{min}) , when time is continuous. In this study, we use the VP SDE and its corresponding reverse SDE to model the forward and reverse processes, respectively. The linearity of the drift and diffusion coefficients causes the transition kernel p 0 ​ t ​ ( 𝐱 t | 𝐱 0 ) p_{0t}({\\mathbf{x}}_{t}|{\\mathbf{x}}_{0}) to become Gaussian, resulting in a standard Gaussian prior 𝐱 T ∼ 𝒩 ⁡ ( 0 , 𝑰 ) {\\mathbf{x}}_{T}\\sim\\mathcal{N}(0,{\\bm{I}}) . By reparameterization of 𝐱 t ∼ 𝒩 ⁡ ( μ , σ 2 ​ 𝐈 ) {\\mathbf{x}}_{t}\\sim\\mathcal{N}(\\mu,\\sigma^{2}\\mathbf{I}) , we obtain the simplified objective: ℒ ⁡ ( θ ) = 𝔼 t ∼ 𝒰 ⁡ ( τ , 1 ) , 𝐱 0 ∼ p 0 , ϵ ∼ 𝒩 ⁡ ( 0 , 𝑰 ) ​ [ λ t ​ ‖ 𝐬 θ ​ ( 𝐱 t , t ) + ϵ σ t ‖ 2 2 ] \\displaystyle\\mathcal{L}(\\theta)=\\mathbb{E}_{t\\sim\\mathcal{U}(\\tau,1),\\mathbf{x}_{0}\\sim p_{0},\\epsilon\\sim\\mathcal{N}(0,{\\bm{I}})}\\left[\\lambda_{t}\\left\\|\\mathbf{s}_{\\theta}(\\mathbf{x}_{t},t)+\\frac{\\epsilon}{\\sigma_{t}}\\right\\|^{2}_{2}\\right] (2)"
+      },
+      {
+        "id": "S3",
+        "heading": "3 Latent Diffusion Models",
+        "level": 1,
+        "text": "Latent diffusion models (LDMs, Rombach et al., 2022 ) compress the original images to a latent space of lower dimension, in which the diffusion process is then carried out. This is more computationally efficient and allows the model to train on the most important semantic bits of the data. An LDM consists of an encoder ℰ \\mathcal{E} , which encodes the data 𝐱 {\\mathbf{x}} into a latent representation 𝐳 = ℰ ⁡ ( 𝐱 ) {\\mathbf{z}}=\\mathcal{E}({\\mathbf{x}}) , and a decoder 𝒟 \\mathcal{D} , that uses the latent to reconstruct the data 𝐱 ^ = 𝒟 ⁡ ( 𝐳 ) = 𝒟 ⁡ ( ℰ ⁡ ( 𝐱 ) ) \\hat{\\mathbf{x}}=\\mathcal{D}({\\mathbf{z}})=\\mathcal{D}(\\mathcal{E}({\\mathbf{x}})) . In this study, we use a β \\beta -VAE ( Higgins et al., 2017 ) with p ⁡ ( 𝐳 ) = 𝒩 ⁡ ( 0 , 𝐈 ) p({\\mathbf{z}})=\\mathcal{N}(0,\\mathbf{I}) and q ℰ ​ ( 𝐳 | 𝐱 ) = 𝒩 ⁡ ( 𝐳 , μ ℰ , σ ℰ 2 ) q_{\\mathcal{E}}({\\mathbf{z}}|{\\mathbf{x}})=\\mathcal{N}({\\mathbf{z}};\\mu_{\\mathcal{E}},\\sigma^{2}_{\\mathcal{E}}) , trained with the Evidence Lower Bound (ELBO), with KL regularization weighted by β = 10 − 6 \\beta=10^{-6} to ensure high-fidelity reconstructions. Subsequently, the diffusion model is trained on latent representations 𝐳 = ℰ ⁡ ( 𝐱 ) {\\mathbf{z}}=\\mathcal{E}({\\mathbf{x}}) using the objective in Equation 2 , with 𝐳 {\\mathbf{z}} replacing 𝐱 {\\mathbf{x}} ."
+      },
+      {
+        "id": "S4",
+        "heading": "4 Missing Data Framework",
+        "level": 1,
+        "text": "Given dataset 𝑿 = ( 𝐱 1 , … , 𝐱 n ) T {\\bm{X}}=({\\mathbf{x}}_{1},\\dots,{\\mathbf{x}}_{n})^{T} with p p features, we define i ∈ { 1 , … , n } i\\in\\{1,\\dots,n\\} as the index of the data point 𝐱 i {\\mathbf{x}}_{i} , and j ∈ { 1 , … , p } j\\in\\{1,\\dots,p\\} the index of the feature 𝐱 i ​ j {\\mathbf{x}}_{ij} . In the case of MNIST, 𝐱 i {\\mathbf{x}}_{i} is a flattened image, and 𝐱 i ​ j {\\mathbf{x}}_{ij} is a pixel in image 𝐱 i {\\mathbf{x}}_{i} . When working with missing data, we split each data point into missing and observed features 𝐱 i = { 𝐱 i obs , 𝐱 i miss } {\\mathbf{x}}_{i}=\\{{\\mathbf{x}}^{\\text{obs}}_{i},{\\mathbf{x}}^{\\text{miss}}_{i}\\} . The missing features of each data point 𝐱 i {\\mathbf{x}}_{i} are defined according to a binary mask vector 𝐦 i ∈ { 0 , 1 } p {\\mathbf{m}}_{i}\\in\\{0,1\\}^{p} , such that 𝐦 i ​ j = 1 {\\mathbf{m}}_{ij}=1 , if 𝐱 i ​ j {\\mathbf{x}}_{ij} is observed and 𝐦 i ​ j = 0 {\\mathbf{m}}_{ij}=0 , if it is missing. In this study, we assume that the data is missing-completely-at-random ."
+      },
+      {
+        "id": "S4.SS1",
+        "heading": "4.1 Training with Missing Data",
+        "level": 2,
+        "text": "For the diffusion modelling in pixel space, we employ two recent alternatives. First, we adopt the MissDiff approach ( Ouyang et al., 2023 ) : after zero-imputing the data, the loss is only computed on observed dimensions by factoring out the missing dimensions and normalizing by the number of observed dimensions: ℒ ⁡ ( θ ) = 𝔼 t ∼ 𝒰 ⁡ ( τ , 1 ) , 𝐱 0 ∼ p 0 , ϵ ∼ 𝒩 ⁡ ( 0 , 𝑰 ) , 𝐦 ​ [ λ t ​ ‖ 𝐦 ⊙ ( 𝐬 θ ​ ( 𝐱 t , t ) − ∇ 𝐱 t ​ log ​ p 0 ​ t ​ ( 𝐱 t | 𝐱 0 ) ) ‖ 2 ∑ j 𝐦 j ] \\displaystyle\\mathcal{L}(\\theta)=\\mathbb{E}_{t\\sim\\mathcal{U}(\\tau,1),{\\mathbf{x}}_{0}\\sim p_{0},\\epsilon\\sim\\mathcal{N}(0,{\\bm{I}}),{\\mathbf{m}}}\\left[\\lambda_{t}\\,\\frac{||{\\mathbf{m}}\\odot({\\mathbf{s}}_{\\theta}({\\mathbf{x}}_{t},t)-\\nabla_{{\\mathbf{x}}_{t}}\\log p_{0t}({\\mathbf{x}}_{t}|{\\mathbf{x}}_{0}))||^{2}}{\\sum_{j}{\\mathbf{m}}_{j}}\\right] (3) Second, we use DiffPuter ( Zhang et al., 2025 ) , an EM-based iterative algorithm that imputes the missing values in the E-step and retrains the diffusion model in the M-step. For our LDMiss, we follow Mattei and Frellsen (2019) and zero-impute missing entries. The autoencoder is then trained using a β \\beta -VAE ELBO, where the reconstruction term is evaluated only on the observed data and the KL divergence term is weighted by β K ​ L \\beta_{KL} . The diffusion process in latent space has the convenient property that missing dimensions factor out under the conditional independence assumption of our diagonal Gaussian encoder (derivation in appendix B ). We therefore simply use the latent version of the objective given in Equation ( 2 ) during latent diffusion."
+      },
+      {
+        "id": "S5",
+        "heading": "5 Self-Guided Missing Data Imputation",
+        "level": 1,
+        "text": "Song et al. (2021) perform imputation by sampling noisy observations from the known forward process p t ​ ( 𝐱 t miss | 𝐱 0 obs ) ≈ p t ​ ( 𝐱 t miss | 𝐱 ^ t obs ) p_{t}({\\mathbf{x}}^{\\text{miss}}_{t}|{\\mathbf{x}}^{\\text{obs}}_{0})\\approx p_{t}({\\mathbf{x}}^{\\text{miss}}_{t}|\\hat{{\\mathbf{x}}}^{\\text{obs}}_{t}) , where 𝐱 ^ t obs \\hat{{\\mathbf{x}}}^{\\text{obs}}_{t} is a random sample from p t ​ ( 𝐱 t obs | 𝐱 0 obs ) p_{t}({\\mathbf{x}}^{\\text{obs}}_{t}|{\\mathbf{x}}^{\\text{obs}}_{0}) . At each iteration, they replace the observed dimensions with their noisy counterparts and update the missing dimensions using the score network. We refer to this as the replacement method. However, this method is not viable for the LDMiss, because we have no notion of missing dimensions in latent space. An alternative for imputing missing values with unconditional diffusion models is to condition the generative process on the observed dimensions. Specifically, we replace the score in Equation ( 2 ) with the conditional score ∇ 𝐱 t ​ log ​ p t ​ ( 𝐱 t | 𝐱 0 obs ) \\nabla_{\\mathbf{x}_{t}}\\log p_{t}(\\mathbf{x}_{t}|\\mathbf{x}^{\\text{obs}}_{0}) . By Bayes’ rule, this conditional score decomposes into the unconditional score and a guidance term: ∇ 𝐱 t ​ log ​ p t ​ ( 𝐱 t | 𝐱 0 obs ) = ∇ 𝐱 t ​ log ​ p t ​ ( 𝐱 t ) + ∇ 𝐱 t ​ log ​ p t ​ ( 𝐱 0 obs | 𝐱 t ) \\displaystyle\\nabla_{\\mathbf{x}_{t}}\\log p_{t}(\\mathbf{x}_{t}|\\mathbf{x}^{\\text{obs}}_{0})=\\nabla_{\\mathbf{x}_{t}}\\log p_{t}(\\mathbf{x}_{t})+\\nabla_{\\mathbf{x}_{t}}\\log p_{t}(\\mathbf{x}^{\\text{obs}}_{0}|\\mathbf{x}_{t}) (4) However, since ∇ 𝐱 t ​ log ​ p ​ ( 𝐱 0 obs | 𝐱 t ) \\nabla_{\\mathbf{x}_{t}}\\log p(\\mathbf{x}^{\\text{obs}}_{0}|\\mathbf{x}_{t}) is intractable, we approximate it using Tweedie’s formula ( Efron, 2011 ) to obtain the posterior mean estimate 𝐱 ^ 0 obs ​ ( 𝐱 t ) \\hat{\\mathbf{x}}^{\\text{obs}}_{0}(\\mathbf{x}_{t}) . Given that our model is Gaussian, the guidance term can be expressed as log ⁡ p t ​ ( 𝐱 0 obs | 𝐱 ^ 0 obs ​ ( 𝐱 t ) ) ∝ − 1 2 ​ σ 2 ​ ‖ 𝐱 0 obs − 𝐱 ^ 0 obs ​ ( 𝐱 t ) ‖ 2 , \\displaystyle\\log p_{t}({\\mathbf{x}}^{\\text{obs}}_{0}|\\hat{\\mathbf{x}}^{\\text{obs}}_{0}(\\mathbf{x}_{t}))\\propto-\\frac{1}{2\\sigma^{2}}\\|\\mathbf{x}^{\\text{obs}}_{0}-\\hat{\\mathbf{x}}^{\\text{obs}}_{0}(\\mathbf{x}_{t})\\|^{2}, (5) where we use a standard Gaussian prior 𝐱 T ∼ 𝒩 ⁡ ( 0 , 𝑰 ) {\\mathbf{x}}_{T}\\sim\\mathcal{N}(0,{\\bm{I}}) . For the LDM, we decode the latent posterior mean estimate and compute gradients in pixel-space: log ⁡ p t ​ ( 𝐱 0 obs | 𝐳 ^ 0 obs ​ ( 𝐳 t ) ) ∝ − 1 2 ​ σ 2 ​ ‖ 𝐱 0 obs − 𝒟 ⁡ ( 𝐳 ^ 0 obs ​ ( 𝐳 t ) ) ‖ 2 , \\displaystyle\\log p_{t}({\\mathbf{x}}^{\\text{obs}}_{0}|\\hat{\\mathbf{z}}^{\\text{obs}}_{0}(\\mathbf{z}_{t}))\\propto-\\frac{1}{2\\sigma^{2}}\\|\\mathbf{x}^{\\text{obs}}_{0}-\\mathcal{D}(\\hat{\\mathbf{z}}^{\\text{obs}}_{0}(\\mathbf{z}_{t}))\\|^{2}, (6) with a standard Gaussian prior 𝐳 T ∼ 𝒩 ⁡ ( 0 , 𝑰 ) {\\mathbf{z}}_{T}\\sim\\mathcal{N}(0,{\\bm{I}}) . We refer to this as the self-guidance method, because the model uses its own predictive capabilities to guide the sampling process. Some approaches use a weight or a schedule on the guidance term ( Dhariwal and Nichol, 2021 ) . However, we obtain the best results when scaling the guidance term to have equal magnitude to that of the unconditional score in Equation 4 . This ensures equal strength guidance at all time steps."
+      },
+      {
+        "id": "S6",
+        "heading": "6 Experiments",
+        "level": 1,
+        "text": "In this section, we report experiments on the MNIST dataset ( Deng, 2012 ) . For simplicity, we refer to the score-based DDPM described in section 2 as DDPM. The full experimental setup is reported in appendix A , and the code for reproducing our experiments is accessible at this location ."
+      },
+      {
+        "id": "S6.SS1",
+        "heading": "6.1 Sample Quality",
+        "level": 2,
+        "text": "Figure 1: Sample quality (FID, IS) versus training missing rate. Metrics averaged over three seeds. Figure 1 compares the generative capabilities of each model across training missing rates. The LDMiss retains better FID and IS than DDPM across all missing rates, demonstrating greater robustness to incomplete training data. Notably, the sample quality of LDMiss and Diffputer remains largely stable up to 50% missing data, whereas DDPM degrades continuously. In high-missingness regimes, LDMiss remains more stable than the alternatives. The LDMiss also exhibits lower variance across seeds, suggesting more consistent performance. Figure 2: Generated samples across training missing rates. Figure 2 provides a qualitative comparison. The LDMiss remains coherent up to 50% missingness and blurs only at higher rates, while DDPM becomes grainy beyond 10% because its pixel-space score network directly processes many zero-imputed values. In contrast, LDMiss diffuses in compressed latent features, reducing zero-imputation artifacts. DiffPuter is sharp at low to moderate missingness, but in the 60–80% regime its diversity and fidelity drop."
+      },
+      {
+        "id": "S6.SS2",
+        "heading": "6.2 Imputation Quality",
+        "level": 2,
+        "text": "Figure 3 compares imputation performance across several methods: self-guidance for LDMiss and DDPM, DDPM replacement, and autoencoder reconstruction. All methods are evaluated at a 50% test missing rate. The LDMiss remains robust, maintaining strong imputation performance even when trained with 80% missing data. DDPM degrades as training missingness increases; within DDPM, guidance outperforms replacement at low missing rates but deteriorates faster at high missingness because it relies fully on a degraded score network. DiffPuter, designed for tabular data imputation, is competitive in terms of MSE at low to moderate training missing rates, but at 80% missingness its reconstructions lose detail and become less consistent than LDMiss. Longer EM routines could improve DiffPuter at high missingness, albeit with a substantial increase in computational cost. The autoencoder alone reaches MSE comparable to LDM guidance around 50–60% training missing rates, but its fixed reconstruction mapping generalizes poorly outside that regime. Overall, LDMiss provides the most reliable imputation quality across all missing rates. Figure 4 confirms these findings qualitatively. The LDMiss imputations remain accurate across all missing rates, while DDPM imputations exhibit the same graininess observed in sample generation. Figure 3: Imputation metrics (MSE, FID, IS) on 10,000 samples at 50% test missing rate versus training missing rate, averaged over three seeds. Figure 4: Imputed digits at 50% test missing rate across training missing rates. Left: LDM guidance. Center: DDPM replacement. Right: DiffPuter Replacement."
+      },
+      {
+        "id": "S7",
+        "heading": "7 Conclusion",
+        "level": 1,
+        "text": "We compared pixel-space and latent-space score-based diffusion models trained on incomplete data and found that the LDMiss is consistently more robust to training missingness, preserving sample quality up to 50% missing data and outperforming DDPM on imputation across all training missing rates. A likely reason is that DDPM operates directly in pixel space, where zero-imputed values degrade score estimates, while latent diffusion filters many of these artifacts through semantic compression before denoising. This study is limited to MNIST under MCAR with zero-imputation, and architectural differences may also contribute to the observed gap. Future work should test more complex datasets, MAR/MNAR mechanisms, and alternative imputation functions to assess how well these advantages scale."
+      },
+      {
+        "id": "Sx1",
+        "heading": "Acknowledgements",
+        "level": 1,
+        "text": "This research was supported by the Villum Foundation through the Synergy project number 50091, by the Novo Nordisk Foundation through the Center for Basic Machine Learning Research in Life Science (MLLS, grant no. NNF20OC0062606), and by the Independent Research Fund Denmark (grant no. 5334-00122B and 5334-00076B). Jes Frellsen was further supported by funding from the Reinholdt W. Jorck og Hustrus Fond. Ignacio Peis acknowledges support by Danish Data Science Academy, which is funded by the Novo Nordisk Foundation (NNF21SA0069429). We thank Pierre-Alexandre Mattei for valuable and insightful discussions."
+      },
+      {
+        "id": "bib",
+        "heading": "References",
+        "level": 1,
+        "text": "Chang et al. (2021) G. J. Chang Y. Mu et al. Prevalence of missing data in the National Cancer Database and association with overall survival . JAMA Network Open 4 ( 3 ), pp. e211793 . Cited by: §1 . Deng (2012) L. Deng The mnist database of handwritten digit images for machine learning research . IEEE Signal Processing Magazine 29 ( 6 ), pp. 141–142 . Cited by: §6 . Dhariwal and Nichol (2021) P. Dhariwal and A. Nichol Diffusion models beat GANs on image synthesis . In Advances in Neural Information Processing Systems , Vol. 34 , pp. 8780–8794 . Cited by: §5 . Efron (2011) B. Efron Tweedie’s formula and selection bias . Journal of the American Statistical Association 106 ( 496 ), pp. 1602–1614 . Note: PMID: 22505788 External Links: Document , Link , https://doi.org/10.1198/jasa.2011.tm11181 Cited by: §5 . Givens et al. (2025) J. Givens, S. Liu, and H. Reeve Score matching with missing data . In Forty-second International Conference on Machine Learning , Cited by: §1 . Heusel et al. (2018) M. Heusel, H. Ramsauer, T. Unterthiner, B. Nessler, and S. Hochreiter GANs trained by a two time-scale update rule converge to a local nash equilibrium . External Links: 1706.08500 , Link Cited by: §A.3 . Higgins et al. (2017) I. Higgins, L. Matthey, A. Pal, C. Burgess, X. Glorot, M. Botvinick, S. Mohamed, and A. Lerchner Beta-VAE: learning basic visual concepts with a constrained variational framework . In International Conference on Learning Representations , External Links: Link Cited by: §3 . Ho et al. (2020) J. Ho, A. Jain, and P. Abbeel Denoising diffusion probabilistic models . External Links: 2006.11239 , Link Cited by: §A.1.1 , §2 . Kloeden and Platen (1992) P. E. Kloeden and E. Platen Numerical solution of stochastic differential equations . Springer Berlin, Heidelberg . External Links: Link Cited by: §2 . Li et al. (2019) S. C. Li, B. Jiang, and B. Marlin Learning from incomplete data with generative adversarial networks . In International Conference on Learning Representations , Cited by: §1 . Little and Rubin (2002) R. J. A. Little and D. B. Rubin Statistical analysis with missing data . 2nd edition , John Wiley & Sons, Inc. . Cited by: §1 . Mattei and Frellsen (2019) P. Mattei and J. Frellsen MIWAE: deep generative modelling and imputation of incomplete data . External Links: 1812.02633 , Link Cited by: §1 , §4.1 . Nazabal et al. (2020) A. Nazabal, P. M. Olmos, Z. Ghahramani, and I. Valera Handling incomplete heterogeneous data using vaes . Pattern Recognition 107 , pp. 107501 . Cited by: §1 . Ouyang et al. (2023) Y. Ouyang, L. Xie, C. Li, and G. Cheng Missdiff: training diffusion models on tabular data with missing values . arXiv preprint arXiv:2307.00467 . Cited by: §1 , §4.1 . Peis et al. (2022) I. Peis, C. Ma, and J. M. Hernández-Lobato Missing data imputation and acquisition with deep hierarchical models and hamiltonian monte carlo . Advances in Neural Information Processing Systems 35 , pp. 35839–35851 . Cited by: §1 . Richardson et al. (2020) T. W. Richardson, W. Wu, L. Lin, B. Xu, and E. A. Bernal Mcflow: monte carlo flow models for data imputation . In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pp. 14205–14214 . Cited by: §1 . Rombach et al. (2022) R. Rombach, A. Blattmann, D. Lorenz, P. Esser, and B. Ommer High-resolution image synthesis with latent diffusion models . External Links: 2112.10752 , Link Cited by: §A.1.2 , §A.2.2 , §3 . Salimans et al. (2016) T. Salimans, I. Goodfellow, W. Zaremba, V. Cheung, A. Radford, and X. Chen Improved techniques for training gans . External Links: 1606.03498 , Link Cited by: §A.3 . Sohl-Dickstein et al. (2015) J. Sohl-Dickstein, E. A. Weiss, N. Maheswaranathan, and S. Ganguli Deep unsupervised learning using nonequilibrium thermodynamics . External Links: 1503.03585 , Link Cited by: §2 . Song et al. (2021) Y. Song, J. Sohl-Dickstein, D. P. Kingma, A. Kumar, S. Ermon, and B. Poole Score-based generative modeling through stochastic differential equations . External Links: 2011.13456 , Link Cited by: §A.1.1 , §A.2.1 , §1 , §2 , §2 , §5 . Tashiro et al. (2021) Y. Tashiro, J. Song, Y. Song, and S. Ermon CSDI: conditional score-based diffusion models for probabilistic time series imputation . In Advances in Neural Information Processing Systems , A. Beygelzimer, Y. Dauphin, P. Liang, and J. W. Vaughan (Eds.) , Cited by: §1 . Vincent (2011) P. Vincent A connection between score matching and denoising autoencoders . Neural computation 23 ( 7 ), pp. 1661–1674 . Cited by: §2 . Wells et al. (2013) B. J. Wells, K. M. Chagin, A. S. Nowacki, and M. W. Kattan Strategies for handling missing data in electronic health record derived data . eGEMs 1 ( 3 ). Cited by: §1 . Yoon et al. (2018) J. Yoon, J. Jordon, and M. van der Schaar GAIN: missing data imputation using generative adversarial nets . External Links: 1806.02920 , Link Cited by: §1 . Zhang et al. (2025) H. Zhang, L. Fang, Q. Wu, and P. S. Yu DiffPuter: empowering diffusion models for missing data imputation . External Links: 2405.20690 , Link Cited by: §A.1.1 , §1 , §4.1 . Zheng and Charoenphakdee (2023) S. Zheng and N. Charoenphakdee Diffusion models for missing value imputation in tabular data . External Links: 2210.17128 , Link Cited by: §1 ."
+      },
+      {
+        "id": "A1.SS1.SSS1",
+        "heading": "A.1.1 Score Network",
+        "level": 3,
+        "text": "We use a DDPM++ architecture based on Ho et al. (2020) and Song et al. (2021) . The network is a U-Net with sinusoidal timestep embeddings, group normalization, and rescaled skip connections. We trained on MNIST with the configuration reported in table 1 . Table 1: Model Architectures. Hyperparameter Pixel-space Latent-space Base channels 48 64 Channel multipliers 1, 2, 4 1, 2 Residual blocks per resolution 3 2 Attention resolutions None 7 Dropout ∼ \\sim 0.12 ∼ \\sim 0.08 Group normalization groups 16 16 For DiffPuter, we used the architecture specified by Zhang et al. (2025) in their Appendix D.4."
+      },
+      {
+        "id": "A1.SS1.SSS2",
+        "heading": "A.1.2 Autoencoder",
+        "level": 3,
+        "text": "For latent diffusion, we train a KL-regularized VAE following Rombach et al. (2022) . The encoder and decoder use convolutional residual blocks with channel multipliers [1, 2, 4], downsampling 28 × 28 28\\times 28 images to 7 × 7 7\\times 7 latent representations with 2 channels: 1 × 28 × 28 → 2 × 7 × 7 = 784 → 98 1\\times 28\\times 28\\to 2\\times 7\\times 7=784\\to 98 , resulting in a compression factor of 785 / 98 = 8 785/98=8 . We use a very small KL weight ( β KL = 10 − 6 \\beta_{\\text{KL}}=10^{-6} ) to ensure high reconstruction quality. The autoencoder is trained with MSE reconstruction loss on data with MCAR missing mechanism."
+      },
+      {
+        "id": "A1.SS1.SSS3",
+        "heading": "A.1.3 Classifier",
+        "level": 3,
+        "text": "For evaluation, we train a CNN classifier on MNIST with two convolutional layers (32 and 64 channels, 3 × 3 3\\times 3 kernels) followed by max pooling, and two fully connected layers (64 hidden units). The classifier achieves 99.2% test accuracy."
+      },
+      {
+        "id": "A1.SS2",
+        "heading": "A.2 Training",
+        "level": 2,
+        "text": "All models are trained with Adam optimizer using default hyperparameters. We use batch size 256 and train for 50 epochs. Learning rates were determined via hyperparameter sweep to be η DDPM ≈ 1.96 ⋅ 10 − 5 \\eta_{\\text{DDPM}}\\approx 1.96\\cdot 10^{-5} and η LDM ≈ 9.05 ⋅ 10 − 5 \\eta_{\\text{LDM}}\\approx 9.05\\cdot 10^{-5} . Each model has been trained for three different seeds: 42, 43, and 44."
+      },
+      {
+        "id": "A1.SS2.SSS1",
+        "heading": "A.2.1 Noise Schedule",
+        "level": 3,
+        "text": "We use the VP SDE with linear β \\beta -schedule: β ⁡ ( t ) = β min + t ⁡ ( β max − β min ) , t ∈ [ τ , 1 ] \\displaystyle\\beta(t)=\\beta_{\\text{min}}+t(\\beta_{\\text{max}}-\\beta_{\\text{min}}),\\;\\;\\;\\;\\;\\;t\\in[\\tau,1] (7) with β min = 0.1 \\beta_{\\text{min}}=0.1 and β max = 20.0 \\beta_{\\text{max}}=20.0 , following Song et al. (2021) . We discretize with T = 1000 T=1000 timesteps and use τ = 10 − 3 \\tau=10^{-3} as the minimum time for numerical stability."
+      },
+      {
+        "id": "A1.SS2.SSS2",
+        "heading": "A.2.2 Diffusion in Latent Space",
+        "level": 3,
+        "text": "When traing diffusion models in latents space, we scale the latent space according to Rombach et al. (2022) ."
+      },
+      {
+        "id": "A1.SS2.SSS3",
+        "heading": "A.2.3 Missing Data",
+        "level": 3,
+        "text": "We train models on MNIST with MCAR missing mechanism at rates {0.0, 0.1, 0.3, 0.5, 0.6, 0.8}. Missing pixels are set to zero during training (zero imputation)."
+      },
+      {
+        "id": "A1.SS3",
+        "heading": "A.3 Generation Quality Metrics",
+        "level": 2,
+        "text": "We evaluate sample quality using IS ( Salimans et al., 2016 ) and FID ( Heusel et al., 2018 ) . IS measures both diversity and clarity of generated images, reflecting how easily they can be classified as distinct digits, with 10 being the highest score. FID measures the similarity between the distributions of generated and real images, capturing how much generated samples resemble the MNIST test set. For imputation, we use FID and IS to assess the quality of imputed images, and additionally MSE between imputed and original images to measure reconstruction accuracy."
+      },
+      {
+        "id": "A1.SS4",
+        "heading": "A.4 Compute",
+        "level": 2,
+        "text": "All DDPM experiments have been performed on a NVIDIA Titan V GPU, and all LDM experiments on a NVIDIA GeForce RTX 4070 Ti SUPER GPU."
+      },
+      {
+        "id": "A2",
+        "heading": "Appendix B Missing Dimensions Factorization",
+        "level": 1,
+        "text": "p ⁡ ( 𝐱 obs | 𝐳 ) \\displaystyle p(\\mathbf{x}^{\\text{obs}}|\\mathbf{z}) = ∫ p ⁡ ( 𝐱 obs , 𝐱 miss | 𝐳 ) ​ d ​ 𝐱 miss \\displaystyle=\\int p(\\mathbf{x}^{\\text{obs}},\\mathbf{x}^{\\text{miss}}|\\mathbf{z})\\;\\text{d}\\mathbf{x}^{\\text{miss}} (8) = ∫ ∏ i p ⁡ ( 𝐱 i obs , 𝐱 i miss | 𝐳 ) ​ d ​ 𝐱 miss \\displaystyle=\\int\\prod_{i}p(\\mathbf{x}_{i}^{\\text{obs}},\\mathbf{x}_{i}^{\\text{miss}}|\\mathbf{z})\\;\\text{d}\\mathbf{x}^{\\text{miss}} (9) = ∏ i p ⁡ ( 𝐱 i obs | 𝐳 ) ⋅ ∫ ∏ i p ⁡ ( 𝐱 i miss | 𝐳 ) ​ d ​ 𝐱 miss \\displaystyle=\\prod_{i}p(\\mathbf{x}^{\\text{obs}}_{i}|\\mathbf{z})\\cdot\\int\\prod_{i}p(\\mathbf{x}_{i}^{\\text{miss}}|\\mathbf{z})\\;\\text{d}\\mathbf{x}^{\\text{miss}} (10) = ∏ i p ⁡ ( 𝐱 i obs | 𝐳 ) ⋅ ∏ i ∫ p ⁡ ( 𝐱 i miss | 𝐳 ) ​ d ​ 𝐱 i miss ⏟ = 1 \\displaystyle=\\prod_{i}p(\\mathbf{x}^{\\text{obs}}_{i}|\\mathbf{z})\\cdot\\prod_{i}\\underbrace{\\int p(\\mathbf{x}_{i}^{\\text{miss}}|\\mathbf{z})\\;\\text{d}\\mathbf{x}_{i}^{\\text{miss}}}_{=\\,1} (11) = ∏ i p ⁡ ( 𝐱 i obs | 𝐳 ) \\displaystyle=\\prod_{i}p(\\mathbf{x}^{\\text{obs}}_{i}|\\mathbf{z}) (12) = p ⁡ ( 𝐱 obs | 𝐳 ) \\displaystyle=p(\\mathbf{x}^{\\text{obs}}|\\mathbf{z}) (13) In Equation ( 10 ), we assume conditional independence between observed and missing dimensions given 𝐳 {\\mathbf{z}} , which holds because we assume a diagonal Gaussian distribution for our encoder ℰ \\mathcal{E} ."
+      }
+    ]
+  },
+  "text": "Latent Diffusion for Missing Data Skip to main content Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: Why HTML? Report Issue Back to Abstract Download PDF Contents Reading mode Colour theme License: CC BY 4.0 arXiv:2605.28427v1 [cs.LG] 27 May 2026 Latent Diffusion for Missing Data Alberte Heering Estad Affiliation: Technical University of Denmark Ignacio Peis Affiliation: Technical University of Denmark Affiliation: Pioneer Centre for Artificial Intelligence Jes Frellsen Affiliation: Technical University of Denmark Affiliation: Pioneer Centre for Artificial Intelligence Abstract Diffusion models have emerged as powerful generative approaches for missing-data imputation, yet most existing methods operate directly in data space and degrade when training data are heavily incomplete. We investigate whether shifting diffusion to a learned latent representation improves robustness under missing-completely-at-random (MCAR) corruption. To this end, we propose a two-stage framework: a robust VAE-based imputer first learns compact semantic features from incomplete observations, and a diffusion model is then trained in the resulting latent space. Across training missing rates, we perform a controlled comparison against pixel-space diffusion models under the same incomplete-data setting. The latent diffusion model maintains high sample quality and remains stable up to 50% missingness, while pixel-space diffusion degrades progressively as missingness increases. For downstream imputation, latent diffusion also achieves consistently better performance than pixel-space diffusion. These findings indicate that latent-space modeling mitigates artifact amplification from zero-imputed inputs and provides a more robust generative prior for incomplete-data learning. Overall, our results support latent diffusion as a strong and practically useful alternative to pixel-space diffusion for missing-data problems. 1 Introduction Real-world datasets are often incomplete. Missing values arise from from varied sources including loss to follow-up in clinical studies, incomplete documentation in electronic health records, and practical constraints in data collection ( Wells et al., 2013 ; Chang et al., 2021 ) . The missing data mechanism is typically categorized as missing completely at random (MCAR), missing at random (MAR), or missing not at random (MNAR) ( Little and Rubin, 2002 ) . Probabilistic generative models offer a principled approach to this problem, as they can learn the data distribution from incomplete observations and impute missing values by sampling from the conditional. Deep generative approaches based on VAEs ( Nazabal et al., 2020 ; Peis et al., 2022 ; Mattei and Frellsen, 2019 ) , GANs ( Yoon et al., 2018 ; Li et al., 2019 ) and Flows ( Richardson et al., 2020 ) have shown strong results for imputation. More recently, diffusion models have been applied to this task ( Zhang et al., 2025 ; Givens et al., 2025 ; Ouyang et al., 2023 ; Zheng and Charoenphakdee, 2023 ; Tashiro et al., 2021 ) , leveraging the connection between score-based generative modeling and conditional generation ( Song et al., 2021 ) . However, existing diffusion-based methods typically operate in the data space and often assume complete training data. The question of how the choice of either pixel or latent representation space affects both generation quality and imputation performance when training on incomplete data has, to the best of our knowledge, not been studied. In this work, we present a systematic comparison between diffusion models for missing data in pixel space and our proposed method, denoted LDMiss, which performs diffusion in a latent space learned by a VAE for incomplete data. Both models are trained on MNIST under MCAR missingness at varying rates. We evaluate both generative sample quality and imputation performance. Our results show that LDMiss retains higher sample quality as missingness increases and achieves superior imputation performance compared with the pixel-space DDPM. 2 Score-Based Diffusion Models Diffusion models ( Sohl-Dickstein et al., 2015 ; Song et al., 2021 ; Ho et al., 2020 ) generate data by progressively corrupting training samples with noise and then learning the reverse denoising process. Denoising Diffusion Probabilistic Models (DDPMs; Ho et al. (2020) ) formulate this process as a discrete-time Markov chain. In contrast, score-based diffusion models ( Song et al., 2021 ) define a continuous-time forward process { 𝐱 t } t = 0 T \\{\\mathbf{x}_{t}\\}^{T}_{t=0} with t ∈ [ 0 , T ] t\\in[0,T] through the stochastic differential equation (SDE) d ​ 𝐱 = 𝐟 ⁡ ( 𝐱 , t ) ​ d ​ t + g ⁡ ( t ) ​ d ​ 𝐰 \\text{d}\\mathbf{x}=\\mathbf{f}(\\mathbf{x},t)\\,\\text{d}t+g(t)\\,\\text{d}\\mathbf{w} . The process starts from data 𝐱 0 ∼ p 0 {\\mathbf{x}}_{0}\\sim p_{0} and evolves toward a prior distribution 𝐱 T ∼ p T {\\mathbf{x}}_{T}\\sim p_{T} that contains no information about p 0 p_{0} . The generative process is characterized by the corresponding reverse SDE: d ​ 𝐱 = [ 𝐟 ⁡ ( 𝐱 , t ) − g ​ ( t ) 2 ​ ∇ 𝐱 ​ log ⁡ p t ​ ( 𝐱 ) ] ​ d ​ t + g ⁡ ( t ) ​ d ​ 𝐰 \\text{d}{\\mathbf{x}}=\\left[{\\mathbf{f}}({\\mathbf{x}},t)-g(t)^{2}\\nabla_{{\\mathbf{x}}}\\log p_{t}({\\mathbf{x}})\\right]\\text{d}t+g(t)\\text{d}{\\mathbf{w}} . This reverse SDE depends only on the time-dependent gradient field ∇ 𝐱 ​ log ​ p t ​ ( 𝐱 ) \\nabla_{{\\mathbf{x}}}\\log p_{t}({\\mathbf{x}}) , known as the score, of the transformed data distribution. The score can be estimated by training a time-dependent neural network 𝐬 θ {\\mathbf{s}}_{\\theta} via the Denoising Score-Matching objective ( Vincent, 2011 ) : ℒ ⁡ ( θ ) = 𝔼 t ∼ 𝒰 ⁡ ( τ , 1 ) ​ { λ t ​ 𝔼 𝐱 0 ∼ p 0 ​ 𝔼 𝐱 t ∼ p 0 ​ t ​ ( 𝐱 t | 𝐱 0 ) ​ [ ‖ 𝐬 θ ​ ( 𝐱 t , t ) − ∇ 𝐱 t ​ log ​ p 0 ​ t ​ ( 𝐱 t | 𝐱 0 ) ‖ 2 2 ] } \\displaystyle\\mathcal{L}(\\theta)=\\mathbb{E}_{t\\sim\\mathcal{U}(\\tau,1)}\\left\\{\\lambda_{t}\\>\\mathbb{E}_{\\mathbf{x}_{0}\\sim p_{0}}\\mathbb{E}_{\\mathbf{x}_{t}\\sim p_{0t}(\\mathbf{x}_{t}|\\mathbf{x}_{0})}\\left[\\>\\left\\|\\>{\\mathbf{s}}_{\\theta}(\\mathbf{x}_{t},t)-\\nabla_{\\mathbf{x}_{t}}\\log p_{0t}(\\mathbf{x}_{t}\\>|\\>\\mathbf{x}_{0})\\>\\right\\|_{2}^{2}\\>\\right]\\right\\} (1) Once 𝐬 θ {\\mathbf{s}}_{\\theta} is obtained, the reverse SDE can be simulated using numerical methods such as Euler-Maruyama ( Kloeden and Platen, 1992 ) to sample new data. Song et al. (2021) show that the DDPM perturbation kernels converge to the Variance-Preserving (VP) SDE: d ​ 𝐱 = − 1 2 ​ β ​ ( t ) ​ 𝐱 ​ d ​ t + β ⁡ ( t ) ​ d ​ 𝐰 \\text{d}\\mathbf{x}=-\\frac{1}{2}\\beta(t)\\mathbf{x}\\,\\text{d}t+\\sqrt{\\beta(t)}\\,\\text{d}\\mathbf{w} , with noise schedule β ⁡ ( t ) = β m ​ i ​ n + t ⁡ ( β m ​ a ​ x − β m ​ i ​ n ) \\beta(t)=\\beta_{min}+t(\\beta_{max}-\\beta_{min}) , when time is continuous. In this study, we use the VP SDE and its corresponding reverse SDE to model the forward and reverse processes, respectively. The linearity of the drift and diffusion coefficients causes the transition kernel p 0 ​ t ​ ( 𝐱 t | 𝐱 0 ) p_{0t}({\\mathbf{x}}_{t}|{\\mathbf{x}}_{0}) to become Gaussian, resulting in a standard Gaussian prior 𝐱 T ∼ 𝒩 ⁡ ( 0 , 𝑰 ) {\\mathbf{x}}_{T}\\sim\\mathcal{N}(0,{\\bm{I}}) . By reparameterization of 𝐱 t ∼ 𝒩 ⁡ ( μ , σ 2 ​ 𝐈 ) {\\mathbf{x}}_{t}\\sim\\mathcal{N}(\\mu,\\sigma^{2}\\mathbf{I}) , we obtain the simplified objective: ℒ ⁡ ( θ ) = 𝔼 t ∼ 𝒰 ⁡ ( τ , 1 ) , 𝐱 0 ∼ p 0 , ϵ ∼ 𝒩 ⁡ ( 0 , 𝑰 ) ​ [ λ t ​ ‖ 𝐬 θ ​ ( 𝐱 t , t ) + ϵ σ t ‖ 2 2 ] \\displaystyle\\mathcal{L}(\\theta)=\\mathbb{E}_{t\\sim\\mathcal{U}(\\tau,1),\\mathbf{x}_{0}\\sim p_{0},\\epsilon\\sim\\mathcal{N}(0,{\\bm{I}})}\\left[\\lambda_{t}\\left\\|\\mathbf{s}_{\\theta}(\\mathbf{x}_{t},t)+\\frac{\\epsilon}{\\sigma_{t}}\\right\\|^{2}_{2}\\right] (2) 3 Latent Diffusion Models Latent diffusion models (LDMs, Rombach et al., 2022 ) compress the original images to a latent space of lower dimension, in which the diffusion process is then carried out. This is more computationally efficient and allows the model to train on the most important semantic bits of the data. An LDM consists of an encoder ℰ \\mathcal{E} , which encodes the data 𝐱 {\\mathbf{x}} into a latent representation 𝐳 = ℰ ⁡ ( 𝐱 ) {\\mathbf{z}}=\\mathcal{E}({\\mathbf{x}}) , and a decoder 𝒟 \\mathcal{D} , that uses the latent to reconstruct the data 𝐱 ^ = 𝒟 ⁡ ( 𝐳 ) = 𝒟 ⁡ ( ℰ ⁡ ( 𝐱 ) ) \\hat{\\mathbf{x}}=\\mathcal{D}({\\mathbf{z}})=\\mathcal{D}(\\mathcal{E}({\\mathbf{x}})) . In this study, we use a β \\beta -VAE ( Higgins et al., 2017 ) with p ⁡ ( 𝐳 ) = 𝒩 ⁡ ( 0 , 𝐈 ) p({\\mathbf{z}})=\\mathcal{N}(0,\\mathbf{I}) and q ℰ ​ ( 𝐳 | 𝐱 ) = 𝒩 ⁡ ( 𝐳 , μ ℰ , σ ℰ 2 ) q_{\\mathcal{E}}({\\mathbf{z}}|{\\mathbf{x}})=\\mathcal{N}({\\mathbf{z}};\\mu_{\\mathcal{E}},\\sigma^{2}_{\\mathcal{E}}) , trained with the Evidence Lower Bound (ELBO), with KL regularization weighted by β = 10 − 6 \\beta=10^{-6} to ensure high-fidelity reconstructions. Subsequently, the diffusion model is trained on latent representations 𝐳 = ℰ ⁡ ( 𝐱 ) {\\mathbf{z}}=\\mathcal{E}({\\mathbf{x}}) using the objective in Equation 2 , with 𝐳 {\\mathbf{z}} replacing 𝐱 {\\mathbf{x}} . 4 Missing Data Framework Given dataset 𝑿 = ( 𝐱 1 , … , 𝐱 n ) T {\\bm{X}}=({\\mathbf{x}}_{1},\\dots,{\\mathbf{x}}_{n})^{T} with p p features, we define i ∈ { 1 , … , n } i\\in\\{1,\\dots,n\\} as the index of the data point 𝐱 i {\\mathbf{x}}_{i} , and j ∈ { 1 , … , p } j\\in\\{1,\\dots,p\\} the index of the feature 𝐱 i ​ j {\\mathbf{x}}_{ij} . In the case of MNIST, 𝐱 i {\\mathbf{x}}_{i} is a flattened image, and 𝐱 i ​ j {\\mathbf{x}}_{ij} is a pixel in image 𝐱 i {\\mathbf{x}}_{i} . When working with missing data, we split each data point into missing and observed features 𝐱 i = { 𝐱 i obs , 𝐱 i miss } {\\mathbf{x}}_{i}=\\{{\\mathbf{x}}^{\\text{obs}}_{i},{\\mathbf{x}}^{\\text{miss}}_{i}\\} . The missing features of each data point 𝐱 i {\\mathbf{x}}_{i} are defined according to a binary mask vector 𝐦 i ∈ { 0 , 1 } p {\\mathbf{m}}_{i}\\in\\{0,1\\}^{p} , such that 𝐦 i ​ j = 1 {\\mathbf{m}}_{ij}=1 , if 𝐱 i ​ j {\\mathbf{x}}_{ij} is observed and 𝐦 i ​ j = 0 {\\mathbf{m}}_{ij}=0 , if it is missing. In this study, we assume that the data is missing-completely-at-random . 4.1 Training with Missing Data For the diffusion modelling in pixel space, we employ two recent alternatives. First, we adopt the MissDiff approach ( Ouyang et al., 2023 ) : after zero-imputing the data, the loss is only computed on observed dimensions by factoring out the missing dimensions and normalizing by the number of observed dimensions: ℒ ⁡ ( θ ) = 𝔼 t ∼ 𝒰 ⁡ ( τ , 1 ) , 𝐱 0 ∼ p 0 , ϵ ∼ 𝒩 ⁡ ( 0 , 𝑰 ) , 𝐦 ​ [ λ t ​ ‖ 𝐦 ⊙ ( 𝐬 θ ​ ( 𝐱 t , t ) − ∇ 𝐱 t ​ log ​ p 0 ​ t ​ ( 𝐱 t | 𝐱 0 ) ) ‖ 2 ∑ j 𝐦 j ] \\displaystyle\\mathcal{L}(\\theta)=\\mathbb{E}_{t\\sim\\mathcal{U}(\\tau,1),{\\mathbf{x}}_{0}\\sim p_{0},\\epsilon\\sim\\mathcal{N}(0,{\\bm{I}}),{\\mathbf{m}}}\\left[\\lambda_{t}\\,\\frac{||{\\mathbf{m}}\\odot({\\mathbf{s}}_{\\theta}({\\mathbf{x}}_{t},t)-\\nabla_{{\\mathbf{x}}_{t}}\\log p_{0t}({\\mathbf{x}}_{t}|{\\mathbf{x}}_{0}))||^{2}}{\\sum_{j}{\\mathbf{m}}_{j}}\\right] (3) Second, we use DiffPuter ( Zhang et al., 2025 ) , an EM-based iterative algorithm that imputes the missing values in the E-step and retrains the diffusion model in the M-step. For our LDMiss, we follow Mattei and Frellsen (2019) and zero-impute missing entries. The autoencoder is then trained using a β \\beta -VAE ELBO, where the reconstruction term is evaluated only on the observed data and the KL divergence term is weighted by β K ​ L \\beta_{KL} . The diffusion process in latent space has the convenient property that missing dimensions factor out under the conditional independence assumption of our diagonal Gaussian encoder (derivation in appendix B ). We therefore simply use the latent version of the objective given in Equation ( 2 ) during latent diffusion. 5 Self-Guided Missing Data Imputation Song et al. (2021) perform imputation by sampling noisy observations from the known forward process p t ​ ( 𝐱 t miss | 𝐱 0 obs ) ≈ p t ​ ( 𝐱 t miss | 𝐱 ^ t obs ) p_{t}({\\mathbf{x}}^{\\text{miss}}_{t}|{\\mathbf{x}}^{\\text{obs}}_{0})\\approx p_{t}({\\mathbf{x}}^{\\text{miss}}_{t}|\\hat{{\\mathbf{x}}}^{\\text{obs}}_{t}) , where 𝐱 ^ t obs \\hat{{\\mathbf{x}}}^{\\text{obs}}_{t} is a random sample from p t ​ ( 𝐱 t obs | 𝐱 0 obs ) p_{t}({\\mathbf{x}}^{\\text{obs}}_{t}|{\\mathbf{x}}^{\\text{obs}}_{0}) . At each iteration, they replace the observed dimensions with their noisy counterparts and update the missing dimensions using the score network. We refer to this as the replacement method. However, this method is not viable for the LDMiss, because we have no notion of missing dimensions in latent space. An alternative for imputing missing values with unconditional diffusion models is to condition the generative process on the observed dimensions. Specifically, we replace the score in Equation ( 2 ) with the conditional score ∇ 𝐱 t ​ log ​ p t ​ ( 𝐱 t | 𝐱 0 obs ) \\nabla_{\\mathbf{x}_{t}}\\log p_{t}(\\mathbf{x}_{t}|\\mathbf{x}^{\\text{obs}}_{0}) . By Bayes’ rule, this conditional score decomposes into the unconditional score and a guidance term: ∇ 𝐱 t ​ log ​ p t ​ ( 𝐱 t | 𝐱 0 obs ) = ∇ 𝐱 t ​ log ​ p t ​ ( 𝐱 t ) + ∇ 𝐱 t ​ log ​ p t ​ ( 𝐱 0 obs | 𝐱 t ) \\displaystyle\\nabla_{\\mathbf{x}_{t}}\\log p_{t}(\\mathbf{x}_{t}|\\mathbf{x}^{\\text{obs}}_{0})=\\nabla_{\\mathbf{x}_{t}}\\log p_{t}(\\mathbf{x}_{t})+\\nabla_{\\mathbf{x}_{t}}\\log p_{t}(\\mathbf{x}^{\\text{obs}}_{0}|\\mathbf{x}_{t}) (4) However, since ∇ 𝐱 t ​ log ​ p ​ ( 𝐱 0 obs | 𝐱 t ) \\nabla_{\\mathbf{x}_{t}}\\log p(\\mathbf{x}^{\\text{obs}}_{0}|\\mathbf{x}_{t}) is intractable, we approximate it using Tweedie’s formula ( Efron, 2011 ) to obtain the posterior mean estimate 𝐱 ^ 0 obs ​ ( 𝐱 t ) \\hat{\\mathbf{x}}^{\\text{obs}}_{0}(\\mathbf{x}_{t}) . Given that our model is Gaussian, the guidance term can be expressed as log ⁡ p t ​ ( 𝐱 0 obs | 𝐱 ^ 0 obs ​ ( 𝐱 t ) ) ∝ − 1 2 ​ σ 2 ​ ‖ 𝐱 0 obs − 𝐱 ^ 0 obs ​ ( 𝐱 t ) ‖ 2 , \\displaystyle\\log p_{t}({\\mathbf{x}}^{\\text{obs}}_{0}|\\hat{\\mathbf{x}}^{\\text{obs}}_{0}(\\mathbf{x}_{t}))\\propto-\\frac{1}{2\\sigma^{2}}\\|\\mathbf{x}^{\\text{obs}}_{0}-\\hat{\\mathbf{x}}^{\\text{obs}}_{0}(\\mathbf{x}_{t})\\|^{2}, (5) where we use a standard Gaussian prior 𝐱 T ∼ 𝒩 ⁡ ( 0 , 𝑰 ) {\\mathbf{x}}_{T}\\sim\\mathcal{N}(0,{\\bm{I}}) . For the LDM, we decode the latent posterior mean estimate and compute gradients in pixel-space: log ⁡ p t ​ ( 𝐱 0 obs | 𝐳 ^ 0 obs ​ ( 𝐳 t ) ) ∝ − 1 2 ​ σ 2 ​ ‖ 𝐱 0 obs − 𝒟 ⁡ ( 𝐳 ^ 0 obs ​ ( 𝐳 t ) ) ‖ 2 , \\displaystyle\\log p_{t}({\\mathbf{x}}^{\\text{obs}}_{0}|\\hat{\\mathbf{z}}^{\\text{obs}}_{0}(\\mathbf{z}_{t}))\\propto-\\frac{1}{2\\sigma^{2}}\\|\\mathbf{x}^{\\text{obs}}_{0}-\\mathcal{D}(\\hat{\\mathbf{z}}^{\\text{obs}}_{0}(\\mathbf{z}_{t}))\\|^{2}, (6) with a standard Gaussian prior 𝐳 T ∼ 𝒩 ⁡ ( 0 , 𝑰 ) {\\mathbf{z}}_{T}\\sim\\mathcal{N}(0,{\\bm{I}}) . We refer to this as the self-guidance method, because the model uses its own predictive capabilities to guide the sampling process. Some approaches use a weight or a schedule on the guidance term ( Dhariwal and Nichol, 2021 ) . However, we obtain the best results when scaling the guidance term to have equal magnitude to that of the unconditional score in Equation 4 . This ensures equal strength guidance at all time steps. 6 Experiments In this section, we report experiments on the MNIST dataset ( Deng, 2012 ) . For simplicity, we refer to the score-based DDPM described in section 2 as DDPM. The full experimental setup is reported in appendix A , and the code for reproducing our experiments is accessible at this location . 6.1 Sample Quality Figure 1: Sample quality (FID, IS) versus training missing rate. Metrics averaged over three seeds. Figure 1 compares the generative capabilities of each model across training missing rates. The LDMiss retains better FID and IS than DDPM across all missing rates, demonstrating greater robustness to incomplete training data. Notably, the sample quality of LDMiss and Diffputer remains largely stable up to 50% missing data, whereas DDPM degrades continuously. In high-missingness regimes, LDMiss remains more stable than the alternatives. The LDMiss also exhibits lower variance across seeds, suggesting more consistent performance. Figure 2: Generated samples across training missing rates. Figure 2 provides a qualitative comparison. The LDMiss remains coherent up to 50% missingness and blurs only at higher rates, while DDPM becomes grainy beyond 10% because its pixel-space score network directly processes many zero-imputed values. In contrast, LDMiss diffuses in compressed latent features, reducing zero-imputation artifacts. DiffPuter is sharp at low to moderate missingness, but in the 60–80% regime its diversity and fidelity drop. 6.2 Imputation Quality Figure 3 compares imputation performance across several methods: self-guidance for LDMiss and DDPM, DDPM replacement, and autoencoder reconstruction. All methods are evaluated at a 50% test missing rate. The LDMiss remains robust, maintaining strong imputation performance even when trained with 80% missing data. DDPM degrades as training missingness increases; within DDPM, guidance outperforms replacement at low missing rates but deteriorates faster at high missingness because it relies fully on a degraded score network. DiffPuter, designed for tabular data imputation, is competitive in terms of MSE at low to moderate training missing rates, but at 80% missingness its reconstructions lose detail and become less consistent than LDMiss. Longer EM routines could improve DiffPuter at high missingness, albeit with a substantial increase in computational cost. The autoencoder alone reaches MSE comparable to LDM guidance around 50–60% training missing rates, but its fixed reconstruction mapping generalizes poorly outside that regime. Overall, LDMiss provides the most reliable imputation quality across all missing rates. Figure 4 confirms these findings qualitatively. The LDMiss imputations remain accurate across all missing rates, while DDPM imputations exhibit the same graininess observed in sample generation. Figure 3: Imputation metrics (MSE, FID, IS) on 10,000 samples at 50% test missing rate versus training missing rate, averaged over three seeds. Figure 4: Imputed digits at 50% test missing rate across training missing rates. Left: LDM guidance. Center: DDPM replacement. Right: DiffPuter Replacement. 7 Conclusion We compared pixel-space and latent-space score-based diffusion models trained on incomplete data and found that the LDMiss is consistently more robust to training missingness, preserving sample quality up to 50% missing data and outperforming DDPM on imputation across all training missing rates. A likely reason is that DDPM operates directly in pixel space, where zero-imputed values degrade score estimates, while latent diffusion filters many of these artifacts through semantic compression before denoising. This study is limited to MNIST under MCAR with zero-imputation, and architectural differences may also contribute to the observed gap. Future work should test more complex datasets, MAR/MNAR mechanisms, and alternative imputation functions to assess how well these advantages scale. Acknowledgements This research was supported by the Villum Foundation through the Synergy project number 50091, by the Novo Nordisk Foundation through the Center for Basic Machine Learning Research in Life Science (MLLS, grant no. NNF20OC0062606), and by the Independent Research Fund Denmark (grant no. 5334-00122B and 5334-00076B). Jes Frellsen was further supported by funding from the Reinholdt W. Jorck og Hustrus Fond. Ignacio Peis acknowledges support by Danish Data Science Academy, which is funded by the Novo Nordisk Foundation (NNF21SA0069429). We thank Pierre-Alexandre Mattei for valuable and insightful discussions. References Chang et al. (2021) G. J. Chang Y. Mu et al. Prevalence of missing data in the National Cancer Database and association with overall survival . JAMA Network Open 4 ( 3 ), pp. e211793 . Cited by: §1 . Deng (2012) L. Deng The mnist database of handwritten digit images for machine learning research . IEEE Signal Processing Magazine 29 ( 6 ), pp. 141–142 . Cited by: §6 . Dhariwal and Nichol (2021) P. Dhariwal and A. Nichol Diffusion models beat GANs on image synthesis . In Advances in Neural Information Processing Systems , Vol. 34 , pp. 8780–8794 . Cited by: §5 . Efron (2011) B. Efron Tweedie’s formula and selection bias . Journal of the American Statistical Association 106 ( 496 ), pp. 1602–1614 . Note: PMID: 22505788 External Links: Document , Link , https://doi.org/10.1198/jasa.2011.tm11181 Cited by: §5 . Givens et al. (2025) J. Givens, S. Liu, and H. Reeve Score matching with missing data . In Forty-second International Conference on Machine Learning , Cited by: §1 . Heusel et al. (2018) M. Heusel, H. Ramsauer, T. Unterthiner, B. Nessler, and S. Hochreiter GANs trained by a two time-scale update rule converge to a local nash equilibrium . External Links: 1706.08500 , Link Cited by: §A.3 . Higgins et al. (2017) I. Higgins, L. Matthey, A. Pal, C. Burgess, X. Glorot, M. Botvinick, S. Mohamed, and A. Lerchner Beta-VAE: learning basic visual concepts with a constrained variational framework . In International Conference on Learning Representations , External Links: Link Cited by: §3 . Ho et al. (2020) J. Ho, A. Jain, and P. Abbeel Denoising diffusion probabilistic models . External Links: 2006.11239 , Link Cited by: §A.1.1 , §2 . Kloeden and Platen (1992) P. E. Kloeden and E. Platen Numerical solution of stochastic differential equations . Springer Berlin, Heidelberg . External Links: Link Cited by: §2 . Li et al. (2019) S. C. Li, B. Jiang, and B. Marlin Learning from incomplete data with generative adversarial networks . In International Conference on Learning Representations , Cited by: §1 . Little and Rubin (2002) R. J. A. Little and D. B. Rubin Statistical analysis with missing data . 2nd edition , John Wiley & Sons, Inc. . Cited by: §1 . Mattei and Frellsen (2019) P. Mattei and J. Frellsen MIWAE: deep generative modelling and imputation of incomplete data . External Links: 1812.02633 , Link Cited by: §1 , §4.1 . Nazabal et al. (2020) A. Nazabal, P. M. Olmos, Z. Ghahramani, and I. Valera Handling incomplete heterogeneous data using vaes . Pattern Recognition 107 , pp. 107501 . Cited by: §1 . Ouyang et al. (2023) Y. Ouyang, L. Xie, C. Li, and G. Cheng Missdiff: training diffusion models on tabular data with missing values . arXiv preprint arXiv:2307.00467 . Cited by: §1 , §4.1 . Peis et al. (2022) I. Peis, C. Ma, and J. M. Hernández-Lobato Missing data imputation and acquisition with deep hierarchical models and hamiltonian monte carlo . Advances in Neural Information Processing Systems 35 , pp. 35839–35851 . Cited by: §1 . Richardson et al. (2020) T. W. Richardson, W. Wu, L. Lin, B. Xu, and E. A. Bernal Mcflow: monte carlo flow models for data imputation . In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pp. 14205–14214 . Cited by: §1 . Rombach et al. (2022) R. Rombach, A. Blattmann, D. Lorenz, P. Esser, and B. Ommer High-resolution image synthesis with latent diffusion models . External Links: 2112.10752 , Link Cited by: §A.1.2 , §A.2.2 , §3 . Salimans et al. (2016) T. Salimans, I. Goodfellow, W. Zaremba, V. Cheung, A. Radford, and X. Chen Improved techniques for training gans . External Links: 1606.03498 , Link Cited by: §A.3 . Sohl-Dickstein et al. (2015) J. Sohl-Dickstein, E. A. Weiss, N. Maheswaranathan, and S. Ganguli Deep unsupervised learning using nonequilibrium thermodynamics . External Links: 1503.03585 , Link Cited by: §2 . Song et al. (2021) Y. Song, J. Sohl-Dickstein, D. P. Kingma, A. Kumar, S. Ermon, and B. Poole Score-based generative modeling through stochastic differential equations . External Links: 2011.13456 , Link Cited by: §A.1.1 , §A.2.1 , §1 , §2 , §2 , §5 . Tashiro et al. (2021) Y. Tashiro, J. Song, Y. Song, and S. Ermon CSDI: conditional score-based diffusion models for probabilistic time series imputation . In Advances in Neural Information Processing Systems , A. Beygelzimer, Y. Dauphin, P. Liang, and J. W. Vaughan (Eds.) , Cited by: §1 . Vincent (2011) P. Vincent A connection between score matching and denoising autoencoders . Neural computation 23 ( 7 ), pp. 1661–1674 . Cited by: §2 . Wells et al. (2013) B. J. Wells, K. M. Chagin, A. S. Nowacki, and M. W. Kattan Strategies for handling missing data in electronic health record derived data . eGEMs 1 ( 3 ). Cited by: §1 . Yoon et al. (2018) J. Yoon, J. Jordon, and M. van der Schaar GAIN: missing data imputation using generative adversarial nets . External Links: 1806.02920 , Link Cited by: §1 . Zhang et al. (2025) H. Zhang, L. Fang, Q. Wu, and P. S. Yu DiffPuter: empowering diffusion models for missing data imputation . External Links: 2405.20690 , Link Cited by: §A.1.1 , §1 , §4.1 . Zheng and Charoenphakdee (2023) S. Zheng and N. Charoenphakdee Diffusion models for missing value imputation in tabular data . External Links: 2210.17128 , Link Cited by: §1 . Appendix Appendix A Experimental Setup A.1 Architecture A.1.1 Score Network We use a DDPM++ architecture based on Ho et al. (2020) and Song et al. (2021) . The network is a U-Net with sinusoidal timestep embeddings, group normalization, and rescaled skip connections. We trained on MNIST with the configuration reported in table 1 . Table 1: Model Architectures. Hyperparameter Pixel-space Latent-space Base channels 48 64 Channel multipliers 1, 2, 4 1, 2 Residual blocks per resolution 3 2 Attention resolutions None 7 Dropout ∼ \\sim 0.12 ∼ \\sim 0.08 Group normalization groups 16 16 For DiffPuter, we used the architecture specified by Zhang et al. (2025) in their Appendix D.4. A.1.2 Autoencoder For latent diffusion, we train a KL-regularized VAE following Rombach et al. (2022) . The encoder and decoder use convolutional residual blocks with channel multipliers [1, 2, 4], downsampling 28 × 28 28\\times 28 images to 7 × 7 7\\times 7 latent representations with 2 channels: 1 × 28 × 28 → 2 × 7 × 7 = 784 → 98 1\\times 28\\times 28\\to 2\\times 7\\times 7=784\\to 98 , resulting in a compression factor of 785 / 98 = 8 785/98=8 . We use a very small KL weight ( β KL = 10 − 6 \\beta_{\\text{KL}}=10^{-6} ) to ensure high reconstruction quality. The autoencoder is trained with MSE reconstruction loss on data with MCAR missing mechanism. A.1.3 Classifier For evaluation, we train a CNN classifier on MNIST with two convolutional layers (32 and 64 channels, 3 × 3 3\\times 3 kernels) followed by max pooling, and two fully connected layers (64 hidden units). The classifier achieves 99.2% test accuracy. A.2 Training All models are trained with Adam optimizer using default hyperparameters. We use batch size 256 and train for 50 epochs. Learning rates were determined via hyperparameter sweep to be η DDPM ≈ 1.96 ⋅ 10 − 5 \\eta_{\\text{DDPM}}\\approx 1.96\\cdot 10^{-5} and η LDM ≈ 9.05 ⋅ 10 − 5 \\eta_{\\text{LDM}}\\approx 9.05\\cdot 10^{-5} . Each model has been trained for three different seeds: 42, 43, and 44. A.2.1 Noise Schedule We use the VP SDE with linear β \\beta -schedule: β ⁡ ( t ) = β min + t ⁡ ( β max − β min ) , t ∈ [ τ , 1 ] \\displaystyle\\beta(t)=\\beta_{\\text{min}}+t(\\beta_{\\text{max}}-\\beta_{\\text{min}}),\\;\\;\\;\\;\\;\\;t\\in[\\tau,1] (7) with β min = 0.1 \\beta_{\\text{min}}=0.1 and β max = 20.0 \\beta_{\\text{max}}=20.0 , following Song et al. (2021) . We discretize with T = 1000 T=1000 timesteps and use τ = 10 − 3 \\tau=10^{-3} as the minimum time for numerical stability. A.2.2 Diffusion in Latent Space When traing diffusion models in latents space, we scale the latent space according to Rombach et al. (2022) . A.2.3 Missing Data We train models on MNIST with MCAR missing mechanism at rates {0.0, 0.1, 0.3, 0.5, 0.6, 0.8}. Missing pixels are set to zero during training (zero imputation). A.3 Generation Quality Metrics We evaluate sample quality using IS ( Salimans et al., 2016 ) and FID ( Heusel et al., 2018 ) . IS measures both diversity and clarity of generated images, reflecting how easily they can be classified as distinct digits, with 10 being the highest score. FID measures the similarity between the distributions of generated and real images, capturing how much generated samples resemble the MNIST test set. For imputation, we use FID and IS to assess the quality of imputed images, and additionally MSE between imputed and original images to measure reconstruction accuracy. A.4 Compute All DDPM experiments have been performed on a NVIDIA Titan V GPU, and all LDM experiments on a NVIDIA GeForce RTX 4070 Ti SUPER GPU. Appendix B Missing Dimensions Factorization p ⁡ ( 𝐱 obs | 𝐳 ) \\displaystyle p(\\mathbf{x}^{\\text{obs}}|\\mathbf{z}) = ∫ p ⁡ ( 𝐱 obs , 𝐱 miss | 𝐳 ) ​ d ​ 𝐱 miss \\displaystyle=\\int p(\\mathbf{x}^{\\text{obs}},\\mathbf{x}^{\\text{miss}}|\\mathbf{z})\\;\\text{d}\\mathbf{x}^{\\text{miss}} (8) = ∫ ∏ i p ⁡ ( 𝐱 i obs , 𝐱 i miss | 𝐳 ) ​ d ​ 𝐱 miss \\displaystyle=\\int\\prod_{i}p(\\mathbf{x}_{i}^{\\text{obs}},\\mathbf{x}_{i}^{\\text{miss}}|\\mathbf{z})\\;\\text{d}\\mathbf{x}^{\\text{miss}} (9) = ∏ i p ⁡ ( 𝐱 i obs | 𝐳 ) ⋅ ∫ ∏ i p ⁡ ( 𝐱 i miss | 𝐳 ) ​ d ​ 𝐱 miss \\displaystyle=\\prod_{i}p(\\mathbf{x}^{\\text{obs}}_{i}|\\mathbf{z})\\cdot\\int\\prod_{i}p(\\mathbf{x}_{i}^{\\text{miss}}|\\mathbf{z})\\;\\text{d}\\mathbf{x}^{\\text{miss}} (10) = ∏ i p ⁡ ( 𝐱 i obs | 𝐳 ) ⋅ ∏ i ∫ p ⁡ ( 𝐱 i miss | 𝐳 ) ​ d ​ 𝐱 i miss ⏟ = 1 \\displaystyle=\\prod_{i}p(\\mathbf{x}^{\\text{obs}}_{i}|\\mathbf{z})\\cdot\\prod_{i}\\underbrace{\\int p(\\mathbf{x}_{i}^{\\text{miss}}|\\mathbf{z})\\;\\text{d}\\mathbf{x}_{i}^{\\text{miss}}}_{=\\,1} (11) = ∏ i p ⁡ ( 𝐱 i obs | 𝐳 ) \\displaystyle=\\prod_{i}p(\\mathbf{x}^{\\text{obs}}_{i}|\\mathbf{z}) (12) = p ⁡ ( 𝐱 obs | 𝐳 ) \\displaystyle=p(\\mathbf{x}^{\\text{obs}}|\\mathbf{z}) (13) In Equation ( 10 ), we assume conditional independence between observed and missing dimensions given 𝐳 {\\mathbf{z}} , which holds because we assume a diagonal Gaussian distribution for our encoder ℰ \\mathcal{E} .",
+  "text_truncated": false,
+  "links": [
+    {
+      "text": "Skip to main content",
+      "url": "https://arxiv.org/html/2605.28427v1#infobox"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/IgnoreMe"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "Why HTML?",
+      "url": "https://info.arxiv.org/about/accessible_HTML.html"
+    },
+    {
+      "text": "Back to Abstract",
+      "url": "https://arxiv.org/abs/2605.28427v1"
+    },
+    {
+      "text": "Download PDF",
+      "url": "https://arxiv.org/pdf/2605.28427v1"
+    },
+    {
+      "text": "License: CC BY 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "Wells et al., 2013",
+      "url": "https://arxiv.org/html/2605.28427v1#bib.bib23"
+    },
+    {
+      "text": "Chang et al., 2021",
+      "url": "https://arxiv.org/html/2605.28427v1#bib.bib24"
+    },
+    {
+      "text": "Little and Rubin, 2002",
+      "url": "https://arxiv.org/html/2605.28427v1#bib.bib5"
+    },
+    {
+      "text": "Nazabal et al., 2020",
+      "url": "https://arxiv.org/html/2605.28427v1#bib.bib17"
+    },
+    {
+      "text": "Peis et al., 2022",
+      "url": "https://arxiv.org/html/2605.28427v1#bib.bib18"
+    },
+    {
+      "text": "Mattei and Frellsen, 2019",
+      "url": "https://arxiv.org/html/2605.28427v1#bib.bib16"
+    },
+    {
+      "text": "Yoon et al., 2018",
+      "url": "https://arxiv.org/html/2605.28427v1#bib.bib19"
+    },
+    {
+      "text": "Li et al., 2019",
+      "url": "https://arxiv.org/html/2605.28427v1#bib.bib20"
+    },
+    {
+      "text": "Richardson et al., 2020",
+      "url": "https://arxiv.org/html/2605.28427v1#bib.bib21"
+    },
+    {
+      "text": "Zhang et al., 2025",
+      "url": "https://arxiv.org/html/2605.28427v1#bib.bib11"
+    },
+    {
+      "text": "Givens et al., 2025",
+      "url": "https://arxiv.org/html/2605.28427v1#bib.bib14"
+    },
+    {
+      "text": "Ouyang et al., 2023",
+      "url": "https://arxiv.org/html/2605.28427v1#bib.bib15"
+    },
+    {
+      "text": "Zheng and Charoenphakdee, 2023",
+      "url": "https://arxiv.org/html/2605.28427v1#bib.bib12"
+    },
+    {
+      "text": "Tashiro et al., 2021",
+      "url": "https://arxiv.org/html/2605.28427v1#bib.bib13"
+    },
+    {
+      "text": "Song et al., 2021",
+      "url": "https://arxiv.org/html/2605.28427v1#bib.bib2"
+    },
+    {
+      "text": "Sohl-Dickstein et al., 2015",
+      "url": "https://arxiv.org/html/2605.28427v1#bib.bib1"
+    },
+    {
+      "text": "Ho et al., 2020",
+      "url": "https://arxiv.org/html/2605.28427v1#bib.bib8"
+    },
+    {
+      "text": "Vincent, 2011",
+      "url": "https://arxiv.org/html/2605.28427v1#bib.bib3"
+    },
+    {
+      "text": "Kloeden and Platen, 1992",
+      "url": "https://arxiv.org/html/2605.28427v1#bib.bib6"
+    },
+    {
+      "text": "Rombach et al., 2022",
+      "url": "https://arxiv.org/html/2605.28427v1#bib.bib4"
+    },
+    {
+      "text": "Higgins et al., 2017",
+      "url": "https://arxiv.org/html/2605.28427v1#bib.bib26"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2605.28427v1#S2.E2"
+    },
+    {
+      "text": "B",
+      "url": "https://arxiv.org/html/2605.28427v1#A2"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2605.28427v1#S2"
+    },
+    {
+      "text": "Efron, 2011",
+      "url": "https://arxiv.org/html/2605.28427v1#bib.bib7"
+    },
+    {
+      "text": "Dhariwal and Nichol, 2021",
+      "url": "https://arxiv.org/html/2605.28427v1#bib.bib25"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2605.28427v1#S5.E4"
+    },
+    {
+      "text": "Deng, 2012",
+      "url": "https://arxiv.org/html/2605.28427v1#bib.bib22"
+    },
+    {
+      "text": "A",
+      "url": "https://arxiv.org/html/2605.28427v1#A1"
+    },
+    {
+      "text": "this location",
+      "url": "https://anonymous.4open.science/r/sb_diffusion_models-A444/"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2605.28427v1#S6.F1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2605.28427v1#S6.F2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2605.28427v1#S6.F3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2605.28427v1#S6.F4"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2605.28427v1#S1.p1.1"
+    },
+    {
+      "text": "§6",
+      "url": "https://arxiv.org/html/2605.28427v1#S6.p1.1"
+    },
+    {
+      "text": "§5",
+      "url": "https://arxiv.org/html/2605.28427v1#S5.p2.4"
+    },
+    {
+      "text": "Document",
+      "url": "https://dx.doi.org/10.1198/jasa.2011.tm11181"
+    },
+    {
+      "text": "Link",
+      "url": "https://doi.org/10.1198/jasa.2011.tm11181"
+    },
+    {
+      "text": "§5",
+      "url": "https://arxiv.org/html/2605.28427v1#S5.p2.2"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/1706.08500"
+    },
+    {
+      "text": "§A.3",
+      "url": "https://arxiv.org/html/2605.28427v1#A1.SS3.p1.1"
+    },
+    {
+      "text": "Link",
+      "url": "https://openreview.net/forum?id=Sy2fzU9gl"
+    },
+    {
+      "text": "§3",
+      "url": "https://arxiv.org/html/2605.28427v1#S3.p2.1"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/2006.11239"
+    },
+    {
+      "text": "§A.1.1",
+      "url": "https://arxiv.org/html/2605.28427v1#A1.SS1.SSS1.p1.1"
+    },
+    {
+      "text": "§2",
+      "url": "https://arxiv.org/html/2605.28427v1#S2.p1.1"
+    },
+    {
+      "text": "Link",
+      "url": "https://doi-org.proxy.findit.cvt.dk/10.1007/978-3-662-12616-5"
+    },
+    {
+      "text": "§2",
+      "url": "https://arxiv.org/html/2605.28427v1#S2.p2.2"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/1812.02633"
+    },
+    {
+      "text": "§4.1",
+      "url": "https://arxiv.org/html/2605.28427v1#S4.SS1.p2.1"
+    },
+    {
+      "text": "§4.1",
+      "url": "https://arxiv.org/html/2605.28427v1#S4.SS1.p1.1"
+    },
+    {
+      "text": "Link",
+      "url": "https://arxiv.org/abs/2112.10752"
+    }
+  ],
+  "matching_link_count": 79,
+  "links_truncated": true,
+  "invalid_links": []
+}

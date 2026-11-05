@@ -1,0 +1,273 @@
+{
+  "url": "https://arxiv.org/html/2609.28414v1",
+  "final_url": "https://arxiv.org/html/2609.28414v1",
+  "status": 200,
+  "title": "FROZEN FLOWS FORGET: DIAGNOSING AND RESTORING LOST MOTION IN A LATENT-FLOW WORLD MODEL",
+  "metadata": {},
+  "paper": {
+    "title": "FROZEN FLOWS FORGET: DIAGNOSING AND RESTORING LOST MOTION IN A LATENT-FLOW WORLD MODEL",
+    "title_warning": null,
+    "abstract": "Abstract Latent world models that integrate a flow in a frozen self-supervised latent space train stably and cheaply, yet silently lose the property manipulation depends on most: motion. The pretrained flow never moves the manipulated object; retraining it with latent-only losses only trades stillness for teleport-like motion. We trace the failure to the training signal, not the representation: anchor-sparse, latent-only supervision never says where along the horizon change belongs. Decode-augmented rollout training (DART) repairs this while keeping the representation frozen, retraining only the flow with decode-path supervision. DART outperforms its latent-only parent on the full protocol, restores the temporal structure of motion, and re-couples predicted motion to the scene; at larger scale it further improves prediction quality, closing nearly half the remaining gap to an oracle-informed interpolation reference. Finally, we report an unexpected finding about evaluation: pixel error alone rewards frozen predictions.",
+    "authors": [
+      {
+        "name": "Xiwen Chen",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Rigaudiere Li",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Zhiruo Zhou",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Xiaojun Zhu",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Houde Liu",
+        "affiliations": [],
+        "notes": []
+      }
+    ],
+    "author_block": "Xiwen Chen Rigaudiere Li Zhiruo Zhou Xiaojun Zhu Houde Liu",
+    "arxiv_version": "2609.28414v1",
+    "arxiv_version_date": "2026-09-23",
+    "sections": [
+      {
+        "id": "S1",
+        "heading": "1 Introduction",
+        "level": 1,
+        "text": "Latent world models predict future observations by learning dynamics in a compact representation space instead of pixel space [ 5 , 6 , 7 ] . 1 1 1 Code: https://github.com/Mangkhut160/icassp2027 . Trained checkpoint: https://huggingface.co/pzr114514/DART-PT-Flow-LIBERO . One influential design freezes a self-supervised encoder entirely and learns only a flow that integrates the latent over time; ODEWorld [ 1 ] instantiates this on LIBERO [ 3 ] with a DINOv2 [ 2 ] reconstruction autoencoder (RAE). Freezing stabilizes training and shrinks the trainable surface—but removes every pathway through which training can be forced to preserve what matters. On this system we document a silent degradation, invisible to standard losses yet obvious to any observer: motion collapse (Fig. 1 ). Open-loop rollouts leave the scene essentially static, teleport the object in a few steps, and lose the manipulator arm for most of the horizon—the model has, in effect, unlearned that scenes move at all. We diagnose the failure to its root cause and repair it with the smallest possible intervention—the representation stays frozen throughout (Fig. 3 ). We first rule out the natural suspect, a train/inference time-scale mismatch: conditioning rollouts on more intermediate goals degrades monotonically. The actual cause is that supervision is both anchor-sparse and latent-only: about five anchors per 275-frame demonstration, all graded in latent space alone, leave the flow free to park motion anywhere along the horizon. Our repair, decode-augmented rollout training (DART), keeps the sampling schedule and instead changes what the supervision is graded in, extending the objective to decoded frames and region-level DINOv2 features so the gradient reaches the flow in the space the viewer sees. We then place the repaired system on an absolute scale, and show that the most natural evaluation metric—pixel error—systematically rewards the failure we set out to fix. Our contributions: • A quantified diagnosis of motion collapse in frozen latent-flow designs: open-loop rollouts freeze the scene and teleport the object, with teleport statistics, template tracking, and a motion-concentration metric localizing the cause to anchor-sparse, latent-only supervision. • DART, which retrains only the flow with decode-path supervision, outperforming its latent-only parent on the full protocol, restoring motion structure with one fixed weighting across six runs, and re-coupling predicted motion to the scene (Sec. 5 ). • External reference points that fix the system’s absolute level—the original paper’s reported external world models, an oracle-informed interpolation floor, a trained video predictor in our harness, and the frozen-decoder upper bound—at which retraining closes 37 % 37\\% of the interpolation gap and DART 47 % 47\\% (Sec. 5.4 ). • An unexpected finding about how these models are evaluated: pixel L1 rewards stillness . The pixel loss is minimized by the near-static conditional mean of an uncertain future, so a flow that moves less scores better while erasing the motion it exists to predict—the variant in our family with the lowest L1 is also the most static one, and would have been selected as best by L1 alone. Figure 1: 64-step open-loop rollouts on the same demonstration. Linear interpolation between the endpoints ghosts the moving object and never resolves the grasp; latent-only retraining loses the grasped object during transport (absent at t = 28 t{=}28 – 40 40 ) and it reappears only in the basket; DART keeps the object in frame across the whole rollout."
+      },
+      {
+        "id": "S2",
+        "heading": "2 Related Work",
+        "level": 1,
+        "text": "World models differ in where their dynamics live: latent imagination drives control in Dreamer and DreamerV3 [ 5 , 6 ] , DIAMOND [ 7 ] shows how much pixel-space detail matters in Atari, and generative world models at scale [ 8 , 9 ] renew the architecture debate; video metrics such as FVD [ 10 ] and multi-dimensional suites [ 11 ] grade the predictions such models produce. A long-standing pathology shadows all of them: pixel-trained predictors regress to the blurry conditional mean [ 12 , 13 , 14 ] , a bias we show reappears at the level of rollout dynamics . On LIBERO specifically, recent video world models [ 15 ] find pixel metrics and action relevance largely orthogonal—independent support for our claim that pixel error cannot be the sole referee. We take the ODEWorld system as given and complement architecture work with failure analysis, a minimal repair, and motion-aware evaluation."
+      },
+      {
+        "id": "S3.SS1",
+        "heading": "3.1 Preliminaries",
+        "level": 2,
+        "text": "We first restate the pipeline that the diagnosis below applies to. A frame x t x_{t} is encoded by a frozen RAE encoder e e (DINOv2) to a latent z t z_{t} ; a flow f θ f_{\\theta} integrates d ​ z / d ​ τ = f θ ​ ( z , g ^ ) \\mathrm{d}z/\\mathrm{d}\\tau=f_{\\theta}(z,\\hat{g}) over flow time τ ∈ [ 0 , 1 ] \\tau\\in[0,1] —flow time measures how far the latent has traveled toward a goal latent g ^ \\hat{g} (an image goal, or one predicted from language); the frozen decoder d d renders frames, and an open-loop rollout decodes T T such increments from the encoded start frame without feedback. The key asymmetry for what follows is that demonstrations span up to 275 frames, but training anchors supervision at only about five latent waypoints per demonstration."
+      },
+      {
+        "id": "S3.SS2",
+        "heading": "3.2 Motion collapse",
+        "level": 2,
+        "text": "This asymmetry shows up directly in the rollouts. Template tracking of the target object across open-loop rollouts (Fig. 2 ) separates three behaviors. Ground truth moves the object smoothly. The pretrained flow never moves the object at all . Retraining that flow with latent-only losses moves it but teleports: 68 % 68\\% of tracked displacement lands in three steps, the manipulator stays absent until the τ = 1 \\tau{=}1 goal conditioning takes over, and a single step carries the object 36 36 px. We quantify the shape of motion with two complementary statistics, both reported throughout. The tracked-displacement concentration is the share of the object’s displacement inside its three largest steps—intuitive, but needing a per-object tracker. The frame-level motion concentration conc 3 = ( ∑ t ∈ 𝒯 3 Δ ¯ t ) / ∑ t Δ ¯ t \\mathrm{conc}_{3}=\\big(\\sum_{t\\in\\mathcal{T}_{3}}\\bar{\\Delta}_{t}\\big)/\\sum_{t}\\bar{\\Delta}_{t} is the share of total frame-to-frame change Δ ¯ t = mean ​ | x t + 1 − x t | \\bar{\\Delta}_{t}=\\mathrm{mean}|x_{t+1}-x_{t}| captured by the three largest steps; this one needs no tracker and is computable on every frame. Before adopting the sparsity explanation, we rule out the natural suspect, a train/inference time-scale mismatch: conditioning rollouts on S S evenly spaced intermediate goals should help if scale were the cause, but error instead grows monotonically with S S (L1 11.08 → 47.60 11.08{\\to}47.60 for S = 1 → 64 S{=}1{\\to}64 ; 41 demonstrations), because near-goal conditioning is out of distribution for a flow trained on whole-demo spans. The cause is anchor sparsity combined with latent-only losses: nothing tells the flow where along the horizon change must happen. Figure 2: Per-step motion (top) and error against ground truth (bottom), averaged over the 100-demonstration protocol. Latent-only retraining is flat and then spikes (teleport); DART tracks the ground-truth motion profile and stays closer in L1."
+      },
+      {
+        "id": "S4",
+        "heading": "4 DART: Decode-Augmented Rollout Training",
+        "level": 1,
+        "text": "Figure 3: Image-goal DART: frozen DINOv2 and RAE surround trainable PT-Flow modules; dashed paths connect predictions to losses. The window is illustrative and uses a validation demonstration that did not take part in training. DART leaves the sampling schedule unchanged: the anchors keep the same positions and spacing, and only the space in which the supervision is applied changes. The loss adds two decode-pathway terms to the latent rollout objective, ℒ = ℒ lat + 0.5 ​ ℒ dec + 0.5 ​ ℒ reg , \\mathcal{L}=\\mathcal{L}_{\\mathrm{lat}}+0.5\\,\\mathcal{L}_{\\mathrm{dec}}+0.5\\,\\mathcal{L}_{\\mathrm{reg}}, (1) where ℒ lat \\mathcal{L}_{\\mathrm{lat}} is the latent rollout error over the window, ℒ dec = mean ​ | d ⁡ ( z ^ t ) − x t | \\mathcal{L}_{\\mathrm{dec}}=\\mathrm{mean}\\,|d(\\hat{z}_{t})-x_{t}| supervises decoded frames, and ℒ reg \\mathcal{L}_{\\mathrm{reg}} matches frozen DINOv2 features of predicted and reference frames, pooled over four per-frame feature clusters. Encoder, decoder, and goal predictor stay frozen; only the flow trains, with AdamW (learning rate 10 − 5 10^{-5} , weight decay 10 − 4 10^{-4} , batch size 2) for 26,000 steps. DART must therefore satisfy three criteria at once: lower full-protocol L1 than its parent, motion concentration at or below the target fixed before training, and ordinary rollouts no worse. The gain comes from where the loss lands. Both new terms decode before the error is computed, so a mismatch visible in the picture becomes a loss directly, and the gradient travels back to the flow along the decode path. The latent-only loss, by contrast, compares latent values alone and cannot tell whether the picture actually moved."
+      },
+      {
+        "id": "S5.SS1",
+        "heading": "5.1 Setup",
+        "level": 2,
+        "text": "All experiments are offline open-loop predictions on official LIBERO demonstrations: 64-step image-goal rollouts at 256 × 256 256{\\times}256 . We use three evaluation protocols. The full protocol scores 100 demonstrations, with DART and latent-only runs matched by training seed. The hard-5 subset collects the five demonstrations with the highest parent error, selected once before any DART training and shared by every variant; it also serves as our stress test, since the parent errs most where the ground truth moves most. A 650-demonstration benchmark tests scale. Motion is graded by three statistics: per-step L1 catches wrong pixels, conc 3 \\mathrm{conc}_{3} catches mistimed motion, and total motion catches missing motion. We also report the per-demonstration correlation between predicted and ground-truth motion. Table 1: Full 100-demonstration protocol (GT conc 3 = 0.093 \\mathrm{conc}_{3}{=}0.093 ). Med. L1 is the median over all frame-level errors of the same evaluation; total motion is ∑ t Δ ¯ t \\sum_{t}\\bar{\\Delta}_{t} , higher is closer to ground truth. Model L1 ↓ \\downarrow Med. L1 ↓ \\downarrow conc 3 \\mathrm{conc}_{3} ↓ \\downarrow Motion ↑ \\uparrow Latent-only (seed A) 10.311 9.64 0.345 26 DART (seed A) 9.944 9.30 0.145 69 Latent-only (seed B) 10.214 9.53 0.173 58 DART (seed B) 10.015 9.29 0.225 47 Table 2: Hard-5 subset (GT conc 3 = 0.099 \\mathrm{conc}_{3}{=}0.099 ), identical five demonstrations for every variant; ranges span independent runs. Model L1 ↓ \\downarrow conc 3 \\mathrm{conc}_{3} ↓ \\downarrow Motion ↑ \\uparrow Latent-only parent 14.03–14.21 0.236–0.447 21 / 58 DART 13.68–13.91 0.145–0.272 41–64 DART, decode w = 1 w{=}1 13.87 0.220 48.6 DART, region w = 1 w{=}1 13.91 0.218 45.5 Part decomposition 13.52 –13.86 0.309–0.445 19–31 + part-flow loss 13.72–13.79 0.394–0.400 24–26"
+      },
+      {
+        "id": "S5.SS2",
+        "heading": "5.2 Does DART restore motion?",
+        "level": 2,
+        "text": "On the full protocol (Table 1 ), DART improves on its latent-only parent in mean and median L1 on both seeds. The improvement in motion structure is clearest on the first seed pair: concentration falls to 0.145 0.145 against ground truth 0.093 0.093 , total motion rises from 11 % 11\\% to 29 % 29\\% of ground truth, and the largest single-step change stays at ground-truth scale, so motion spreads across the horizon instead of forming new teleports. The second seed keeps the error gain with a smaller motion shift, within the hard-5 run-to-run spread. The two motion metrics capture different aspects of the rollout: DART largely fixes where motion happens but not how much . No term in the objective rewards the magnitude of change, so a persistent gap in magnitude is expected. On the hard-5 subset (Table 2 ), all six DART runs improve on both parent runs in L1, and the family-mean concentration drops from 0.342 0.342 to 0.228 0.228 , better than the stronger parent run in five of six runs. The runs share the same recipe and the same five demonstrations, so their spread comes only from optimization randomness. Doubling either loss weight barely changes the result (Table 2 ), so we keep both at 0.5 0.5 . The relation between motion and scene content is more telling. In the parent, per-demonstration total motion is uncorrelated with ground truth (Spearman − 0.07 -0.07 ), so how much it moves carries no information about what actually moves and is instead an artifact of the model; DART restores the relation (Pearson + 0.26 +0.26 ), and predicted motion is again driven by the scene rather than by the model itself."
+      },
+      {
+        "id": "S5.SS3",
+        "heading": "5.3 Does pixel L1 mislead?",
+        "level": 2,
+        "text": "The part-decomposition variant gives the clearest warning. It replaces DART’s region loss, which pools DINOv2 features over four clusters computed within each frame, with a decomposition whose parts keep the same identity across frames; it also widens the window to 9 and optionally adds a loss on the direction in which parts displace. It reaches the lowest L1 of any variant we trained and the worst dynamics in the family (Fig. 4 ). The reason is that the future is uncertain: many next frames are plausible, and their average is blurry and nearly static, so L1 is minimized by predicting close to that average. A flow that moves less therefore scores better on L1 while destroying the motion it exists to predict. Pixel losses are known to induce this blur bias in video prediction [ 12 , 13 ] , and here it is visible across the entire rollout. Ranked by L1 alone, it would have been selected as the best in the family, which is why the concentration target was fixed before training. Figure 4: The stillness trap (hard-5): part-decomposition variants attain the lowest L1 but revert to teleport-like concentration; DART reaches the best dynamics at comparable L1."
+      },
+      {
+        "id": "S5.SS4",
+        "heading": "5.4 How does the system compare in absolute terms?",
+        "level": 2,
+        "text": "Table 3: Absolute reference points. Top: external models as reported in ODEWorld’s comparison (their protocol, 6,500 demos) [ 1 ] . Middle: our harness, 650-demo split; interpolation is oracle-informed, RAE is a decode upper bound, not predictors. Bottom: SimVP [ 16 ] , same split (two-seed ranges); LPIPS is Alex, rollout-averaged. Reference PSNR ↑ \\uparrow LPIPS ↓ \\downarrow Reported in [ 1 ] , step 64, their protocol: LDP (latent diffusion) 16.27 0.461 V-JEPA 2 (frozen-encoder) 16.47 0.166 Our harness, 650-demo split, mean over 64 steps: Pretrained ODEWorld 17.65 0.262 Latent-only retraining (3 seeds) 19.24–19.45 0.196–0.212 DART (3 seeds) 19.67–19.77 0.190–0.195 Linear interpolation (oracle-informed) 21.96 0.159 RAE reconstruction (upper bound) 26.66 0.115 Trained baseline in our harness, same split: SimVP, interpolated input 23.38–23.40 0.120–0.121 + DINOv2 feature loss 23.49–23.52 0.118–0.120 SimVP, endpoints only 23.11–23.19 0.121 All comparisons so far have been internal, between DART and its own parent. We now place the system on an absolute scale against four references: two external world models reported by the original ODEWorld evaluation [ 1 ] , an oracle-informed interpolation and the frozen decoder’s reconstruction bound from our harness, and a trained video predictor (Table 3 ). The design we build on already led its published comparison, both external models trailing it there, and our improvements come on top: within our harness (PSNR and LPIPS [ 4 ] ), flow retraining closes 37 % 37\\% of the distance between the pretrained flow ( 17.7 17.7 dB) and an oracle-informed linear interpolation ( 22.0 22.0 dB), and DART closes 47 % 47\\% , about two decibels above the pretrained flow; the frozen decoder’s reconstruction bound ( 26.7 26.7 dB) localizes the remaining headroom in the latents the flow produces. The most informative reference is SimVP [ 16 ] , a standard convolutional video predictor trained on the same split in our harness: it reaches 23.4 23.4 dB under start–goal–interpolation conditioning, matching ground-truth motion timing ( conc 3 \\mathrm{conc}_{3} 0.095 0.095 vs. 0.101 0.101 ) and motion tracking the scene (Spearman 0.88 0.88 ). This exceeds our system: the task is learnable to a pixel level we do not attain, so the deficit is in the training signal, not the task. Could this match be leaked through the interpolated conditioning? A variant receiving only the two endpoints, with the rest zeroed, loses less than 0.3 0.3 dB and still reproduces both motion metrics: the match is learned, not leaked."
+      },
+      {
+        "id": "S5.SS5",
+        "heading": "5.5 Does it hold at scale?",
+        "level": 2,
+        "text": "On 650 demonstrations (Fig. 5 ), latent-only retraining of the same flow cuts per-step L1 by ≈ 27 % {\\approx}27\\% , and DART improves again at this scale: with three seeds per family, every DART seed falls below every parent seed (mean L1 10.36 10.36 – 10.44 10.44 against 10.73 10.73 – 11.01 11.01 ). Gains are largest at the horizon’s end, where the anchor-sparsity diagnosis predicts, and hold across the five LIBERO suites. Scaling sharpens pixels but leaves the magnitude gap, so we tested the remedy directly: two variants add a motion-magnitude term, on decoded consecutive-frame differences or on latent displacement norms, inside the DART recipe at matched budget. Neither works. The latent variant leaves full-protocol mean L1 unchanged ( 9.88 9.88 vs. 9.94 9.94 ) while total motion falls to a third of DART’s and concentration worsens; the decoded variant damages concentration at a quarter of the budget. Rewarding magnitude thus pulls the flow toward stiller rollouts: the gap reflects the objective’s regression structure, not a missing loss term. Figure 5: 650-demo, 64-step open-loop benchmark: per-step mean L1 for the pretrained, latent-only, and DART flows (3 seeds each, ± \\pm 1 std)."
+      },
+      {
+        "id": "S5.SS6",
+        "heading": "5.6 Failure analysis and future work",
+        "level": 2,
+        "text": "Beyond the magnitude gap, the weakest link is the intermediate frames: decoded rollout frames saturate near 19 19 – 20 20 dB PSNR late in the horizon while the same decoder renders ground-truth latents at about 27 27 dB, so the deficit is in the produced latents. LPIPS objectives, region-level losses, velocity-magnitude proxies, longer budgets, and wider windows each fail to gain beyond about a percent, and a motion-magnitude reward (Sec. 5.5 ) lowers motion instead of raising it. Two causes are plausible: the regression to the mean behind the magnitude gap, and a bottleneck, since recognition-tuned DINOv2 latents may discard texture needed for frame sharpening. The matching remedies point to future work beyond the objective: blur-punishing decoders or encoder-side latent enrichment, plus motion-magnitude teachers such as optical-flow supervision."
+      },
+      {
+        "id": "S6",
+        "heading": "6 Conclusion",
+        "level": 1,
+        "text": "Frozen latent-flow world models can pass every training loss while forgetting how scenes move. The failure is diagnosable (anchor-sparse, latent-only supervision) and repairable without unfreezing the representation, and because pixel error rewards frozen predictions, motion-aware supplements are needed at evaluation."
+      },
+      {
+        "id": "bib",
+        "heading": "References",
+        "level": 1,
+        "text": "[1] D. Liu, H. Niu, P. Cheng, Y. Gao, X. Kang, S. Teng, K. Sreenath, and X. Zhan, “ODEWorld: A continuous predictive architecture via physical-time flow,” arXiv preprint arXiv:2607.27924 , 2026. [2] M. Oquab et al. , “DINOv2: Learning robust visual features without supervision,” Trans. Mach. Learn. Res. , 2024. [3] B. Liu et al. , “LIBERO: Benchmarking knowledge transfer for lifelong robot learning,” in Proc. NeurIPS Datasets and Benchmarks , 2023. [4] R. Zhang, P. Isola, A. A. Efros, E. Shechtman, and O. Wang, “The unreasonable effectiveness of deep features as a perceptual metric,” in Proc. CVPR , 2018. [5] D. Hafner, T. Lillicrap, J. Ba, and M. Norouzi, “Dream to control: Learning behaviors by latent imagination,” in Proc. ICLR , 2020. [6] D. Hafner, J. Pasukonis, J. Ba, and T. Lillicrap, “Mastering diverse control tasks through world models,” Nature , 2025. [7] E. Alonso, A. Jelley, V. Micheli, A. Kanervisto, A. Storkey, T. Pearce, and F. Fleuret, “Diffusion for world modeling: Visual details matter in Atari,” in Proc. NeurIPS , 2024. [8] J. Bruce et al. , “Genie: Generative interactive environments,” in Proc. ICML , 2024. [9] D. Valevski, Y. Leviathan, M. Arar, and S. Fruchter, “Diffusion models are real-time game engines,” in Proc. ICLR , 2025. [10] T. Unterthiner, S. van Steenkiste, K. Kurach, R. Marinier, M. Michalski, and S. Gelly, “Towards accurate generative models of video: A new metric and challenging benchmarks,” arXiv preprint arXiv:1812.01717 , 2018. [11] Z. Huang et al. , “VBench: Comprehensive benchmark suite for video generative models,” in Proc. CVPR , 2024. [12] M. Mathieu, C. Couprie, and Y. LeCun, “Deep multi-scale video prediction beyond mean square error,” in Proc. ICLR , 2016. [13] E. Babaeizadeh, C. Finn, D. Erhan, R. H. Campbell, and S. Levine, “Stochastic variational video prediction,” in Proc. ICLR , 2018. [14] A. X. Lee, R. Zhang, F. Ebert, P. Abbeel, C. Finn, and S. Levine, “Stochastic adversarial video prediction,” arXiv preprint arXiv:1804.01523 , 2018. [15] J. Yeom, H. Kim, J. Park, S. Jung, J. Lee, and T. Kim, “What makes video world model latents action-relevant: Prediction over reconstruction,” arXiv preprint arXiv:2606.07687 , 2026. [16] C. Tan, Z. Gao, and S. Z. Li, “SimVP: Towards simple yet powerful spatiotemporal predictive learning,” arXiv preprint arXiv:2211.12509 , 2022."
+      }
+    ]
+  },
+  "text": "FROZEN FLOWS FORGET: DIAGNOSING AND RESTORING LOST MOTION IN A LATENT-FLOW WORLD MODEL Skip to main content Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: Why HTML? Report Issue Back to Abstract Download PDF Contents Reading mode Colour theme License: arXiv.org perpetual non-exclusive license arXiv:2609.28414v1 [cs.CV] 23 Sep 2026 FROZEN FLOWS FORGET: DIAGNOSING AND RESTORING LOST MOTION IN A LATENT-FLOW WORLD MODEL Xiwen Chen Rigaudiere Li Zhiruo Zhou Xiaojun Zhu Houde Liu Abstract Latent world models that integrate a flow in a frozen self-supervised latent space train stably and cheaply, yet silently lose the property manipulation depends on most: motion. The pretrained flow never moves the manipulated object; retraining it with latent-only losses only trades stillness for teleport-like motion. We trace the failure to the training signal, not the representation: anchor-sparse, latent-only supervision never says where along the horizon change belongs. Decode-augmented rollout training (DART) repairs this while keeping the representation frozen, retraining only the flow with decode-path supervision. DART outperforms its latent-only parent on the full protocol, restores the temporal structure of motion, and re-couples predicted motion to the scene; at larger scale it further improves prediction quality, closing nearly half the remaining gap to an oracle-informed interpolation reference. Finally, we report an unexpected finding about evaluation: pixel error alone rewards frozen predictions. Index Terms: world models, latent dynamics, video prediction, motion evaluation, robot learning † † address: 1 Shenzhen International Graduate School, Tsinghua University 2 Shanghai Jiaotong University 3 Wuhan University of Technology ∗ Equal contribution. † Corresponding author. 1 Introduction Latent world models predict future observations by learning dynamics in a compact representation space instead of pixel space [ 5 , 6 , 7 ] . 1 1 1 Code: https://github.com/Mangkhut160/icassp2027 . Trained checkpoint: https://huggingface.co/pzr114514/DART-PT-Flow-LIBERO . One influential design freezes a self-supervised encoder entirely and learns only a flow that integrates the latent over time; ODEWorld [ 1 ] instantiates this on LIBERO [ 3 ] with a DINOv2 [ 2 ] reconstruction autoencoder (RAE). Freezing stabilizes training and shrinks the trainable surface—but removes every pathway through which training can be forced to preserve what matters. On this system we document a silent degradation, invisible to standard losses yet obvious to any observer: motion collapse (Fig. 1 ). Open-loop rollouts leave the scene essentially static, teleport the object in a few steps, and lose the manipulator arm for most of the horizon—the model has, in effect, unlearned that scenes move at all. We diagnose the failure to its root cause and repair it with the smallest possible intervention—the representation stays frozen throughout (Fig. 3 ). We first rule out the natural suspect, a train/inference time-scale mismatch: conditioning rollouts on more intermediate goals degrades monotonically. The actual cause is that supervision is both anchor-sparse and latent-only: about five anchors per 275-frame demonstration, all graded in latent space alone, leave the flow free to park motion anywhere along the horizon. Our repair, decode-augmented rollout training (DART), keeps the sampling schedule and instead changes what the supervision is graded in, extending the objective to decoded frames and region-level DINOv2 features so the gradient reaches the flow in the space the viewer sees. We then place the repaired system on an absolute scale, and show that the most natural evaluation metric—pixel error—systematically rewards the failure we set out to fix. Our contributions: • A quantified diagnosis of motion collapse in frozen latent-flow designs: open-loop rollouts freeze the scene and teleport the object, with teleport statistics, template tracking, and a motion-concentration metric localizing the cause to anchor-sparse, latent-only supervision. • DART, which retrains only the flow with decode-path supervision, outperforming its latent-only parent on the full protocol, restoring motion structure with one fixed weighting across six runs, and re-coupling predicted motion to the scene (Sec. 5 ). • External reference points that fix the system’s absolute level—the original paper’s reported external world models, an oracle-informed interpolation floor, a trained video predictor in our harness, and the frozen-decoder upper bound—at which retraining closes 37 % 37\\% of the interpolation gap and DART 47 % 47\\% (Sec. 5.4 ). • An unexpected finding about how these models are evaluated: pixel L1 rewards stillness . The pixel loss is minimized by the near-static conditional mean of an uncertain future, so a flow that moves less scores better while erasing the motion it exists to predict—the variant in our family with the lowest L1 is also the most static one, and would have been selected as best by L1 alone. Figure 1: 64-step open-loop rollouts on the same demonstration. Linear interpolation between the endpoints ghosts the moving object and never resolves the grasp; latent-only retraining loses the grasped object during transport (absent at t = 28 t{=}28 – 40 40 ) and it reappears only in the basket; DART keeps the object in frame across the whole rollout. 2 Related Work World models differ in where their dynamics live: latent imagination drives control in Dreamer and DreamerV3 [ 5 , 6 ] , DIAMOND [ 7 ] shows how much pixel-space detail matters in Atari, and generative world models at scale [ 8 , 9 ] renew the architecture debate; video metrics such as FVD [ 10 ] and multi-dimensional suites [ 11 ] grade the predictions such models produce. A long-standing pathology shadows all of them: pixel-trained predictors regress to the blurry conditional mean [ 12 , 13 , 14 ] , a bias we show reappears at the level of rollout dynamics . On LIBERO specifically, recent video world models [ 15 ] find pixel metrics and action relevance largely orthogonal—independent support for our claim that pixel error cannot be the sole referee. We take the ODEWorld system as given and complement architecture work with failure analysis, a minimal repair, and motion-aware evaluation. 3 Diagnosing Motion Collapse 3.1 Preliminaries We first restate the pipeline that the diagnosis below applies to. A frame x t x_{t} is encoded by a frozen RAE encoder e e (DINOv2) to a latent z t z_{t} ; a flow f θ f_{\\theta} integrates d ​ z / d ​ τ = f θ ​ ( z , g ^ ) \\mathrm{d}z/\\mathrm{d}\\tau=f_{\\theta}(z,\\hat{g}) over flow time τ ∈ [ 0 , 1 ] \\tau\\in[0,1] —flow time measures how far the latent has traveled toward a goal latent g ^ \\hat{g} (an image goal, or one predicted from language); the frozen decoder d d renders frames, and an open-loop rollout decodes T T such increments from the encoded start frame without feedback. The key asymmetry for what follows is that demonstrations span up to 275 frames, but training anchors supervision at only about five latent waypoints per demonstration. 3.2 Motion collapse This asymmetry shows up directly in the rollouts. Template tracking of the target object across open-loop rollouts (Fig. 2 ) separates three behaviors. Ground truth moves the object smoothly. The pretrained flow never moves the object at all . Retraining that flow with latent-only losses moves it but teleports: 68 % 68\\% of tracked displacement lands in three steps, the manipulator stays absent until the τ = 1 \\tau{=}1 goal conditioning takes over, and a single step carries the object 36 36 px. We quantify the shape of motion with two complementary statistics, both reported throughout. The tracked-displacement concentration is the share of the object’s displacement inside its three largest steps—intuitive, but needing a per-object tracker. The frame-level motion concentration conc 3 = ( ∑ t ∈ 𝒯 3 Δ ¯ t ) / ∑ t Δ ¯ t \\mathrm{conc}_{3}=\\big(\\sum_{t\\in\\mathcal{T}_{3}}\\bar{\\Delta}_{t}\\big)/\\sum_{t}\\bar{\\Delta}_{t} is the share of total frame-to-frame change Δ ¯ t = mean ​ | x t + 1 − x t | \\bar{\\Delta}_{t}=\\mathrm{mean}|x_{t+1}-x_{t}| captured by the three largest steps; this one needs no tracker and is computable on every frame. Before adopting the sparsity explanation, we rule out the natural suspect, a train/inference time-scale mismatch: conditioning rollouts on S S evenly spaced intermediate goals should help if scale were the cause, but error instead grows monotonically with S S (L1 11.08 → 47.60 11.08{\\to}47.60 for S = 1 → 64 S{=}1{\\to}64 ; 41 demonstrations), because near-goal conditioning is out of distribution for a flow trained on whole-demo spans. The cause is anchor sparsity combined with latent-only losses: nothing tells the flow where along the horizon change must happen. Figure 2: Per-step motion (top) and error against ground truth (bottom), averaged over the 100-demonstration protocol. Latent-only retraining is flat and then spikes (teleport); DART tracks the ground-truth motion profile and stays closer in L1. 4 DART: Decode-Augmented Rollout Training Figure 3: Image-goal DART: frozen DINOv2 and RAE surround trainable PT-Flow modules; dashed paths connect predictions to losses. The window is illustrative and uses a validation demonstration that did not take part in training. DART leaves the sampling schedule unchanged: the anchors keep the same positions and spacing, and only the space in which the supervision is applied changes. The loss adds two decode-pathway terms to the latent rollout objective, ℒ = ℒ lat + 0.5 ​ ℒ dec + 0.5 ​ ℒ reg , \\mathcal{L}=\\mathcal{L}_{\\mathrm{lat}}+0.5\\,\\mathcal{L}_{\\mathrm{dec}}+0.5\\,\\mathcal{L}_{\\mathrm{reg}}, (1) where ℒ lat \\mathcal{L}_{\\mathrm{lat}} is the latent rollout error over the window, ℒ dec = mean ​ | d ⁡ ( z ^ t ) − x t | \\mathcal{L}_{\\mathrm{dec}}=\\mathrm{mean}\\,|d(\\hat{z}_{t})-x_{t}| supervises decoded frames, and ℒ reg \\mathcal{L}_{\\mathrm{reg}} matches frozen DINOv2 features of predicted and reference frames, pooled over four per-frame feature clusters. Encoder, decoder, and goal predictor stay frozen; only the flow trains, with AdamW (learning rate 10 − 5 10^{-5} , weight decay 10 − 4 10^{-4} , batch size 2) for 26,000 steps. DART must therefore satisfy three criteria at once: lower full-protocol L1 than its parent, motion concentration at or below the target fixed before training, and ordinary rollouts no worse. The gain comes from where the loss lands. Both new terms decode before the error is computed, so a mismatch visible in the picture becomes a loss directly, and the gradient travels back to the flow along the decode path. The latent-only loss, by contrast, compares latent values alone and cannot tell whether the picture actually moved. 5 Experiments 5.1 Setup All experiments are offline open-loop predictions on official LIBERO demonstrations: 64-step image-goal rollouts at 256 × 256 256{\\times}256 . We use three evaluation protocols. The full protocol scores 100 demonstrations, with DART and latent-only runs matched by training seed. The hard-5 subset collects the five demonstrations with the highest parent error, selected once before any DART training and shared by every variant; it also serves as our stress test, since the parent errs most where the ground truth moves most. A 650-demonstration benchmark tests scale. Motion is graded by three statistics: per-step L1 catches wrong pixels, conc 3 \\mathrm{conc}_{3} catches mistimed motion, and total motion catches missing motion. We also report the per-demonstration correlation between predicted and ground-truth motion. Table 1: Full 100-demonstration protocol (GT conc 3 = 0.093 \\mathrm{conc}_{3}{=}0.093 ). Med. L1 is the median over all frame-level errors of the same evaluation; total motion is ∑ t Δ ¯ t \\sum_{t}\\bar{\\Delta}_{t} , higher is closer to ground truth. Model L1 ↓ \\downarrow Med. L1 ↓ \\downarrow conc 3 \\mathrm{conc}_{3} ↓ \\downarrow Motion ↑ \\uparrow Latent-only (seed A) 10.311 9.64 0.345 26 DART (seed A) 9.944 9.30 0.145 69 Latent-only (seed B) 10.214 9.53 0.173 58 DART (seed B) 10.015 9.29 0.225 47 Table 2: Hard-5 subset (GT conc 3 = 0.099 \\mathrm{conc}_{3}{=}0.099 ), identical five demonstrations for every variant; ranges span independent runs. Model L1 ↓ \\downarrow conc 3 \\mathrm{conc}_{3} ↓ \\downarrow Motion ↑ \\uparrow Latent-only parent 14.03–14.21 0.236–0.447 21 / 58 DART 13.68–13.91 0.145–0.272 41–64 DART, decode w = 1 w{=}1 13.87 0.220 48.6 DART, region w = 1 w{=}1 13.91 0.218 45.5 Part decomposition 13.52 –13.86 0.309–0.445 19–31 + part-flow loss 13.72–13.79 0.394–0.400 24–26 5.2 Does DART restore motion? On the full protocol (Table 1 ), DART improves on its latent-only parent in mean and median L1 on both seeds. The improvement in motion structure is clearest on the first seed pair: concentration falls to 0.145 0.145 against ground truth 0.093 0.093 , total motion rises from 11 % 11\\% to 29 % 29\\% of ground truth, and the largest single-step change stays at ground-truth scale, so motion spreads across the horizon instead of forming new teleports. The second seed keeps the error gain with a smaller motion shift, within the hard-5 run-to-run spread. The two motion metrics capture different aspects of the rollout: DART largely fixes where motion happens but not how much . No term in the objective rewards the magnitude of change, so a persistent gap in magnitude is expected. On the hard-5 subset (Table 2 ), all six DART runs improve on both parent runs in L1, and the family-mean concentration drops from 0.342 0.342 to 0.228 0.228 , better than the stronger parent run in five of six runs. The runs share the same recipe and the same five demonstrations, so their spread comes only from optimization randomness. Doubling either loss weight barely changes the result (Table 2 ), so we keep both at 0.5 0.5 . The relation between motion and scene content is more telling. In the parent, per-demonstration total motion is uncorrelated with ground truth (Spearman − 0.07 -0.07 ), so how much it moves carries no information about what actually moves and is instead an artifact of the model; DART restores the relation (Pearson + 0.26 +0.26 ), and predicted motion is again driven by the scene rather than by the model itself. 5.3 Does pixel L1 mislead? The part-decomposition variant gives the clearest warning. It replaces DART’s region loss, which pools DINOv2 features over four clusters computed within each frame, with a decomposition whose parts keep the same identity across frames; it also widens the window to 9 and optionally adds a loss on the direction in which parts displace. It reaches the lowest L1 of any variant we trained and the worst dynamics in the family (Fig. 4 ). The reason is that the future is uncertain: many next frames are plausible, and their average is blurry and nearly static, so L1 is minimized by predicting close to that average. A flow that moves less therefore scores better on L1 while destroying the motion it exists to predict. Pixel losses are known to induce this blur bias in video prediction [ 12 , 13 ] , and here it is visible across the entire rollout. Ranked by L1 alone, it would have been selected as the best in the family, which is why the concentration target was fixed before training. Figure 4: The stillness trap (hard-5): part-decomposition variants attain the lowest L1 but revert to teleport-like concentration; DART reaches the best dynamics at comparable L1. 5.4 How does the system compare in absolute terms? Table 3: Absolute reference points. Top: external models as reported in ODEWorld’s comparison (their protocol, 6,500 demos) [ 1 ] . Middle: our harness, 650-demo split; interpolation is oracle-informed, RAE is a decode upper bound, not predictors. Bottom: SimVP [ 16 ] , same split (two-seed ranges); LPIPS is Alex, rollout-averaged. Reference PSNR ↑ \\uparrow LPIPS ↓ \\downarrow Reported in [ 1 ] , step 64, their protocol: LDP (latent diffusion) 16.27 0.461 V-JEPA 2 (frozen-encoder) 16.47 0.166 Our harness, 650-demo split, mean over 64 steps: Pretrained ODEWorld 17.65 0.262 Latent-only retraining (3 seeds) 19.24–19.45 0.196–0.212 DART (3 seeds) 19.67–19.77 0.190–0.195 Linear interpolation (oracle-informed) 21.96 0.159 RAE reconstruction (upper bound) 26.66 0.115 Trained baseline in our harness, same split: SimVP, interpolated input 23.38–23.40 0.120–0.121 + DINOv2 feature loss 23.49–23.52 0.118–0.120 SimVP, endpoints only 23.11–23.19 0.121 All comparisons so far have been internal, between DART and its own parent. We now place the system on an absolute scale against four references: two external world models reported by the original ODEWorld evaluation [ 1 ] , an oracle-informed interpolation and the frozen decoder’s reconstruction bound from our harness, and a trained video predictor (Table 3 ). The design we build on already led its published comparison, both external models trailing it there, and our improvements come on top: within our harness (PSNR and LPIPS [ 4 ] ), flow retraining closes 37 % 37\\% of the distance between the pretrained flow ( 17.7 17.7 dB) and an oracle-informed linear interpolation ( 22.0 22.0 dB), and DART closes 47 % 47\\% , about two decibels above the pretrained flow; the frozen decoder’s reconstruction bound ( 26.7 26.7 dB) localizes the remaining headroom in the latents the flow produces. The most informative reference is SimVP [ 16 ] , a standard convolutional video predictor trained on the same split in our harness: it reaches 23.4 23.4 dB under start–goal–interpolation conditioning, matching ground-truth motion timing ( conc 3 \\mathrm{conc}_{3} 0.095 0.095 vs. 0.101 0.101 ) and motion tracking the scene (Spearman 0.88 0.88 ). This exceeds our system: the task is learnable to a pixel level we do not attain, so the deficit is in the training signal, not the task. Could this match be leaked through the interpolated conditioning? A variant receiving only the two endpoints, with the rest zeroed, loses less than 0.3 0.3 dB and still reproduces both motion metrics: the match is learned, not leaked. 5.5 Does it hold at scale? On 650 demonstrations (Fig. 5 ), latent-only retraining of the same flow cuts per-step L1 by ≈ 27 % {\\approx}27\\% , and DART improves again at this scale: with three seeds per family, every DART seed falls below every parent seed (mean L1 10.36 10.36 – 10.44 10.44 against 10.73 10.73 – 11.01 11.01 ). Gains are largest at the horizon’s end, where the anchor-sparsity diagnosis predicts, and hold across the five LIBERO suites. Scaling sharpens pixels but leaves the magnitude gap, so we tested the remedy directly: two variants add a motion-magnitude term, on decoded consecutive-frame differences or on latent displacement norms, inside the DART recipe at matched budget. Neither works. The latent variant leaves full-protocol mean L1 unchanged ( 9.88 9.88 vs. 9.94 9.94 ) while total motion falls to a third of DART’s and concentration worsens; the decoded variant damages concentration at a quarter of the budget. Rewarding magnitude thus pulls the flow toward stiller rollouts: the gap reflects the objective’s regression structure, not a missing loss term. Figure 5: 650-demo, 64-step open-loop benchmark: per-step mean L1 for the pretrained, latent-only, and DART flows (3 seeds each, ± \\pm 1 std). 5.6 Failure analysis and future work Beyond the magnitude gap, the weakest link is the intermediate frames: decoded rollout frames saturate near 19 19 – 20 20 dB PSNR late in the horizon while the same decoder renders ground-truth latents at about 27 27 dB, so the deficit is in the produced latents. LPIPS objectives, region-level losses, velocity-magnitude proxies, longer budgets, and wider windows each fail to gain beyond about a percent, and a motion-magnitude reward (Sec. 5.5 ) lowers motion instead of raising it. Two causes are plausible: the regression to the mean behind the magnitude gap, and a bottleneck, since recognition-tuned DINOv2 latents may discard texture needed for frame sharpening. The matching remedies point to future work beyond the objective: blur-punishing decoders or encoder-side latent enrichment, plus motion-magnitude teachers such as optical-flow supervision. 6 Conclusion Frozen latent-flow world models can pass every training loss while forgetting how scenes move. The failure is diagnosable (anchor-sparse, latent-only supervision) and repairable without unfreezing the representation, and because pixel error rewards frozen predictions, motion-aware supplements are needed at evaluation. References [1] D. Liu, H. Niu, P. Cheng, Y. Gao, X. Kang, S. Teng, K. Sreenath, and X. Zhan, “ODEWorld: A continuous predictive architecture via physical-time flow,” arXiv preprint arXiv:2607.27924 , 2026. [2] M. Oquab et al. , “DINOv2: Learning robust visual features without supervision,” Trans. Mach. Learn. Res. , 2024. [3] B. Liu et al. , “LIBERO: Benchmarking knowledge transfer for lifelong robot learning,” in Proc. NeurIPS Datasets and Benchmarks , 2023. [4] R. Zhang, P. Isola, A. A. Efros, E. Shechtman, and O. Wang, “The unreasonable effectiveness of deep features as a perceptual metric,” in Proc. CVPR , 2018. [5] D. Hafner, T. Lillicrap, J. Ba, and M. Norouzi, “Dream to control: Learning behaviors by latent imagination,” in Proc. ICLR , 2020. [6] D. Hafner, J. Pasukonis, J. Ba, and T. Lillicrap, “Mastering diverse control tasks through world models,” Nature , 2025. [7] E. Alonso, A. Jelley, V. Micheli, A. Kanervisto, A. Storkey, T. Pearce, and F. Fleuret, “Diffusion for world modeling: Visual details matter in Atari,” in Proc. NeurIPS , 2024. [8] J. Bruce et al. , “Genie: Generative interactive environments,” in Proc. ICML , 2024. [9] D. Valevski, Y. Leviathan, M. Arar, and S. Fruchter, “Diffusion models are real-time game engines,” in Proc. ICLR , 2025. [10] T. Unterthiner, S. van Steenkiste, K. Kurach, R. Marinier, M. Michalski, and S. Gelly, “Towards accurate generative models of video: A new metric and challenging benchmarks,” arXiv preprint arXiv:1812.01717 , 2018. [11] Z. Huang et al. , “VBench: Comprehensive benchmark suite for video generative models,” in Proc. CVPR , 2024. [12] M. Mathieu, C. Couprie, and Y. LeCun, “Deep multi-scale video prediction beyond mean square error,” in Proc. ICLR , 2016. [13] E. Babaeizadeh, C. Finn, D. Erhan, R. H. Campbell, and S. Levine, “Stochastic variational video prediction,” in Proc. ICLR , 2018. [14] A. X. Lee, R. Zhang, F. Ebert, P. Abbeel, C. Finn, and S. Levine, “Stochastic adversarial video prediction,” arXiv preprint arXiv:1804.01523 , 2018. [15] J. Yeom, H. Kim, J. Park, S. Jung, J. Lee, and T. Kim, “What makes video world model latents action-relevant: Prediction over reconstruction,” arXiv preprint arXiv:2606.07687 , 2026. [16] C. Tan, Z. Gao, and S. Z. Li, “SimVP: Towards simple yet powerful spatiotemporal predictive learning,” arXiv preprint arXiv:2211.12509 , 2022.",
+  "text_truncated": false,
+  "links": [
+    {
+      "text": "Skip to main content",
+      "url": "https://arxiv.org/html/2609.28414v1#infobox"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/IgnoreMe"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "Why HTML?",
+      "url": "https://info.arxiv.org/about/accessible_HTML.html"
+    },
+    {
+      "text": "Back to Abstract",
+      "url": "https://arxiv.org/abs/2609.28414v1"
+    },
+    {
+      "text": "Download PDF",
+      "url": "https://arxiv.org/pdf/2609.28414v1"
+    },
+    {
+      "text": "License: arXiv.org perpetual non-exclusive license",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2609.28414v1#bib.bib5"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2609.28414v1#bib.bib6"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2609.28414v1#bib.bib7"
+    },
+    {
+      "text": "https://github.com/Mangkhut160/icassp2027",
+      "url": "https://github.com/Mangkhut160/icassp2027"
+    },
+    {
+      "text": "https://huggingface.co/pzr114514/DART-PT-Flow-LIBERO",
+      "url": "https://huggingface.co/pzr114514/DART-PT-Flow-LIBERO"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.28414v1#bib.bib1"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2609.28414v1#bib.bib3"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2609.28414v1#bib.bib2"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.28414v1#S1.F1"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2609.28414v1#S4.F3"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2609.28414v1#S5"
+    },
+    {
+      "text": "5.4",
+      "url": "https://arxiv.org/html/2609.28414v1#S5.SS4"
+    },
+    {
+      "text": "8",
+      "url": "https://arxiv.org/html/2609.28414v1#bib.bib8"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2609.28414v1#bib.bib9"
+    },
+    {
+      "text": "10",
+      "url": "https://arxiv.org/html/2609.28414v1#bib.bib10"
+    },
+    {
+      "text": "11",
+      "url": "https://arxiv.org/html/2609.28414v1#bib.bib11"
+    },
+    {
+      "text": "12",
+      "url": "https://arxiv.org/html/2609.28414v1#bib.bib12"
+    },
+    {
+      "text": "13",
+      "url": "https://arxiv.org/html/2609.28414v1#bib.bib13"
+    },
+    {
+      "text": "14",
+      "url": "https://arxiv.org/html/2609.28414v1#bib.bib14"
+    },
+    {
+      "text": "15",
+      "url": "https://arxiv.org/html/2609.28414v1#bib.bib15"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2609.28414v1#S3.F2"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.28414v1#S5.T1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2609.28414v1#S5.T2"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2609.28414v1#S5.F4"
+    },
+    {
+      "text": "16",
+      "url": "https://arxiv.org/html/2609.28414v1#bib.bib16"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2609.28414v1#S5.T3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2609.28414v1#bib.bib4"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2609.28414v1#S5.F5"
+    },
+    {
+      "text": "5.5",
+      "url": "https://arxiv.org/html/2609.28414v1#S5.SS5"
+    }
+  ],
+  "matching_link_count": 36,
+  "links_truncated": false,
+  "invalid_links": []
+}

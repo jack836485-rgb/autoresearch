@@ -1,0 +1,494 @@
+{
+  "url": "https://arxiv.org/html/2607.26298v1",
+  "final_url": "https://arxiv.org/html/2607.26298v1",
+  "status": 200,
+  "title": "Entity Resolution in Practice:Lessons from a Self-Serve Pipeline",
+  "metadata": {},
+  "paper": {
+    "title": "Entity Resolution in Practice: Lessons from a Self-Serve Pipeline",
+    "title_warning": null,
+    "abstract": "Abstract We built and evaluated a self-serve entity resolution (ER) system on six\nbenchmarks spanning 864 to 5 M records, and three lessons emerged that\nare absent from existing ER literature. (1) No single matching algorithm wins everywhere —a self-serve\npipeline cannot predict its next dataset, so we recommend training several\nalgorithm families per dataset and letting an automatic bake-off pick the\nwinner. (2) Precision and recall need separate fixes, not a shared\nthreshold —precision needs hard rule-based vetoes, recall needs more\ndiverse candidate retrieval. (3) One false-positive link can silently merge unrelated\nentities —assuming “A matches B” and “B matches C” implies “A\nmatches C” lets a single bad link chain hundreds of records together, so\nevery cross-group merge must be actively re-verified.\nWe hope these lessons save practitioners the months of dead-end\nexperiments that led us to them.",
+    "authors": [
+      {
+        "name": "Kaushik Pavani",
+        "affiliations": [
+          "Affiliation: kaushik.pavani@walmart.com"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Ganga Aluri",
+        "affiliations": [
+          "Affiliation: ganga.aluri@walmart.com"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Pravin Jadhav",
+        "affiliations": [
+          "Affiliation: pravin.jadhav@walmart.com",
+          "Affiliation:"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Neeraj Prasad",
+        "affiliations": [
+          "Affiliation: neeraj.prasad@walmart.com"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Kiran Sanka",
+        "affiliations": [
+          "Affiliation: kiran.sanka@walmart.com"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Kaushik Pavani Affiliation: kaushik.pavani@walmart.com Ganga Aluri Affiliation: ganga.aluri@walmart.com Pravin Jadhav Affiliation: pravin.jadhav@walmart.com Affiliation: Neeraj Prasad Affiliation: neeraj.prasad@walmart.com Kiran Sanka Affiliation: kiran.sanka@walmart.com",
+    "arxiv_version": "2607.26298v1",
+    "arxiv_version_date": "2026-07-28",
+    "sections": [
+      {
+        "id": "S1",
+        "heading": "I Introduction",
+        "level": 1,
+        "text": "ID Name Phone Address City True R1 Sakura Sushi 503-0147 42 Oak St Portland A R2 Sakura Sushi Bar 503-0147 42 Oak St Portland A R3 Sakura Sushi — — — ? R4 Sakura Sushi 206-9283 8 Elm Ave Seattle B R5 Sakura 206-9283 8 Elm Ave Seattle B x Entity A (Portland) x Bridge record (sparse) x Entity B (Seattle) Fig. 1: A preview of a typical failure mode in ER systems, and one of the lessons we discuss in this paper. Consider the task of deduplicating restaurant records so that one cluster represents one physical location (a single Sakura Sushi at 42 Oak St in Portland) rather than a brand across cities. Five similarly named records arrive (R1–R5). Most pairwise matchers will accept both R1 ↔ \\leftrightarrow R3 and R3 ↔ \\leftrightarrow R4: the sparse bridge R3 has nothing in any populated field that disagrees with either group. The pipeline then chains the two correct-looking links together, silently merging the Portland and Seattle locations into one cluster—an incorrect answer under the per-location definition above. We study this in § VI and propose two fixes: (a) a verified-merge clustering step, and (b) a sparsity-aware confidence threshold for records with few populated fields. Entity resolution (ER)—identifying records that refer to the same real-world entity—is foundational to data integration [ 1 , 2 ] . Recent LLM-based approaches [ 3 , 4 ] can match records zero-shot but cost hundreds of dollars per million pairs and embed matching logic in opaque weights. PLM-based systems [ 5 , 6 ] are cheap at inference but require thousands of labeled pairs per domain and offer no audit trail. Neither approach works for organizations running dozens of ER tasks under changing requirements, strict auditability, and tight cost budgets. We built a system to bridge this gap. The key idea is simple: a structured YAML specification—a Standard Operating Procedure (SOP)—encodes matching logic as inspectable, versionable configuration. An LLM teacher conditioned on the SOP labels candidate pairs; those labels train a lightweight matcher via distillation at orders-of-magnitude lower cost. The SOP simultaneously prompts the teacher, structures its output, and serves as the audit trail. This paper is not a systems paper. It is a practitioner’s guide organized around three failure modes we encountered while evaluating this pipeline on six benchmarks spanning four orders of magnitude (864 to 5 M records)—failure modes absent from existing ER literature: L1. No single matcher wins; let them compete (§ IV ). A tournament over three canonical architectures (DeepMatcher, LightGBM, GAT) auto-selects the best per dataset. Under a data-scarce regime ( ≤ \\leq 10K training records), DeepMatcher and LightGBM each win 3/6 benchmarks on Pair-F1; GAT wins none. L2. Precision and recall need separate toolkits (§ V ). Hard vetoes for precision, blocking ensemble diversity for recall. No single threshold can optimize both. L3. One false positive can collapse your clusters (§ VI ). Transitive closure creates silent mega-clusters; verified merge clustering with active cross-cluster verification recovers recall safely."
+      },
+      {
+        "id": "S2",
+        "heading": "II The Framework",
+        "level": 1,
+        "text": "Our system follows the standard block → \\to match → \\to cluster ER architecture [ 1 , 7 ] . Three design choices motivate the lessons below. (1) Domain knowledge lives in an SOP, not weights. What counts as a match is a business decision —e.g., two food-court tenants share one phone number but are different entities—and cannot be inferred from data without examples no organization possesses. We encode such rules in a versioned YAML SOP that serves three roles: LLM teacher prompt, distillation signal (per-field similarity assessments richer than a binary label), and audit trail. A full SOP example is in Appendix B . (2) Retrieval and matching are separate components. A blocker encoder (Siamese fine-tuning, contrastive loss) optimizes for recall; a matcher optimizes for precision. Training them separately avoids the tension inherent in a single end-to-end model. The matcher consumes blocker embeddings plus schema-driven features (Jaro-Winkler, exact match, transposition detection) and is selected via a tournament over three canonical families (Table I ). The full pipeline—onboarding, training, and inference—is detailed in Appendix A with the architecture diagram (Figure 3 ) and model equations. (3) Per-dataset tuning is mandatory. The pipeline exposes ∼ \\sim 40 hyperparameters whose optimal values depend on duplicate density, field sparsity, schema width, and scale, so we tune per dataset. For each experiment we obtain a strong baseline configuration using both Optuna TPE Bayesian search [ 8 ] and an LLM autoresearch agent [ 9 ] and iterate from there; the lessons below hold whichever search method produced the configuration. TABLE I: Matcher roster: one from each principal family. Input : E=embeddings, A=attribute features, G=graph structure. Matcher Family Input DeepMatcher MLP [ 6 ] E+A LightGBM GBDT [ 10 ] A GAT GNN [ 11 ] E+G"
+      },
+      {
+        "id": "S3.SS0.SSS0.Px1",
+        "heading": "Datasets.",
+        "level": 3,
+        "text": "We evaluate on six deduplication benchmarks spanning five domains (Table II ) and four orders of magnitude in scale. NCV denotes the 5M-record benchmark of Saeedi et al. [ 12 ] ; it contains only generic structured fields used for ER evaluation—no behavioral, financial, or sensitive attributes. No proprietary, customer, or industry data is used anywhere; all experiments are reproducible from the cited public benchmarks. TABLE II: Benchmark datasets. | ℛ | |\\mathcal{R}| =records, | 𝒮 | |\\mathcal{S}| =schema fields, | 𝒞 | |\\mathcal{C}| =ground-truth clusters, Sp. = fraction of pairs with missing fields. Citations: [ 13 , 14 , 15 , 12 ] . Dataset Domain | ℛ | |\\mathcal{R}| | 𝒮 | |\\mathcal{S}| | 𝒞 | |\\mathcal{C}| Sp. Restaurants Restaur. 864 5 752 2% Cora Biblio. 1,879 17 182 68% Geo Settl. Geogr. 3,054 3 820 11% DBLP-Sch. Biblio. 66,879 4 61,604 5% MB 200K Music 193,750 8 100,000 31% NCV Record 5,000,000 4 3,500,840 3%"
+      },
+      {
+        "id": "S3.SS0.SSS0.Px2",
+        "heading": "Splits and protocol.",
+        "level": 3,
+        "text": "We split at the entity level—no record from the same entity appears in both training and test—and cap training and validation at 10K records each , regardless of dataset size, to reflect real-world deployment where labeling requires domain expertise. This yields heavily skewed ratios: Cora uses a conventional 42/13/45 split (1.9K records), but MusicBrainz 200K trains on just 5% (10K of 194K records). This design is deliberate: a method requiring abundant labels is impractical for self-serve deployment. We use a commercially available frontier LLM as teacher, all-MiniLM-L6-v2 ( d = 384 d{=}384 ) as base encoder, and fixed seed 42. Pair-F1 is the primary metric throughout [ 6 ] ; purity is reported as a secondary metric to distinguish over-splitting from over-merging."
+      },
+      {
+        "id": "S4",
+        "heading": "IV Lesson 1: Which Matcher Wins Depends on the Dataset",
+        "level": 1,
+        "text": "Claim. No single matcher architecture dominates across ER problems. A tournament that trains three canonical architectures and auto-selects the winner eliminates a key human decision point."
+      },
+      {
+        "id": "S4.SS0.SSS0.Px1",
+        "heading": "Evidence.",
+        "level": 3,
+        "text": "Table III shows tournament results across all six benchmarks. No single family dominates , and the winning architecture changes character across datasets. TABLE III: Tournament leaderboard: Pair-F1 on held-out test ( ≤ \\leq 10K training records). Winner in bold . Purity in parentheses. † margin < 0.001 <0.001 . Dataset DM LGBM GAT Winner Restaur. 0.948 (.99) 0.969 (1.0) 0.748 (.99) LGBM Cora 0.968 (.98) 0.891 (.98) 0.809 (.89) DM Geo Set. 0.979 (.99) 0.960 (.99) 0.964 (.99) DM DBLP-Sch. 0.160 (1.0) 0.541 (.94) 0.239 (1.0) LGBM MB 200K 0.964 (1.0) 0.948 (.99) 0.833 (.95) DM NCV 0.992 (1.0) 0.993 (1.0) 0.989 (1.0) LGBM † Score: DM 3/6, LGBM 3/6, GAT 0/6."
+      },
+      {
+        "id": "S4.SS0.SSS0.Px2",
+        "heading": "Why the winner changes.",
+        "level": 3,
+        "text": "Each winner reflects structural properties of its dataset. DeepMatcher wins on Cora, Geo Settlements, and MB 200K—datasets where field-level attention and soft semantic similarity matter (sparse attributes with OCR noise, paraphrase equivalence, subtle variant spellings). LightGBM wins on Restaurants, DBLP-Scholar, and NCV—datasets that are either small (the embedding tower lacks signal to fine-tune meaningfully) or dominated by structured identifier fields where exact-match and Jaro-Winkler features suffice. GAT wins nothing: at our 10K training cap, no dataset provides enough connected-component structure for 2-hop graph attention to outperform attribute-based methods, and GAT also suffers a train/test graph mismatch when the k k -NN graph at inference is built on a much larger test split."
+      },
+      {
+        "id": "S4.SS0.SSS0.Px3",
+        "heading": "Self-serve systems cannot pick in advance.",
+        "level": 3,
+        "text": "The winning architecture changes with dataset size, schema sparsity, and entity density—properties not known before running the data. A fixed “always DeepMatcher” policy loses on Restaurants, DBLP-Scholar, and NCV; “always LightGBM” loses on Cora, Geo Settlements, and MB 200K. The tournament costs nothing extra—all three matchers share the same training pairs and embeddings—and removes a decision point that would otherwise require dataset-specific expertise."
+      },
+      {
+        "id": "S4.SS0.SSS0.Px4",
+        "heading": "Cost and latency.",
+        "level": 3,
+        "text": "The teacher-student paradigm makes the tournament practical: the LLM teacher labels once during training; the distilled matcher handles all inference. The teacher costs ∼ \\sim $450/1M pairs at ∼ \\sim 2 s per pair; the tournament-winning matcher costs $12/1M pairs—a 37.5 × 37.5\\times cost reduction. LightGBM winners reach 222–263K pairs/sec on CPU; DeepMatcher winners run at 5–10K pairs/sec including SBERT inference."
+      },
+      {
+        "id": "S4.SS0.SSS0.Px5",
+        "heading": "Practitioner guidance.",
+        "level": 3,
+        "text": "Always run the tournament. The winner is also a diagnostic : LightGBM winning indicates a small or identifier-heavy dataset; DeepMatcher winning indicates soft similarity matters; GAT winning indicates a large, densely co-referent dataset (rare at scale). None of these conditions can be reliably predicted from schema inspection alone—only the data reveals which signal type dominates."
+      },
+      {
+        "id": "S5",
+        "heading": "V Lesson 2: Precision and Recall Break at Different Stages",
+        "level": 1,
+        "text": "Claim. Precision and recall fail at structurally different points in the pipeline, and the common instinct—tune the matcher threshold—cannot fix either."
+      },
+      {
+        "id": "S5.SS1.SSS0.Px1",
+        "heading": "Recall is lost before the matcher runs.",
+        "level": 3,
+        "text": "A pair never retrieved is lost forever—no threshold adjustment recovers it. Two retrieval failures dominate. (i) Embedding retrievers miss surface variants. Embedding similarity collapses “J. Smith” and “John Smith,” but OCR artifacts (“Heuslein”/“Hauslein”) or heavy abbreviations push genuine matches apart; HNSW’s M M parameter leaves coverage gaps that compound at scale. (ii) Embedding retrievers operate in a single modality. Exact categorical identifiers and structured codes produce no useful gradient in the embedding space; two records sharing an identical identifier but with variant text are never nominated."
+      },
+      {
+        "id": "S5.SS1.SSS0.Px2",
+        "heading": "Precision fails because sparse records look like everything.",
+        "level": 3,
+        "text": "A record with only one populated field has nothing to disagree with; it scores high against every other record sharing that field. A sparse record becomes a bridge : it matches above threshold against two unrelated dense clusters, and transitive closure chains them into one. This is not a matcher bug; it is the geometry of the problem."
+      },
+      {
+        "id": "S5.SS2.SSS0.Px1",
+        "heading": "For recall: diversify the retriever.",
+        "level": 3,
+        "text": "We compose two structurally different retrieval strategies and union their outputs. Strategy 1—HNSW ensemble for embedding-space coverage : an ensemble of HNSW indices with diverse ( M , 𝑒𝑓 ​ _ ​ 𝑠𝑒𝑎𝑟𝑐ℎ ) (M,\\mathit{ef\\_search}) configurations, 𝒞 ens = ⋃ i = 1 N KNN k ​ ( 𝐄 , M i , 𝑒𝑓 i ) . \\mathcal{C}_{\\text{ens}}=\\bigcup_{i=1}^{N}\\,\\text{KNN}_{k}(\\mathbf{E};\\,M_{i},\\mathit{ef}_{i}). (1) On MusicBrainz, a single M = 16 M{=}16 index misses 67 true pairs (97.7% recall); the ensemble recovers 11 of them ( + 0.4 +0.4 pp). Strategy 2—Identifier-based blocking for non-semantic matches : a lightweight exact-match inverted index over identifier fields, 𝒞 final = 𝒞 HNSW ∪ 𝒞 ID \\mathcal{C}_{\\text{final}}=\\mathcal{C}_{\\text{HNSW}}\\cup\\mathcal{C}_{\\text{ID}} . On NCV, identifier blocking recovers 7 true-positive pairs the HNSW ensemble missed entirely ( + 0.3 +0.3 pp); on DBLP-Scholar (no identifier fields), it contributes nothing—each strategy activates only where needed (Table IV ). TABLE IV: Blocker recall (%) at k = 20 k{=}20 . † No identifier fields; +ID contributes 0 additional pairs. Dataset Single Ensemble +ID Blk. DBLP-Scholar 100.0 100.0 100.0 † MB 200K 97.7 98.1 98.1 † NCV 97.7 97.8 98.1"
+      },
+      {
+        "id": "S5.SS2.SSS0.Px2",
+        "heading": "For precision: hard rules on top of soft classifiers.",
+        "level": 3,
+        "text": "A learned matcher is a function of its training distribution; production data drifts. A model that achieved 99% pairwise precision on validation can degrade when field-population rates shift—and in ER the cost is not a noisy prediction but a permanently merged cluster that downstream consumers inherit. Customers also treat certain rules as non-negotiable (“different phone number means different restaurant”), and no amount of retraining can guarantee a soft classifier will never violate them. We layer three deterministic guardrails on top of the matcher. (1) Sparsity-aware thresholds. Training data is typically balanced by entity size, but production has a long tail of sparse records with one or two populated fields. A global threshold over-accepts these pairs. We bin candidate pairs by the number of shared populated fields and learn a separate threshold per bin, with monotonicity enforced ( θ b ≥ θ b + 1 \\theta_{b}\\geq\\theta_{b+1} ): sparser pairs require higher confidence. This improves purity by + 8.4 +8.4 pp on MusicBrainz and + 1.5 +1.5 pp on NCV; no-op on Restaurants (full fields). (2) Per-field hard vetoes. For identifier fields, a hard rule zeroes the match probability when both records have the field populated but similarity falls below a field-specific floor: y ^ = 0 ​ if ​ ∃ f ∈ 𝒱 : both_have f ∧ sim f < τ f . \\hat{y}=0\\;\\;\\text{if}\\;\\;\\exists f\\in\\mathcal{V}\\!:\\;\\text{both\\_have}_{f}\\wedge\\text{sim}_{f}<\\tau_{f}. (2) This improves purity by + 3.6 +3.6 pp on MusicBrainz and + 32.8 +32.8 pp on Restaurants—datasets where identifier conflicts between genuinely different entities are common. Fields designated no_override encode unconditional business rules that no learned model can bypass. (3) Evidence and fast-path gates. Two additional cheap gates compose with the sparsity threshold and veto: an evidence gate rejects pairs that share too few populated fields for any matcher to be reliable, and a fast-path gate short-circuits pairs with very high confidence ( ≥ 99.5 % \\geq 99.5\\% ) that no hard rule contradicts. TABLE V: Precision ablation: cluster purity (%) as mechanisms are added incrementally. Baseline=tournament-winning matcher with global threshold. Bold=best per dataset. Dataset Baseline +Sparsity +Vetoes Restaurants 51.6 53.1 84.4 Cora 95.9 98.0 98.1 Geo Settl. 98.3 98.7 98.5 DBLP-Sch. 95.4 99.8 99.5 MB 200K 77.7 86.1 89.7 NCV 97.4 98.9 98.6"
+      },
+      {
+        "id": "S5.SS2.SSS0.Px3",
+        "heading": "Practitioner guidance.",
+        "level": 3,
+        "text": "Diagnose before tuning. If your largest clusters contain records from different entities: precision problem—add field vetoes, tighten sparsity thresholds. If singleton clusters should have been merged: recall problem—increase HNSW M M , add ensemble indices, check blocking coverage. Fix retrieval gaps at the retrieval layer; lowering the matcher threshold cannot recover pairs the retriever never nominated."
+      },
+      {
+        "id": "S6",
+        "heading": "VI Lesson 3: One False Positive Can Collapse Your Clusters",
+        "level": 1,
+        "text": "Claim. Connected components (CC) clustering—the standard post-matching step in ER [ 16 , 17 ] —works well when matchers are well-calibrated but fails when they are not. Center-based clustering avoids error propagation but under-merges. Active cross-cluster verification recovers recall without cascading false merges."
+      },
+      {
+        "id": "S6.SS0.SSS0.Px1",
+        "heading": "Transitivity is an assumption, not a guarantee.",
+        "level": 3,
+        "text": "ML matchers are not inherently transitive [ 18 , 19 ] : a matcher may declare ⟨ r i , r j ⟩ \\langle r_{i},r_{j}\\rangle and ⟨ r j , r k ⟩ \\langle r_{j},r_{k}\\rangle as matches while ⟨ r i , r k ⟩ \\langle r_{i},r_{k}\\rangle is a non-match—a logically inconsistent triple that CC resolves by merging all three. When the matcher’s false-positive rate is non-trivial, a single borderline edge propagates through Union-Find and chains unrelated clusters into mega-clusters. Figure 2 shows the cascade on three “Sakura Sushi” records: the matcher never directly scores r 1 ↔ r 3 r_{1}\\!\\leftrightarrow\\!r_{3} , yet CC merges Portland and Seattle into one cluster. ID Name Phone Addr City True R1 Sakura Sushi 503-0147 42 Oak St Portland A R2 Sakura Sushi — — — A R3 Sakura Sushi 206-9283 8 Elm Ave Seattle B Pair Score CC outcome R1 ↔ \\leftrightarrow R2 0.91 Merged (correct) R2 ↔ \\leftrightarrow R3 0.88 Merged (correct) R1 ↔ \\leftrightarrow R3 — Never scored ⇒ \\Rightarrow FP Fig. 2: Transitive closure failure on a 3-record subset of Figure 1 . The sparse bridge R2 lets CC chain the Portland and Seattle entities without ever directly comparing R1 to R3. Verified merge (§ VI ) forces the missing comparison and blocks the merge."
+      },
+      {
+        "id": "S6.SS0.SSS0.Px2",
+        "heading": "Verified merge.",
+        "level": 3,
+        "text": "We replace blind transitive closure with a two-stage procedure. Stage 1 (Center assignment): each record joins the cluster of its single highest-scoring neighbor above threshold—no edges propagate. Stage 2 (Verified merge): for each Stage-1 cluster pair connected by at least one above-threshold edge in the original candidate set, (a) select up to k = 3 k{=}3 representatives per cluster closest to the centroid; (b) score all cross-cluster representative pairs through the matcher with hard vetoes enabled —generating direct pairwise evidence the blocking stage may never have produced; (c) if any cross-cluster pair triggers a veto or scores below threshold, block the merge. A single piece of negative evidence is sufficient—this asymmetry prevents error propagation. For connected components of 3+ Stage-1 clusters, we verify all ( n 2 ) \\binom{n}{2} cluster pairs independently to prevent transitivity from re-entering through the merge pass itself. TABLE VI: Clustering ablation. Pair-F1, Adjusted Rand Index (ARI), and pairwise precision per dataset. Baseline =center-based clustering [ 20 ] . +Transitivity =connected components [ 16 ] . +Verification =verified merge. Bold=best per dataset. Baseline +Transitivity +Verification Dataset F1 ARI Prec. F1 ARI Prec. F1 ARI Prec. Restaurants 1.000 .900 1.000 1.000 .900 1.000 1.000 .900 1.000 Cora .321 .286 .986 .885 .853 .914 .876 .779 .994 Geo Settl. .889 .804 .994 .771 .831 .720 .972 .956 .989 DBLP .424 .426 .411 .371 .464 .312 .477 .475 .444 MB 200K .540 .577 .509 .000 .000 .000 .277 .356 .229 NCV .667 .668 .500 .002 .002 .001 .667 .647 .500"
+      },
+      {
+        "id": "S6.SS0.SSS0.Px3",
+        "heading": "Reading the ablation.",
+        "level": 3,
+        "text": "Table VI shows the three regimes. On Restaurants (clean, small) all three algorithms reach Pair-F1 = 1.0 =\\,1.0 : the matcher is so well-calibrated that transitivity adds no false links. On Cora (99.7% validation precision) transitivity provides the largest gain—0.321 → \\to 0.885 F1—by recovering multi-hop links the baseline fragments; verification is comparable (0.876) with higher precision. On Geo Settlements verification dominates: F1 0.889 → \\to 0.972 , while raw transitivity hurts (0.889 → \\to 0.771) as geographically similar but distinct settlements get chained. On MB 200K and NCV transitivity catastrophically collapses F1 (0.540 → \\to 0.000 and 0.667 → \\to 0.002 respectively), as common field values chain unrelated records into mega-clusters. Verification preserves the baseline on NCV (0.667) and reduces damage on MB 200K (0.277): when the underlying matcher’s precision is too low (0.509), even verification gates cannot save it."
+      },
+      {
+        "id": "S6.SS0.SSS0.Px4",
+        "heading": "The lesson.",
+        "level": 3,
+        "text": "Transitivity is not a free lunch. It helps when the matcher is well-calibrated (Cora, Restaurants) and catastrophically hurts when the false-positive rate is high (MB 200K, NCV). The key predictor is baseline precision : above 0.9 transitivity is safe; below 0.5 it creates mega-clusters. Verified merge provides a safety net across all regimes and produces the best Pair-F1 on 4/6 datasets (strictly best on Geo Settlements and DBLP, tied for best on Restaurants and NCV). Its cost is modest: O ⁡ ( k 2 ) O(k^{2}) additional matcher calls per candidate cluster pair, with k = 3 k{=}3 by default."
+      },
+      {
+        "id": "S7.SS0.SSS0.Px1",
+        "heading": "Classical and PLM-based ER.",
+        "level": 3,
+        "text": "The field traces from Fellegi-Sunter [ 2 ] through Magellan [ 21 ] to PLM-based systems. Ditto [ 5 ] achieved 29% F 1 F_{1} improvement via BERT fine-tuning; Paganelli et al. [ 22 ] analyzed how BERT representations serve entity matching, and ZeroER [ 23 ] extends the paradigm to the unsupervised setting. Thirumuruganathan et al. [ 24 ] document a 40% F 1 F_{1} drop from data heterogeneity—a direct motivator for our L1."
+      },
+      {
+        "id": "S7.SS0.SSS0.Px2",
+        "heading": "Graph-based ER.",
+        "level": 3,
+        "text": "HierGAT [ 25 ] and GraphER [ 26 ] encode relational structure with attention and differential dependencies respectively; Saeedi et al. [ 27 ] use graph metrics to drive cluster repair with active LLM feedback. These methods operate inside the matcher and so do not address the cross-stage cascades exposed by L2 and L3."
+      },
+      {
+        "id": "S7.SS0.SSS0.Px3",
+        "heading": "LLM-based ER and distillation.",
+        "level": 3,
+        "text": "Peeters and Bizer [ 3 ] report GPT-4 outperforms transferred PLMs by 40–68% zero-shot; Fan et al. [ 4 ] and Wang et al. [ 28 ] investigate cost-effective and selection-based ER paradigms. Wadhwa et al. [ 29 ] and Steiner et al. [ 30 ] distill LLM reasoning into smaller open-weight matchers, similar in spirit to our teacher / student split. Our work differs in conditioning the teacher on an inspectable SOP and in adding hard-rule safeguards (§ V ) and verified merge (§ VI ) that the teacher itself does not perform."
+      },
+      {
+        "id": "S7.SS0.SSS0.Px4",
+        "heading": "SOP-driven agents.",
+        "level": 3,
+        "text": "Agent-S [ 31 ] automates SOP execution; SOP-Bench [ 32 ] shows even GPT-4o achieves 30–70% on complex SOPs. We are, to our knowledge, the first to apply SOP-driven automation to entity resolution."
+      },
+      {
+        "id": "S8",
+        "heading": "VIII Limitations",
+        "level": 1,
+        "text": "Our study has a few limitations that bound the scope of its conclusions. Public datasets by design. We deliberately restrict all experiments to six public benchmarks so that every result is fully reproducible and no proprietary or customer information is disclosed. Accordingly, we report standard accuracy metrics (Pair-F1, purity, and Adjusted Rand Index) rather than production outcomes such as business impact or robustness to live distribution drift. Data-scarce regime. We cap training and validation at 10K records each to reflect self-serve deployments where labeling requires scarce domain expertise. Some findings are specific to this budget—for example, “GAT never wins the tournament” should be read as “under a 10K-label budget,” since a graph-based matcher could plausibly overtake the other families given abundant labels. Limited roster and single configuration. The tournament covers three canonical families (DeepMatcher, LightGBM, GAT) and excludes LLM-based or cross-encoder matchers at inference. We use a single teacher LLM, base encoder (all-MiniLM-L6-v2), and seed (42), so we report point estimates rather than variance or significance tests. Verified merge has a precision floor. Verified merge is a safety net, not a cure: when baseline pairwise precision is very low (e.g. MusicBrainz 200K at ≈ \\approx 0.51), its gates reduce but do not prevent cluster collapse. Human effort is not quantified. SOP construction relies on a domain expert refining an LLM-drafted specification over a few iterations; we characterize this effort qualitatively rather than in person-hours."
+      },
+      {
+        "id": "S9",
+        "heading": "IX Conclusion",
+        "level": 1,
+        "text": "We deployed entity resolution at scale on six benchmarks and walked away with three findings that we wish someone had handed us at the start. First, no single matching algorithm wins across datasets (§ IV ). In a small per-dataset bake-off across three canonical families, DeepMatcher and LightGBM each took the top spot on three benchmarks and GAT never won. Any team that commits to one architecture therefore loses on at least a third of the datasets it has yet to see, and the bake-off pays for itself many times over. Second, precision and recall fail at different stages and need different mechanisms (§ V ). Moving the matcher score threshold trades one off against the other and solves neither. We improve precision only by adding hard rule-based vetoes that the matcher cannot learn from data, and we improve recall only by running several diverse blocking strategies in parallel. Third, one false-positive link can silently merge unrelated entity groups because transitive closure compounds matcher errors (§ VI ). We repeatedly saw single low-evidence links chain hundreds of records that shared nothing in common into one giant cluster. Our verified-merge step—which re-runs the matcher on representative pairs across every candidate merge before committing— produces the best Pair-F1 on four of the six datasets and avoids the catastrophic precision collapse that transitive closure inflicts on the two largest. None of these three mechanisms is individually novel, but adopting all three as defaults rather than as escalation paths is what changed our production error profile. We hope the recipes here give other teams a shorter route to the same outcome."
+      },
+      {
+        "id": "bib",
+        "heading": "References",
+        "level": 1,
+        "text": "[1] V. Christophides, V. Efthymiou, T. Palpanas, G. Papadakis, and K. Stefanidis (2021) An overview of end-to-end entity resolution . ACM Computing Surveys 54 ( 6 ), pp. 1–42 . Cited by: §I , §II . [2] I. P. Fellegi and A. B. Sunter (1969) A theory for record linkage . J. American Statistical Association 64 ( 328 ), pp. 1183–1210 . Cited by: §I , §VII . [3] R. Peeters and C. Bizer (2025) Entity matching using large language models . In Proc. EDBT , pp. 338–350 . Cited by: §I , §VII . [4] Y. Fan, J. Li, S. Liu, and T. Rekatsinas (2024) Cost-effective in-context learning for entity resolution . In Proc. ICDE , Cited by: §I , §VII . [5] Y. Li, J. Li, Y. Suhara, A. Doan, and W.-C. Tan (2020) Deep entity matching with pre-trained language models . PVLDB 14 ( 1 ), pp. 50–60 . Cited by: §I , §VII . [6] S. Mudgal et al. (2018) Deep learning for entity matching: a design space exploration . In Proc. SIGMOD , pp. 19–34 . Cited by: §I , TABLE I , §III . [7] G. Papadakis, D. Skoutas, E. Thanos, and T. Palpanas (2020) Blocking and filtering techniques for entity resolution: a survey . ACM Computing Surveys 53 ( 2 ), pp. 1–42 . Cited by: §II . [8] T. Akiba, S. Sano, T. Yanase, T. Ohta, and M. Koyama (2019) Optuna: a next-generation hyperparameter optimization framework . Cited by: §II . [9] A. Karpathy (2026) Autoresearch: LLM-driven autonomous research loop . Note: https://github.com/karpathy/autoresearch Cited by: §II . [10] G. Ke, Q. Meng, T. Finley, T. Wang, W. Chen, W. Ma, Q. Ye, and T.-Y. Liu (2017) LightGBM: a highly efficient gradient boosting decision tree . In NeurIPS , pp. 3146–3154 . Cited by: TABLE I . [11] S. Brody, U. Alon, and E. Yahav (2022) How attentive are graph attention networks? . In ICLR , Cited by: TABLE I . [12] A. Saeedi, E. Peukert, and E. Rahm (2018) Scalable matching and clustering of entities with FAMER . Complex Systems Informatics and Modeling Quarterly (CSIMQ) ( 16 ), pp. 61–83 . Cited by: §III , TABLE II . [13] F. Naumann and M. Herschel (2010) HPI repeatability datasets for entity resolution: Restaurants, Cora, and DBLP-Scholar . Note: https://hpi.de/naumann/projects/repeatability/datasets.html Cited by: TABLE II . [14] A. Saeedi, E. Peukert, and E. Rahm (2017) Using link discovery to enrich DBpedia with equivalent entity relationships . In Proc. ADBIS , Cited by: TABLE II . [15] A. Saeedi, E. Peukert, and E. Rahm (2018) Comparative evaluation of distributed clustering approaches for entity resolution . In Proc. EDBT , pp. 181–192 . Cited by: TABLE II . [16] V. Christophides, V. Efthymiou, T. Palpanas, G. Papadakis, and K. Stefanidis (2021) An overview of end-to-end entity resolution for big data . ACM Computing Surveys 53 ( 6 ), pp. 127:1–127:42 . Cited by: TABLE VI , §VI . [17] R. C. Steorts, R. Hall, and S. E. Fienberg (2022) (Almost) all of entity resolution . Science Advances 8 ( 12 ). Cited by: §VI . [18] D. Baas, M. Dastani, and A. Feelders (2021) Exploiting transitivity constraints for entity matching in knowledge graphs . In arXiv preprint arXiv:2104.12589 , Cited by: §VI . [19] Anonymous (2025) TransClean: finding false positives in multi-source entity matching under real-world conditions via transitive consistency . arXiv preprint arXiv:2506.04006 . Cited by: §VI . [20] I. Hassanzadeh, M. A. Saeed, and A. Khodaei (2009) Swoosh: a generic approach to entity resolution . In VLDB , Cited by: TABLE VI . [21] P. Konda et al. (2016) Magellan: toward building entity matching management systems . PVLDB 9 ( 12 ), pp. 1197–1208 . Cited by: §VII . [22] M. Paganelli, D. Tiano, and F. Guerra (2024) Analyzing how BERT performs entity matching . VLDB Journal 33 , pp. 1–25 . Cited by: §VII . [23] R. Wu, S. Chaba, S. Sawlani, X. Chu, and S. Thirumuruganathan (2020) ZeroER: entity resolution using zero labeled examples . In Proc. SIGMOD , pp. 1149–1164 . Cited by: §VII . [24] S. Thirumuruganathan et al. (2025) Heterogeneity in entity matching . arXiv:2508.08076 . Cited by: §VII . [25] D. Yao, Y. Gu, G. Cong, H. Jin, and X. Lv (2022) Entity resolution with hierarchical graph attention networks . In Proc. SIGMOD , pp. 429–442 . Cited by: §VII . [26] J. Hu, M. Bewong, S. Kwashie, Y. Zhang, V. Nofong, J. Wondoh, and Z. Feng (2025) GraphER: when GDD meets GNN for entity resolution on property graphs . Information Systems 132 , pp. 102517 . Cited by: §VII . [27] A. Saeedi, M. Hosseinzadeh, and E. Rahm (2025) Graph metrics-driven record cluster repair meets LLM-based active learning . ACM JDIQ 17 ( 2 ), pp. 1–28 . Cited by: §VII . [28] T. Wang, Y. Zhang, and S. Roth (2025) Match, compare, or select? an investigation of LLMs for entity matching . In Proc. COLING , pp. 89–110 . Cited by: §VII . [29] S. Wadhwa, L. Hawkins, C. Agrawal, B. C. Wallace, and A. Agrawal (2024) Learning from natural language explanations for generalizable entity matching . arXiv:2406.09330 . Cited by: §VII . [30] M. Steiner, R. Peeters, and C. Bizer (2024) Fine-tuning large language models for entity matching . arXiv:2409.08185 . Cited by: §VII . [31] W. Li et al. (2025) Agent-S: LLM agentic workflow to automate standard operating procedures . arXiv:2503.15520 . Cited by: §VII . [32] M. Yin et al. (2025) SOP-Bench: complex industrial SOPs for evaluating LLM agents . arXiv:2506.08119 . Cited by: §VII ."
+      },
+      {
+        "id": "A1",
+        "heading": "Appendix A Framework Details",
+        "level": 1,
+        "text": "Figure 3 shows the full pipeline: onboarding (SOP construction, blocking, LLM labeling—all human-in-the-loop, top row), training (blocker and matcher distillation plus tournament, top row right), and inference (blocking, matching, clustering, audit—bottom row). LLMs touch only the human-facing stages; matching and clustering run entirely on lightweight distilled models. Records SOP Construction Candidate Blocking LLM Labeling Blocker Training Matcher Training Tournament Teacher LLM New Record Blocking Matching Clustering Audit Trail pairs labeled pairs encoder matchers SOP labels encoder candidates scores clusters best matcher refine SOP retrain TRAIN INFER Onboarding (human-in-the-loop) Training (automated) Fig. 3: Full ER pipeline. LLM-driven stages (yellow, orange) involve humans; cost-sensitive matching/clustering (teal) run on lightweight distilled models. Solid arrows: data flow. Faded arrows: feedback loops (SOP refinement and matcher retraining)."
+      },
+      {
+        "id": "A1.SS0.SSS0.Px1",
+        "heading": "Why SOPs (extended).",
+        "level": 3,
+        "text": "There is no universal definition of an “entity.” Consider two restaurant listings sharing phone, address, and city but with different names (e.g. Sakura Sushi and Thai Orchid at the same food-court address): a generic ER system says match (three strong fields agree); a domain expert says no—multiple tenants share one phone line. The rule “same name + same phone = match; phone alone is insufficient” cannot be inferred from data without examples no organization possesses. An LLM drafts an initial SOP from the schema; a domain expert refines it in 3–5 iterations. SOPs vary substantially across benchmarks—even two bibliographic datasets (Cora, DBLP-Scholar) require structurally different SOPs."
+      },
+      {
+        "id": "A1.SS0.SSS0.Px2",
+        "heading": "Pipeline phases (extended).",
+        "level": 3,
+        "text": "Onboarding (human-in-the-loop). The SOP-conditioned LLM teacher labels candidate pairs surfaced by approximate k k -NN blocking, producing per-field similarity assessments, a confidence score, and natural-language evidence; a domain expert reviews low-confidence labels and refines the SOP (typically 2–3 rounds). Training (automated). Labeled pairs train the blocker encoder and matcher independently; the tournament evaluates all matchers on held-out validation pairs. Inference. An ensemble of blockers (multiple HNSW indices plus identifier-based blocking) generates candidates that the tournament-winning matcher scores with safeguard layers (§ V ); verified merge (§ VI ) then clusters records using conservative direct assignment followed by verified cross-cluster merging."
+      },
+      {
+        "id": "A2",
+        "heading": "Appendix B SOP Excerpt",
+        "level": 1,
+        "text": "Figure 4 shows a SOP excerpt for restaurant matching, illustrating how field importance, acceptable variations, and decision boundaries are encoded as inspectable YAML. sop: version: \"1.2\" domain: restaurant_matching field_hierarchy: critical: [name, phone] high: [address] medium: [city, cuisine] low: [zipcode] tolerances: name: - type: abbreviation - type: typo # max_edit_dist: 2 phone: - type: formatting decision_rules: match: \">=2 critical agree, 0 conflict\" review: \"1 conflict + >=2 high agree\" non_match: \">=2 critical conflict\" Fig. 4: SOP excerpt for restaurant matching."
+      }
+    ]
+  },
+  "text": "Entity Resolution in Practice:Lessons from a Self-Serve Pipeline Skip to main content Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: Why HTML? Report Issue Back to Abstract Download PDF Contents Reading mode Colour theme License: CC BY 4.0 arXiv:2607.26298v1 [cs.LG] 28 Jul 2026 Entity Resolution in Practice: Lessons from a Self-Serve Pipeline Kaushik Pavani Affiliation: kaushik.pavani@walmart.com Ganga Aluri Affiliation: ganga.aluri@walmart.com Pravin Jadhav Affiliation: pravin.jadhav@walmart.com Affiliation: Neeraj Prasad Affiliation: neeraj.prasad@walmart.com Kiran Sanka Affiliation: kiran.sanka@walmart.com Abstract We built and evaluated a self-serve entity resolution (ER) system on six benchmarks spanning 864 to 5 M records, and three lessons emerged that are absent from existing ER literature. (1) No single matching algorithm wins everywhere —a self-serve pipeline cannot predict its next dataset, so we recommend training several algorithm families per dataset and letting an automatic bake-off pick the winner. (2) Precision and recall need separate fixes, not a shared threshold —precision needs hard rule-based vetoes, recall needs more diverse candidate retrieval. (3) One false-positive link can silently merge unrelated entities —assuming “A matches B” and “B matches C” implies “A matches C” lets a single bad link chain hundreds of records together, so every cross-group merge must be actively re-verified. We hope these lessons save practitioners the months of dead-end experiments that led us to them. Index Terms: entity resolution, record linkage, data integration, deduplication, blocking, clustering, knowledge distillation, applied machine learning I Introduction ID Name Phone Address City True R1 Sakura Sushi 503-0147 42 Oak St Portland A R2 Sakura Sushi Bar 503-0147 42 Oak St Portland A R3 Sakura Sushi — — — ? R4 Sakura Sushi 206-9283 8 Elm Ave Seattle B R5 Sakura 206-9283 8 Elm Ave Seattle B x Entity A (Portland) x Bridge record (sparse) x Entity B (Seattle) Fig. 1: A preview of a typical failure mode in ER systems, and one of the lessons we discuss in this paper. Consider the task of deduplicating restaurant records so that one cluster represents one physical location (a single Sakura Sushi at 42 Oak St in Portland) rather than a brand across cities. Five similarly named records arrive (R1–R5). Most pairwise matchers will accept both R1 ↔ \\leftrightarrow R3 and R3 ↔ \\leftrightarrow R4: the sparse bridge R3 has nothing in any populated field that disagrees with either group. The pipeline then chains the two correct-looking links together, silently merging the Portland and Seattle locations into one cluster—an incorrect answer under the per-location definition above. We study this in § VI and propose two fixes: (a) a verified-merge clustering step, and (b) a sparsity-aware confidence threshold for records with few populated fields. Entity resolution (ER)—identifying records that refer to the same real-world entity—is foundational to data integration [ 1 , 2 ] . Recent LLM-based approaches [ 3 , 4 ] can match records zero-shot but cost hundreds of dollars per million pairs and embed matching logic in opaque weights. PLM-based systems [ 5 , 6 ] are cheap at inference but require thousands of labeled pairs per domain and offer no audit trail. Neither approach works for organizations running dozens of ER tasks under changing requirements, strict auditability, and tight cost budgets. We built a system to bridge this gap. The key idea is simple: a structured YAML specification—a Standard Operating Procedure (SOP)—encodes matching logic as inspectable, versionable configuration. An LLM teacher conditioned on the SOP labels candidate pairs; those labels train a lightweight matcher via distillation at orders-of-magnitude lower cost. The SOP simultaneously prompts the teacher, structures its output, and serves as the audit trail. This paper is not a systems paper. It is a practitioner’s guide organized around three failure modes we encountered while evaluating this pipeline on six benchmarks spanning four orders of magnitude (864 to 5 M records)—failure modes absent from existing ER literature: L1. No single matcher wins; let them compete (§ IV ). A tournament over three canonical architectures (DeepMatcher, LightGBM, GAT) auto-selects the best per dataset. Under a data-scarce regime ( ≤ \\leq 10K training records), DeepMatcher and LightGBM each win 3/6 benchmarks on Pair-F1; GAT wins none. L2. Precision and recall need separate toolkits (§ V ). Hard vetoes for precision, blocking ensemble diversity for recall. No single threshold can optimize both. L3. One false positive can collapse your clusters (§ VI ). Transitive closure creates silent mega-clusters; verified merge clustering with active cross-cluster verification recovers recall safely. II The Framework Our system follows the standard block → \\to match → \\to cluster ER architecture [ 1 , 7 ] . Three design choices motivate the lessons below. (1) Domain knowledge lives in an SOP, not weights. What counts as a match is a business decision —e.g., two food-court tenants share one phone number but are different entities—and cannot be inferred from data without examples no organization possesses. We encode such rules in a versioned YAML SOP that serves three roles: LLM teacher prompt, distillation signal (per-field similarity assessments richer than a binary label), and audit trail. A full SOP example is in Appendix B . (2) Retrieval and matching are separate components. A blocker encoder (Siamese fine-tuning, contrastive loss) optimizes for recall; a matcher optimizes for precision. Training them separately avoids the tension inherent in a single end-to-end model. The matcher consumes blocker embeddings plus schema-driven features (Jaro-Winkler, exact match, transposition detection) and is selected via a tournament over three canonical families (Table I ). The full pipeline—onboarding, training, and inference—is detailed in Appendix A with the architecture diagram (Figure 3 ) and model equations. (3) Per-dataset tuning is mandatory. The pipeline exposes ∼ \\sim 40 hyperparameters whose optimal values depend on duplicate density, field sparsity, schema width, and scale, so we tune per dataset. For each experiment we obtain a strong baseline configuration using both Optuna TPE Bayesian search [ 8 ] and an LLM autoresearch agent [ 9 ] and iterate from there; the lessons below hold whichever search method produced the configuration. TABLE I: Matcher roster: one from each principal family. Input : E=embeddings, A=attribute features, G=graph structure. Matcher Family Input DeepMatcher MLP [ 6 ] E+A LightGBM GBDT [ 10 ] A GAT GNN [ 11 ] E+G III Experimental Setup Datasets. We evaluate on six deduplication benchmarks spanning five domains (Table II ) and four orders of magnitude in scale. NCV denotes the 5M-record benchmark of Saeedi et al. [ 12 ] ; it contains only generic structured fields used for ER evaluation—no behavioral, financial, or sensitive attributes. No proprietary, customer, or industry data is used anywhere; all experiments are reproducible from the cited public benchmarks. TABLE II: Benchmark datasets. | ℛ | |\\mathcal{R}| =records, | 𝒮 | |\\mathcal{S}| =schema fields, | 𝒞 | |\\mathcal{C}| =ground-truth clusters, Sp. = fraction of pairs with missing fields. Citations: [ 13 , 14 , 15 , 12 ] . Dataset Domain | ℛ | |\\mathcal{R}| | 𝒮 | |\\mathcal{S}| | 𝒞 | |\\mathcal{C}| Sp. Restaurants Restaur. 864 5 752 2% Cora Biblio. 1,879 17 182 68% Geo Settl. Geogr. 3,054 3 820 11% DBLP-Sch. Biblio. 66,879 4 61,604 5% MB 200K Music 193,750 8 100,000 31% NCV Record 5,000,000 4 3,500,840 3% Splits and protocol. We split at the entity level—no record from the same entity appears in both training and test—and cap training and validation at 10K records each , regardless of dataset size, to reflect real-world deployment where labeling requires domain expertise. This yields heavily skewed ratios: Cora uses a conventional 42/13/45 split (1.9K records), but MusicBrainz 200K trains on just 5% (10K of 194K records). This design is deliberate: a method requiring abundant labels is impractical for self-serve deployment. We use a commercially available frontier LLM as teacher, all-MiniLM-L6-v2 ( d = 384 d{=}384 ) as base encoder, and fixed seed 42. Pair-F1 is the primary metric throughout [ 6 ] ; purity is reported as a secondary metric to distinguish over-splitting from over-merging. IV Lesson 1: Which Matcher Wins Depends on the Dataset Claim. No single matcher architecture dominates across ER problems. A tournament that trains three canonical architectures and auto-selects the winner eliminates a key human decision point. Evidence. Table III shows tournament results across all six benchmarks. No single family dominates , and the winning architecture changes character across datasets. TABLE III: Tournament leaderboard: Pair-F1 on held-out test ( ≤ \\leq 10K training records). Winner in bold . Purity in parentheses. † margin < 0.001 <0.001 . Dataset DM LGBM GAT Winner Restaur. 0.948 (.99) 0.969 (1.0) 0.748 (.99) LGBM Cora 0.968 (.98) 0.891 (.98) 0.809 (.89) DM Geo Set. 0.979 (.99) 0.960 (.99) 0.964 (.99) DM DBLP-Sch. 0.160 (1.0) 0.541 (.94) 0.239 (1.0) LGBM MB 200K 0.964 (1.0) 0.948 (.99) 0.833 (.95) DM NCV 0.992 (1.0) 0.993 (1.0) 0.989 (1.0) LGBM † Score: DM 3/6, LGBM 3/6, GAT 0/6. Why the winner changes. Each winner reflects structural properties of its dataset. DeepMatcher wins on Cora, Geo Settlements, and MB 200K—datasets where field-level attention and soft semantic similarity matter (sparse attributes with OCR noise, paraphrase equivalence, subtle variant spellings). LightGBM wins on Restaurants, DBLP-Scholar, and NCV—datasets that are either small (the embedding tower lacks signal to fine-tune meaningfully) or dominated by structured identifier fields where exact-match and Jaro-Winkler features suffice. GAT wins nothing: at our 10K training cap, no dataset provides enough connected-component structure for 2-hop graph attention to outperform attribute-based methods, and GAT also suffers a train/test graph mismatch when the k k -NN graph at inference is built on a much larger test split. Self-serve systems cannot pick in advance. The winning architecture changes with dataset size, schema sparsity, and entity density—properties not known before running the data. A fixed “always DeepMatcher” policy loses on Restaurants, DBLP-Scholar, and NCV; “always LightGBM” loses on Cora, Geo Settlements, and MB 200K. The tournament costs nothing extra—all three matchers share the same training pairs and embeddings—and removes a decision point that would otherwise require dataset-specific expertise. Cost and latency. The teacher-student paradigm makes the tournament practical: the LLM teacher labels once during training; the distilled matcher handles all inference. The teacher costs ∼ \\sim $450/1M pairs at ∼ \\sim 2 s per pair; the tournament-winning matcher costs $12/1M pairs—a 37.5 × 37.5\\times cost reduction. LightGBM winners reach 222–263K pairs/sec on CPU; DeepMatcher winners run at 5–10K pairs/sec including SBERT inference. Practitioner guidance. Always run the tournament. The winner is also a diagnostic : LightGBM winning indicates a small or identifier-heavy dataset; DeepMatcher winning indicates soft similarity matters; GAT winning indicates a large, densely co-referent dataset (rare at scale). None of these conditions can be reliably predicted from schema inspection alone—only the data reveals which signal type dominates. V Lesson 2: Precision and Recall Break at Different Stages Claim. Precision and recall fail at structurally different points in the pipeline, and the common instinct—tune the matcher threshold—cannot fix either. V-A Root causes Recall is lost before the matcher runs. A pair never retrieved is lost forever—no threshold adjustment recovers it. Two retrieval failures dominate. (i) Embedding retrievers miss surface variants. Embedding similarity collapses “J. Smith” and “John Smith,” but OCR artifacts (“Heuslein”/“Hauslein”) or heavy abbreviations push genuine matches apart; HNSW’s M M parameter leaves coverage gaps that compound at scale. (ii) Embedding retrievers operate in a single modality. Exact categorical identifiers and structured codes produce no useful gradient in the embedding space; two records sharing an identical identifier but with variant text are never nominated. Precision fails because sparse records look like everything. A record with only one populated field has nothing to disagree with; it scores high against every other record sharing that field. A sparse record becomes a bridge : it matches above threshold against two unrelated dense clusters, and transitive closure chains them into one. This is not a matcher bug; it is the geometry of the problem. V-B Fix: separate tools per stage For recall: diversify the retriever. We compose two structurally different retrieval strategies and union their outputs. Strategy 1—HNSW ensemble for embedding-space coverage : an ensemble of HNSW indices with diverse ( M , 𝑒𝑓 ​ _ ​ 𝑠𝑒𝑎𝑟𝑐ℎ ) (M,\\mathit{ef\\_search}) configurations, 𝒞 ens = ⋃ i = 1 N KNN k ​ ( 𝐄 , M i , 𝑒𝑓 i ) . \\mathcal{C}_{\\text{ens}}=\\bigcup_{i=1}^{N}\\,\\text{KNN}_{k}(\\mathbf{E};\\,M_{i},\\mathit{ef}_{i}). (1) On MusicBrainz, a single M = 16 M{=}16 index misses 67 true pairs (97.7% recall); the ensemble recovers 11 of them ( + 0.4 +0.4 pp). Strategy 2—Identifier-based blocking for non-semantic matches : a lightweight exact-match inverted index over identifier fields, 𝒞 final = 𝒞 HNSW ∪ 𝒞 ID \\mathcal{C}_{\\text{final}}=\\mathcal{C}_{\\text{HNSW}}\\cup\\mathcal{C}_{\\text{ID}} . On NCV, identifier blocking recovers 7 true-positive pairs the HNSW ensemble missed entirely ( + 0.3 +0.3 pp); on DBLP-Scholar (no identifier fields), it contributes nothing—each strategy activates only where needed (Table IV ). TABLE IV: Blocker recall (%) at k = 20 k{=}20 . † No identifier fields; +ID contributes 0 additional pairs. Dataset Single Ensemble +ID Blk. DBLP-Scholar 100.0 100.0 100.0 † MB 200K 97.7 98.1 98.1 † NCV 97.7 97.8 98.1 For precision: hard rules on top of soft classifiers. A learned matcher is a function of its training distribution; production data drifts. A model that achieved 99% pairwise precision on validation can degrade when field-population rates shift—and in ER the cost is not a noisy prediction but a permanently merged cluster that downstream consumers inherit. Customers also treat certain rules as non-negotiable (“different phone number means different restaurant”), and no amount of retraining can guarantee a soft classifier will never violate them. We layer three deterministic guardrails on top of the matcher. (1) Sparsity-aware thresholds. Training data is typically balanced by entity size, but production has a long tail of sparse records with one or two populated fields. A global threshold over-accepts these pairs. We bin candidate pairs by the number of shared populated fields and learn a separate threshold per bin, with monotonicity enforced ( θ b ≥ θ b + 1 \\theta_{b}\\geq\\theta_{b+1} ): sparser pairs require higher confidence. This improves purity by + 8.4 +8.4 pp on MusicBrainz and + 1.5 +1.5 pp on NCV; no-op on Restaurants (full fields). (2) Per-field hard vetoes. For identifier fields, a hard rule zeroes the match probability when both records have the field populated but similarity falls below a field-specific floor: y ^ = 0 ​ if ​ ∃ f ∈ 𝒱 : both_have f ∧ sim f < τ f . \\hat{y}=0\\;\\;\\text{if}\\;\\;\\exists f\\in\\mathcal{V}\\!:\\;\\text{both\\_have}_{f}\\wedge\\text{sim}_{f}<\\tau_{f}. (2) This improves purity by + 3.6 +3.6 pp on MusicBrainz and + 32.8 +32.8 pp on Restaurants—datasets where identifier conflicts between genuinely different entities are common. Fields designated no_override encode unconditional business rules that no learned model can bypass. (3) Evidence and fast-path gates. Two additional cheap gates compose with the sparsity threshold and veto: an evidence gate rejects pairs that share too few populated fields for any matcher to be reliable, and a fast-path gate short-circuits pairs with very high confidence ( ≥ 99.5 % \\geq 99.5\\% ) that no hard rule contradicts. TABLE V: Precision ablation: cluster purity (%) as mechanisms are added incrementally. Baseline=tournament-winning matcher with global threshold. Bold=best per dataset. Dataset Baseline +Sparsity +Vetoes Restaurants 51.6 53.1 84.4 Cora 95.9 98.0 98.1 Geo Settl. 98.3 98.7 98.5 DBLP-Sch. 95.4 99.8 99.5 MB 200K 77.7 86.1 89.7 NCV 97.4 98.9 98.6 Practitioner guidance. Diagnose before tuning. If your largest clusters contain records from different entities: precision problem—add field vetoes, tighten sparsity thresholds. If singleton clusters should have been merged: recall problem—increase HNSW M M , add ensemble indices, check blocking coverage. Fix retrieval gaps at the retrieval layer; lowering the matcher threshold cannot recover pairs the retriever never nominated. VI Lesson 3: One False Positive Can Collapse Your Clusters Claim. Connected components (CC) clustering—the standard post-matching step in ER [ 16 , 17 ] —works well when matchers are well-calibrated but fails when they are not. Center-based clustering avoids error propagation but under-merges. Active cross-cluster verification recovers recall without cascading false merges. Transitivity is an assumption, not a guarantee. ML matchers are not inherently transitive [ 18 , 19 ] : a matcher may declare ⟨ r i , r j ⟩ \\langle r_{i},r_{j}\\rangle and ⟨ r j , r k ⟩ \\langle r_{j},r_{k}\\rangle as matches while ⟨ r i , r k ⟩ \\langle r_{i},r_{k}\\rangle is a non-match—a logically inconsistent triple that CC resolves by merging all three. When the matcher’s false-positive rate is non-trivial, a single borderline edge propagates through Union-Find and chains unrelated clusters into mega-clusters. Figure 2 shows the cascade on three “Sakura Sushi” records: the matcher never directly scores r 1 ↔ r 3 r_{1}\\!\\leftrightarrow\\!r_{3} , yet CC merges Portland and Seattle into one cluster. ID Name Phone Addr City True R1 Sakura Sushi 503-0147 42 Oak St Portland A R2 Sakura Sushi — — — A R3 Sakura Sushi 206-9283 8 Elm Ave Seattle B Pair Score CC outcome R1 ↔ \\leftrightarrow R2 0.91 Merged (correct) R2 ↔ \\leftrightarrow R3 0.88 Merged (correct) R1 ↔ \\leftrightarrow R3 — Never scored ⇒ \\Rightarrow FP Fig. 2: Transitive closure failure on a 3-record subset of Figure 1 . The sparse bridge R2 lets CC chain the Portland and Seattle entities without ever directly comparing R1 to R3. Verified merge (§ VI ) forces the missing comparison and blocks the merge. Verified merge. We replace blind transitive closure with a two-stage procedure. Stage 1 (Center assignment): each record joins the cluster of its single highest-scoring neighbor above threshold—no edges propagate. Stage 2 (Verified merge): for each Stage-1 cluster pair connected by at least one above-threshold edge in the original candidate set, (a) select up to k = 3 k{=}3 representatives per cluster closest to the centroid; (b) score all cross-cluster representative pairs through the matcher with hard vetoes enabled —generating direct pairwise evidence the blocking stage may never have produced; (c) if any cross-cluster pair triggers a veto or scores below threshold, block the merge. A single piece of negative evidence is sufficient—this asymmetry prevents error propagation. For connected components of 3+ Stage-1 clusters, we verify all ( n 2 ) \\binom{n}{2} cluster pairs independently to prevent transitivity from re-entering through the merge pass itself. TABLE VI: Clustering ablation. Pair-F1, Adjusted Rand Index (ARI), and pairwise precision per dataset. Baseline =center-based clustering [ 20 ] . +Transitivity =connected components [ 16 ] . +Verification =verified merge. Bold=best per dataset. Baseline +Transitivity +Verification Dataset F1 ARI Prec. F1 ARI Prec. F1 ARI Prec. Restaurants 1.000 .900 1.000 1.000 .900 1.000 1.000 .900 1.000 Cora .321 .286 .986 .885 .853 .914 .876 .779 .994 Geo Settl. .889 .804 .994 .771 .831 .720 .972 .956 .989 DBLP .424 .426 .411 .371 .464 .312 .477 .475 .444 MB 200K .540 .577 .509 .000 .000 .000 .277 .356 .229 NCV .667 .668 .500 .002 .002 .001 .667 .647 .500 Reading the ablation. Table VI shows the three regimes. On Restaurants (clean, small) all three algorithms reach Pair-F1 = 1.0 =\\,1.0 : the matcher is so well-calibrated that transitivity adds no false links. On Cora (99.7% validation precision) transitivity provides the largest gain—0.321 → \\to 0.885 F1—by recovering multi-hop links the baseline fragments; verification is comparable (0.876) with higher precision. On Geo Settlements verification dominates: F1 0.889 → \\to 0.972 , while raw transitivity hurts (0.889 → \\to 0.771) as geographically similar but distinct settlements get chained. On MB 200K and NCV transitivity catastrophically collapses F1 (0.540 → \\to 0.000 and 0.667 → \\to 0.002 respectively), as common field values chain unrelated records into mega-clusters. Verification preserves the baseline on NCV (0.667) and reduces damage on MB 200K (0.277): when the underlying matcher’s precision is too low (0.509), even verification gates cannot save it. The lesson. Transitivity is not a free lunch. It helps when the matcher is well-calibrated (Cora, Restaurants) and catastrophically hurts when the false-positive rate is high (MB 200K, NCV). The key predictor is baseline precision : above 0.9 transitivity is safe; below 0.5 it creates mega-clusters. Verified merge provides a safety net across all regimes and produces the best Pair-F1 on 4/6 datasets (strictly best on Geo Settlements and DBLP, tied for best on Restaurants and NCV). Its cost is modest: O ⁡ ( k 2 ) O(k^{2}) additional matcher calls per candidate cluster pair, with k = 3 k{=}3 by default. VII Related Work Classical and PLM-based ER. The field traces from Fellegi-Sunter [ 2 ] through Magellan [ 21 ] to PLM-based systems. Ditto [ 5 ] achieved 29% F 1 F_{1} improvement via BERT fine-tuning; Paganelli et al. [ 22 ] analyzed how BERT representations serve entity matching, and ZeroER [ 23 ] extends the paradigm to the unsupervised setting. Thirumuruganathan et al. [ 24 ] document a 40% F 1 F_{1} drop from data heterogeneity—a direct motivator for our L1. Graph-based ER. HierGAT [ 25 ] and GraphER [ 26 ] encode relational structure with attention and differential dependencies respectively; Saeedi et al. [ 27 ] use graph metrics to drive cluster repair with active LLM feedback. These methods operate inside the matcher and so do not address the cross-stage cascades exposed by L2 and L3. LLM-based ER and distillation. Peeters and Bizer [ 3 ] report GPT-4 outperforms transferred PLMs by 40–68% zero-shot; Fan et al. [ 4 ] and Wang et al. [ 28 ] investigate cost-effective and selection-based ER paradigms. Wadhwa et al. [ 29 ] and Steiner et al. [ 30 ] distill LLM reasoning into smaller open-weight matchers, similar in spirit to our teacher / student split. Our work differs in conditioning the teacher on an inspectable SOP and in adding hard-rule safeguards (§ V ) and verified merge (§ VI ) that the teacher itself does not perform. SOP-driven agents. Agent-S [ 31 ] automates SOP execution; SOP-Bench [ 32 ] shows even GPT-4o achieves 30–70% on complex SOPs. We are, to our knowledge, the first to apply SOP-driven automation to entity resolution. VIII Limitations Our study has a few limitations that bound the scope of its conclusions. Public datasets by design. We deliberately restrict all experiments to six public benchmarks so that every result is fully reproducible and no proprietary or customer information is disclosed. Accordingly, we report standard accuracy metrics (Pair-F1, purity, and Adjusted Rand Index) rather than production outcomes such as business impact or robustness to live distribution drift. Data-scarce regime. We cap training and validation at 10K records each to reflect self-serve deployments where labeling requires scarce domain expertise. Some findings are specific to this budget—for example, “GAT never wins the tournament” should be read as “under a 10K-label budget,” since a graph-based matcher could plausibly overtake the other families given abundant labels. Limited roster and single configuration. The tournament covers three canonical families (DeepMatcher, LightGBM, GAT) and excludes LLM-based or cross-encoder matchers at inference. We use a single teacher LLM, base encoder (all-MiniLM-L6-v2), and seed (42), so we report point estimates rather than variance or significance tests. Verified merge has a precision floor. Verified merge is a safety net, not a cure: when baseline pairwise precision is very low (e.g. MusicBrainz 200K at ≈ \\approx 0.51), its gates reduce but do not prevent cluster collapse. Human effort is not quantified. SOP construction relies on a domain expert refining an LLM-drafted specification over a few iterations; we characterize this effort qualitatively rather than in person-hours. IX Conclusion We deployed entity resolution at scale on six benchmarks and walked away with three findings that we wish someone had handed us at the start. First, no single matching algorithm wins across datasets (§ IV ). In a small per-dataset bake-off across three canonical families, DeepMatcher and LightGBM each took the top spot on three benchmarks and GAT never won. Any team that commits to one architecture therefore loses on at least a third of the datasets it has yet to see, and the bake-off pays for itself many times over. Second, precision and recall fail at different stages and need different mechanisms (§ V ). Moving the matcher score threshold trades one off against the other and solves neither. We improve precision only by adding hard rule-based vetoes that the matcher cannot learn from data, and we improve recall only by running several diverse blocking strategies in parallel. Third, one false-positive link can silently merge unrelated entity groups because transitive closure compounds matcher errors (§ VI ). We repeatedly saw single low-evidence links chain hundreds of records that shared nothing in common into one giant cluster. Our verified-merge step—which re-runs the matcher on representative pairs across every candidate merge before committing— produces the best Pair-F1 on four of the six datasets and avoids the catastrophic precision collapse that transitive closure inflicts on the two largest. None of these three mechanisms is individually novel, but adopting all three as defaults rather than as escalation paths is what changed our production error profile. We hope the recipes here give other teams a shorter route to the same outcome. References [1] V. Christophides, V. Efthymiou, T. Palpanas, G. Papadakis, and K. Stefanidis (2021) An overview of end-to-end entity resolution . ACM Computing Surveys 54 ( 6 ), pp. 1–42 . Cited by: §I , §II . [2] I. P. Fellegi and A. B. Sunter (1969) A theory for record linkage . J. American Statistical Association 64 ( 328 ), pp. 1183–1210 . Cited by: §I , §VII . [3] R. Peeters and C. Bizer (2025) Entity matching using large language models . In Proc. EDBT , pp. 338–350 . Cited by: §I , §VII . [4] Y. Fan, J. Li, S. Liu, and T. Rekatsinas (2024) Cost-effective in-context learning for entity resolution . In Proc. ICDE , Cited by: §I , §VII . [5] Y. Li, J. Li, Y. Suhara, A. Doan, and W.-C. Tan (2020) Deep entity matching with pre-trained language models . PVLDB 14 ( 1 ), pp. 50–60 . Cited by: §I , §VII . [6] S. Mudgal et al. (2018) Deep learning for entity matching: a design space exploration . In Proc. SIGMOD , pp. 19–34 . Cited by: §I , TABLE I , §III . [7] G. Papadakis, D. Skoutas, E. Thanos, and T. Palpanas (2020) Blocking and filtering techniques for entity resolution: a survey . ACM Computing Surveys 53 ( 2 ), pp. 1–42 . Cited by: §II . [8] T. Akiba, S. Sano, T. Yanase, T. Ohta, and M. Koyama (2019) Optuna: a next-generation hyperparameter optimization framework . Cited by: §II . [9] A. Karpathy (2026) Autoresearch: LLM-driven autonomous research loop . Note: https://github.com/karpathy/autoresearch Cited by: §II . [10] G. Ke, Q. Meng, T. Finley, T. Wang, W. Chen, W. Ma, Q. Ye, and T.-Y. Liu (2017) LightGBM: a highly efficient gradient boosting decision tree . In NeurIPS , pp. 3146–3154 . Cited by: TABLE I . [11] S. Brody, U. Alon, and E. Yahav (2022) How attentive are graph attention networks? . In ICLR , Cited by: TABLE I . [12] A. Saeedi, E. Peukert, and E. Rahm (2018) Scalable matching and clustering of entities with FAMER . Complex Systems Informatics and Modeling Quarterly (CSIMQ) ( 16 ), pp. 61–83 . Cited by: §III , TABLE II . [13] F. Naumann and M. Herschel (2010) HPI repeatability datasets for entity resolution: Restaurants, Cora, and DBLP-Scholar . Note: https://hpi.de/naumann/projects/repeatability/datasets.html Cited by: TABLE II . [14] A. Saeedi, E. Peukert, and E. Rahm (2017) Using link discovery to enrich DBpedia with equivalent entity relationships . In Proc. ADBIS , Cited by: TABLE II . [15] A. Saeedi, E. Peukert, and E. Rahm (2018) Comparative evaluation of distributed clustering approaches for entity resolution . In Proc. EDBT , pp. 181–192 . Cited by: TABLE II . [16] V. Christophides, V. Efthymiou, T. Palpanas, G. Papadakis, and K. Stefanidis (2021) An overview of end-to-end entity resolution for big data . ACM Computing Surveys 53 ( 6 ), pp. 127:1–127:42 . Cited by: TABLE VI , §VI . [17] R. C. Steorts, R. Hall, and S. E. Fienberg (2022) (Almost) all of entity resolution . Science Advances 8 ( 12 ). Cited by: §VI . [18] D. Baas, M. Dastani, and A. Feelders (2021) Exploiting transitivity constraints for entity matching in knowledge graphs . In arXiv preprint arXiv:2104.12589 , Cited by: §VI . [19] Anonymous (2025) TransClean: finding false positives in multi-source entity matching under real-world conditions via transitive consistency . arXiv preprint arXiv:2506.04006 . Cited by: §VI . [20] I. Hassanzadeh, M. A. Saeed, and A. Khodaei (2009) Swoosh: a generic approach to entity resolution . In VLDB , Cited by: TABLE VI . [21] P. Konda et al. (2016) Magellan: toward building entity matching management systems . PVLDB 9 ( 12 ), pp. 1197–1208 . Cited by: §VII . [22] M. Paganelli, D. Tiano, and F. Guerra (2024) Analyzing how BERT performs entity matching . VLDB Journal 33 , pp. 1–25 . Cited by: §VII . [23] R. Wu, S. Chaba, S. Sawlani, X. Chu, and S. Thirumuruganathan (2020) ZeroER: entity resolution using zero labeled examples . In Proc. SIGMOD , pp. 1149–1164 . Cited by: §VII . [24] S. Thirumuruganathan et al. (2025) Heterogeneity in entity matching . arXiv:2508.08076 . Cited by: §VII . [25] D. Yao, Y. Gu, G. Cong, H. Jin, and X. Lv (2022) Entity resolution with hierarchical graph attention networks . In Proc. SIGMOD , pp. 429–442 . Cited by: §VII . [26] J. Hu, M. Bewong, S. Kwashie, Y. Zhang, V. Nofong, J. Wondoh, and Z. Feng (2025) GraphER: when GDD meets GNN for entity resolution on property graphs . Information Systems 132 , pp. 102517 . Cited by: §VII . [27] A. Saeedi, M. Hosseinzadeh, and E. Rahm (2025) Graph metrics-driven record cluster repair meets LLM-based active learning . ACM JDIQ 17 ( 2 ), pp. 1–28 . Cited by: §VII . [28] T. Wang, Y. Zhang, and S. Roth (2025) Match, compare, or select? an investigation of LLMs for entity matching . In Proc. COLING , pp. 89–110 . Cited by: §VII . [29] S. Wadhwa, L. Hawkins, C. Agrawal, B. C. Wallace, and A. Agrawal (2024) Learning from natural language explanations for generalizable entity matching . arXiv:2406.09330 . Cited by: §VII . [30] M. Steiner, R. Peeters, and C. Bizer (2024) Fine-tuning large language models for entity matching . arXiv:2409.08185 . Cited by: §VII . [31] W. Li et al. (2025) Agent-S: LLM agentic workflow to automate standard operating procedures . arXiv:2503.15520 . Cited by: §VII . [32] M. Yin et al. (2025) SOP-Bench: complex industrial SOPs for evaluating LLM agents . arXiv:2506.08119 . Cited by: §VII . Appendix A Framework Details Figure 3 shows the full pipeline: onboarding (SOP construction, blocking, LLM labeling—all human-in-the-loop, top row), training (blocker and matcher distillation plus tournament, top row right), and inference (blocking, matching, clustering, audit—bottom row). LLMs touch only the human-facing stages; matching and clustering run entirely on lightweight distilled models. Records SOP Construction Candidate Blocking LLM Labeling Blocker Training Matcher Training Tournament Teacher LLM New Record Blocking Matching Clustering Audit Trail pairs labeled pairs encoder matchers SOP labels encoder candidates scores clusters best matcher refine SOP retrain TRAIN INFER Onboarding (human-in-the-loop) Training (automated) Fig. 3: Full ER pipeline. LLM-driven stages (yellow, orange) involve humans; cost-sensitive matching/clustering (teal) run on lightweight distilled models. Solid arrows: data flow. Faded arrows: feedback loops (SOP refinement and matcher retraining). Why SOPs (extended). There is no universal definition of an “entity.” Consider two restaurant listings sharing phone, address, and city but with different names (e.g. Sakura Sushi and Thai Orchid at the same food-court address): a generic ER system says match (three strong fields agree); a domain expert says no—multiple tenants share one phone line. The rule “same name + same phone = match; phone alone is insufficient” cannot be inferred from data without examples no organization possesses. An LLM drafts an initial SOP from the schema; a domain expert refines it in 3–5 iterations. SOPs vary substantially across benchmarks—even two bibliographic datasets (Cora, DBLP-Scholar) require structurally different SOPs. Pipeline phases (extended). Onboarding (human-in-the-loop). The SOP-conditioned LLM teacher labels candidate pairs surfaced by approximate k k -NN blocking, producing per-field similarity assessments, a confidence score, and natural-language evidence; a domain expert reviews low-confidence labels and refines the SOP (typically 2–3 rounds). Training (automated). Labeled pairs train the blocker encoder and matcher independently; the tournament evaluates all matchers on held-out validation pairs. Inference. An ensemble of blockers (multiple HNSW indices plus identifier-based blocking) generates candidates that the tournament-winning matcher scores with safeguard layers (§ V ); verified merge (§ VI ) then clusters records using conservative direct assignment followed by verified cross-cluster merging. Appendix B SOP Excerpt Figure 4 shows a SOP excerpt for restaurant matching, illustrating how field importance, acceptable variations, and decision boundaries are encoded as inspectable YAML. sop: version: \"1.2\" domain: restaurant_matching field_hierarchy: critical: [name, phone] high: [address] medium: [city, cuisine] low: [zipcode] tolerances: name: - type: abbreviation - type: typo # max_edit_dist: 2 phone: - type: formatting decision_rules: match: \">=2 critical agree, 0 conflict\" review: \"1 conflict + >=2 high agree\" non_match: \">=2 critical conflict\" Fig. 4: SOP excerpt for restaurant matching.",
+  "text_truncated": false,
+  "links": [
+    {
+      "text": "Skip to main content",
+      "url": "https://arxiv.org/html/2607.26298v1#infobox"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/IgnoreMe"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "Why HTML?",
+      "url": "https://info.arxiv.org/about/accessible_HTML.html"
+    },
+    {
+      "text": "Back to Abstract",
+      "url": "https://arxiv.org/abs/2607.26298v1"
+    },
+    {
+      "text": "Download PDF",
+      "url": "https://arxiv.org/pdf/2607.26298v1"
+    },
+    {
+      "text": "License: CC BY 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "VI",
+      "url": "https://arxiv.org/html/2607.26298v1#S6"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2607.26298v1#bib.bib1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2607.26298v1#bib.bib3"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2607.26298v1#bib.bib8"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2607.26298v1#bib.bib2"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2607.26298v1#bib.bib5"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2607.26298v1#bib.bib7"
+    },
+    {
+      "text": "IV",
+      "url": "https://arxiv.org/html/2607.26298v1#S4"
+    },
+    {
+      "text": "V",
+      "url": "https://arxiv.org/html/2607.26298v1#S5"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2607.26298v1#bib.bib23"
+    },
+    {
+      "text": "B",
+      "url": "https://arxiv.org/html/2607.26298v1#A2"
+    },
+    {
+      "text": "I",
+      "url": "https://arxiv.org/html/2607.26298v1#S2.T1"
+    },
+    {
+      "text": "A",
+      "url": "https://arxiv.org/html/2607.26298v1#A1"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2607.26298v1#A1.F3"
+    },
+    {
+      "text": "8",
+      "url": "https://arxiv.org/html/2607.26298v1#bib.bib26"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2607.26298v1#bib.bib27"
+    },
+    {
+      "text": "10",
+      "url": "https://arxiv.org/html/2607.26298v1#bib.bib24"
+    },
+    {
+      "text": "11",
+      "url": "https://arxiv.org/html/2607.26298v1#bib.bib25"
+    },
+    {
+      "text": "II",
+      "url": "https://arxiv.org/html/2607.26298v1#S3.T2"
+    },
+    {
+      "text": "12",
+      "url": "https://arxiv.org/html/2607.26298v1#bib.bib11"
+    },
+    {
+      "text": "13",
+      "url": "https://arxiv.org/html/2607.26298v1#bib.bib18"
+    },
+    {
+      "text": "14",
+      "url": "https://arxiv.org/html/2607.26298v1#bib.bib9"
+    },
+    {
+      "text": "15",
+      "url": "https://arxiv.org/html/2607.26298v1#bib.bib10"
+    },
+    {
+      "text": "III",
+      "url": "https://arxiv.org/html/2607.26298v1#S4.T3"
+    },
+    {
+      "text": "IV",
+      "url": "https://arxiv.org/html/2607.26298v1#S5.T4"
+    },
+    {
+      "text": "16",
+      "url": "https://arxiv.org/html/2607.26298v1#bib.bib28"
+    },
+    {
+      "text": "17",
+      "url": "https://arxiv.org/html/2607.26298v1#bib.bib29"
+    },
+    {
+      "text": "18",
+      "url": "https://arxiv.org/html/2607.26298v1#bib.bib30"
+    },
+    {
+      "text": "19",
+      "url": "https://arxiv.org/html/2607.26298v1#bib.bib31"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2607.26298v1#S6.F2"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2607.26298v1#S1.F1"
+    },
+    {
+      "text": "VI",
+      "url": "https://arxiv.org/html/2607.26298v1#S6.SS0.SSS0.Px2"
+    },
+    {
+      "text": "20",
+      "url": "https://arxiv.org/html/2607.26298v1#bib.bib32"
+    },
+    {
+      "text": "VI",
+      "url": "https://arxiv.org/html/2607.26298v1#S6.T6"
+    },
+    {
+      "text": "21",
+      "url": "https://arxiv.org/html/2607.26298v1#bib.bib4"
+    },
+    {
+      "text": "22",
+      "url": "https://arxiv.org/html/2607.26298v1#bib.bib21"
+    },
+    {
+      "text": "23",
+      "url": "https://arxiv.org/html/2607.26298v1#bib.bib20"
+    },
+    {
+      "text": "24",
+      "url": "https://arxiv.org/html/2607.26298v1#bib.bib13"
+    },
+    {
+      "text": "25",
+      "url": "https://arxiv.org/html/2607.26298v1#bib.bib16"
+    },
+    {
+      "text": "26",
+      "url": "https://arxiv.org/html/2607.26298v1#bib.bib19"
+    },
+    {
+      "text": "27",
+      "url": "https://arxiv.org/html/2607.26298v1#bib.bib22"
+    },
+    {
+      "text": "28",
+      "url": "https://arxiv.org/html/2607.26298v1#bib.bib15"
+    },
+    {
+      "text": "29",
+      "url": "https://arxiv.org/html/2607.26298v1#bib.bib14"
+    },
+    {
+      "text": "30",
+      "url": "https://arxiv.org/html/2607.26298v1#bib.bib12"
+    },
+    {
+      "text": "31",
+      "url": "https://arxiv.org/html/2607.26298v1#bib.bib6"
+    },
+    {
+      "text": "32",
+      "url": "https://arxiv.org/html/2607.26298v1#bib.bib17"
+    },
+    {
+      "text": "§I",
+      "url": "https://arxiv.org/html/2607.26298v1#S1.p1.1"
+    },
+    {
+      "text": "§II",
+      "url": "https://arxiv.org/html/2607.26298v1#S2.p1.1"
+    },
+    {
+      "text": "§VII",
+      "url": "https://arxiv.org/html/2607.26298v1#S7.SS0.SSS0.Px1.p1.1"
+    },
+    {
+      "text": "§VII",
+      "url": "https://arxiv.org/html/2607.26298v1#S7.SS0.SSS0.Px3.p1.1"
+    },
+    {
+      "text": "TABLE I",
+      "url": "https://arxiv.org/html/2607.26298v1#S2.T1.6.2.2.1"
+    },
+    {
+      "text": "§III",
+      "url": "https://arxiv.org/html/2607.26298v1#S3.SS0.SSS0.Px2.p1.1"
+    },
+    {
+      "text": "§II",
+      "url": "https://arxiv.org/html/2607.26298v1#S2.p4.1"
+    }
+  ],
+  "matching_link_count": 68,
+  "links_truncated": true,
+  "invalid_links": []
+}

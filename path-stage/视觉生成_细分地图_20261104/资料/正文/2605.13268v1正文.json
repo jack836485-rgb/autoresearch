@@ -1,0 +1,639 @@
+{
+  "url": "https://arxiv.org/html/2605.13268v1",
+  "final_url": "https://arxiv.org/html/2605.13268v1",
+  "status": 200,
+  "title": "Physics-Guided Generative Optimizationfor Trotter–Suzuki Decomposition",
+  "metadata": {},
+  "paper": {
+    "title": "Physics-Guided Generative Optimization for Trotter–Suzuki Decomposition",
+    "title_warning": null,
+    "abstract": "Abstract Product formulas for Trotter–Suzuki simulation remain a practical route to Hamiltonian evolution on noisy intermediate-scale quantum ( NISQ ) hardware, yet their accuracy hinges on three coupled choices: term grouping, product-formula order, and time-step allocation. Toolchains such as Qiskit and Paulihedral lean on hand-tuned heuristics, while the discrete nature of grouping and order makes naive gradient-based optimization awkward. We describe a generate-and-evaluate loop: a conditional diffusion model proposes strategies, a physics-informed neural network ( PINN ) supplies differentiable fidelity feedback, and a graph neural network ( GNN ) encodes commutator structure. Training spans a hybrid space (discrete grouping and order, continuous time steps); the closed loop uses REINFORCE and a Pareto tracker. On the transverse-field Ising model ( TFIM ), under our primary comparison setup, the method reaches 85.6 % 85.6\\% of the fidelity of a fourth-order Qiskit baseline ( 0.856 ± 0.136 0.856\\pm 0.136 ) at roughly 21.8 % 21.8\\% of the circuit depth and 19.2 % 19.2\\% of the baseline CNOT count. Under an equal-depth budget, fine-tuning in the loop reached a best observed fidelity of 0.9994 0.9994 . Updated ablations show that, for a fixed training budget and default guidance knobs, module contributions depend on the training recipe and guidance hyperparameters— CFG in particular needs to be tuned jointly with compute budget. Overall, the results suggest that “generative model + physics supervision” is a viable angle for NISQ -oriented compilation, though where it wins still depends on the operating point.",
+    "authors": [
+      {
+        "name": "Wenbin Yan",
+        "affiliations": [
+          "Affiliation: University of Colorado Boulder"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Wenbin Yan Affiliation: University of Colorado Boulder Email: wenbin.yan@colorado.edu",
+    "arxiv_version": "2605.13268v1",
+    "arxiv_version_date": "2026-05-13",
+    "sections": [
+      {
+        "id": "S1",
+        "heading": "1 Introduction",
+        "level": 1,
+        "text": "Hamiltonian time evolution remains one of the oldest textbook applications of quantum computing, and still among the settings where an advantage is easiest to motivate. In the NISQ era, hardware limits on qubit count and native gate fidelity mean fault tolerance is usually off the table, so Trotter–Suzuki product formulas remain the workhorse for approximating U ⁡ ( t ) = e − i ​ H ​ t U(t)=e^{-iHt} [ 20 , 3 ] . They are appealing in practice: no ancillary qubits are required, and the compiled circuits map cleanly onto native gate sets without heavyweight synthesis. What actually matters is not the textbook formula but three coupled design choices: a grouping G G of Hamiltonian terms, a per-segment product-formula order k i k_{i} , and time-step weights τ i \\tau_{i} for each segment. Together these largely set the Trotter error budget, with pairwise commutator norms dominating the usual bounds [ 4 ] . Good groupings can cancel swaths of commutator contributions; higher orders buy error decay for more gates; non-uniform time steps help when the Hamiltonian separates into fast and slow pieces. One can write this as a hybrid discrete/continuous problem, but the objective is not smooth in the discrete variables, so ordinary autodiff does not “ just work. ” That is why today’s compilers—Qiskit [ 15 ] , Paulihedral [ 18 ] , Tetris [ 16 ] , among others—fall back on static heuristics: graph-coloring style maximal commuting sets [ 29 , 11 ] , greedy gate reordering, or SAT on small instances. The heuristics are fine for regular families (say, structured molecular Hamiltonians) but can differ by large depth factors when the Hamiltonian and commutator pattern vary; there is no built-in channel that feeds final simulation fidelity back into grouping and order before the circuit is fixed."
+      },
+      {
+        "id": "S1.SSx1",
+        "heading": "What we set out to do",
+        "level": 2,
+        "text": "We asked whether an end-to-end trainable loop could learn grouping, order, and time steps for a given Hamiltonian while seeing physically meaningful feedback. Three pieces have to line up. Hybrid generation. Diffusion models now handle heterogeneous discrete/continuous targets [ 12 , 1 , 14 ] . Discrete D3PM [ 1 ] together with continuous DDPM gives a workable recipe: discrete diffusion for grouping and order, continuous diffusion for time steps, tied together by a shared conditioning vector. Differentiable fidelity. Exact Trotter fidelity builds in e − i ​ H ​ t e^{-iHt} ; small n n allows dense matrix exponentials, larger instances need integrators. We use a PINN [ 21 , 17 ] : it fits | ψ ( t ) ⟩ \\left|\\psi(t)\\right\\rangle under the Schrödinger equation and initial data, turning fidelity into something you can backprop through. Fourier features [ 26 ] temper the usual spectral bias enough that, with the training budgets we use, PDE residuals land around 10 − 4 10^{-4} . Structured conditioning. We build a commutator graph over Pauli terms—coefficients and supports on nodes, commutator norms (and related scalars) on edges—and run a message-passing network [ 10 , 23 ] to a graph embedding fed to the diffusion model. The hope is simple: if the network learns which graph patterns pair with good strategies, it can transfer within a family of Hamiltonians without rewriting rules by hand."
+      },
+      {
+        "id": "S1.SSx2",
+        "heading": "Contributions",
+        "level": 2,
+        "text": "(1) We implement a closed loop that couples a diffusion generator, PINN critic, and GNN encoder, and we spell out how gradients flow: REINFORCE through discrete sampling, forward-mode–style fidelity gradients from the PINN , and classifier-free guidance ( CFG ) [ 13 ] at sampling time. The full pipeline trains on a single GPU. (2) We evaluate on TFIM against six baselines: fourth-order Qiskit, Cirq, TKET, PennyLane, and Paulihedral. Under our main protocol (500 test Hamiltonians, five random seeds each), we report 0.856 ± 0.136 0.856\\pm 0.136 fidelity versus 1.000 1.000 for Qiskit fourth order, at about 21.8 % 21.8\\% of the depth ( 28.7 28.7 vs 132.0 132.0 ) and 19.2 % 19.2\\% of the CNOTs ( 13.8 13.8 vs 72.0 72.0 ). With an equal-depth constraint, 1000 rounds of closed-loop fine-tuning produced a best observed fidelity of 0.9994 0.9994 . (3) Controlled ablations (1000 iterations from random init) show configuration dependence: toggling modules does not behave like flipping independent switches, especially for CFG -related knobs. Section 6 unpacks this; qualitatively, module value has to be judged under a agreed training recipe and joint hyperparameter tuning."
+      },
+      {
+        "id": "S1.SSx3",
+        "heading": "Paper organization",
+        "level": 2,
+        "text": "Section 2 reviews Trotter error theory, compiler heuristics, PINN s, and diffusion. Section 3 formalizes the problem and the four main components. Section 4 gives implementation notes and hyperparameters. Section 5 reports experiments. Section 6 discusses ablations, scale, and NISQ relevance. Section 7 concludes."
+      },
+      {
+        "id": "S2.SS1",
+        "heading": "2.1 Error theory for Trotter–Suzuki formulas",
+        "level": 2,
+        "text": "Splitting H = ∑ j = 1 M H j H=\\sum_{j=1}^{M}H_{j} into per-term exponentials incurs error on the order of 𝒪 ⁡ ( t 2 ​ ∑ j < k ‖ [ H j , H k ] ‖ ) \\mathcal{O}(t^{2}\\sum_{j<k}\\left\\|[H_{j},H_{k}]\\right\\|) for the simplest product. Suzuki’s 1991 recursive construction [ 25 ] lifts this to arbitrary even orders 2 ​ k 2k , driving the error down to 𝒪 ⁡ ( t 2 ​ k + 1 ) \\mathcal{O}(t^{2k+1}) and still underpins higher-order formulas in libraries today. The sharper machine-readable bounds of Childs et al. [4] replace the older BCH-style worst cases with a sum of nested commutator norms, which makes the dependence on Hamiltonian structure explicit; Wiebe et al. [32] gave a constructive account of higher-order products earlier. Non-product routes such as Taylor truncation and symmetry gadgets [ 2 , 27 ] usually need extra qubits or post-selection and sit awkwardly on NISQ hardware. We stay with Suzuki-style products and learn the discrete choices instead of fixing them by hand."
+      },
+      {
+        "id": "S2.SS2",
+        "heading": "2.2 Pauli grouping and circuit compilation",
+        "level": 2,
+        "text": "Grouping a Pauli Hamiltonian is a (typically approximate) clique cover on a commutativity graph; graph coloring and greedy max-clique heuristics are standard [ 29 , 11 ] . Crawford et al. [5] study how grouping interacts with sampling error. Most of these methods optimize grouping in isolation from downstream circuit depth, so they are at best local improvements inside a Trotter compiler. Paulihedral [ 18 ] is the closest engineering cousin to our setting: it optimizes grouping and gate order with geometry-inspired heuristics and lowers CNOTs via block-level synthesis. Tetris [ 16 ] similarly restructures simulation kernels. Neither closes the loop with differentiable fidelity or learning. Phoenix [ 8 ] consolidates Paulihedral/Tetris-style ideas behind a shared intermediate representation. Qiskit’s PauliEvolutionGate [ 15 ] is our primary numeric baseline; we add Cirq, TKET, PennyLane, and Paulihedral as additional reference points. Reinforcement-learning compilers [ 9 , 19 ] focus on gate substitution on abstract graphs rather than Trotter grouping and order. Our take is closer to generative modeling plus a physics-based critic that speaks the language of simulation error."
+      },
+      {
+        "id": "S2.SS3",
+        "heading": "2.3 Physics-informed neural networks",
+        "level": 2,
+        "text": "PINN s [ 21 ] fold PDE residuals and boundary/initial data into the loss, giving differentiable surrogates when no closed form exists [ 17 ] . They struggle on high-frequency or multi-scale targets; neural tangent kernel analyses [ 30 ] explain part of the story, and Fourier feature maps [ 26 ] are among the fixes we adopt wholesale. Time-dependent Schrödinger equations with PINN s are not new [ 6 ] , but prior studies usually stay in small, fixed settings. We embed the PINN inside the generator’s training loop and engineer differentiability through Trotter states (the ℒ circuit \\mathcal{L}_{\\text{circuit}} term) plus a warm-start path so online evaluation does not dominate runtime."
+      },
+      {
+        "id": "S2.SS4",
+        "heading": "2.4 Diffusion models and discrete structure",
+        "level": 2,
+        "text": "Score-based and DDPM-style models [ 12 , 24 ] are now default tools for structured generation. We use DDPM [ 12 ] for continuous time-step vectors 𝝉 \\bm{\\tau} and D3PM [ 1 ] for categorical group and order labels with factorizable uniform transitions. Classifier-free guidance ( CFG ) [ 13 ] zeros out conditioning during training with some probability and linearly extrapolates conditional vs. unconditional predictions at sample time. We apply it in the hybrid diffusion model and stress—supported by later ablations—that its usefulness is not a free lunch: it interacts tightly with training budget and ( p drop , w ) (p_{\\text{drop}},w) . Structured diffusion beyond images is now common; equivariant molecular models [ 14 ] are a representative example. Diffusion directly over Trotter policies is less explored; this paper is an empirical step in that direction."
+      },
+      {
+        "id": "S2.SS5",
+        "heading": "2.5 Graph neural networks for Hamiltonians",
+        "level": 2,
+        "text": "A Pauli Hamiltonian is a graph: terms as vertices, edges where operators fail to commute. MPNNs [ 10 ] and SchNet-style encoders [ 23 ] are standard for chemistry; Verdon et al. [28] extended GNN ideas to parameterized circuits; Satorras et al. [22] highlight equivariance when geometry matters. We deliberately use a vanilla MPNN with attention pooling—coefficients, supports, locality on nodes; commutator norms and qubit overlap on edges—trading extra symmetry structure for stability and interpretability."
+      },
+      {
+        "id": "S2.SS6",
+        "heading": "2.6 Multi-objective optimization and Pareto fronts",
+        "level": 2,
+        "text": "Depth and fidelity pull in opposite directions: higher-order formulas buy accuracy for more gates; finer grouping alters commutator costs versus exponentiation count. NSGA-II [ 7 ] is the usual workhorse for non-dominated sorting; hypervolume as a quality functional is well understood [ 34 , 31 ] . Our closed loop keeps a running Pareto tracker and logs hypervolume in Weights & Biases as the headline training metric."
+      },
+      {
+        "id": "S3.SS1",
+        "heading": "3.1 Problem setup",
+        "level": 2,
+        "text": "Given an n n -qubit Pauli Hamiltonian H = ∑ j = 1 M c j ​ P j H=\\sum_{j=1}^{M}c_{j}P_{j} with P j ∈ { I , X , Y , Z } ⊗ n P_{j}\\in\\{I,X,Y,Z\\}^{\\otimes n} and real coefficients c j ∈ ℝ c_{j}\\in\\mathbb{R} , we seek a Trotter–Suzuki policy π \\pi such that the induced circuit U π ​ ( t ) U_{\\pi}(t) tracks the exact propagator U exact ​ ( t ) = e − i ​ H ​ t U_{\\text{exact}}(t)=e^{-iHt} at evolution time t t , while keeping depth small."
+      },
+      {
+        "id": "S3.SS1.SSS0.Px1",
+        "heading": "Policy space.",
+        "level": 3,
+        "text": "A policy π \\pi has three parts: • Grouping G ∈ { 0 , 1 , … , K − 1 } M G\\in\\{0,1,\\ldots,K-1\\}^{M} : assign each Pauli term to one of K K groups merged into a single exponentiated block. • Orders 𝒌 ∈ { 1 , 2 , 4 } K \\bm{k}\\in\\{1,2,4\\}^{K} : Suzuki order per group. • Time steps 𝝉 ∈ ℝ + K \\bm{\\tau}\\in\\mathbb{R}_{+}^{K} : nonnegative weights with ∑ i = 1 K τ i = 1 \\sum_{i=1}^{K}\\tau_{i}=1 . Given π = ( G , 𝒌 , 𝝉 ) \\pi=(G,\\bm{k},\\bm{\\tau}) , standard Suzuki recursion yields U π ​ ( t ) U_{\\pi}(t) with depth Depth ​ ( π ) \\text{Depth}(\\pi) . Fidelity (for initial state | ψ 0 ⟩ \\left|\\psi_{0}\\right\\rangle ) is F ⁡ ( π ) = | ⟨ ψ exact ​ ( t ) | ψ π ​ ( t ) ⟩ | 2 , F(\\pi)=\\left|\\left\\langle\\psi_{\\text{exact}}(t)\\middle|\\psi_{\\pi}(t)\\right\\rangle\\right|^{2}, (1) with | ψ exact ( t ) ⟩ = e − i ​ H ​ t | ψ 0 ⟩ \\left|\\psi_{\\text{exact}}(t)\\right\\rangle=e^{-iHt}\\left|\\psi_{0}\\right\\rangle and | ψ π ( t ) ⟩ = U π ( t ) | ψ 0 ⟩ \\left|\\psi_{\\pi}(t)\\right\\rangle=U_{\\pi}(t)\\left|\\psi_{0}\\right\\rangle ."
+      },
+      {
+        "id": "S3.SS1.SSS0.Px2",
+        "heading": "Multi-objective form.",
+        "level": 3,
+        "text": "We maximize fidelity and minimize depth via a scalarized Pareto-style loss min π ℒ ⁡ ( π ) = ( 1 − F ⁡ ( π ) ) ⏟ simulation error + λ ⋅ Depth ​ ( π ) ⏟ depth penalty , \\min_{\\pi}\\quad\\mathcal{L}(\\pi)=\\underbrace{(1-F(\\pi))}_{\\text{simulation error}}+\\lambda\\cdot\\underbrace{\\text{Depth}(\\pi)}_{\\text{depth penalty}}, (2) with λ ≥ 0 \\lambda\\geq 0 . Sweeping λ \\lambda traces a frontier; hypervolume [ 31 ] summarizes frontier quality."
+      },
+      {
+        "id": "S3.SS1.SSS0.Px3",
+        "heading": "Why autodiff alone fails.",
+        "level": 3,
+        "text": "G G and 𝒌 \\bm{k} are discrete; 𝝉 \\bm{\\tau} is continuous but gradients must pass through the unitary stack. We use diffusion for proposals, a PINN as a differentiable fidelity surrogate, and REINFORCE to connect discrete samples to parameters."
+      },
+      {
+        "id": "S3.SS1.SSS0.Px4",
+        "heading": "End-to-end flow.",
+        "level": 3,
+        "text": "Encode H H with a GNN into 𝒄 ∈ ℝ 512 \\bm{c}\\in\\mathbb{R}^{512} ; sample π \\pi from the diffusion model conditioned on 𝒄 \\bm{c} ; compile π \\pi to a Trotter circuit; evaluate surrogate fidelity F ^ ​ ( π ) \\hat{F}(\\pi) and depth with the PINN ; backpropagate REINFORCE updates into the diffusion model and GNN . Repeat until convergence. The next subsections detail the GNN encoder, diffusion generator, PINN critic, and closed-loop optimization."
+      },
+      {
+        "id": "S3.SS2",
+        "heading": "3.2 Graph encoding: GNN–MPNN",
+        "level": 2,
+        "text": "We represent H = ∑ j c j ​ P j H=\\sum_{j}c_{j}P_{j} as an undirected graph 𝒢 = ( 𝒱 , ℰ ) \\mathcal{G}=(\\mathcal{V},\\mathcal{E}) with one vertex per Pauli string and edges between non-commuting pairs."
+      },
+      {
+        "id": "S3.SS2.SSS0.Px1",
+        "heading": "Node features.",
+        "level": 3,
+        "text": "For term j j , build 𝒙 j ∈ ℝ 16 \\bm{x}_{j}\\in\\mathbb{R}^{16} : • log ⁡ ( | c j | + 10 − 6 ) \\log(\\left|c_{j}\\right|+10^{-6}) and sign ​ ( c j ) \\text{sign}(c_{j}) (2D); • support size | supp ​ ( P j ) | \\left|\\text{supp}(P_{j})\\right| (1D); • locality max ⁡ supp ​ ( P j ) − min ⁡ supp ​ ( P j ) \\max\\text{supp}(P_{j})-\\min\\text{supp}(P_{j}) (1D); • per-qubit indicators padded to 12 when n ≤ 12 n\\leq 12 (12D)."
+      },
+      {
+        "id": "S3.SS2.SSS0.Px2",
+        "heading": "Edge features.",
+        "level": 3,
+        "text": "For ( j , k ) ∈ ℰ (j,k)\\in\\mathcal{E} : • commutator norm ‖ [ P j , P k ] ‖ = 2 ⋅ 𝕀 [ P j , P k ] ≠ 0 \\left\\|[P_{j},P_{k}]\\right\\|=2\\cdot\\mathbb{I}_{[P_{j},P_{k}]\\neq 0} ; • shared qubit count | supp ​ ( P j ) ∩ supp ​ ( P k ) | \\left|\\text{supp}(P_{j})\\cap\\text{supp}(P_{k})\\right| ; • commutativity indicator 𝕀 [ P j , P k ] = 0 \\mathbb{I}_{[P_{j},P_{k}]=0} . These scalars line up with the dominant error terms in modern Trotter analyses [ 4 ] ."
+      },
+      {
+        "id": "S3.SS2.SSS0.Px3",
+        "heading": "Message passing.",
+        "level": 3,
+        "text": "Four MPNN layers [ 10 ] : 𝒎 j ( ℓ ) \\displaystyle\\bm{m}_{j}^{(\\ell)} = ∑ k ∈ 𝒩 ⁡ ( j ) ϕ msg ( ℓ ) ​ ( 𝒉 j ( ℓ − 1 ) , 𝒉 k ( ℓ − 1 ) , 𝒆 j ​ k ) , \\displaystyle=\\sum_{k\\in\\mathcal{N}(j)}\\phi_{\\text{msg}}^{(\\ell)}\\big(\\bm{h}_{j}^{(\\ell-1)},\\bm{h}_{k}^{(\\ell-1)},\\bm{e}_{jk}\\big), (3) 𝒉 j ( ℓ ) \\displaystyle\\bm{h}_{j}^{(\\ell)} = ϕ update ( ℓ ) ​ ( 𝒉 j ( ℓ − 1 ) , 𝒎 j ( ℓ ) ) , \\displaystyle=\\phi_{\\text{update}}^{(\\ell)}\\big(\\bm{h}_{j}^{(\\ell-1)},\\bm{m}_{j}^{(\\ell)}\\big), (4) with 𝒉 j ( 0 ) = 𝒙 j \\bm{h}_{j}^{(0)}=\\bm{x}_{j} , two-layer MLPs (width 256), LayerNorm, and dropout p = 0.1 p=0.1 ."
+      },
+      {
+        "id": "S3.SS2.SSS0.Px4",
+        "heading": "Graph pooling.",
+        "level": 3,
+        "text": "Attention pooling [ 22 ] yields α j = exp ⁡ ( ϕ attn ​ ( 𝒉 j ( 4 ) ) ) ∑ k = 1 M exp ⁡ ( ϕ attn ​ ( 𝒉 k ( 4 ) ) ) , 𝒄 = ∑ j = 1 M α j ​ 𝒉 j ( 4 ) . \\alpha_{j}=\\frac{\\exp(\\phi_{\\text{attn}}(\\bm{h}_{j}^{(4)}))}{\\sum_{k=1}^{M}\\exp(\\phi_{\\text{attn}}(\\bm{h}_{k}^{(4)}))},\\quad\\bm{c}=\\sum_{j=1}^{M}\\alpha_{j}\\bm{h}_{j}^{(4)}. (5) The conditioning vector 𝒄 ∈ ℝ 512 \\bm{c}\\in\\mathbb{R}^{512} feeds the diffusion model."
+      },
+      {
+        "id": "S3.SS2.SSS0.Px5",
+        "heading": "Permutation sanity.",
+        "level": 3,
+        "text": "Term order is arbitrary; unit tests check ‖ GNN ⁡ ( H σ ) − GNN ⁡ ( H ) ‖ < 10 − 6 \\left\\|\\operatorname{GNN}(H_{\\sigma})-\\operatorname{GNN}(H)\\right\\|<10^{-6} for random permutations σ \\sigma ."
+      },
+      {
+        "id": "S3.SS3",
+        "heading": "3.3 Conditional diffusion for policies",
+        "level": 2,
+        "text": "A policy mixes categorical and continuous parts, so we run three coupled diffusion branches with shared time and condition embeddings."
+      },
+      {
+        "id": "S3.SS3.SSS0.Px1",
+        "heading": "Grouping (D3PM).",
+        "level": 3,
+        "text": "Categories G ∈ { 0 , … , K − 1 } M G\\in\\{0,\\ldots,K-1\\}^{M} use D3PM [ 1 ] with uniform corruption q ⁡ ( G t | G t − 1 ) = ( 1 − β t ) ⋅ δ G t , G t − 1 + β t / K , q(G_{t}|G_{t-1})=(1-\\beta_{t})\\cdot\\delta_{G_{t},G_{t-1}}+\\beta_{t}/K, (6) cosine β t \\beta_{t} schedule, cached cumulative 𝑸 ¯ t \\bar{\\bm{Q}}_{t} , and a four-layer Transformer denoiser (width 256, sequence length M M )."
+      },
+      {
+        "id": "S3.SS3.SSS0.Px2",
+        "heading": "Order (D3PM).",
+        "level": 3,
+        "text": "Orders 𝒌 ∈ { 1 , 2 , 4 } K \\bm{k}\\in\\{1,2,4\\}^{K} use a compact D3PM with a two-layer Transformer (length K K , three labels), sharing embeddings with the grouping branch."
+      },
+      {
+        "id": "S3.SS3.SSS0.Px3",
+        "heading": "Time steps (DDPM).",
+        "level": 3,
+        "text": "Continuous 𝝉 \\bm{\\tau} follows DDPM [ 12 ] on ℝ K \\mathbb{R}^{K} followed by a softmax to the simplex: 𝝉 t = α ¯ t ​ 𝝉 0 + 1 − α ¯ t ​ ϵ , ϵ ∼ 𝒩 ⁡ ( 𝟎 , 𝑰 ) , \\bm{\\tau}_{t}=\\sqrt{\\bar{\\alpha}_{t}}\\bm{\\tau}_{0}+\\sqrt{1-\\bar{\\alpha}_{t}}\\bm{\\epsilon},\\quad\\bm{\\epsilon}\\sim\\mathcal{N}(\\bm{0},\\bm{I}), (7) with α ¯ t = ∏ s ≤ t ( 1 − β s ) \\bar{\\alpha}_{t}=\\prod_{s\\leq t}(1-\\beta_{s}) . A three-layer MLP predicts noise ϵ ^ θ ​ ( 𝝉 t , 𝒄 , t ) \\hat{\\bm{\\epsilon}}_{\\theta}(\\bm{\\tau}_{t},\\bm{c},t) ."
+      },
+      {
+        "id": "S3.SS3.SSS0.Px4",
+        "heading": "Training loss.",
+        "level": 3,
+        "text": "Weighted sum of branch losses, ℒ diff = ℒ D3PM group + 0.5 ⋅ ℒ DDPM time + 0.3 ⋅ ℒ D3PM order , \\mathcal{L}_{\\text{diff}}=\\mathcal{L}_{\\text{D3PM}}^{\\text{group}}+0.5\\cdot\\mathcal{L}_{\\text{DDPM}}^{\\text{time}}+0.3\\cdot\\mathcal{L}_{\\text{D3PM}}^{\\text{order}}, (8) reflecting that errors are most sensitive to grouping and order, less so to time-step splits."
+      },
+      {
+        "id": "S3.SS3.SSS0.Px5",
+        "heading": "Classifier-free guidance.",
+        "level": 3,
+        "text": "Train with p drop = 0.1 p_{\\text{drop}}=0.1 to drop 𝒄 \\bm{c} ; at sampling time blend conditional and unconditional predictions, ϵ ^ guided = ( 1 + w ) ⋅ ϵ ^ θ ( ⋅ | 𝒄 ) − w ⋅ ϵ ^ θ ( ⋅ | 𝟎 ) , \\hat{\\bm{\\epsilon}}^{\\text{guided}}=(1+w)\\cdot\\hat{\\bm{\\epsilon}}_{\\theta}(\\cdot|\\bm{c})-w\\cdot\\hat{\\bm{\\epsilon}}_{\\theta}(\\cdot|\\bm{0}), (9) with strength w = 3.0 w=3.0 for Hamiltonian conditioning (analogous logit mixing on discrete heads). Ablations later show this is not orthogonal to training budget: ( p drop , w ) (p_{\\text{drop}},w) should be tuned together rather than treated as a static toggle."
+      },
+      {
+        "id": "S3.SS3.SSS0.Px6",
+        "heading": "EMA.",
+        "level": 3,
+        "text": "We track an EMA copy of the diffusion weights (decay 0.9999 0.9999 ) and sample from EMA parameters to reduce sampling noise."
+      },
+      {
+        "id": "S3.SS3.SSS0.Px7",
+        "heading": "From samples to circuits.",
+        "level": 3,
+        "text": "Reverse diffusion runs T = 1000 T=1000 steps. Post-processing merges empty groups, renormalizes 𝝉 \\bm{\\tau} , and rounds orders; unit tests in strategy/encoding.py guarantee compilable Qiskit output."
+      },
+      {
+        "id": "S3.SS4",
+        "heading": "3.4 PINN physics critic",
+        "level": 2,
+        "text": "The PINN fits | ψ ( s ) ⟩ \\left|\\psi(s)\\right\\rangle for s ∈ [ 0 , t ] s\\in[0,t] so inner products against Trotter states remain differentiable in network parameters."
+      },
+      {
+        "id": "S3.SS4.SSS0.Px1",
+        "heading": "Architecture.",
+        "level": 3,
+        "text": "Fourier features [ 26 ] before a three-layer MLP (width 512, tanh \\tanh , LayerNorm) output real/imag parts of size ( 2 n , 2 ) (2^{n},2) . Frequencies use σ = ‖ H ‖ / ( 2 ​ π ) \\sigma=\\left\\|H\\right\\|/(2\\pi) with frozen Gaussian 𝑩 ∈ ℝ 256 × 1 \\bm{B}\\in\\mathbb{R}^{256\\times 1} , giving a 512-D embedding."
+      },
+      {
+        "id": "S3.SS4.SSS0.Px2",
+        "heading": "Physics losses.",
+        "level": 3,
+        "text": "ℒ IC \\displaystyle\\mathcal{L}_{\\text{IC}} = ‖ | ψ θ ( 0 ) ⟩ − | ψ 0 ⟩ ‖ 2 , \\displaystyle=\\left\\|\\left|\\psi_{\\theta}(0)\\right\\rangle-\\left|\\psi_{0}\\right\\rangle\\right\\|^{2}, (10) ℒ PDE \\displaystyle\\mathcal{L}_{\\text{PDE}} = 𝔼 s ∼ 𝒰 ⁡ [ 0 , t ] ‖ i ∂ ∂ s | ψ θ ( s ) ⟩ − H | ψ θ ( s ) ⟩ ‖ 2 , \\displaystyle=\\mathbb{E}_{s\\sim\\mathcal{U}[0,t]}\\left\\|i\\frac{\\partial}{\\partial s}\\left|\\psi_{\\theta}(s)\\right\\rangle-H\\left|\\psi_{\\theta}(s)\\right\\rangle\\right\\|^{2}, (11) ℒ circuit \\displaystyle\\mathcal{L}_{\\text{circuit}} = 𝔼 s ∈ 𝒯 ckpt ‖ | ψ θ ( s ) ⟩ − | ψ π ( s ) ⟩ ‖ 2 . \\displaystyle=\\mathbb{E}_{s\\in\\mathcal{T}_{\\text{ckpt}}}\\left\\|\\left|\\psi_{\\theta}(s)\\right\\rangle-\\left|\\psi_{\\pi}(s)\\right\\rangle\\right\\|^{2}. (12) Total ℒ PINN = 10 ​ ℒ IC + ℒ PDE + 5 ​ ℒ circuit + 0.1 ​ ℒ norm , \\mathcal{L}_{\\text{PINN}}=10\\mathcal{L}_{\\text{IC}}+\\mathcal{L}_{\\text{PDE}}+5\\mathcal{L}_{\\text{circuit}}+0.1\\mathcal{L}_{\\text{norm}}, (13) with ℒ norm = 𝔼 s ( ‖ | ψ θ ( s ) ⟩ ‖ − 1 ) 2 \\mathcal{L}_{\\text{norm}}=\\mathbb{E}_{s}(\\left\\|\\left|\\psi_{\\theta}(s)\\right\\rangle\\right\\|-1)^{2} . Time derivatives use autograd with create_graph=True so outer-loop fidelity gradients reach the diffusion model."
+      },
+      {
+        "id": "S3.SS4.SSS0.Px3",
+        "heading": "Surrogate fidelity.",
+        "level": 3,
+        "text": "For policy π \\pi , compile | ψ π ( t ) ⟩ \\left|\\psi_{\\pi}(t)\\right\\rangle and set F ~ ​ ( π ) = | ⟨ ψ θ ​ ( t ) | ψ π ​ ( t ) ⟩ | 2 . \\tilde{F}(\\pi)=\\left|\\left\\langle\\psi_{\\theta}(t)\\middle|\\psi_{\\pi}(t)\\right\\rangle\\right|^{2}. (14) F ~ \\tilde{F} differentiates w.r.t. continuous 𝝉 \\bm{\\tau} through the circuit state and with respect to PINN parameters through | ψ θ ( t ) ⟩ \\left|\\psi_{\\theta}(t)\\right\\rangle . In stage-3E2 checks, mean bias vs. exact fidelity stayed below 1.6 × 10 − 3 1.6\\times 10^{-3} , under our 10 − 2 10^{-2} acceptance bar."
+      },
+      {
+        "id": "S3.SS4.SSS0.Px4",
+        "heading": "Warm start.",
+        "level": 3,
+        "text": "PINN s are pretrained per distinct training Hamiltonian, then fine-tuned for 200 steps per minibatch in the loop, dropping per-Hamiltonian cost from minutes to seconds."
+      },
+      {
+        "id": "S3.SS5",
+        "heading": "3.5 Closed-loop joint optimization",
+        "level": 2,
+        "text": "Each iteration: 1. Sample B = 32 B=32 Hamiltonians from the training distribution; 2. Encode each to 𝒄 i \\bm{c}_{i} with the GNN ; 3. Sample policies π i \\pi_{i} under guidance; 4. Compile circuits, evaluate F ~ ​ ( π i ) \\tilde{F}(\\pi_{i}) and Depth ​ ( π i ) \\text{Depth}(\\pi_{i}) ; 5. Rewards r i = F ~ ​ ( π i ) − λ ⋅ Depth ​ ( π i ) / D ref r_{i}=\\tilde{F}(\\pi_{i})-\\lambda\\cdot\\text{Depth}(\\pi_{i})/D_{\\text{ref}} ; 6. REINFORCE gradients for diffusion + GNN ; 7. AdamW ( 10 − 5 10^{-5} ) update; 8. Refresh the Pareto tracker; checkpoint every 100 steps."
+      },
+      {
+        "id": "S3.SS5.SSS0.Px1",
+        "heading": "REINFORCE.",
+        "level": 3,
+        "text": "Discrete draws use REINFORCE [ 33 ] , ∇ θ 𝔼 ​ [ ℒ ⁡ ( π ) ] ≈ 𝔼 ⁡ [ ( ℒ ⁡ ( π ) − b ) ⋅ ∇ θ ​ log ​ p θ ​ ( π | 𝒄 ) ] , \\nabla_{\\theta}\\mathbb{E}[\\mathcal{L}(\\pi)]\\approx\\mathbb{E}\\big[(\\mathcal{L}(\\pi)-b)\\cdot\\nabla_{\\theta}\\log p_{\\theta}(\\pi|\\bm{c})\\big], (15) with an exponential moving-average baseline ( 0.9 0.9 decay). Log-probabilities sum categorical terms from D3PM and Gaussian terms from DDPM along the reverse trajectory."
+      },
+      {
+        "id": "S3.SS5.SSS0.Px2",
+        "heading": "Pareto tracking.",
+        "level": 3,
+        "text": "A ParetoTracker maintains nondominated ( F ~ , Depth ) (\\tilde{F},\\text{Depth}) pairs. Hypervolume vs. reference ( 0 , D max ) (0,D_{\\max}) tracks progress. Scanning λ ∈ { 0 , 0.01 , 0.05 , 0.1 , 0.5 , 1.0 } \\lambda\\in\\{0,0.01,0.05,0.1,0.5,1.0\\} stitches together merged fronts."
+      },
+      {
+        "id": "S3.SS5.SSS0.Px3",
+        "heading": "Checkpoints.",
+        "level": 3,
+        "text": "Files like ckpt_iter_000600_fid0.9234_depth0042.pt store weights, EMA, optimizer, and Pareto state; we keep best fidelity, best hypervolume, and the last three snapshots."
+      },
+      {
+        "id": "S4",
+        "heading": "4 Implementation and hyperparameters",
+        "level": 1,
+        "text": "We implement the models and training loop in PyTorch and PyTorch Geometric, compile quantum circuits with Qiskit [ 15 ] , and obtain molecular Hamiltonians from PySCF via Jordan–Wigner. All experiments ran on a single NVIDIA GeForce RTX 5090 Laptop GPU."
+      },
+      {
+        "id": "S4.SS1",
+        "heading": "4.1 Training stages",
+        "level": 2,
+        "text": "Training proceeds in three stages. We first build the TFIM corpus and pretrain the PINN per Hamiltonian offline. We then supervise the GNN (fidelity regression) and the diffusion objective (mixed ELBO), saving a warm-start checkpoint. Finally we run the closed loop with REINFORCE, sampling minibatches of Hamiltonians, drawing policies, and scoring them with the PINN ; we scan the depth–fidelity trade-off coefficient λ \\lambda and merge nondominated points into a single Pareto front. Default learning rates, iteration counts, and batch sizes are listed in Table 1 ."
+      },
+      {
+        "id": "S4.SS2",
+        "heading": "4.2 Hyperparameter table",
+        "level": 2,
+        "text": "Table 1 collects the main settings. Most values follow standard practice; only loss weights and the λ \\lambda grid received light manual tuning rather than an exhaustive search. Table 1 : Key hyperparameters and defaults. Block Hyperparameter Value Notes PINN Fourier count m m 256 2 ​ m = 512 2m=512 embedding scale σ \\sigma ‖ H ‖ / ( 2 ​ π ) \\left\\|H\\right\\|/(2\\pi) adaptive hidden width 512 3-layer MLP loss weights IC / PDE / circuit 10 / 1 / 5 weighted sum GNN MPNN depth 4 message passing hidden width 256 per layer output dim 512 after attention pool node / edge dim 16 / 3 see § 3.2 dropout 0.1 after each layer Diffusion steps T T 1000 shared β \\beta schedule cosine [ 10 − 4 , 0.02 ] [10^{-4},0.02] CFG dropout p drop p_{\\text{drop}} 0.1 train-time guidance w w 3.0 sample-time branch depths group/order/time 4 / 2 / 3 TF / TF / MLP EMA decay 0.9999 shadow weights Loop iterations 1000 full run Hamiltonians per step 32 batch PINN warm-start steps 200 per minibatch policy LR 10 − 5 10^{-5} AdamW baseline EMA 0.9 variance reduction λ \\lambda values { 0 , … , 1.0 } \\{0,\\dots,1.0\\} trade-off sweep Dataset samples 5000 TFIM qubit mix 4:6:8 = 6:3:1 training coupling J J [ 0.5 , 2.0 ] [0.5,2.0] log-uniform time t t 2.0 (fixed) matches benchmarks"
+      },
+      {
+        "id": "S4.SS3",
+        "heading": "4.3 Protocol alignment and stability",
+        "level": 2,
+        "text": "Coupled generate/evaluate training is sensitive to consistent conditions between data generation and benchmarks (e.g., matching evolution time); otherwise encoders and diffusion miss the intended operating regime. The PINN must expose higher-order derivatives so fidelity gradients reach the generator, while REINFORCE on discrete actions uses a baseline and gradient clipping to keep variance manageable. Hamiltonian–state products inside the PDE residual use a sparse representation for efficiency. Additional engineering detail and reproduction scripts are left to the code repository."
+      },
+      {
+        "id": "S5.SS1.SSS0.Px1",
+        "heading": "Dataset.",
+        "level": 3,
+        "text": "Primary training and evaluation use TFIM , H = − J ∑ ⟨ i , j ⟩ Z i Z j − h ∑ i X i . H=-J\\sum_{\\langle i,j\\rangle}Z_{i}Z_{j}-h\\sum_{i}X_{i}. We built 5000 training examples with n ∈ { 4 , 6 , 8 } n\\in\\{4,6,8\\} mixed 6:3:1, J J log-uniform on [ 0.5 , 2.0 ] [0.5,2.0] , h h log-uniform on [ 0.1 , 0.5 ] [0.1,0.5] , and fixed evolution time t = 2.0 t=2.0 (aligned with all benchmarks). Each row includes a Dirichlet-drawn Trotter policy and exact fidelity labels. Figure 1 summarizes marginal distributions. Figure 1 : Marginal statistics for the TFIM training corpus. Left to right: qubit count n n , coupling J J , transverse field h h . Both J J and h h are log-uniform to span weak-to-moderate coupling."
+      },
+      {
+        "id": "S5.SS1.SSS0.Px2",
+        "heading": "Baselines.",
+        "level": 3,
+        "text": "We compare six approaches. Ours runs the full GNN –diffusion– PINN loop and samples policies online per test Hamiltonian. The other five are public Trotter stacks: Qiskit [ 15 ] fourth-order LieTrotter / SuzukiTrotter (five repeats; SDK revision in § 4 ); Cirq PauliStringPhasor with fourth-order Suzuki; TKET PauliExpBox fourth-order; PennyLane qml.TrotterProduct(order=4) ; Paulihedral [ 18 ] block scheduling with depth_oriented_scheduling followed by a unified Qiskit basis pass. Paulihedral depths/CNOTs therefore diverge from a vanilla fourth-order Suzuki template."
+      },
+      {
+        "id": "S5.SS1.SSS0.Px3",
+        "heading": "Metrics.",
+        "level": 3,
+        "text": "Per strategy we log exact fidelity F = | ⟨ ψ exact | ψ π ⟩ | 2 F=\\left|\\left\\langle\\psi_{\\text{exact}}\\middle|\\psi_{\\pi}\\right\\rangle\\right|^{2} , transpiled depth in basis { H , CX , R z , X } \\{H,\\mathrm{CX},R_{z},X\\} at optimization level 1, CNOT count, and mean latency over 100 runs after warm JIT. Pareto quality uses hypervolume with reference ( 0 , 10000 ) (0,10000) ."
+      },
+      {
+        "id": "S5.SS1.SSS0.Px4",
+        "heading": "Protocol.",
+        "level": 3,
+        "text": "Main comparisons: 100 held-out Hamiltonians × \\times 5 seeds (500 sample points), reporting mean ± \\pm std. Unless noted, other experiments use the same 500 draws."
+      },
+      {
+        "id": "S5.SS2",
+        "heading": "5.2 PINN validation",
+        "level": 2,
+        "text": "Closed-loop training leans on PINN -estimated fidelity gradients; if the surrogate is biased, policies can wander. We trained separate PINN s on ten independent four-qubit TFIM instances and measured mean absolute error against exact fidelity on 500 held-out policies. Across the ten models, mean PDE residual was 5.55 × 10 − 5 5.55\\times 10^{-5} , below the 10 − 4 10^{-4} acceptance gate; mean absolute fidelity error was 1.57 × 10 − 3 1.57\\times 10^{-3} , under the 10 − 2 10^{-2} gate. At this validation scale the errors look compatible with using PINN as a fine-tuning signal; extrapolation to broader Hamiltonian families still needs its own checks. Figure 2 : PINN validation on ten TFIM instances. Left: post-training PDE residual vs. 10 − 4 10^{-4} threshold (red dashed). Center: mean absolute fidelity error 1.57 × 10 − 3 1.57\\times 10^{-3} vs. 10 − 2 10^{-2} gate. Right: external benchmark ordering (Ours / Qiskit fourth / Paulihedral) to cross-check that surrogate rankings track exact rankings."
+      },
+      {
+        "id": "S5.SS3",
+        "heading": "5.3 Main comparison",
+        "level": 2,
+        "text": "Table 2 aggregates fidelity, depth, CNOTs, and latency on 500 test samples; Figure 3 visualizes the trade-offs as bar charts. Table 2 : Six-way comparison on 500 TFIM test instances (mean ± \\pm std). Method Fidelity Depth CNOTs Latency (ms) Ours 0.856 ± 0.136 0.856\\pm 0.136 28.7 ± 16.9 \\bm{28.7\\pm 16.9} 13.8 ± 7.6 \\bm{13.8\\pm 7.6} 4579 4579 Qiskit-4th 1.000 ± 0.000 1.000\\pm 0.000 132.0 132.0 72.0 72.0 0.030 \\bm{0.030} Cirq 0.963 ± 0.026 0.963\\pm 0.026 132.0 132.0 72.0 72.0 72 72 TKET 0.963 ± 0.026 0.963\\pm 0.026 132.0 132.0 72.0 72.0 7.7 7.7 PennyLane 0.954 ± 0.053 0.954\\pm 0.053 132.0 132.0 72.0 72.0 37 37 Paulihedral 0.960 ± 0.029 0.960\\pm 0.029 48.0 48.0 40.0 40.0 107 107 Depth and CNOT statistics are taken over all 500 samples. Ours varies structure per draw because sampling is stochastic; baselines use fixed templates in this configuration (empirical std ≈ 0 \\approx 0 ), hence integer means in the table. Figure 3 : Bar-style comparison (fidelity, depth, latency on a log axis). Fidelity trails the high-order baselines, but depth and CNOTs improve by ∼ 4 × {\\sim}4\\times . Latency is ∼ 10 5 × {\\sim}10^{5}\\times worse than compilers because of 1000 diffusion steps—acceptable if compilation amortizes over many executions. Qualitatively, we sit at 0.856 0.856 vs. 1.000 1.000 fidelity on Qiskit fourth order while using 21.8 % 21.8\\% of the depth ( 28.7 28.7 vs. 132.0 132.0 ) and 19.2 % 19.2\\% of the CNOTs ( 13.8 13.8 vs. 72.0 72.0 ). Relative to the baseline fidelity, we keep about 85.6 % 85.6\\% of the accuracy for roughly one-fifth of the circuit size. On real hardware, error stacks with depth, so the trade can flip toward shallower circuits when budgets are tight. A toy model makes the point: with per-gate error ϵ = 10 − 3 \\epsilon=10^{-3} , depth 132 multiplies ideal fidelity by about ( 1 − 10 − 3 ) 132 ≈ 0.876 (1-10^{-3})^{132}\\approx 0.876 , while depth 28.7 multiplies 0.856 0.856 by about ( 1 − 10 − 3 ) 28.7 ≈ 0.832 (1-10^{-3})^{28.7}\\approx 0.832 . The two land in a similar band, yet the shallow circuit asks less of coherence and routing. Latency sits near five seconds per policy because of full 1000-step sampling—fine for “compile once, execute many times” use cases. Paulihedral averages 0.960 0.960 fidelity with ∼ 107 {\\sim}107 ms latency but depths 48.0 48.0 and CNOTs 40.0 40.0 , still above our 28.7 / 13.8 28.7/13.8 . The two approaches therefore emphasize different trade-offs: Paulihedral favors fidelity-first compilation; our sampler favors aggressive compression and may suit noisier or depth-limited backends."
+      },
+      {
+        "id": "S5.SS4",
+        "heading": "5.4 Closed-loop convergence",
+        "level": 2,
+        "text": "We ran 50 closed-loop iterations on a single four-qubit TFIM instance and tracked mean fidelity (Figure 4 ). Fidelity stayed between 0.70 0.70 and 0.94 0.94 ; the first ten rounds averaged 0.861 0.861 , the last ten 0.823 0.823 , with REINFORCE exploration causing the wobble. The trailing window can dip while the depth-regularized reward still improves—so we accept runs with terminal-window fidelity ≥ 0.70 \\geq 0.70 rather than demanding monotonicity. Figure 4 : Fidelity across 50 closed-loop iterations. No collapses; variance reflects REINFORCE exploration. A longer 1000-iteration proof-of-concept under an equal-depth ( ≤ {\\leq} Qiskit fourth-order) cap reached best fidelity 0.9994 0.9994 , more than three times our 0.317 0.317 acceptance bar, with five nondominated Pareto points shallower than depth 42."
+      },
+      {
+        "id": "S5.SS5",
+        "heading": "5.5 Ablations",
+        "level": 2,
+        "text": "We trained three ablated variants from random initialization for 1000 closed-loop iterations and evaluated on the same 500 test draws. Variants: no PINN guidance (supervised loss only), no CFG (zero conditional dropout), zero GNN conditioning. Placeholders for unimplemented toggles are omitted. Table 3 lists outcomes. Unlike a shorter 100-iter study, no_cfg here achieves the highest mean fidelity ( 0.583 ± 0.296 0.583\\pm 0.296 ) with lower depth/CNOT than the full model, which hints that default CFG knobs ( p drop = 0.1 p_{\\text{drop}}=0.1 , w = 3.0 w=3.0 ) are not tuned for this zero-init, 1000-iter budget; module contributions and guidance need joint calibration. Table 3 : Ablations after 1000 closed-loop iterations from scratch. Under the current defaults, no_cfg leads on both fidelity and depth. Variant Fidelity Depth CNOT Δ \\Delta Full 0.288 ± 0.269 0.288\\pm 0.269 28.0 28.0 16.0 16.0 baseline no_pinn_guidance 0.296 ± 0.260 0.296\\pm 0.260 15.0 15.0 8.0 8.0 +3.0% fid., − 46.4 % -46.4\\% depth no_cfg 0.583 ± 0.296 \\bm{0.583\\pm 0.296} 14.0 ± 2.1 \\bm{14.0\\pm 2.1} 8.0 \\bm{8.0} +102.5% fid., − 50.1 % -50.1\\% depth no_gnn_encoder 0.298 ± 0.261 0.298\\pm 0.261 15.0 ± 0.3 15.0\\pm 0.3 8.0 8.0 +3.4% fid., − 46.5 % -46.5\\% depth Important caveat: these runs start from noise without the supervised+warm-start pipeline that delivers the 0.856 0.856 main result. The fair reading is that CFG /conditioning must be retuned under “from-scratch + fixed hypers” budgets; under “pretrain + fine-tune,” the full stack still produces our headline numbers. Section 6 revisits the gap."
+      },
+      {
+        "id": "S5.SS6",
+        "heading": "5.6 Case study: grouping heatmap",
+        "level": 2,
+        "text": "Figure 5 shows an eight-term, four-group policy. Rows are Pauli strings, columns groups, colors group IDs, and headers mark Suzuki orders k ∈ { 1 , 2 , 4 } k\\in\\{1,2,4\\} . Figure 5 : Example grouping heatmap. Imbalanced groups emerge naturally: singletons with high order vs. triples with lower order—patterns rarely produced by symmetry-first heuristics. The layout departs from “equal-sized blocks, uniform order” heuristics: some singletons take fourth-order budgets where commutators bite hardest; larger low-order blocks cover more commuting terms—exactly the heterogeneity a Pareto objective encourages."
+      },
+      {
+        "id": "S5.SS7",
+        "heading": "5.7 Out-of-distribution scaling: Heisenberg",
+        "level": 2,
+        "text": "We stress-test on Heisenberg chains, H = − J ∑ ⟨ i , j ⟩ ( X i X j + Y i Y j + Z i Z j ) , H=-J\\sum_{\\langle i,j\\rangle}(X_{i}X_{j}+Y_{i}Y_{j}+Z_{i}Z_{j}), with periodic boundaries, coupling triples uniform in [ 0.2 , 2.0 ] [0.2,2.0] , fifty random instances per qubit count (150 total). Each instance runs 50 closed-loop iterations from scratch; commutator structure differs sharply from TFIM training data, so this is a distribution-shift experiment. Table 4 summarizes results. Depth collapses to ∼ 11 {\\sim}11 – 13 % 13\\% of Qiskit fourth order ( n = 4 n=4 : 76 vs. 569; n = 8 n=8 : 132 vs. 1169). Mean fidelity ( 0.326 0.326 ) trails the baseline ( 0.444 0.444 ); 52/150 instances beat the strict “ ≥ \\geq baseline fidelity” test. Training-domain shift plus only 50 adaptation steps explains much of the gap; nonetheless, grouping continues to find compact circuits, while catching up on fidelity likely needs longer training or cross-domain pretraining. Table 4 : Heisenberg scaling (50 instances per n n , 50 loop iterations each). n n Ours fid. Base fid. Ours depth Base depth Pass rate 4 0.461 ± 0.258 0.461\\pm 0.258 0.538 ± 0.359 0.538\\pm 0.359 76.1 76.1 569.0 569.0 22/50 6 0.356 ± 0.334 0.356\\pm 0.334 0.523 ± 0.339 0.523\\pm 0.339 110.0 110.0 869.0 869.0 11/50 8 0.159 ± 0.204 0.159\\pm 0.204 0.270 ± 0.301 0.270\\pm 0.301 132.2 132.2 1169.0 1169.0 19/50 All 0.326 \\bm{0.326} 0.444 0.444 106.1 106.1 869.0 869.0 52/150 Figure 6 : Mean fidelity vs. n n for Heisenberg instances (blue: ours, green: Qiskit fourth). Depth stays ∼ 8 × {\\sim}8\\times smaller, but 50-step adaptation underfits relative to baselines as n n grows."
+      },
+      {
+        "id": "S5.SS8",
+        "heading": "5.8 Molecules: H 2 and LiH bond scans",
+        "level": 2,
+        "text": "To probe chemistry transfer, we optimize bond lengths for H 2 (0.5–3.0 Å, 0.1 Å steps, STO-3G, n = 4 n=4 , 15 Pauli terms) and LiH (1.0–4.0 Å, STO-3G, n = 12 n=12 , 631 terms). Each bond runs 50 loop iterations from scratch. Molecular term counts differ from the TFIM training default ( M = 8 M=8 ), so GNN +diffusion cannot reuse TFIM weights: every curve is effectively domain adaptation from scratch. H 2 : mean exact fidelity 0.9999 0.9999 across 26 bonds; 22/26 meet or beat Qiskit fourth order; four “misses” sit in the numerical shoulder ( max \\max gap − 0.0016 -0.0016 ), plausibly noise. Mean depth 68.7 vs. 615.0 baseline— ∼ 11.2 % {\\sim}11.2\\% of baseline depth ( ∼ 88.8 % {\\sim}88.8\\% reduction) while staying near unit fidelity. Figure 7 : Molecular scans. Left: H 2 exact fidelity (26 bonds); our curve (blue) tracks the Qiskit fourth-order baseline (green) with ∼ 11.2 % {\\sim}11.2\\% depth. Right: LiH proxy fidelity (31 bonds); ours stays above the baseline despite aggressive depth cuts. LiH: twelve qubits and 631 Pauli strings push Qiskit fourth order to depth 6305—impractical on many machines. At depth 812.8 our proxy fidelity is 0.9603 0.9603 vs. 0.7296 0.7296 for the unwieldy baseline; all 31 bonds pass the “ ≥ \\geq baseline” proxy test, a + 31.6 % {+}31.6\\% margin. Table 5 : Molecular summary (50 loop iterations, STO-3G, t = 2.0 t=2.0 ). LiH uses a depth-aware proxy fidelity; H 2 uses exact simulation fidelity. System Metric Ours Qiskit-4th Depth ratio Pass H 2 ( n = 4 n{=}4 , M = 15 M{=}15 ) exact fid. 0.9999 0.9999 1.0000 1.0000 68.7 / 615.0 = 11.2% 68.7/615.0=\\textbf{11.2\\%} 22/26 LiH ( n = 12 n{=}12 , M = 631 M{=}631 ) proxy fid. 0.9603 \\bm{0.9603} 0.7296 0.7296 812.8 / 6305.0 = 12.9% 812.8/6305.0=\\textbf{12.9\\%} 31/31 For four-qubit H 2 , 50 adaptation steps suffice; LiH highlights where depth reduction matters most on contemporary hardware."
+      },
+      {
+        "id": "S6.SS1",
+        "heading": "6.1 CFG sensitivity in long ablations",
+        "level": 2,
+        "text": "The 1000-iter-from-scratch ablation paints a different picture than short runs: no_cfg attains the best mean fidelity ( 0.583 ± 0.296 0.583\\pm 0.296 ) and shallower circuits than the full model ( 14.0 14.0 vs. 28.0 28.0 depth) under the default ( p drop , w ) (p_{\\text{drop}},w) pair. Within this protocol it is safer to treat CFG as a coupled knob than as a strictly helpful add-on: it interacts strongly with training budget and needs joint tuning with ( p drop , w ) (p_{\\text{drop}},w) . Training-time dropout and sampling-time guidance are not really independent levers. Defaults ( p drop = 0.1 p_{\\text{drop}}=0.1 , w = 3.0 w=3.0 ) may extrapolate too aggressively for the available iterations, pushing trajectories away from where the reward is good. The no_cfg path (no dropout, effectively identity guidance) simply behaved more predictably here. Future sweeps should treat ( p drop , w ) (p_{\\text{drop}},w) as a 2D search, not a binary CFG switch."
+      },
+      {
+        "id": "S6.SS2",
+        "heading": "6.2 When PINN guidance and GNN conditioning help",
+        "level": 2,
+        "text": "Aside from no_cfg , no_pinn_guidance and no_gnn_encoder nudge fidelity up ∼ 3 % {\\sim}3\\% and cut depth ∼ 46 % {\\sim}46\\% relative to the full model. That does not make PINN or GNN useless—it screams “optimization mismatch” under zero-init + frozen hypers: the optimizer has not reached the basin you get after supervised pretrain plus warm-started loops. The main benchmark (Section 5.3 ) starts from phase-3 checkpoints and lands at 0.856 0.856 mean fidelity, far above the ablation magnitudes. The practical takeaway is two-stage: pretrain to a sensible policy manifold, then fine-tune closed loop. Starting cold with the same loop settings buries those benefits under variance and hyperparameter coupling."
+      },
+      {
+        "id": "S6.SS3",
+        "heading": "6.3 NISQ relevance",
+        "level": 2,
+        "text": "Headline simulator numbers: depth 132 → \\rightarrow 28.7, CNOTs 72 → \\rightarrow 13.8, fidelity 1.0 → \\rightarrow 0.856 vs. Qiskit fourth order. On paper that is “pay fidelity for depth”; on hardware, gate error changes the accounting. Using illustrative two-qubit error rates ϵ 2q ∈ [ 10 − 3 , 10 − 2 ] \\epsilon_{\\text{2q}}\\in[10^{-3},10^{-2}] , a 132-depth / 72-CNOT template caps realized fidelity near ( 1 − ϵ 2q ) 72 ∈ [ 0.484 , 0.931 ] (1-\\epsilon_{\\text{2q}})^{72}\\in[0.484,0.931] , while our 28.7-depth / 13.8-CNOT template caps near ( 1 − ϵ 2q ) 13.8 ∈ [ 0.870 , 0.986 ] (1-\\epsilon_{\\text{2q}})^{13.8}\\in[0.870,0.986] . Multiplying simulator fidelities by those crude survivals narrows the gap: at ϵ 2q ≈ 10 − 3 \\epsilon_{\\text{2q}}\\approx 10^{-3} the baseline still wins ( ≈ 0.931 \\approx 0.931 vs. 0.844 0.844 ), but at ϵ 2q ≈ 5 × 10 − 3 \\epsilon_{\\text{2q}}\\approx 5\\times 10^{-3} the ordering flips ( ≈ 0.697 \\approx 0.697 vs. 0.799 0.799 ). The story is familiar: aggressive depth cuts matter most when native gates are mediocre—exactly the regime where Trotter compilers hurt."
+      },
+      {
+        "id": "S6.SS4",
+        "heading": "6.4 Latency vs. offline compilation",
+        "level": 2,
+        "text": "Five-second sampling is five orders of magnitude slower than library compilers, painful only if you need interactive turnaround. Hamiltonian simulation jobs usually compile once and execute thousands of shots; amortized latency is tiny. If needed, DDIM [ 24 ] or distillation could cut steps (1000 → \\rightarrow 50 or fewer), but we have not implemented those shortcuts here."
+      },
+      {
+        "id": "S6.SS5",
+        "heading": "6.5 Limits as we see them",
+        "level": 2,
+        "text": "Training data skew toward 4–8 qubit TFIM instances; Heisenberg and molecular sweeps are still small-N studies. The diffusion backbone ties sequence length to Pauli count M M , so moving across radically different M M needs retraining or architectural masking we did not explore. Finally, if a PINN misses the PDE tolerance ( ℒ PDE < 10 − 4 \\mathcal{L}_{\\text{PDE}}<10^{-4} ), surrogate fidelity can drift; we gate on pretraining quality today, but online monitors would be safer."
+      },
+      {
+        "id": "S6.SS6",
+        "heading": "6.6 Heuristics vs. learned policies",
+        "level": 2,
+        "text": "Heuristics encode knowledge in algorithm text; we encode it in weights. That swap has two sides. Generalization: after training on a family, new Hamiltonians from the same family reuse one forward pass instead of rerunning coloring or greedy routines each time. Verifiability: static analyzers read heuristics easily, whereas neural policies inherit dataset and hyperparameter quirks. For safety-critical compilation that is a weakness; for hunting non-obvious groupings—like the uneven blocks in Section 5.6 —it can be a strength."
+      },
+      {
+        "id": "S7",
+        "heading": "7 Conclusion",
+        "level": 1,
+        "text": "We built a closed loop that pairs a conditional diffusion generator, physics-informed fidelity critic, and graph encoder to co-design Trotter–Suzuki groupings, orders, and time steps. On 500 TFIM test Hamiltonians, the method reaches roughly 85.6 % 85.6\\% of a Qiskit fourth-order baseline fidelity while using about 21.8 % 21.8\\% of the depth and 19.2 % 19.2\\% of the CNOTs; under an equal-depth cap, 1000 rounds of fine-tuning produced a best observed fidelity of 0.9994 0.9994 . Recent ablations emphasize protocol dependence: module value moves with training recipe and guidance settings, and CFG must be tuned alongside budget. PINN and GNN contributions show up more clearly after pretraining than in cold-start loops with identical hypers. Next steps we care about: (1) variable-length encoders with masking so policies generalize across Pauli counts to molecules and larger spin models; (2) faster samplers (DDIM, distillation, consistency-style models) to chip away latency; (3) wire in structured discrete transitions and optional Gumbel–STE paths beside REINFORCE, then benchmark variance and stability under matched compute. We also want noisy simulators or hardware traces to see whether depth savings survive realistic gate noise. Code, data scripts, and plot generators live at https://github.com/mindmemory-ai/pinn_diffusion_trotter_suzuki.git for anyone who wants to reproduce or stress-test the same settings."
+      },
+      {
+        "id": "bib",
+        "heading": "References",
+        "level": 1,
+        "text": "[1] J. Austin, D. D. Johnson, J. Ho, D. Tarlow, and R. van den Berg (2021) Structured denoising diffusion models in discrete state-spaces . In Advances in Neural Information Processing Systems (NeurIPS) , Vol. 34 , pp. 17981–17993 . Cited by: §1 , §2.4 , §3.3 . [2] D. W. Berry, A. M. Childs, R. Cleve, R. Kothari, and R. D. Somma (2015) Simulating hamiltonian dynamics with a truncated taylor series . Physical Review Letters 114 ( 9 ), pp. 090502 . External Links: Document Cited by: §2.1 . [3] K. Bharti, A. Cervera-Lierta, T. H. Kyaw, T. Haug, S. Alperin-Lea, A. Anand, M. Degroote, H. Heimonen, J. S. Kottmann, T. Menke, W. Mok, S. Sim, L. Kwek, and A. Aspuru-Guzik (2022) Noisy intermediate-scale quantum algorithms . Reviews of Modern Physics 94 ( 1 ), pp. 015004 . External Links: Document Cited by: §1 . [4] A. M. Childs, Y. Su, M. C. Tran, N. Wiebe, and S. Zhu (2021) Theory of Trotter error with commutator scaling . Physical Review X 11 ( 1 ), pp. 011020 . External Links: Document Cited by: §1 , §2.1 , §3.2 . [5] O. Crawford, B. van Straaten, D. Wang, T. Parks, E. Campbell, and S. Brierley (2021) Efficient quantum measurement of Pauli operators in the presence of finite sampling error . Quantum 5 , pp. 385 . External Links: Document Cited by: §2.2 . [6] S. Cuomo, V. S. Di Cola, F. Giampaolo, G. Rozza, M. Raissi, and F. Piccialli (2022) Scientific machine learning through physics-informed neural networks: where we are and what’s next . Journal of Scientific Computing 92 ( 3 ), pp. 88 . External Links: Document Cited by: §2.3 . [7] K. Deb, A. Pratap, S. Agarwal, and T. Meyarivan (2002) A fast and elitist multiobjective genetic algorithm: NSGA-II . IEEE Transactions on Evolutionary Computation 6 ( 2 ), pp. 182–197 . External Links: Document Cited by: §2.6 . [8] Z. Feng, Z. Xie, Y. Shi, and G. Li (2025) Phoenix: Pauli-based high-level optimization engine for instruction execution on NISQ devices . arXiv preprint . External Links: 2504.03529 Cited by: §2.2 . [9] T. Fösel, M. Y. Niu, F. Marquardt, and L. Li (2021) Quantum circuit optimization with deep reinforcement learning . arXiv preprint arXiv:2103.07585 . Cited by: §2.2 . [10] J. Gilmer, S. S. Schoenholz, P. F. Riley, O. Vinyals, and G. E. Dahl (2017) Neural message passing for quantum chemistry . In Proceedings of the 34th International Conference on Machine Learning (ICML) , pp. 1263–1272 . Cited by: §1 , §2.5 , §3.2 . [11] P. Gokhale, O. Angiuli, Y. Ding, K. Gui, T. Tomesh, M. Suchara, M. Martonosi, and F. T. Chong (2020) Optimization of simultaneous measurement for variational quantum eigensolver applications . In 2020 IEEE International Conference on Quantum Computing and Engineering (QCE) , pp. 379–390 . External Links: Document Cited by: §1 , §2.2 . [12] J. Ho, A. Jain, and P. Abbeel (2020) Denoising diffusion probabilistic models . In Advances in Neural Information Processing Systems (NeurIPS) , Vol. 33 , pp. 6840–6851 . Cited by: §1 , §2.4 , §3.3 . [13] J. Ho and T. Salimans (2022) Classifier-free diffusion guidance . arXiv preprint arXiv:2207.12598 . Cited by: §1 , §2.4 . [14] E. Hoogeboom, V. G. Satorras, C. Vignac, and M. Welling (2022) Equivariant diffusion for molecule generation in 3D . In Proceedings of the 39th International Conference on Machine Learning (ICML) , pp. 8867–8887 . Cited by: §1 , §2.4 . [15] A. Javadi-Abhari, M. Treinish, K. Krsulich, C. J. Wood, J. Lishman, J. Gacon, S. Martiel, P. D. Nation, L. S. Bishop, A. W. Cross, B. R. Johnson, and J. M. Gambetta (2024) Quantum computing with Qiskit . arXiv preprint . External Links: 2405.08810 Cited by: §1 , §2.2 , §4 , §5.1 . [16] S. Jin, Y. Liu, Y. Su, C. Liang, J. Tan, and S. Lu (2023) Tetris: re-architecting convolutional neural network computation for machine learning accelerators . In Proceedings of the 50th Annual International Symposium on Computer Architecture (ISCA) , pp. 1–14 . Cited by: §1 , §2.2 . [17] G. E. Karniadakis, I. G. Kevrekidis, L. Lu, P. Perdikaris, S. Wang, and L. Yang (2021) Physics-informed machine learning . Nature Reviews Physics 3 ( 6 ), pp. 422–440 . External Links: Document Cited by: §1 , §2.3 . [18] G. Li, Y. Shi, and A. Javadi-Abhari (2022) Paulihedral: a generalized block-wise compiler optimization framework for quantum simulation kernels . In Proceedings of the 27th ACM International Conference on Architectural Support for Programming Languages and Operating Systems (ASPLOS) , pp. 554–569 . External Links: Document Cited by: §1 , §2.2 , §5.1 . [19] L. Moro, M. G. A. Paris, M. Restelli, and E. Prati (2021) Quantum compiling by deep reinforcement learning . Communications Physics 4 ( 1 ), pp. 178 . External Links: Document Cited by: §2.2 . [20] J. Preskill (2018) Quantum computing in the NISQ era and beyond . Quantum 2 , pp. 79 . External Links: Document Cited by: §1 . [21] M. Raissi, P. Perdikaris, and G. E. Karniadakis (2019) Physics-informed neural networks: a deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations . Journal of Computational Physics 378 , pp. 686–707 . External Links: Document Cited by: §1 , §2.3 . [22] V. G. Satorras, E. Hoogeboom, and M. Welling (2021) E(n) equivariant graph neural networks . In Proceedings of the 38th International Conference on Machine Learning (ICML) , pp. 9323–9332 . Cited by: §2.5 , §3.2 . [23] K. T. Schütt, H. E. Sauceda, P. Kindermans, A. Tkatchenko, and K. Müller (2017) SchNet: a continuous-filter convolutional neural network for modeling quantum interactions . In Advances in Neural Information Processing Systems (NeurIPS) , Vol. 30 . Cited by: §1 , §2.5 . [24] Y. Song, J. Sohl-Dickstein, D. P. Kingma, A. Kumar, S. Ermon, and B. Poole (2021) Score-based generative modeling through stochastic differential equations . In International Conference on Learning Representations (ICLR) , Cited by: §2.4 , §6.4 . [25] M. Suzuki (1991) General theory of fractal path integrals with applications to many-body theories and statistical physics . Journal of Mathematical Physics 32 ( 2 ), pp. 400–407 . External Links: Document Cited by: §2.1 . [26] M. Tancik, P. Srinivasan, B. Mildenhall, S. Fridovich-Keil, N. Raghavan, U. Singhal, R. Ramamoorthi, J. Barron, and R. Ng (2020) Fourier features let networks learn high frequency functions in low dimensional domains . In Advances in Neural Information Processing Systems (NeurIPS) , Vol. 33 , pp. 7537–7547 . Cited by: §1 , §2.3 , §3.4 . [27] M. C. Tran, Y. Su, D. Carney, and J. M. Taylor (2021) Faster digital quantum simulation by symmetry protection . PRX Quantum 2 ( 1 ), pp. 010323 . External Links: Document Cited by: §2.1 . [28] G. Verdon, T. McCourt, E. Luzhnica, V. Singh, S. Leichenauer, and J. Hidary (2019) Quantum graph neural networks . arXiv preprint arXiv:1909.12264 . Cited by: §2.5 . [29] V. Verteletskyi, T. Yen, and A. F. Izmaylov (2020) Measurement optimization in the variational quantum eigensolver using a minimum clique cover . The Journal of Chemical Physics 152 ( 12 ), pp. 124114 . External Links: Document Cited by: §1 , §2.2 . [30] S. Wang, X. Yu, and P. Perdikaris (2022) When and why PINNs fail to train: a neural tangent kernel perspective . Journal of Computational Physics 449 , pp. 110768 . External Links: Document Cited by: §2.3 . [31] L. While, L. Bradstreet, and L. Barone (2012) A fast way of calculating exact hypervolumes . IEEE Transactions on Evolutionary Computation 16 ( 1 ), pp. 86–95 . External Links: Document Cited by: §2.6 , §3.1 . [32] N. Wiebe, D. W. Berry, P. Høyer, and B. C. Sanders (2010) Higher order decompositions of ordered operator exponentials . Journal of Physics A: Mathematical and Theoretical 43 ( 6 ), pp. 065203 . External Links: Document Cited by: §2.1 . [33] R. J. Williams (1992) Simple statistical gradient-following algorithms for connectionist reinforcement learning . Machine Learning 8 , pp. 229–256 . External Links: Document Cited by: §3.5 . [34] E. Zitzler, L. Thiele, M. Laumanns, C. M. Fonseca, and V. Grunert da Fonseca (2003) Performance assessment of multiobjective optimizers: an analysis and review . IEEE Transactions on Evolutionary Computation 7 ( 2 ), pp. 117–132 . External Links: Document Cited by: §2.6 ."
+      }
+    ]
+  },
+  "text": "Physics-Guided Generative Optimizationfor Trotter–Suzuki Decomposition Skip to main content Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: Why HTML? Report Issue Back to Abstract Download PDF Contents Reading mode Colour theme License: arXiv.org perpetual non-exclusive license arXiv:2605.13268v1 [quant-ph] 13 May 2026 Physics-Guided Generative Optimization for Trotter–Suzuki Decomposition Wenbin Yan Affiliation: University of Colorado Boulder Email: wenbin.yan@colorado.edu May 2026 Abstract Product formulas for Trotter–Suzuki simulation remain a practical route to Hamiltonian evolution on noisy intermediate-scale quantum ( NISQ ) hardware, yet their accuracy hinges on three coupled choices: term grouping, product-formula order, and time-step allocation. Toolchains such as Qiskit and Paulihedral lean on hand-tuned heuristics, while the discrete nature of grouping and order makes naive gradient-based optimization awkward. We describe a generate-and-evaluate loop: a conditional diffusion model proposes strategies, a physics-informed neural network ( PINN ) supplies differentiable fidelity feedback, and a graph neural network ( GNN ) encodes commutator structure. Training spans a hybrid space (discrete grouping and order, continuous time steps); the closed loop uses REINFORCE and a Pareto tracker. On the transverse-field Ising model ( TFIM ), under our primary comparison setup, the method reaches 85.6 % 85.6\\% of the fidelity of a fourth-order Qiskit baseline ( 0.856 ± 0.136 0.856\\pm 0.136 ) at roughly 21.8 % 21.8\\% of the circuit depth and 19.2 % 19.2\\% of the baseline CNOT count. Under an equal-depth budget, fine-tuning in the loop reached a best observed fidelity of 0.9994 0.9994 . Updated ablations show that, for a fixed training budget and default guidance knobs, module contributions depend on the training recipe and guidance hyperparameters— CFG in particular needs to be tuned jointly with compute budget. Overall, the results suggest that “generative model + physics supervision” is a viable angle for NISQ -oriented compilation, though where it wins still depends on the operating point. Keywords: quantum simulation; Trotter–Suzuki decomposition; physics-informed neural networks; diffusion models; graph neural networks; NISQ computing. 1 Introduction Hamiltonian time evolution remains one of the oldest textbook applications of quantum computing, and still among the settings where an advantage is easiest to motivate. In the NISQ era, hardware limits on qubit count and native gate fidelity mean fault tolerance is usually off the table, so Trotter–Suzuki product formulas remain the workhorse for approximating U ⁡ ( t ) = e − i ​ H ​ t U(t)=e^{-iHt} [ 20 , 3 ] . They are appealing in practice: no ancillary qubits are required, and the compiled circuits map cleanly onto native gate sets without heavyweight synthesis. What actually matters is not the textbook formula but three coupled design choices: a grouping G G of Hamiltonian terms, a per-segment product-formula order k i k_{i} , and time-step weights τ i \\tau_{i} for each segment. Together these largely set the Trotter error budget, with pairwise commutator norms dominating the usual bounds [ 4 ] . Good groupings can cancel swaths of commutator contributions; higher orders buy error decay for more gates; non-uniform time steps help when the Hamiltonian separates into fast and slow pieces. One can write this as a hybrid discrete/continuous problem, but the objective is not smooth in the discrete variables, so ordinary autodiff does not “ just work. ” That is why today’s compilers—Qiskit [ 15 ] , Paulihedral [ 18 ] , Tetris [ 16 ] , among others—fall back on static heuristics: graph-coloring style maximal commuting sets [ 29 , 11 ] , greedy gate reordering, or SAT on small instances. The heuristics are fine for regular families (say, structured molecular Hamiltonians) but can differ by large depth factors when the Hamiltonian and commutator pattern vary; there is no built-in channel that feeds final simulation fidelity back into grouping and order before the circuit is fixed. What we set out to do We asked whether an end-to-end trainable loop could learn grouping, order, and time steps for a given Hamiltonian while seeing physically meaningful feedback. Three pieces have to line up. Hybrid generation. Diffusion models now handle heterogeneous discrete/continuous targets [ 12 , 1 , 14 ] . Discrete D3PM [ 1 ] together with continuous DDPM gives a workable recipe: discrete diffusion for grouping and order, continuous diffusion for time steps, tied together by a shared conditioning vector. Differentiable fidelity. Exact Trotter fidelity builds in e − i ​ H ​ t e^{-iHt} ; small n n allows dense matrix exponentials, larger instances need integrators. We use a PINN [ 21 , 17 ] : it fits | ψ ( t ) ⟩ \\left|\\psi(t)\\right\\rangle under the Schrödinger equation and initial data, turning fidelity into something you can backprop through. Fourier features [ 26 ] temper the usual spectral bias enough that, with the training budgets we use, PDE residuals land around 10 − 4 10^{-4} . Structured conditioning. We build a commutator graph over Pauli terms—coefficients and supports on nodes, commutator norms (and related scalars) on edges—and run a message-passing network [ 10 , 23 ] to a graph embedding fed to the diffusion model. The hope is simple: if the network learns which graph patterns pair with good strategies, it can transfer within a family of Hamiltonians without rewriting rules by hand. Contributions (1) We implement a closed loop that couples a diffusion generator, PINN critic, and GNN encoder, and we spell out how gradients flow: REINFORCE through discrete sampling, forward-mode–style fidelity gradients from the PINN , and classifier-free guidance ( CFG ) [ 13 ] at sampling time. The full pipeline trains on a single GPU. (2) We evaluate on TFIM against six baselines: fourth-order Qiskit, Cirq, TKET, PennyLane, and Paulihedral. Under our main protocol (500 test Hamiltonians, five random seeds each), we report 0.856 ± 0.136 0.856\\pm 0.136 fidelity versus 1.000 1.000 for Qiskit fourth order, at about 21.8 % 21.8\\% of the depth ( 28.7 28.7 vs 132.0 132.0 ) and 19.2 % 19.2\\% of the CNOTs ( 13.8 13.8 vs 72.0 72.0 ). With an equal-depth constraint, 1000 rounds of closed-loop fine-tuning produced a best observed fidelity of 0.9994 0.9994 . (3) Controlled ablations (1000 iterations from random init) show configuration dependence: toggling modules does not behave like flipping independent switches, especially for CFG -related knobs. Section 6 unpacks this; qualitatively, module value has to be judged under a agreed training recipe and joint hyperparameter tuning. Paper organization Section 2 reviews Trotter error theory, compiler heuristics, PINN s, and diffusion. Section 3 formalizes the problem and the four main components. Section 4 gives implementation notes and hyperparameters. Section 5 reports experiments. Section 6 discusses ablations, scale, and NISQ relevance. Section 7 concludes. 2 Related work 2.1 Error theory for Trotter–Suzuki formulas Splitting H = ∑ j = 1 M H j H=\\sum_{j=1}^{M}H_{j} into per-term exponentials incurs error on the order of 𝒪 ⁡ ( t 2 ​ ∑ j < k ‖ [ H j , H k ] ‖ ) \\mathcal{O}(t^{2}\\sum_{j<k}\\left\\|[H_{j},H_{k}]\\right\\|) for the simplest product. Suzuki’s 1991 recursive construction [ 25 ] lifts this to arbitrary even orders 2 ​ k 2k , driving the error down to 𝒪 ⁡ ( t 2 ​ k + 1 ) \\mathcal{O}(t^{2k+1}) and still underpins higher-order formulas in libraries today. The sharper machine-readable bounds of Childs et al. [4] replace the older BCH-style worst cases with a sum of nested commutator norms, which makes the dependence on Hamiltonian structure explicit; Wiebe et al. [32] gave a constructive account of higher-order products earlier. Non-product routes such as Taylor truncation and symmetry gadgets [ 2 , 27 ] usually need extra qubits or post-selection and sit awkwardly on NISQ hardware. We stay with Suzuki-style products and learn the discrete choices instead of fixing them by hand. 2.2 Pauli grouping and circuit compilation Grouping a Pauli Hamiltonian is a (typically approximate) clique cover on a commutativity graph; graph coloring and greedy max-clique heuristics are standard [ 29 , 11 ] . Crawford et al. [5] study how grouping interacts with sampling error. Most of these methods optimize grouping in isolation from downstream circuit depth, so they are at best local improvements inside a Trotter compiler. Paulihedral [ 18 ] is the closest engineering cousin to our setting: it optimizes grouping and gate order with geometry-inspired heuristics and lowers CNOTs via block-level synthesis. Tetris [ 16 ] similarly restructures simulation kernels. Neither closes the loop with differentiable fidelity or learning. Phoenix [ 8 ] consolidates Paulihedral/Tetris-style ideas behind a shared intermediate representation. Qiskit’s PauliEvolutionGate [ 15 ] is our primary numeric baseline; we add Cirq, TKET, PennyLane, and Paulihedral as additional reference points. Reinforcement-learning compilers [ 9 , 19 ] focus on gate substitution on abstract graphs rather than Trotter grouping and order. Our take is closer to generative modeling plus a physics-based critic that speaks the language of simulation error. 2.3 Physics-informed neural networks PINN s [ 21 ] fold PDE residuals and boundary/initial data into the loss, giving differentiable surrogates when no closed form exists [ 17 ] . They struggle on high-frequency or multi-scale targets; neural tangent kernel analyses [ 30 ] explain part of the story, and Fourier feature maps [ 26 ] are among the fixes we adopt wholesale. Time-dependent Schrödinger equations with PINN s are not new [ 6 ] , but prior studies usually stay in small, fixed settings. We embed the PINN inside the generator’s training loop and engineer differentiability through Trotter states (the ℒ circuit \\mathcal{L}_{\\text{circuit}} term) plus a warm-start path so online evaluation does not dominate runtime. 2.4 Diffusion models and discrete structure Score-based and DDPM-style models [ 12 , 24 ] are now default tools for structured generation. We use DDPM [ 12 ] for continuous time-step vectors 𝝉 \\bm{\\tau} and D3PM [ 1 ] for categorical group and order labels with factorizable uniform transitions. Classifier-free guidance ( CFG ) [ 13 ] zeros out conditioning during training with some probability and linearly extrapolates conditional vs. unconditional predictions at sample time. We apply it in the hybrid diffusion model and stress—supported by later ablations—that its usefulness is not a free lunch: it interacts tightly with training budget and ( p drop , w ) (p_{\\text{drop}},w) . Structured diffusion beyond images is now common; equivariant molecular models [ 14 ] are a representative example. Diffusion directly over Trotter policies is less explored; this paper is an empirical step in that direction. 2.5 Graph neural networks for Hamiltonians A Pauli Hamiltonian is a graph: terms as vertices, edges where operators fail to commute. MPNNs [ 10 ] and SchNet-style encoders [ 23 ] are standard for chemistry; Verdon et al. [28] extended GNN ideas to parameterized circuits; Satorras et al. [22] highlight equivariance when geometry matters. We deliberately use a vanilla MPNN with attention pooling—coefficients, supports, locality on nodes; commutator norms and qubit overlap on edges—trading extra symmetry structure for stability and interpretability. 2.6 Multi-objective optimization and Pareto fronts Depth and fidelity pull in opposite directions: higher-order formulas buy accuracy for more gates; finer grouping alters commutator costs versus exponentiation count. NSGA-II [ 7 ] is the usual workhorse for non-dominated sorting; hypervolume as a quality functional is well understood [ 34 , 31 ] . Our closed loop keeps a running Pareto tracker and logs hypervolume in Weights & Biases as the headline training metric. 3 Method 3.1 Problem setup Given an n n -qubit Pauli Hamiltonian H = ∑ j = 1 M c j ​ P j H=\\sum_{j=1}^{M}c_{j}P_{j} with P j ∈ { I , X , Y , Z } ⊗ n P_{j}\\in\\{I,X,Y,Z\\}^{\\otimes n} and real coefficients c j ∈ ℝ c_{j}\\in\\mathbb{R} , we seek a Trotter–Suzuki policy π \\pi such that the induced circuit U π ​ ( t ) U_{\\pi}(t) tracks the exact propagator U exact ​ ( t ) = e − i ​ H ​ t U_{\\text{exact}}(t)=e^{-iHt} at evolution time t t , while keeping depth small. Policy space. A policy π \\pi has three parts: • Grouping G ∈ { 0 , 1 , … , K − 1 } M G\\in\\{0,1,\\ldots,K-1\\}^{M} : assign each Pauli term to one of K K groups merged into a single exponentiated block. • Orders 𝒌 ∈ { 1 , 2 , 4 } K \\bm{k}\\in\\{1,2,4\\}^{K} : Suzuki order per group. • Time steps 𝝉 ∈ ℝ + K \\bm{\\tau}\\in\\mathbb{R}_{+}^{K} : nonnegative weights with ∑ i = 1 K τ i = 1 \\sum_{i=1}^{K}\\tau_{i}=1 . Given π = ( G , 𝒌 , 𝝉 ) \\pi=(G,\\bm{k},\\bm{\\tau}) , standard Suzuki recursion yields U π ​ ( t ) U_{\\pi}(t) with depth Depth ​ ( π ) \\text{Depth}(\\pi) . Fidelity (for initial state | ψ 0 ⟩ \\left|\\psi_{0}\\right\\rangle ) is F ⁡ ( π ) = | ⟨ ψ exact ​ ( t ) | ψ π ​ ( t ) ⟩ | 2 , F(\\pi)=\\left|\\left\\langle\\psi_{\\text{exact}}(t)\\middle|\\psi_{\\pi}(t)\\right\\rangle\\right|^{2}, (1) with | ψ exact ( t ) ⟩ = e − i ​ H ​ t | ψ 0 ⟩ \\left|\\psi_{\\text{exact}}(t)\\right\\rangle=e^{-iHt}\\left|\\psi_{0}\\right\\rangle and | ψ π ( t ) ⟩ = U π ( t ) | ψ 0 ⟩ \\left|\\psi_{\\pi}(t)\\right\\rangle=U_{\\pi}(t)\\left|\\psi_{0}\\right\\rangle . Multi-objective form. We maximize fidelity and minimize depth via a scalarized Pareto-style loss min π ℒ ⁡ ( π ) = ( 1 − F ⁡ ( π ) ) ⏟ simulation error + λ ⋅ Depth ​ ( π ) ⏟ depth penalty , \\min_{\\pi}\\quad\\mathcal{L}(\\pi)=\\underbrace{(1-F(\\pi))}_{\\text{simulation error}}+\\lambda\\cdot\\underbrace{\\text{Depth}(\\pi)}_{\\text{depth penalty}}, (2) with λ ≥ 0 \\lambda\\geq 0 . Sweeping λ \\lambda traces a frontier; hypervolume [ 31 ] summarizes frontier quality. Why autodiff alone fails. G G and 𝒌 \\bm{k} are discrete; 𝝉 \\bm{\\tau} is continuous but gradients must pass through the unitary stack. We use diffusion for proposals, a PINN as a differentiable fidelity surrogate, and REINFORCE to connect discrete samples to parameters. End-to-end flow. Encode H H with a GNN into 𝒄 ∈ ℝ 512 \\bm{c}\\in\\mathbb{R}^{512} ; sample π \\pi from the diffusion model conditioned on 𝒄 \\bm{c} ; compile π \\pi to a Trotter circuit; evaluate surrogate fidelity F ^ ​ ( π ) \\hat{F}(\\pi) and depth with the PINN ; backpropagate REINFORCE updates into the diffusion model and GNN . Repeat until convergence. The next subsections detail the GNN encoder, diffusion generator, PINN critic, and closed-loop optimization. 3.2 Graph encoding: GNN–MPNN We represent H = ∑ j c j ​ P j H=\\sum_{j}c_{j}P_{j} as an undirected graph 𝒢 = ( 𝒱 , ℰ ) \\mathcal{G}=(\\mathcal{V},\\mathcal{E}) with one vertex per Pauli string and edges between non-commuting pairs. Node features. For term j j , build 𝒙 j ∈ ℝ 16 \\bm{x}_{j}\\in\\mathbb{R}^{16} : • log ⁡ ( | c j | + 10 − 6 ) \\log(\\left|c_{j}\\right|+10^{-6}) and sign ​ ( c j ) \\text{sign}(c_{j}) (2D); • support size | supp ​ ( P j ) | \\left|\\text{supp}(P_{j})\\right| (1D); • locality max ⁡ supp ​ ( P j ) − min ⁡ supp ​ ( P j ) \\max\\text{supp}(P_{j})-\\min\\text{supp}(P_{j}) (1D); • per-qubit indicators padded to 12 when n ≤ 12 n\\leq 12 (12D). Edge features. For ( j , k ) ∈ ℰ (j,k)\\in\\mathcal{E} : • commutator norm ‖ [ P j , P k ] ‖ = 2 ⋅ 𝕀 [ P j , P k ] ≠ 0 \\left\\|[P_{j},P_{k}]\\right\\|=2\\cdot\\mathbb{I}_{[P_{j},P_{k}]\\neq 0} ; • shared qubit count | supp ​ ( P j ) ∩ supp ​ ( P k ) | \\left|\\text{supp}(P_{j})\\cap\\text{supp}(P_{k})\\right| ; • commutativity indicator 𝕀 [ P j , P k ] = 0 \\mathbb{I}_{[P_{j},P_{k}]=0} . These scalars line up with the dominant error terms in modern Trotter analyses [ 4 ] . Message passing. Four MPNN layers [ 10 ] : 𝒎 j ( ℓ ) \\displaystyle\\bm{m}_{j}^{(\\ell)} = ∑ k ∈ 𝒩 ⁡ ( j ) ϕ msg ( ℓ ) ​ ( 𝒉 j ( ℓ − 1 ) , 𝒉 k ( ℓ − 1 ) , 𝒆 j ​ k ) , \\displaystyle=\\sum_{k\\in\\mathcal{N}(j)}\\phi_{\\text{msg}}^{(\\ell)}\\big(\\bm{h}_{j}^{(\\ell-1)},\\bm{h}_{k}^{(\\ell-1)},\\bm{e}_{jk}\\big), (3) 𝒉 j ( ℓ ) \\displaystyle\\bm{h}_{j}^{(\\ell)} = ϕ update ( ℓ ) ​ ( 𝒉 j ( ℓ − 1 ) , 𝒎 j ( ℓ ) ) , \\displaystyle=\\phi_{\\text{update}}^{(\\ell)}\\big(\\bm{h}_{j}^{(\\ell-1)},\\bm{m}_{j}^{(\\ell)}\\big), (4) with 𝒉 j ( 0 ) = 𝒙 j \\bm{h}_{j}^{(0)}=\\bm{x}_{j} , two-layer MLPs (width 256), LayerNorm, and dropout p = 0.1 p=0.1 . Graph pooling. Attention pooling [ 22 ] yields α j = exp ⁡ ( ϕ attn ​ ( 𝒉 j ( 4 ) ) ) ∑ k = 1 M exp ⁡ ( ϕ attn ​ ( 𝒉 k ( 4 ) ) ) , 𝒄 = ∑ j = 1 M α j ​ 𝒉 j ( 4 ) . \\alpha_{j}=\\frac{\\exp(\\phi_{\\text{attn}}(\\bm{h}_{j}^{(4)}))}{\\sum_{k=1}^{M}\\exp(\\phi_{\\text{attn}}(\\bm{h}_{k}^{(4)}))},\\quad\\bm{c}=\\sum_{j=1}^{M}\\alpha_{j}\\bm{h}_{j}^{(4)}. (5) The conditioning vector 𝒄 ∈ ℝ 512 \\bm{c}\\in\\mathbb{R}^{512} feeds the diffusion model. Permutation sanity. Term order is arbitrary; unit tests check ‖ GNN ⁡ ( H σ ) − GNN ⁡ ( H ) ‖ < 10 − 6 \\left\\|\\operatorname{GNN}(H_{\\sigma})-\\operatorname{GNN}(H)\\right\\|<10^{-6} for random permutations σ \\sigma . 3.3 Conditional diffusion for policies A policy mixes categorical and continuous parts, so we run three coupled diffusion branches with shared time and condition embeddings. Grouping (D3PM). Categories G ∈ { 0 , … , K − 1 } M G\\in\\{0,\\ldots,K-1\\}^{M} use D3PM [ 1 ] with uniform corruption q ⁡ ( G t | G t − 1 ) = ( 1 − β t ) ⋅ δ G t , G t − 1 + β t / K , q(G_{t}|G_{t-1})=(1-\\beta_{t})\\cdot\\delta_{G_{t},G_{t-1}}+\\beta_{t}/K, (6) cosine β t \\beta_{t} schedule, cached cumulative 𝑸 ¯ t \\bar{\\bm{Q}}_{t} , and a four-layer Transformer denoiser (width 256, sequence length M M ). Order (D3PM). Orders 𝒌 ∈ { 1 , 2 , 4 } K \\bm{k}\\in\\{1,2,4\\}^{K} use a compact D3PM with a two-layer Transformer (length K K , three labels), sharing embeddings with the grouping branch. Time steps (DDPM). Continuous 𝝉 \\bm{\\tau} follows DDPM [ 12 ] on ℝ K \\mathbb{R}^{K} followed by a softmax to the simplex: 𝝉 t = α ¯ t ​ 𝝉 0 + 1 − α ¯ t ​ ϵ , ϵ ∼ 𝒩 ⁡ ( 𝟎 , 𝑰 ) , \\bm{\\tau}_{t}=\\sqrt{\\bar{\\alpha}_{t}}\\bm{\\tau}_{0}+\\sqrt{1-\\bar{\\alpha}_{t}}\\bm{\\epsilon},\\quad\\bm{\\epsilon}\\sim\\mathcal{N}(\\bm{0},\\bm{I}), (7) with α ¯ t = ∏ s ≤ t ( 1 − β s ) \\bar{\\alpha}_{t}=\\prod_{s\\leq t}(1-\\beta_{s}) . A three-layer MLP predicts noise ϵ ^ θ ​ ( 𝝉 t , 𝒄 , t ) \\hat{\\bm{\\epsilon}}_{\\theta}(\\bm{\\tau}_{t},\\bm{c},t) . Training loss. Weighted sum of branch losses, ℒ diff = ℒ D3PM group + 0.5 ⋅ ℒ DDPM time + 0.3 ⋅ ℒ D3PM order , \\mathcal{L}_{\\text{diff}}=\\mathcal{L}_{\\text{D3PM}}^{\\text{group}}+0.5\\cdot\\mathcal{L}_{\\text{DDPM}}^{\\text{time}}+0.3\\cdot\\mathcal{L}_{\\text{D3PM}}^{\\text{order}}, (8) reflecting that errors are most sensitive to grouping and order, less so to time-step splits. Classifier-free guidance. Train with p drop = 0.1 p_{\\text{drop}}=0.1 to drop 𝒄 \\bm{c} ; at sampling time blend conditional and unconditional predictions, ϵ ^ guided = ( 1 + w ) ⋅ ϵ ^ θ ( ⋅ | 𝒄 ) − w ⋅ ϵ ^ θ ( ⋅ | 𝟎 ) , \\hat{\\bm{\\epsilon}}^{\\text{guided}}=(1+w)\\cdot\\hat{\\bm{\\epsilon}}_{\\theta}(\\cdot|\\bm{c})-w\\cdot\\hat{\\bm{\\epsilon}}_{\\theta}(\\cdot|\\bm{0}), (9) with strength w = 3.0 w=3.0 for Hamiltonian conditioning (analogous logit mixing on discrete heads). Ablations later show this is not orthogonal to training budget: ( p drop , w ) (p_{\\text{drop}},w) should be tuned together rather than treated as a static toggle. EMA. We track an EMA copy of the diffusion weights (decay 0.9999 0.9999 ) and sample from EMA parameters to reduce sampling noise. From samples to circuits. Reverse diffusion runs T = 1000 T=1000 steps. Post-processing merges empty groups, renormalizes 𝝉 \\bm{\\tau} , and rounds orders; unit tests in strategy/encoding.py guarantee compilable Qiskit output. 3.4 PINN physics critic The PINN fits | ψ ( s ) ⟩ \\left|\\psi(s)\\right\\rangle for s ∈ [ 0 , t ] s\\in[0,t] so inner products against Trotter states remain differentiable in network parameters. Architecture. Fourier features [ 26 ] before a three-layer MLP (width 512, tanh \\tanh , LayerNorm) output real/imag parts of size ( 2 n , 2 ) (2^{n},2) . Frequencies use σ = ‖ H ‖ / ( 2 ​ π ) \\sigma=\\left\\|H\\right\\|/(2\\pi) with frozen Gaussian 𝑩 ∈ ℝ 256 × 1 \\bm{B}\\in\\mathbb{R}^{256\\times 1} , giving a 512-D embedding. Physics losses. ℒ IC \\displaystyle\\mathcal{L}_{\\text{IC}} = ‖ | ψ θ ( 0 ) ⟩ − | ψ 0 ⟩ ‖ 2 , \\displaystyle=\\left\\|\\left|\\psi_{\\theta}(0)\\right\\rangle-\\left|\\psi_{0}\\right\\rangle\\right\\|^{2}, (10) ℒ PDE \\displaystyle\\mathcal{L}_{\\text{PDE}} = 𝔼 s ∼ 𝒰 ⁡ [ 0 , t ] ‖ i ∂ ∂ s | ψ θ ( s ) ⟩ − H | ψ θ ( s ) ⟩ ‖ 2 , \\displaystyle=\\mathbb{E}_{s\\sim\\mathcal{U}[0,t]}\\left\\|i\\frac{\\partial}{\\partial s}\\left|\\psi_{\\theta}(s)\\right\\rangle-H\\left|\\psi_{\\theta}(s)\\right\\rangle\\right\\|^{2}, (11) ℒ circuit \\displaystyle\\mathcal{L}_{\\text{circuit}} = 𝔼 s ∈ 𝒯 ckpt ‖ | ψ θ ( s ) ⟩ − | ψ π ( s ) ⟩ ‖ 2 . \\displaystyle=\\mathbb{E}_{s\\in\\mathcal{T}_{\\text{ckpt}}}\\left\\|\\left|\\psi_{\\theta}(s)\\right\\rangle-\\left|\\psi_{\\pi}(s)\\right\\rangle\\right\\|^{2}. (12) Total ℒ PINN = 10 ​ ℒ IC + ℒ PDE + 5 ​ ℒ circuit + 0.1 ​ ℒ norm , \\mathcal{L}_{\\text{PINN}}=10\\mathcal{L}_{\\text{IC}}+\\mathcal{L}_{\\text{PDE}}+5\\mathcal{L}_{\\text{circuit}}+0.1\\mathcal{L}_{\\text{norm}}, (13) with ℒ norm = 𝔼 s ( ‖ | ψ θ ( s ) ⟩ ‖ − 1 ) 2 \\mathcal{L}_{\\text{norm}}=\\mathbb{E}_{s}(\\left\\|\\left|\\psi_{\\theta}(s)\\right\\rangle\\right\\|-1)^{2} . Time derivatives use autograd with create_graph=True so outer-loop fidelity gradients reach the diffusion model. Surrogate fidelity. For policy π \\pi , compile | ψ π ( t ) ⟩ \\left|\\psi_{\\pi}(t)\\right\\rangle and set F ~ ​ ( π ) = | ⟨ ψ θ ​ ( t ) | ψ π ​ ( t ) ⟩ | 2 . \\tilde{F}(\\pi)=\\left|\\left\\langle\\psi_{\\theta}(t)\\middle|\\psi_{\\pi}(t)\\right\\rangle\\right|^{2}. (14) F ~ \\tilde{F} differentiates w.r.t. continuous 𝝉 \\bm{\\tau} through the circuit state and with respect to PINN parameters through | ψ θ ( t ) ⟩ \\left|\\psi_{\\theta}(t)\\right\\rangle . In stage-3E2 checks, mean bias vs. exact fidelity stayed below 1.6 × 10 − 3 1.6\\times 10^{-3} , under our 10 − 2 10^{-2} acceptance bar. Warm start. PINN s are pretrained per distinct training Hamiltonian, then fine-tuned for 200 steps per minibatch in the loop, dropping per-Hamiltonian cost from minutes to seconds. 3.5 Closed-loop joint optimization Each iteration: 1. Sample B = 32 B=32 Hamiltonians from the training distribution; 2. Encode each to 𝒄 i \\bm{c}_{i} with the GNN ; 3. Sample policies π i \\pi_{i} under guidance; 4. Compile circuits, evaluate F ~ ​ ( π i ) \\tilde{F}(\\pi_{i}) and Depth ​ ( π i ) \\text{Depth}(\\pi_{i}) ; 5. Rewards r i = F ~ ​ ( π i ) − λ ⋅ Depth ​ ( π i ) / D ref r_{i}=\\tilde{F}(\\pi_{i})-\\lambda\\cdot\\text{Depth}(\\pi_{i})/D_{\\text{ref}} ; 6. REINFORCE gradients for diffusion + GNN ; 7. AdamW ( 10 − 5 10^{-5} ) update; 8. Refresh the Pareto tracker; checkpoint every 100 steps. REINFORCE. Discrete draws use REINFORCE [ 33 ] , ∇ θ 𝔼 ​ [ ℒ ⁡ ( π ) ] ≈ 𝔼 ⁡ [ ( ℒ ⁡ ( π ) − b ) ⋅ ∇ θ ​ log ​ p θ ​ ( π | 𝒄 ) ] , \\nabla_{\\theta}\\mathbb{E}[\\mathcal{L}(\\pi)]\\approx\\mathbb{E}\\big[(\\mathcal{L}(\\pi)-b)\\cdot\\nabla_{\\theta}\\log p_{\\theta}(\\pi|\\bm{c})\\big], (15) with an exponential moving-average baseline ( 0.9 0.9 decay). Log-probabilities sum categorical terms from D3PM and Gaussian terms from DDPM along the reverse trajectory. Pareto tracking. A ParetoTracker maintains nondominated ( F ~ , Depth ) (\\tilde{F},\\text{Depth}) pairs. Hypervolume vs. reference ( 0 , D max ) (0,D_{\\max}) tracks progress. Scanning λ ∈ { 0 , 0.01 , 0.05 , 0.1 , 0.5 , 1.0 } \\lambda\\in\\{0,0.01,0.05,0.1,0.5,1.0\\} stitches together merged fronts. Checkpoints. Files like ckpt_iter_000600_fid0.9234_depth0042.pt store weights, EMA, optimizer, and Pareto state; we keep best fidelity, best hypervolume, and the last three snapshots. 4 Implementation and hyperparameters We implement the models and training loop in PyTorch and PyTorch Geometric, compile quantum circuits with Qiskit [ 15 ] , and obtain molecular Hamiltonians from PySCF via Jordan–Wigner. All experiments ran on a single NVIDIA GeForce RTX 5090 Laptop GPU. 4.1 Training stages Training proceeds in three stages. We first build the TFIM corpus and pretrain the PINN per Hamiltonian offline. We then supervise the GNN (fidelity regression) and the diffusion objective (mixed ELBO), saving a warm-start checkpoint. Finally we run the closed loop with REINFORCE, sampling minibatches of Hamiltonians, drawing policies, and scoring them with the PINN ; we scan the depth–fidelity trade-off coefficient λ \\lambda and merge nondominated points into a single Pareto front. Default learning rates, iteration counts, and batch sizes are listed in Table 1 . 4.2 Hyperparameter table Table 1 collects the main settings. Most values follow standard practice; only loss weights and the λ \\lambda grid received light manual tuning rather than an exhaustive search. Table 1 : Key hyperparameters and defaults. Block Hyperparameter Value Notes PINN Fourier count m m 256 2 ​ m = 512 2m=512 embedding scale σ \\sigma ‖ H ‖ / ( 2 ​ π ) \\left\\|H\\right\\|/(2\\pi) adaptive hidden width 512 3-layer MLP loss weights IC / PDE / circuit 10 / 1 / 5 weighted sum GNN MPNN depth 4 message passing hidden width 256 per layer output dim 512 after attention pool node / edge dim 16 / 3 see § 3.2 dropout 0.1 after each layer Diffusion steps T T 1000 shared β \\beta schedule cosine [ 10 − 4 , 0.02 ] [10^{-4},0.02] CFG dropout p drop p_{\\text{drop}} 0.1 train-time guidance w w 3.0 sample-time branch depths group/order/time 4 / 2 / 3 TF / TF / MLP EMA decay 0.9999 shadow weights Loop iterations 1000 full run Hamiltonians per step 32 batch PINN warm-start steps 200 per minibatch policy LR 10 − 5 10^{-5} AdamW baseline EMA 0.9 variance reduction λ \\lambda values { 0 , … , 1.0 } \\{0,\\dots,1.0\\} trade-off sweep Dataset samples 5000 TFIM qubit mix 4:6:8 = 6:3:1 training coupling J J [ 0.5 , 2.0 ] [0.5,2.0] log-uniform time t t 2.0 (fixed) matches benchmarks 4.3 Protocol alignment and stability Coupled generate/evaluate training is sensitive to consistent conditions between data generation and benchmarks (e.g., matching evolution time); otherwise encoders and diffusion miss the intended operating regime. The PINN must expose higher-order derivatives so fidelity gradients reach the generator, while REINFORCE on discrete actions uses a baseline and gradient clipping to keep variance manageable. Hamiltonian–state products inside the PDE residual use a sparse representation for efficiency. Additional engineering detail and reproduction scripts are left to the code repository. 5 Experiments 5.1 Setup Dataset. Primary training and evaluation use TFIM , H = − J ∑ ⟨ i , j ⟩ Z i Z j − h ∑ i X i . H=-J\\sum_{\\langle i,j\\rangle}Z_{i}Z_{j}-h\\sum_{i}X_{i}. We built 5000 training examples with n ∈ { 4 , 6 , 8 } n\\in\\{4,6,8\\} mixed 6:3:1, J J log-uniform on [ 0.5 , 2.0 ] [0.5,2.0] , h h log-uniform on [ 0.1 , 0.5 ] [0.1,0.5] , and fixed evolution time t = 2.0 t=2.0 (aligned with all benchmarks). Each row includes a Dirichlet-drawn Trotter policy and exact fidelity labels. Figure 1 summarizes marginal distributions. Figure 1 : Marginal statistics for the TFIM training corpus. Left to right: qubit count n n , coupling J J , transverse field h h . Both J J and h h are log-uniform to span weak-to-moderate coupling. Baselines. We compare six approaches. Ours runs the full GNN –diffusion– PINN loop and samples policies online per test Hamiltonian. The other five are public Trotter stacks: Qiskit [ 15 ] fourth-order LieTrotter / SuzukiTrotter (five repeats; SDK revision in § 4 ); Cirq PauliStringPhasor with fourth-order Suzuki; TKET PauliExpBox fourth-order; PennyLane qml.TrotterProduct(order=4) ; Paulihedral [ 18 ] block scheduling with depth_oriented_scheduling followed by a unified Qiskit basis pass. Paulihedral depths/CNOTs therefore diverge from a vanilla fourth-order Suzuki template. Metrics. Per strategy we log exact fidelity F = | ⟨ ψ exact | ψ π ⟩ | 2 F=\\left|\\left\\langle\\psi_{\\text{exact}}\\middle|\\psi_{\\pi}\\right\\rangle\\right|^{2} , transpiled depth in basis { H , CX , R z , X } \\{H,\\mathrm{CX},R_{z},X\\} at optimization level 1, CNOT count, and mean latency over 100 runs after warm JIT. Pareto quality uses hypervolume with reference ( 0 , 10000 ) (0,10000) . Protocol. Main comparisons: 100 held-out Hamiltonians × \\times 5 seeds (500 sample points), reporting mean ± \\pm std. Unless noted, other experiments use the same 500 draws. 5.2 PINN validation Closed-loop training leans on PINN -estimated fidelity gradients; if the surrogate is biased, policies can wander. We trained separate PINN s on ten independent four-qubit TFIM instances and measured mean absolute error against exact fidelity on 500 held-out policies. Across the ten models, mean PDE residual was 5.55 × 10 − 5 5.55\\times 10^{-5} , below the 10 − 4 10^{-4} acceptance gate; mean absolute fidelity error was 1.57 × 10 − 3 1.57\\times 10^{-3} , under the 10 − 2 10^{-2} gate. At this validation scale the errors look compatible with using PINN as a fine-tuning signal; extrapolation to broader Hamiltonian families still needs its own checks. Figure 2 : PINN validation on ten TFIM instances. Left: post-training PDE residual vs. 10 − 4 10^{-4} threshold (red dashed). Center: mean absolute fidelity error 1.57 × 10 − 3 1.57\\times 10^{-3} vs. 10 − 2 10^{-2} gate. Right: external benchmark ordering (Ours / Qiskit fourth / Paulihedral) to cross-check that surrogate rankings track exact rankings. 5.3 Main comparison Table 2 aggregates fidelity, depth, CNOTs, and latency on 500 test samples; Figure 3 visualizes the trade-offs as bar charts. Table 2 : Six-way comparison on 500 TFIM test instances (mean ± \\pm std). Method Fidelity Depth CNOTs Latency (ms) Ours 0.856 ± 0.136 0.856\\pm 0.136 28.7 ± 16.9 \\bm{28.7\\pm 16.9} 13.8 ± 7.6 \\bm{13.8\\pm 7.6} 4579 4579 Qiskit-4th 1.000 ± 0.000 1.000\\pm 0.000 132.0 132.0 72.0 72.0 0.030 \\bm{0.030} Cirq 0.963 ± 0.026 0.963\\pm 0.026 132.0 132.0 72.0 72.0 72 72 TKET 0.963 ± 0.026 0.963\\pm 0.026 132.0 132.0 72.0 72.0 7.7 7.7 PennyLane 0.954 ± 0.053 0.954\\pm 0.053 132.0 132.0 72.0 72.0 37 37 Paulihedral 0.960 ± 0.029 0.960\\pm 0.029 48.0 48.0 40.0 40.0 107 107 Depth and CNOT statistics are taken over all 500 samples. Ours varies structure per draw because sampling is stochastic; baselines use fixed templates in this configuration (empirical std ≈ 0 \\approx 0 ), hence integer means in the table. Figure 3 : Bar-style comparison (fidelity, depth, latency on a log axis). Fidelity trails the high-order baselines, but depth and CNOTs improve by ∼ 4 × {\\sim}4\\times . Latency is ∼ 10 5 × {\\sim}10^{5}\\times worse than compilers because of 1000 diffusion steps—acceptable if compilation amortizes over many executions. Qualitatively, we sit at 0.856 0.856 vs. 1.000 1.000 fidelity on Qiskit fourth order while using 21.8 % 21.8\\% of the depth ( 28.7 28.7 vs. 132.0 132.0 ) and 19.2 % 19.2\\% of the CNOTs ( 13.8 13.8 vs. 72.0 72.0 ). Relative to the baseline fidelity, we keep about 85.6 % 85.6\\% of the accuracy for roughly one-fifth of the circuit size. On real hardware, error stacks with depth, so the trade can flip toward shallower circuits when budgets are tight. A toy model makes the point: with per-gate error ϵ = 10 − 3 \\epsilon=10^{-3} , depth 132 multiplies ideal fidelity by about ( 1 − 10 − 3 ) 132 ≈ 0.876 (1-10^{-3})^{132}\\approx 0.876 , while depth 28.7 multiplies 0.856 0.856 by about ( 1 − 10 − 3 ) 28.7 ≈ 0.832 (1-10^{-3})^{28.7}\\approx 0.832 . The two land in a similar band, yet the shallow circuit asks less of coherence and routing. Latency sits near five seconds per policy because of full 1000-step sampling—fine for “compile once, execute many times” use cases. Paulihedral averages 0.960 0.960 fidelity with ∼ 107 {\\sim}107 ms latency but depths 48.0 48.0 and CNOTs 40.0 40.0 , still above our 28.7 / 13.8 28.7/13.8 . The two approaches therefore emphasize different trade-offs: Paulihedral favors fidelity-first compilation; our sampler favors aggressive compression and may suit noisier or depth-limited backends. 5.4 Closed-loop convergence We ran 50 closed-loop iterations on a single four-qubit TFIM instance and tracked mean fidelity (Figure 4 ). Fidelity stayed between 0.70 0.70 and 0.94 0.94 ; the first ten rounds averaged 0.861 0.861 , the last ten 0.823 0.823 , with REINFORCE exploration causing the wobble. The trailing window can dip while the depth-regularized reward still improves—so we accept runs with terminal-window fidelity ≥ 0.70 \\geq 0.70 rather than demanding monotonicity. Figure 4 : Fidelity across 50 closed-loop iterations. No collapses; variance reflects REINFORCE exploration. A longer 1000-iteration proof-of-concept under an equal-depth ( ≤ {\\leq} Qiskit fourth-order) cap reached best fidelity 0.9994 0.9994 , more than three times our 0.317 0.317 acceptance bar, with five nondominated Pareto points shallower than depth 42. 5.5 Ablations We trained three ablated variants from random initialization for 1000 closed-loop iterations and evaluated on the same 500 test draws. Variants: no PINN guidance (supervised loss only), no CFG (zero conditional dropout), zero GNN conditioning. Placeholders for unimplemented toggles are omitted. Table 3 lists outcomes. Unlike a shorter 100-iter study, no_cfg here achieves the highest mean fidelity ( 0.583 ± 0.296 0.583\\pm 0.296 ) with lower depth/CNOT than the full model, which hints that default CFG knobs ( p drop = 0.1 p_{\\text{drop}}=0.1 , w = 3.0 w=3.0 ) are not tuned for this zero-init, 1000-iter budget; module contributions and guidance need joint calibration. Table 3 : Ablations after 1000 closed-loop iterations from scratch. Under the current defaults, no_cfg leads on both fidelity and depth. Variant Fidelity Depth CNOT Δ \\Delta Full 0.288 ± 0.269 0.288\\pm 0.269 28.0 28.0 16.0 16.0 baseline no_pinn_guidance 0.296 ± 0.260 0.296\\pm 0.260 15.0 15.0 8.0 8.0 +3.0% fid., − 46.4 % -46.4\\% depth no_cfg 0.583 ± 0.296 \\bm{0.583\\pm 0.296} 14.0 ± 2.1 \\bm{14.0\\pm 2.1} 8.0 \\bm{8.0} +102.5% fid., − 50.1 % -50.1\\% depth no_gnn_encoder 0.298 ± 0.261 0.298\\pm 0.261 15.0 ± 0.3 15.0\\pm 0.3 8.0 8.0 +3.4% fid., − 46.5 % -46.5\\% depth Important caveat: these runs start from noise without the supervised+warm-start pipeline that delivers the 0.856 0.856 main result. The fair reading is that CFG /conditioning must be retuned under “from-scratch + fixed hypers” budgets; under “pretrain + fine-tune,” the full stack still produces our headline numbers. Section 6 revisits the gap. 5.6 Case study: grouping heatmap Figure 5 shows an eight-term, four-group policy. Rows are Pauli strings, columns groups, colors group IDs, and headers mark Suzuki orders k ∈ { 1 , 2 , 4 } k\\in\\{1,2,4\\} . Figure 5 : Example grouping heatmap. Imbalanced groups emerge naturally: singletons with high order vs. triples with lower order—patterns rarely produced by symmetry-first heuristics. The layout departs from “equal-sized blocks, uniform order” heuristics: some singletons take fourth-order budgets where commutators bite hardest; larger low-order blocks cover more commuting terms—exactly the heterogeneity a Pareto objective encourages. 5.7 Out-of-distribution scaling: Heisenberg We stress-test on Heisenberg chains, H = − J ∑ ⟨ i , j ⟩ ( X i X j + Y i Y j + Z i Z j ) , H=-J\\sum_{\\langle i,j\\rangle}(X_{i}X_{j}+Y_{i}Y_{j}+Z_{i}Z_{j}), with periodic boundaries, coupling triples uniform in [ 0.2 , 2.0 ] [0.2,2.0] , fifty random instances per qubit count (150 total). Each instance runs 50 closed-loop iterations from scratch; commutator structure differs sharply from TFIM training data, so this is a distribution-shift experiment. Table 4 summarizes results. Depth collapses to ∼ 11 {\\sim}11 – 13 % 13\\% of Qiskit fourth order ( n = 4 n=4 : 76 vs. 569; n = 8 n=8 : 132 vs. 1169). Mean fidelity ( 0.326 0.326 ) trails the baseline ( 0.444 0.444 ); 52/150 instances beat the strict “ ≥ \\geq baseline fidelity” test. Training-domain shift plus only 50 adaptation steps explains much of the gap; nonetheless, grouping continues to find compact circuits, while catching up on fidelity likely needs longer training or cross-domain pretraining. Table 4 : Heisenberg scaling (50 instances per n n , 50 loop iterations each). n n Ours fid. Base fid. Ours depth Base depth Pass rate 4 0.461 ± 0.258 0.461\\pm 0.258 0.538 ± 0.359 0.538\\pm 0.359 76.1 76.1 569.0 569.0 22/50 6 0.356 ± 0.334 0.356\\pm 0.334 0.523 ± 0.339 0.523\\pm 0.339 110.0 110.0 869.0 869.0 11/50 8 0.159 ± 0.204 0.159\\pm 0.204 0.270 ± 0.301 0.270\\pm 0.301 132.2 132.2 1169.0 1169.0 19/50 All 0.326 \\bm{0.326} 0.444 0.444 106.1 106.1 869.0 869.0 52/150 Figure 6 : Mean fidelity vs. n n for Heisenberg instances (blue: ours, green: Qiskit fourth). Depth stays ∼ 8 × {\\sim}8\\times smaller, but 50-step adaptation underfits relative to baselines as n n grows. 5.8 Molecules: H 2 and LiH bond scans To probe chemistry transfer, we optimize bond lengths for H 2 (0.5–3.0 Å, 0.1 Å steps, STO-3G, n = 4 n=4 , 15 Pauli terms) and LiH (1.0–4.0 Å, STO-3G, n = 12 n=12 , 631 terms). Each bond runs 50 loop iterations from scratch. Molecular term counts differ from the TFIM training default ( M = 8 M=8 ), so GNN +diffusion cannot reuse TFIM weights: every curve is effectively domain adaptation from scratch. H 2 : mean exact fidelity 0.9999 0.9999 across 26 bonds; 22/26 meet or beat Qiskit fourth order; four “misses” sit in the numerical shoulder ( max \\max gap − 0.0016 -0.0016 ), plausibly noise. Mean depth 68.7 vs. 615.0 baseline— ∼ 11.2 % {\\sim}11.2\\% of baseline depth ( ∼ 88.8 % {\\sim}88.8\\% reduction) while staying near unit fidelity. Figure 7 : Molecular scans. Left: H 2 exact fidelity (26 bonds); our curve (blue) tracks the Qiskit fourth-order baseline (green) with ∼ 11.2 % {\\sim}11.2\\% depth. Right: LiH proxy fidelity (31 bonds); ours stays above the baseline despite aggressive depth cuts. LiH: twelve qubits and 631 Pauli strings push Qiskit fourth order to depth 6305—impractical on many machines. At depth 812.8 our proxy fidelity is 0.9603 0.9603 vs. 0.7296 0.7296 for the unwieldy baseline; all 31 bonds pass the “ ≥ \\geq baseline” proxy test, a + 31.6 % {+}31.6\\% margin. Table 5 : Molecular summary (50 loop iterations, STO-3G, t = 2.0 t=2.0 ). LiH uses a depth-aware proxy fidelity; H 2 uses exact simulation fidelity. System Metric Ours Qiskit-4th Depth ratio Pass H 2 ( n = 4 n{=}4 , M = 15 M{=}15 ) exact fid. 0.9999 0.9999 1.0000 1.0000 68.7 / 615.0 = 11.2% 68.7/615.0=\\textbf{11.2\\%} 22/26 LiH ( n = 12 n{=}12 , M = 631 M{=}631 ) proxy fid. 0.9603 \\bm{0.9603} 0.7296 0.7296 812.8 / 6305.0 = 12.9% 812.8/6305.0=\\textbf{12.9\\%} 31/31 For four-qubit H 2 , 50 adaptation steps suffice; LiH highlights where depth reduction matters most on contemporary hardware. 6 Discussion 6.1 CFG sensitivity in long ablations The 1000-iter-from-scratch ablation paints a different picture than short runs: no_cfg attains the best mean fidelity ( 0.583 ± 0.296 0.583\\pm 0.296 ) and shallower circuits than the full model ( 14.0 14.0 vs. 28.0 28.0 depth) under the default ( p drop , w ) (p_{\\text{drop}},w) pair. Within this protocol it is safer to treat CFG as a coupled knob than as a strictly helpful add-on: it interacts strongly with training budget and needs joint tuning with ( p drop , w ) (p_{\\text{drop}},w) . Training-time dropout and sampling-time guidance are not really independent levers. Defaults ( p drop = 0.1 p_{\\text{drop}}=0.1 , w = 3.0 w=3.0 ) may extrapolate too aggressively for the available iterations, pushing trajectories away from where the reward is good. The no_cfg path (no dropout, effectively identity guidance) simply behaved more predictably here. Future sweeps should treat ( p drop , w ) (p_{\\text{drop}},w) as a 2D search, not a binary CFG switch. 6.2 When PINN guidance and GNN conditioning help Aside from no_cfg , no_pinn_guidance and no_gnn_encoder nudge fidelity up ∼ 3 % {\\sim}3\\% and cut depth ∼ 46 % {\\sim}46\\% relative to the full model. That does not make PINN or GNN useless—it screams “optimization mismatch” under zero-init + frozen ",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Skip to main content",
+      "url": "https://arxiv.org/html/2605.13268v1#infobox"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/IgnoreMe"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "Why HTML?",
+      "url": "https://info.arxiv.org/about/accessible_HTML.html"
+    },
+    {
+      "text": "Back to Abstract",
+      "url": "https://arxiv.org/abs/2605.13268v1"
+    },
+    {
+      "text": "Download PDF",
+      "url": "https://arxiv.org/pdf/2605.13268v1"
+    },
+    {
+      "text": "License: arXiv.org perpetual non-exclusive license",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "20",
+      "url": "https://arxiv.org/html/2605.13268v1#bib.bib28"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2605.13268v1#bib.bib29"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2605.13268v1#bib.bib3"
+    },
+    {
+      "text": "15",
+      "url": "https://arxiv.org/html/2605.13268v1#bib.bib7"
+    },
+    {
+      "text": "18",
+      "url": "https://arxiv.org/html/2605.13268v1#bib.bib6"
+    },
+    {
+      "text": "16",
+      "url": "https://arxiv.org/html/2605.13268v1#bib.bib11"
+    },
+    {
+      "text": "29",
+      "url": "https://arxiv.org/html/2605.13268v1#bib.bib9"
+    },
+    {
+      "text": "11",
+      "url": "https://arxiv.org/html/2605.13268v1#bib.bib8"
+    },
+    {
+      "text": "12",
+      "url": "https://arxiv.org/html/2605.13268v1#bib.bib18"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2605.13268v1#bib.bib19"
+    },
+    {
+      "text": "14",
+      "url": "https://arxiv.org/html/2605.13268v1#bib.bib22"
+    },
+    {
+      "text": "21",
+      "url": "https://arxiv.org/html/2605.13268v1#bib.bib13"
+    },
+    {
+      "text": "17",
+      "url": "https://arxiv.org/html/2605.13268v1#bib.bib15"
+    },
+    {
+      "text": "26",
+      "url": "https://arxiv.org/html/2605.13268v1#bib.bib14"
+    },
+    {
+      "text": "10",
+      "url": "https://arxiv.org/html/2605.13268v1#bib.bib23"
+    },
+    {
+      "text": "23",
+      "url": "https://arxiv.org/html/2605.13268v1#bib.bib24"
+    },
+    {
+      "text": "13",
+      "url": "https://arxiv.org/html/2605.13268v1#bib.bib20"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2605.13268v1#S6"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2605.13268v1#S2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2605.13268v1#S3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2605.13268v1#S4"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2605.13268v1#S5"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2605.13268v1#S7"
+    },
+    {
+      "text": "1991",
+      "url": "https://arxiv.org/html/2605.13268v1#bib.bib1"
+    },
+    {
+      "text": "Wiebe et al. [32]",
+      "url": "https://arxiv.org/html/2605.13268v1#bib.bib5"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2605.13268v1#bib.bib2"
+    },
+    {
+      "text": "27",
+      "url": "https://arxiv.org/html/2605.13268v1#bib.bib4"
+    },
+    {
+      "text": "Crawford et al. [5]",
+      "url": "https://arxiv.org/html/2605.13268v1#bib.bib10"
+    },
+    {
+      "text": "8",
+      "url": "https://arxiv.org/html/2605.13268v1#bib.bib12"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2605.13268v1#bib.bib33"
+    },
+    {
+      "text": "19",
+      "url": "https://arxiv.org/html/2605.13268v1#bib.bib34"
+    },
+    {
+      "text": "30",
+      "url": "https://arxiv.org/html/2605.13268v1#bib.bib17"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2605.13268v1#bib.bib16"
+    },
+    {
+      "text": "24",
+      "url": "https://arxiv.org/html/2605.13268v1#bib.bib21"
+    },
+    {
+      "text": "Verdon et al. [28]",
+      "url": "https://arxiv.org/html/2605.13268v1#bib.bib25"
+    },
+    {
+      "text": "Satorras et al. [22]",
+      "url": "https://arxiv.org/html/2605.13268v1#bib.bib26"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2605.13268v1#bib.bib30"
+    },
+    {
+      "text": "34",
+      "url": "https://arxiv.org/html/2605.13268v1#bib.bib31"
+    },
+    {
+      "text": "31",
+      "url": "https://arxiv.org/html/2605.13268v1#bib.bib32"
+    },
+    {
+      "text": "33",
+      "url": "https://arxiv.org/html/2605.13268v1#bib.bib27"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2605.13268v1#S4.T1"
+    },
+    {
+      "text": "3.2",
+      "url": "https://arxiv.org/html/2605.13268v1#S3.SS2"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2605.13268v1#S5.F1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2605.13268v1#S5.T2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2605.13268v1#S5.F3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2605.13268v1#S5.F4"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2605.13268v1#S5.T3"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2605.13268v1#S5.F5"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2605.13268v1#S5.T4"
+    },
+    {
+      "text": "5.3",
+      "url": "https://arxiv.org/html/2605.13268v1#S5.SS3"
+    },
+    {
+      "text": "5.6",
+      "url": "https://arxiv.org/html/2605.13268v1#S5.SS6"
+    },
+    {
+      "text": "https://github.com/mindmemory-ai/pinn_diffusion_trotter_suzuki.git",
+      "url": "https://github.com/mindmemory-ai/pinn_diffusion_trotter_suzuki.git"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2605.13268v1#S1.SSx1.p2.1"
+    }
+  ],
+  "matching_link_count": 110,
+  "links_truncated": true,
+  "invalid_links": []
+}

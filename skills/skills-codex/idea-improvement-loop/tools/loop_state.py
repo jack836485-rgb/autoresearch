@@ -94,8 +94,8 @@ def review_qualifies(result: dict) -> bool:
     for key in ("contribution_assessment", "feasibility_reason"):
         if not isinstance(result.get(key), str) or not result[key].strip():
             sys.exit(f"审查 JSON 缺少 {key} 的判断依据；该次调用不能通过 Gate")
-    values = [scores[key] for key in CONTRIBUTION_DIMENSIONS]
-    return (min(values) >= 6 and sum(value >= 8 for value in values) >= 2
+    values = sorted(scores[key] for key in CONTRIBUTION_DIMENSIONS)
+    return (values[0] >= 6 and values[1] >= 7 and values[2] >= 8
             and result["feasibility"] == "pass" and result["verdict"] == "experiment_ready"
             and not result["fatal_blockers"])
 

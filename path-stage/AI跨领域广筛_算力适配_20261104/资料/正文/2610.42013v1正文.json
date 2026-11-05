@@ -1,0 +1,568 @@
+{
+  "url": "https://arxiv.org/html/2610.42013v1",
+  "final_url": "https://arxiv.org/html/2610.42013v1",
+  "status": 200,
+  "title": "When Does Jacobian Fine-Tuning Stabilize Neural PDE Emulators?",
+  "metadata": {},
+  "paper": {
+    "title": "When Does Jacobian Fine-Tuning Stabilize Neural PDE Emulators?",
+    "title_warning": null,
+    "abstract": "Abstract Neural emulators of chaotic PDEs are trained on one-step prediction but deployed autoregressively, where their errors compound. Jacobian-based regularisers aim to curb this growth, but in a chaotic system part of the growth is physical and cannot be trained away. We separate the two sources of this error with a first-order decomposition. We compare the emulator’s error with a counterfactual that propagates the same one-step mistakes through the solver’s Jacobian, giving an amplification ratio: the factor by which the model’s own dynamics amplify its errors. We study 21 configurations across four PDEs, five architectures and two model sizes (8–10k and 33k parameters), with errors measured at one Lyapunov time. Jacobian fine-tuning reduced the error by more than 10% for 1 of 34 seeds whose amplification ratio was at most 1.25, and for all 20 seeds whose ratio was at least four; for the latter, the error fell by a factor of 8 (small models) and 55 (33k models) in geometric mean over seeds. The gain approximately equals the one-step accuracy cost of fine-tuning divided by the amplification ratio. Matching the solver’s Jacobian along the model’s own error direction (EDJM) outperformed random directions at the same cost on 28 of 35 seeds; input-noise injection performed comparably to EDJM.",
+    "authors": [
+      {
+        "name": "Shreeyam Bangera",
+        "affiliations": [
+          "Affiliation: IIT Roorkee"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Manya Gupta 1 1 footnotemark: 1",
+        "affiliations": [
+          "Affiliation: IIT Roorkee"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Shreeyam Bangera † † thanks: Equal contribution. Affiliation: IIT Roorkee Email: shreekant_sb@ph.iitr.ac.in Manya Gupta 1 1 footnotemark: 1 Affiliation: IIT Roorkee Email: manya_g@ph.iitr.ac.in",
+    "arxiv_version": "2610.42013v1",
+    "arxiv_version_date": "2026-10-30",
+    "sections": [
+      {
+        "id": "S1",
+        "heading": "1 Introduction",
+        "level": 1,
+        "text": "In recent years neural networks have been trained to replace numerical solvers across a range of physics problems: medium-range weather forecasting [ 18 , 3 ] , turbulent fluid flow [ 15 ] , climate simulation [ 27 ] , and subsurface flow [ 28 ] . A single run can require millions of solver steps, and the cost of each is what makes high-fidelity simulation expensive; a neural network that emulates one step can do it faster by orders of magnitude. These models are trained with a Markovian bias, in the sense that they are only asked to predict the next state given the previous one, and they become accurate on this task. During inference, however, they are deployed autoregressively : each prediction becomes the input to the next call, for hundreds or thousands of steps. Training never presents this situation: the model learns from real simulation data, then runs on inputs it generated itself, which are slightly wrong after the first step and worse thereafter. Errors compound until the trajectory bears no relation to the truth — most severely for chaotic systems, where nearby states separate exponentially at a rate set by the leading Lyapunov exponent [ 9 , 10 ] . Among the models we train here, a Kuramoto–Sivashinsky emulator with a one-step error of 0.4% loses its forecast skill (normalised error above 0.5) within four steps. A large body of work aims to slow this growth, through modified training objectives [ 4 , 25 , 26 ] or corrective machinery at inference [ 20 ] . One prominent family instead constrains the emulator’s local dynamics , that is, its Jacobian, the linear map that describes how it responds to small perturbations of its input [ 22 , 23 , 1 , 13 ] . This family assumes that rollout error arises because the emulator responds more violently than the real physics and so manufactures instability the equation does not contain, but it does not check this assumption. A rollout error has two origins. The system is chaotic, so any error grows at a rate fixed by the equation, and that growth is neither the model’s fault nor removable by training. Separately, the model may carry its own mistakes forward more violently than the true dynamics would — a genuine defect these methods could repair. From the outside the two are indistinguishable: a diverging rollout looks the same either way. Moreover, none of these works reports what the constraint costs in one-step accuracy. Two of these works already contain the effect. Ainslie et al. [1] decompose the rollout error into an injected term, set by the one-step error, and an amplified term, set by the Jacobian; they then observe that several models trained with their Jacobian-based loss still destabilise because the injected term remains large. Nie and Suzuki [23] measure the other side of the trade, reporting a fourfold increase in one-step error on their out-of-distribution test (0.009 to 0.036) alongside their rollout improvements. But neither evaluates the two terms against each other for a given model: the first never reports their relative size, and the second never reports the amplification its accuracy cost purchased. Neither can therefore establish whether the intervention was worth making, nor anticipate whether it would be on a different system."
+      },
+      {
+        "id": "S1.SS0.SSS0.Px1",
+        "heading": "Contributions.",
+        "level": 3,
+        "text": "C1. We present a first-order decomposition of the autoregressive error into mistakes propagated by the true dynamics plus a Jacobian-mismatch term. This yields a counterfactual error e n P e^{P}_{n} : the error of a model with the solver’s exact Jacobian that makes the same one-step mistakes. C2. We introduce the amplification ratio ρ n = ‖ e n ‖ / ‖ e n P ‖ \\rho_{n}=\\|e_{n}\\|/\\|e^{P}_{n}\\| , evaluated at one Lyapunov time, before the error saturates. It separates amplification by the model’s Jacobian from the physical instability of the system. Across 21 configurations (over PDEs, architectures and sizes), it identifies when Jacobian matching via fine-tuning can help. C3. We show that ρ n \\rho_{n} limits the achievable rollout improvement. Fine-tuning removes the excess Jacobian amplification but changes the one-step accuracy, and the resulting change in rollout error approximately equals this one-step cost divided by ρ n \\rho_{n} . C4. We propose error-directed Jacobian matching (EDJM): matching the solver’s Jacobian specifically along the model’s own error vector e n e_{n} . At the same penalty weight and training budget, it outperforms matching along random directions."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px1",
+        "heading": "Neural emulators and autoregressive rollouts.",
+        "level": 3,
+        "text": "Neural networks emulate one step of a numerical solver across weather forecasting [ 18 , 3 , 24 ] , climate [ 27 ] , turbulence [ 15 , 26 ] and subsurface flow [ 28 ] , using convolutional, graph and operator architectures [ 19 , 21 , 17 , 12 ] . These models are trained on one-step prediction but deployed autoregressively, and their rollouts drift or diverge even when the one-step error is small. Accordingly, benchmarks such as APEBench [ 16 ] report rollout metrics alongside one-step accuracy. Using APEBench architectures on chaotic systems, where error accumulation is intrinsic, we isolate the portion of error amplification (exceeding underlying physical divergence) driven by the model itself."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px2",
+        "heading": "Training for stable rollouts.",
+        "level": 3,
+        "text": "Most remedies change what the model sees during training. Input-noise injection [ 25 , 26 ] trains on perturbed states so the model learns to correct small deviations; the pushforward trick and unrolled training [ 4 ] expose it to its own predictions; PDE-Refiner [ 20 ] adds an iterative refinement step to recover the low-amplitude modes that one-step models neglect; and spectral constraints on the architecture bound the operator norm of each layer [ 22 ] . These methods are applied uniformly, without first asking whether a given model’s instability comes from its own dynamics. We use input noise and continued training as baselines ( Section 5.4 ). On the small models whose amplification ratio is close to one, neither of them, nor Jacobian matching, improved more than one of 17 seeds ( Table 5 ): when a model already propagates its mistakes as the true dynamics would, none of the methods we test helps."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px3",
+        "heading": "Jacobian and derivative supervision.",
+        "level": 3,
+        "text": "Matching derivatives in addition to values dates back to Sobolev training [ 8 ] . For PDE surrogates, Behroozi et al. [2] supervise the sensitivities of a neural operator with respect to its input parameter fields to improve data efficiency and inverse modelling. Kang et al. [13] match the Jacobians of the true and learned vector fields at randomly perturbed states, which implicitly enforces second-order consistency and improves the Lyapunov spectra of learned chaotic systems. Other methods penalise the model’s Jacobian without reference to the solver: JAWS [ 23 ] penalises its Frobenius norm with a spatially adaptive weight, and Ainslie et al. [1] penalise the one-step residual propagated through the learned Jacobian. In all of these, the directions along which the Jacobian is constrained are fixed by the data or drawn at random. EDJM instead matches the solver’s Jacobian along the direction of the model’s own rollout error, the direction in which a Jacobian mismatch actually enters the error ( Section 5.4 )."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px4",
+        "heading": "Analysing error growth in learned dynamics.",
+        "level": 3,
+        "text": "In a chaotic system any error grows at a rate set by the leading Lyapunov exponent [ 9 , 10 ] , so a growing rollout error is not by itself evidence of a defective model. Ainslie et al. [1] linearise the error dynamics of learned one-step maps and separate an injected one-step error from a term propagated by the model’s Jacobian; they use the largest Jacobian eigenvalue as an indicator of error growth. An eigenvalue above one, however, is expected in a chaotic system and does not distinguish the model’s instability from the physics. We compare the model’s error with a counterfactual that propagates the same one-step mistakes through the solver’s Jacobian ( Section 5.1 ). The resulting amplification ratio measures only the excess amplification that the model adds, identifies when Jacobian fine-tuning can help ( Section 5.2 ), and limits how much it can gain once its cost in one-step accuracy is accounted for ( Section 5.3 )."
+      },
+      {
+        "id": "S3",
+        "heading": "3 Method",
+        "level": 1,
+        "text": "In this section, we first define the errors and the counterfactual. We then derive when a Jacobian-matching objective can remove the excess error."
+      },
+      {
+        "id": "S3.SS1",
+        "heading": "3.1 Error Notation",
+        "level": 2,
+        "text": "We train a neural emulator f f to approximate one time step of the numerical solver P P . Long-term trajectories are then generated by applying f f iteratively to its own outputs. Let u 0 , u 1 , … u_{0},u_{1},\\dots be the true trajectory, u n + 1 = P ⁡ ( u n ) u_{n+1}=P(u_{n}) . Starting at the same initial state u ^ 0 = u 0 \\hat{u}_{0}=u_{0} , the emulator sequence is given by u ^ n + 1 = f ⁡ ( u ^ n ) \\hat{u}_{n+1}=f(\\hat{u}_{n}) . d n = f ⁡ ( u n ) − P ⁡ ( u n ) ⏟ the defect : one step, from a correct state e n = u ^ n − u n ⏟ the rollout error , after n free-running steps \\underbrace{d_{n}=f(u_{n})-P(u_{n})}_{\\text{the \\emph{defect}: one step, from a \\emph{correct} state}}\\qquad\\qquad\\underbrace{e_{n}=\\hat{u}_{n}-u_{n}}_{\\text{the \\emph{rollout error}, after $n$ free-running steps}} Training on one-step prediction directly minimizes d n d_{n} , whereas the rollout error e n e_{n} reflects the actual drift experienced in practice. The defect and rollout error are linked by an exact identity. Since u ^ n = u n + e n \\hat{u}_{n}=u_{n}+e_{n} , we have: e n + 1 \\displaystyle e_{n+1} = u ^ n + 1 − u n + 1 \\displaystyle=\\hat{u}_{n+1}-u_{n+1} = f ⁡ ( u ^ n ) − P ⁡ ( u n ) \\displaystyle=f(\\hat{u}_{n})-P(u_{n}) = f ⁡ ( u n + e n ) − P ⁡ ( u n ) \\displaystyle=f(u_{n}+e_{n})-P(u_{n}) = [ f ⁡ ( u n + e n ) − f ⁡ ( u n ) ] ⏟ propagated error + [ f ⁡ ( u n ) − P ⁡ ( u n ) ] ⏟ one-step defect ​ d n \\displaystyle=\\underbrace{\\big[f(u_{n}+e_{n})-f(u_{n})\\big]}_{\\text{propagated error}}\\;+\\;\\underbrace{\\big[f(u_{n})-P(u_{n})\\big]}_{\\text{one-step defect }d_{n}} (1) = J f ​ ( u n ) ​ e n + 𝒪 ⁡ ( ‖ e n ‖ 2 ) ⏟ Taylor expansion of ​ f ​ about ​ u n + d n \\displaystyle=\\underbrace{J_{f}(u_{n})\\,e_{n}\\;+\\;\\mathcal{O}\\big(\\|e_{n}\\|^{2}\\big)}_{\\text{Taylor expansion of }f\\text{ about }u_{n}}\\;+\\;d_{n} ≈ J f ​ ( u n ) ​ e n + d n . \\displaystyle\\approx\\;J_{f}(u_{n})\\,e_{n}\\;+\\;d_{n}. Equation ( 1 ) is exact. Neglecting the 𝒪 ⁡ ( ‖ e n ‖ 2 ) \\mathcal{O}(\\|e_{n}\\|^{2}) remainder yields the linearized error e n f e^{f}_{n} , governed by: e n + 1 f = J f ​ ( u n ) ​ e n f + d n , e 0 f = 0 . e^{f}_{n+1}=J_{f}(u_{n})\\,e^{f}_{n}+d_{n},\\qquad e^{f}_{0}=0. (2) While the error is small, e n = e n f + 𝒪 ⁡ ( ‖ e ‖ 2 ) e_{n}=e^{f}_{n}+\\mathcal{O}(\\|e\\|^{2}) ."
+      },
+      {
+        "id": "S3.SS2",
+        "heading": "3.2 Counterfactual Notation",
+        "level": 2,
+        "text": "Let J P = D ​ P J_{P}=DP be the solver’s Jacobian. Running the same recursion as ( 2 ) with J P J_{P} in place of J f J_{f} , and with the same measured defects, gives e n + 1 P = J P ​ ( u n ) ​ e n P + d n , e 0 P = 0 . e^{P}_{n+1}=J_{P}(u_{n})\\,e^{P}_{n}+d_{n},\\qquad e^{P}_{0}=0. (3) e n P e^{P}_{n} is the error of a hypothetical emulator that commits exactly the same mistakes but carries them forward with the true physics; we call it the counterfactual error . Comparing the real rollout error to this baseline gives the amplification ratio : ρ n = ‖ e n ‖ ‖ e n P ‖ . \\rho_{n}\\;=\\;\\frac{\\|e_{n}\\|}{\\|e^{P}_{n}\\|}. (4) We use the actual error e n e_{n} so that ρ n \\rho_{n} describes the model’s real rollouts; to first order it equals ‖ e n f ‖ / ‖ e n P ‖ \\|e^{f}_{n}\\|/\\|e^{P}_{n}\\| , which is the quantity the analysis below uses. ρ n ≈ 1 \\rho_{n}\\approx 1 indicates that the rollout error is just what the defects force under the true dynamics; ρ n ≫ 1 \\rho_{n}\\gg 1 indicates that the emulator inflates its own mistakes, and a better Jacobian can remove this excess. Crucially, ρ n \\rho_{n} can be measured before any intervention is attempted."
+      },
+      {
+        "id": "S3.SS3",
+        "heading": "3.3 Where the Mismatch Acts",
+        "level": 2,
+        "text": "To analyze how Jacobian errors drive trajectory drift, we define two quantities: Δ n \\displaystyle\\Delta_{n} = J f ​ ( u n ) − J P ​ ( u n ) \\displaystyle=J_{f}(u_{n})-J_{P}(u_{n})\\quad (Jacobian mismatch) , \\displaystyle\\text{(Jacobian mismatch)}, (5) g n \\displaystyle g_{n} = e n f − e n P , g 0 = 0 \\displaystyle=e^{f}_{n}-e^{P}_{n},\\qquad g_{0}=0\\quad (accumulated error gap) . \\displaystyle\\text{(accumulated error gap)}. (6) Lemma 1 (Error Gap Accumulation) . Let Φ n , m P = J P ( u n − 1 ) ⋯ J P ( u m ) \\Phi^{P}_{n,m}=J_{P}(u_{n-1})\\cdots J_{P}(u_{m}) denote the ground-truth state transition matrix for n > m n>m , with Φ m , m P = I \\Phi^{P}_{m,m}=I . The error gap at step n n satisfies: g n = ∑ j < n Φ n , j + 1 P ​ Δ j ​ e j f . g_{n}=\\sum_{j<n}\\Phi^{P}_{n,j+1}\\,\\Delta_{j}\\,e^{f}_{j}. (7) Proof. Subtracting e n + 1 P e^{P}_{n+1} from e n + 1 f e^{f}_{n+1} cancels the one-step defects d n d_{n} : g n + 1 = J f ​ ( u n ) ​ e n f − J P ​ ( u n ) ​ e n P g_{n+1}=J_{f}(u_{n})e^{f}_{n}-J_{P}(u_{n})e^{P}_{n} . Substituting J f ​ ( u n ) = J P ​ ( u n ) + Δ n J_{f}(u_{n})=J_{P}(u_{n})+\\Delta_{n} yields: g n + 1 = J P ​ ( u n ) ​ g n + Δ n ​ e n f . g_{n+1}=J_{P}(u_{n})\\,g_{n}+\\Delta_{n}\\,e^{f}_{n}. Unrolling this linear recurrence from g 0 = 0 g_{0}=0 yields ( 7 ). ∎ Equation ( 7 ) shows that g n g_{n} is driven solely by the Jacobian mismatch Δ j \\Delta_{j} acting on the current error e j f e^{f}_{j} . We measure this directional mismatch along a unit vector v v via: G n ​ ( v ) = ‖ Δ n ​ v ‖ 2 . G_{n}(v)=\\|\\Delta_{n}v\\|^{2}. (8) Corollary 1 (Optimal Probing Direction) . Let e ^ j = e j f / ‖ e j f ‖ \\hat{e}_{j}=e^{f}_{j}/\\|e^{f}_{j}\\| be the unit error direction, D D the state dimension, v v a direction sampled uniformly from the unit sphere, and { q 1 , … , q D } \\{q_{1},\\dots,q_{D}\\} an orthonormal basis with q 1 = e ^ j q_{1}=\\hat{e}_{j} . For each j < n j<n : (i) The error generated at step j j satisfies ‖ Δ j ​ e j f ‖ 2 = ‖ e j f ‖ 2 ​ G j ​ ( e ^ j ) \\|\\Delta_{j}e^{f}_{j}\\|^{2}=\\|e^{f}_{j}\\|^{2}\\,G_{j}(\\hat{e}_{j}) . (ii) The expected mismatch under random probing satisfies: 𝔼 v ​ [ G j ​ ( v ) ] = 1 D ​ G j ​ ( e ^ j ) + 1 D ​ ∑ i ≥ 2 G j ​ ( q i ) . \\mathbb{E}_{v}[G_{j}(v)]=\\frac{1}{D}\\,G_{j}(\\hat{e}_{j})+\\frac{1}{D}\\sum_{i\\geq 2}G_{j}(q_{i}). (9) Hence, G j ​ ( e ^ j ) ≤ D ⋅ 𝔼 v ​ [ G j ​ ( v ) ] G_{j}(\\hat{e}_{j})\\leq D\\cdot\\mathbb{E}_{v}[G_{j}(v)] , with equality if and only if G j ​ ( q i ) = 0 G_{j}(q_{i})=0 for all i ≥ 2 i\\geq 2 . Proof. (i) Write Δ j ​ e j f = ‖ e j f ‖ ​ Δ j ​ e ^ j \\Delta_{j}e^{f}_{j}=\\|e^{f}_{j}\\|\\,\\Delta_{j}\\hat{e}_{j} and take squared norms. (ii) Expanding v = ∑ i c i ​ q i v=\\sum_{i}c_{i}q_{i} with 𝔼 ⁡ [ c i ​ c k ] = δ i ​ k / D \\mathbb{E}[c_{i}c_{k}]=\\delta_{ik}/D yields 𝔼 v ​ ‖ Δ j ​ v ‖ 2 = 1 D ​ ∑ i ‖ Δ j ​ q i ‖ 2 \\mathbb{E}_{v}\\|\\Delta_{j}v\\|^{2}=\\frac{1}{D}\\sum_{i}\\|\\Delta_{j}q_{i}\\|^{2} . The bound follows from G j ≥ 0 G_{j}\\geq 0 . ∎ Remark 1 . By Lemma 1 and Corollary 1 (i), the contribution of step j j satisfies ‖ Φ n , j + 1 P ​ Δ j ​ e j f ‖ ≤ ‖ Φ n , j + 1 P ‖ ​ ‖ e j f ‖ ​ G j ​ ( e ^ j ) 1 / 2 . \\|\\Phi^{P}_{n,j+1}\\Delta_{j}e^{f}_{j}\\|\\leq\\|\\Phi^{P}_{n,j+1}\\|\\,\\|e^{f}_{j}\\|\\,G_{j}(\\hat{e}_{j})^{1/2}. Thus g n g_{n} depends on the mismatch only through G j ​ ( e ^ j ) G_{j}(\\hat{e}_{j}) . The remaining terms ∑ i ≥ 2 G j ​ ( q i ) \\sum_{i\\geq 2}G_{j}(q_{i}) in ( 9 ) play no role in driving the rollout error, yet take up D − 1 D \\frac{D-1}{D} of the penalty under random probing. Probing along e ^ j \\hat{e}_{j} is therefore up to D D times more efficient than probing along random directions."
+      },
+      {
+        "id": "S3.SS4",
+        "heading": "3.4 Error-Directed Jacobian Matching",
+        "level": 2,
+        "text": "Remark 1 suggests penalising the mismatch along the error direction. During fine-tuning we roll the current model out from a true state u 0 u_{0} and take the unit direction of its rollout error, e ^ k = e k / ‖ e k ‖ \\hat{e}_{k}=e_{k}/\\|e_{k}\\| , which equals the direction of e k f e^{f}_{k} to first order. Holding e ^ k \\hat{e}_{k} fixed, error-directed Jacobian matching (EDJM) minimises ℒ = ℒ one-step + μ ​ 1 | K | ​ ∑ k ∈ K 1 D ​ G k ​ ( e ^ k ) = ℒ one-step + μ ​ 1 | K | ​ ∑ k ∈ K 1 D ​ ‖ ( J f ​ ( u k ) − J P ​ ( u k ) ) ​ e ^ k ‖ 2 , \\mathcal{L}=\\mathcal{L}_{\\text{one-step}}+\\mu\\,\\frac{1}{|K|}\\sum_{k\\in K}\\frac{1}{D}\\,G_{k}(\\hat{e}_{k})=\\mathcal{L}_{\\text{one-step}}+\\mu\\,\\frac{1}{|K|}\\sum_{k\\in K}\\frac{1}{D}\\big\\|\\big(J_{f}(u_{k})-J_{P}(u_{k})\\big)\\hat{e}_{k}\\big\\|^{2}, (10) where K K indexes the states of the rollout window and μ \\mu is the penalty weight. Random-direction Jacobian matching (RJM) replaces e ^ k \\hat{e}_{k} by a random unit direction. Both need only Jacobian-vector products of f f and P P ."
+      },
+      {
+        "id": "S3.SS5",
+        "heading": "3.5 When an Intervention Helps",
+        "level": 2,
+        "text": "Adding a Jacobian penalty introduces a trade-off: the model must balance one-step accuracy against trajectory stability. Throughout, the amplification ratio ρ \\rho and the error ratio r r are evaluated at a fixed horizon n n , which we suppress from the notation. Lemma 2 (Price of Intervention) . Let an intervention replace f f by f ′ f^{\\prime} , change the amplification ratio from ρ \\rho to ρ ′ \\rho^{\\prime} , and scale every one-step defect by the same factor, d m ′ = α ​ d m d^{\\prime}_{m}=\\alpha\\,d_{m} . The resulting rollout error ratio satisfies r = ‖ e n ′ ‖ ‖ e n ‖ = ρ ′ ρ ​ α . r=\\frac{\\|e^{\\prime}_{n}\\|}{\\|e_{n}\\|}=\\frac{\\rho^{\\prime}}{\\rho}\\,\\alpha. (11) Proof. Unrolling ( 3 ) from e 0 P = 0 e^{P}_{0}=0 yields e n P = ∑ m < n Φ n , m + 1 P ​ d m e^{P}_{n}=\\sum_{m<n}\\Phi^{P}_{n,m+1}d_{m} , which is linear in { d m } \\{d_{m}\\} . Scaling the defects to d m ′ = α ​ d m d^{\\prime}_{m}=\\alpha d_{m} gives ∥ e P ′ n ∥ = α ∥ e P n ∥ \\|e^{P\\prime}_{n}\\|=\\alpha\\|e^{P}_{n}\\| . Substituting into ( 4 ) yields ‖ e n ′ ‖ ‖ e n ‖ = ρ ′ ∥ e P ′ n ∥ ρ ​ ‖ e n P ‖ = ρ ′ ρ ​ α . ∎ \\frac{\\|e^{\\prime}_{n}\\|}{\\|e_{n}\\|}=\\frac{\\rho^{\\prime}\\|e^{P\\prime}_{n}\\|}{\\rho\\|e^{P}_{n}\\|}=\\frac{\\rho^{\\prime}}{\\rho}\\,\\alpha.\\qed (12) Uniform scaling of the defects is an idealisation. In our experiments we estimate α \\alpha by the measured one-step cost c c , the ratio of one-step errors after and before fine-tuning ( Equation 15 ). Proposition 1 (Floor, Threshold, and Local Minima) . (i) Floor: Eliminating the mismatch completely ( Δ j = 0 \\Delta_{j}=0 for j < n j<n ) yields g n = 0 g_{n}=0 in ( 7 ), so e n f = e n P e^{f}_{n}=e^{P}_{n} , ρ ′ = 1 \\rho^{\\prime}=1 to first order, and r = α / ρ r=\\alpha/\\rho . (ii) Threshold: An intervention achieves an error ratio r < τ r<\\tau if and only if ρ > ρ ∗ = ρ ′ τ ​ α , and in the floor case ​ ( ρ ′ = 1 ) , ρ ∗ = α τ . \\rho>\\rho^{*}=\\frac{\\rho^{\\prime}}{\\tau}\\,\\alpha,\\qquad\\text{and in the floor case }(\\rho^{\\prime}=1),\\quad\\rho^{*}=\\frac{\\alpha}{\\tau}. (13) (iii) Local minima: If the initial parameters lie at a local minimum of the one-step loss 𝔼 ​ ‖ d ‖ 2 \\mathbb{E}\\|d\\|^{2} , then α ≥ 1 \\alpha\\geq 1 for any non-zero penalty weight, so ρ ∗ ≥ ρ ′ / τ \\rho^{*}\\geq\\rho^{\\prime}/\\tau ; in the floor case, ρ ∗ ≥ 1 / τ \\rho^{*}\\geq 1/\\tau . Proof. Claim (i) follows from Lemma 1 with Δ j = 0 \\Delta_{j}=0 , substituted into ( 11 ). Claim (ii) is a rearrangement of ( 11 ). For claim (iii), under uniform scaling α 2 = 𝔼 ​ ‖ d ′ ‖ 2 / 𝔼 ​ ‖ d ‖ 2 \\alpha^{2}=\\mathbb{E}\\|d^{\\prime}\\|^{2}/\\mathbb{E}\\|d\\|^{2} , and this is at least 1 because moving away from a local minimizer does not decrease the one-step loss. ∎ Remark 2 . Neither α \\alpha nor ρ ′ \\rho^{\\prime} is known before retraining, so ( 13 ) is not a decision rule by itself. Under the approximation ρ ′ ≈ 1 \\rho^{\\prime}\\approx 1 , which our fine-tuned models satisfy ( Section 5.3 ), it gives a necessary condition: starting from a local minimum of the one-step loss, no penalty weight achieves an error ratio below τ \\tau unless ρ > 1 / τ \\rho>1/\\tau . A starting model that is not at a local minimum can have α < 1 \\alpha<1 ; we observe this for the 33k models ( Section 5.3 )."
+      },
+      {
+        "id": "S4",
+        "heading": "4 Experimental setup",
+        "level": 1,
+        "text": "Our experiments test contributions C2–C4; C1 is illustrated in Section 5.1 . We answer these on small emulators (8–10k parameters) spanning five architectures and three PDEs, and repeat the analysis on larger emulators (about 33k parameters) on all four PDEs. Throughout, errors are read at one Lyapunov time, before rollouts saturate, where the first-order decomposition of Section 3 is valid. Full details are in Appendices A , B and C ."
+      },
+      {
+        "id": "S4.SS1",
+        "heading": "4.1 Systems and data",
+        "level": 2,
+        "text": "We consider four one-dimensional chaotic PDEs with periodic boundaries: the Kuramoto–Sivashinsky equation (KS), the generalised KS equation (gKS), the complex Ginzburg–Landau equation in the phase-turbulent regime (CGLE), and the Nikolaevskiy equation. Following APEBench [ 16 ] , each system is discretised on 256 points and integrated with an ETDRK4 solver [ 6 , 14 ] in double precision. We implement the solver in JAX, so its Jacobian-vector products are exact. For each system we generate 128 training trajectories of 50 steps, 16 validation trajectories of 100 steps and 30 test trajectories of 200 steps. Each starts from a random initial condition that is first evolved onto the attractor. Both studies use the same trajectories. One Lyapunov time (LT), measured with the solver’s tangent map, is 57, 123, 118 and 11 emulator steps for KS, gKS, CGLE and Nikolaevskiy. Parameters and the data recipe are in Appendix A ."
+      },
+      {
+        "id": "S4.SS2",
+        "heading": "4.2 Emulators",
+        "level": 2,
+        "text": "All emulators are residual one-step maps, f ⁡ ( u ) = u + net ⁡ ( u ) f(u)=u+\\mathrm{net}(u) , trained on the one-step mean squared error. Table 1 summarises the two studies. The main study uses five architectures with 8.1–10.3k parameters ( Table 3 ), which we refer to as 8–10k, on KS, gKS and CGLE. We exclude the KS CNN, which diverges in every arm including the control. The scaling check uses the APEBench ResNet and FNO presets at about 33k parameters on the four systems. We did not fine-tune the 33k FNO on Nikolaevskiy, which failed to learn the one-step map (relative one-step error of about 39% on four of five seeds). In both studies, fine-tuning starts from the pretraining checkpoint with the lowest validation rollout error. Architectures and training schedules are in Appendix B . systems architectures parameters seeds Main study KS, gKS, CGLE CNN, ResNet, U-Net, FNO, Transformer 8–10k 3 Scaling check KS, gKS, CGLE, Nik. ResNet, FNO 33k 5 † Table 1: Study design. The main study has 14 configurations and 42 seeds (KS CNN excluded); the scaling check has 7 configurations and 32 seeds. † Two seeds for gKS-ResNet, which showed no effect on both and was not extended."
+      },
+      {
+        "id": "S4.SS3",
+        "heading": "4.3 Fine-tuning methods",
+        "level": 2,
+        "text": "All methods start from the same pretrained model, see the same training windows in the same order, and keep the one-step loss. Training runs for 5k updates for the small models and 20k for the 33k models."
+      },
+      {
+        "id": "S4.SS3.SSS0.Px1",
+        "heading": "Error-directed Jacobian matching (EDJM).",
+        "level": 3,
+        "text": "At each update we roll the model out over windows of 20 true states and take the unit direction of its error at each state, held fixed. We then penalise the difference between the model’s and the solver’s Jacobian along that direction ( Equation 10 ). The penalty weight is fixed at the start so that the penalty equals 100 times the one-step loss."
+      },
+      {
+        "id": "S4.SS3.SSS0.Px2",
+        "heading": "Random-direction Jacobian matching (RJM).",
+        "level": 3,
+        "text": "The same penalty and calibration, applied along random unit directions at the same states. It is an ablation that isolates the effect of the direction."
+      },
+      {
+        "id": "S4.SS3.SSS0.Px3",
+        "heading": "Baselines.",
+        "level": 3,
+        "text": "Continued training trains on the one-step loss alone for the same budget, separating the effect of further training from that of Jacobian matching. Input-noise injection (Noise) [ 25 , 26 ] perturbs the inputs with Gaussian noise while keeping the clean target. Its scale equals the starting model’s RMS one-step error. We compare it with EDJM on the small models; one 33k configuration is reported in Appendix D ."
+      },
+      {
+        "id": "S4.SS4",
+        "heading": "4.4 Evaluation",
+        "level": 2,
+        "text": "Each model is rolled out for 200 steps from the 30 test initial conditions. For a model f f we write E f ​ ( n ) E_{f}(n) for the relative error ‖ e n ‖ / ‖ u n ‖ \\|e_{n}\\|/\\|u_{n}\\| at step n n , aggregated over trajectories by a geometric mean, and n ⋆ n^{\\star} for one Lyapunov time. Our primary metric is the error ratio r = E fine-tuned ​ ( n ⋆ ) E start ​ ( n ⋆ ) , r=\\frac{E_{\\text{fine-tuned}}(n^{\\star})}{E_{\\text{start}}(n^{\\star})}, (14) and a fine-tuning run counts as an improvement when r < 0.9 r<0.9 . The amplification ratio ρ ≡ ρ n ⋆ \\rho\\equiv\\rho_{n^{\\star}} ( Equation 4 ) is read at n ⋆ n^{\\star} , for the starting model (the diagnostic) and after fine-tuning. For each seed it is the geometric mean over the 30 test trajectories of the per-trajectory ratio ‖ e n ⋆ ‖ / ‖ e n ⋆ P ‖ \\|e_{n^{\\star}}\\|/\\|e^{P}_{n^{\\star}}\\| ; per-configuration values are medians over seeds. The one-step cost is c = ε fine-tuned ε start , c=\\frac{\\varepsilon_{\\text{fine-tuned}}}{\\varepsilon_{\\text{start}}}, (15) where ε \\varepsilon is the relative one-step error ‖ d n ‖ / ‖ u n ‖ \\|d_{n}\\|/\\|u_{n}\\| , averaged by a geometric mean over all states of the test trajectories. It is our estimate of the defect scaling α \\alpha in Lemma 2 . Each run keeps its final checkpoint and its best checkpoint by validation rollout error, with the starting model as a candidate; each result states which it uses. Comparisons between methods are paired by seed, with two-sided sign tests; ties, where both runs kept the starting model, are dropped from the tests. All experiments ran on Kaggle T4 GPUs; compute is in Appendix C ."
+      },
+      {
+        "id": "S5",
+        "heading": "5 Results",
+        "level": 1,
+        "text": "We evaluate model performance across two scale regimes: standard small emulators (8–10k parameters) followed by scaled configurations (33k parameters)."
+      },
+      {
+        "id": "S5.SS1",
+        "heading": "5.1 The counterfactual error is a meaningful baseline (C1)",
+        "level": 2,
+        "text": "Figure 1 compares the actual error with the counterfactual error for two small gKS emulators. For the ResNet the two coincide up to one Lyapunov time ( ρ = 1.0 \\rho=1.0 ), which implies that the model propagates one-step errors like the true physics. The CNN’s counterfactual error at one Lyapunov time ( 0.13 0.13 ) is of the same order as the ResNet’s ( 0.07 0.07 ), but its actual error ( 0.84 0.84 ) is six times larger ( ρ = 6.4 \\rho=6.4 for the seed-averaged curves): the model amplifies its mistakes more than the true physics. The gap between the curves is the part of the error that a better Jacobian can remove. The same picture holds across all 21 configurations ( Figures 5 and 6 ). Figure 1: Example on one system: actual error ‖ e n ‖ \\|e_{n}\\| (solid) and counterfactual error ‖ e n P ‖ \\|e^{P}_{n}\\| (dashed) for two small emulators of gKS, one with ρ ≈ 1 \\rho\\approx 1 and the configuration with the highest amplification ratio on this system. Thin lines: the three seeds; thick lines: their geometric mean over 30 test trajectories. Dotted: one Lyapunov time. Shaded: error in excess of the counterfactual. The ρ \\rho in the panel titles is computed from the thick (seed-averaged) curves; Table 4 reports the median over seeds (7.1 for the CNN). All configurations are shown in Figures 5 and 6 ."
+      },
+      {
+        "id": "S5.SS2",
+        "heading": "5.2 The amplification ratio identifies when fine-tuning helps (C2)",
+        "level": 2,
+        "text": "Figure 2 plots the error ratio after EDJM fine-tuning (final checkpoint) against the amplification ratio of the starting model. On the small models, none of the 17 seeds with ρ ≤ 1.25 \\rho\\leq 1.25 improved by more than 10%, while all 11 with ρ ≥ 4 \\rho\\geq 4 did. The pattern holds at 33k: 1 of 17 seeds with ρ ≤ 1.25 \\rho\\leq 1.25 improved, against 9 of 9 with ρ ≥ 4 \\rho\\geq 4 . Hence, the amplification ratio identifies where Jacobian matching will help. We chose the thresholds and the evaluation at one Lyapunov time after inspecting the results; the separation holds from half to one and a half Lyapunov times and for nearby thresholds ( Table 7 ). A low amplification ratio is a signal not to fine-tune for stability. On the small models with ρ ≤ 1.25 \\rho\\leq 1.25 , EDJM made the error worse, by a factor of 1.7 1.7 in geometric mean over seeds, while continued training left it unchanged ( r = 0.97 r=0.97 ; final checkpoints; other methods in Table 5 ). When ρ ≈ 1 \\rho\\approx 1 the model already propagates its one-step mistakes as the true dynamics would, so there is no excess amplification to remove; the Jacobian penalty only raises the one-step error, and the rollout error rises with it ( Section 5.3 ). In this regime the remedy is a more accurate one-step model, not a better Jacobian. Figure 2: Error ratio r r ( Equation 14 ) after EDJM fine-tuning, final checkpoint, against the amplification ratio of the starting model. Each point is one seed; below the dotted line is an improvement of more than 10%. Grey: ρ ≤ 1.25 \\rho\\leq 1.25 ; blue: ρ ≥ 4 \\rho\\geq 4 ."
+      },
+      {
+        "id": "S5.SS3",
+        "heading": "5.3 The amplification ratio limits the gain (C3)",
+        "level": 2,
+        "text": "Fine-tuning reduces error amplification by bringing the model’s error down to the counterfactual error. After EDJM, the median amplification ratio reaches 0.99 0.99 on the small models and 0.93 0.93 at 33k, independent of its initial value ( Figure 3 a; final checkpoints). This is the floor case of Proposition 1 (i): with ρ ′ ≈ 1 \\rho^{\\prime}\\approx 1 , Lemma 2 gives r ≈ α / ρ r\\approx\\alpha/\\rho , and we estimate α \\alpha by the one-step cost c c . On the small models with ρ > 1.25 \\rho>1.25 the one-step error grows by a median factor c = 2.2 c=2.2 . At 33k it falls ( c = 0.68 c=0.68 ), which Proposition 1 (iii) excludes for a model at a minimum of the one-step loss. Our starting checkpoints are selected by validation rollout error rather than by one-step loss, and ten of the 33k ResNets stopped at 145k of 150k pretraining updates, so these models were likely not at a minimum and fine-tuning could still lower their one-step error. The measured error ratios track c / ρ c/\\rho closely ( Figure 3 b; log-space correlation 0.88 0.88 on the small models and 0.99 0.99 at 33k). This also accounts for the mixed outcomes at intermediate ρ \\rho in Figure 2 : under our 10% criterion, a model with ρ = 2 \\rho=2 improves only if fine-tuning raises its one-step error by less than a factor of 1.8 1.8 . Because c c is known only after fine-tuning, this relation explains the size of the gain rather than predicting it; we return to this in Section 6 . Figure 3: (a) Amplification ratio before and after EDJM fine-tuning (dashed: unchanged). (b) Error ratio against c / ρ c/\\rho , where c c is the one-step cost ( Equation 15 ); dashed: r = c / ρ r=c/\\rho . Colour: system; marker shape: architecture; filled: 8–10k parameters; hollow: 33k. Final checkpoints, 74 seeds."
+      },
+      {
+        "id": "S5.SS4",
+        "heading": "5.4 Error-directed Jacobian matching (C4)",
+        "level": 2,
+        "text": "Corollary 1 predicts that the penalty is most effective along the direction of the error. Figure 4 compares EDJM with random-direction Jacobian matching (RJM) on all seeds with ρ > 1.25 \\rho>1.25 , and with input noise on the small models, using validation-selected checkpoints; full paired statistics, including continued training, are in Table 6 . EDJM beats RJM on 16 of 20 small-model seeds ( p = 0.012 p=0.012 ) and on 12 of 15 seeds at 33k ( p = 0.035 p=0.035 ), with 14% and 31% lower error in geometric mean. It also beats continued training (19 of 25 and 14 of 15), so the gain does not come from further optimisation. Against input noise the evidence does not favour EDJM. On the small models EDJM has lower error on 16 of 25 seeds, which is not significant ( p = 0.23 p=0.23 ). A single comparison at 33k, on KS ResNet, is reported in Appendix D . Figure 4: Per-seed error ratio of EDJM against (a) RJM and (b) Noise, on all seeds with ρ > 1.25 \\rho>1.25 , validation-selected checkpoints. Points in the shaded region favour EDJM; points on the diagonal at r = 1 r=1 are seeds where both runs kept the starting model. Colour: system; marker shape: architecture; filled: 8–10k; hollow: 33k. Panel (b) shows the small models only; the 33k comparison is in Table 6 ."
+      },
+      {
+        "id": "S6",
+        "heading": "6 Discussion",
+        "level": 1,
+        "text": "The amplification ratio is a cheap diagnostic of whether a model carries its errors forward like the true physics. When ρ ≈ 1 \\rho\\approx 1 , Jacobian fine-tuning has nothing to remove and makes the error worse, and the effort is better spent on one-step accuracy. When ρ \\rho is large, it removes most of the excess growth. The relation r ≈ c / ρ r\\approx c/\\rho explains the size of the gain but does not predict it, since the one-step cost c c is known only after fine-tuning. There are also some limitations. The thresholds on ρ \\rho and the evaluation at one Lyapunov time were chosen after inspecting the results, although the separation holds from half to one and a half Lyapunov times and for nearby thresholds ( Table 7 ). Input-noise injection matched EDJM on the small models (a single 33k comparison is in Appendix D ), so our evidence for EDJM is its advantage over random directions, not over other stabilisation methods. The counterfactual requires solver Jacobian-vector products, which are available only for differentiable solvers and, in weather and climate, from tangent-linear models. Our systems are one-dimensional, and future work would extend this analysis to two- and three-dimensional flows."
+      },
+      {
+        "id": "S7",
+        "heading": "7 Conclusion",
+        "level": 1,
+        "text": "A rollout error in a chaotic system has two sources: the one-step mistakes of the emulator, amplified by the true dynamics, and the excess amplification of the emulator’s own Jacobian. Comparing the error with a counterfactual that propagates the same mistakes through the solver’s Jacobian separates the two. Across 21 configurations and two model sizes, the resulting amplification ratio identified when Jacobian fine-tuning helps: almost never when ρ ≤ 1.25 \\rho\\leq 1.25 (1 of 34 seeds), and always when ρ ≥ 4 \\rho\\geq 4 (20 of 20). Fine-tuning removes the excess, and the gain follows the ratio of the one-step cost to ρ \\rho . Matching the solver’s Jacobian along the model’s own error direction outperformed random directions at the same cost. Before stabilising an emulator, it is worth measuring how much of its error it is responsible for."
+      },
+      {
+        "id": "Sx1",
+        "heading": "Code availability",
+        "level": 1,
+        "text": "Code, starting checkpoints and per-run results, with scripts that regenerate every figure and table, are available at https://github.com/manyagupta13/jacobian_matching ."
+      },
+      {
+        "id": "bib",
+        "heading": "References",
+        "level": 1,
+        "text": "[1] Conrad Ainslie, Pedram Hassanzadeh, Michael W. Mahoney, and Ashesh Chattopadhyay. Eigenanalysis framework for autoregressive neural emulators of multi-scale chaotic dynamics. arXiv preprint arXiv:2608.16084 , 2026. [2] Abdolmehdi Behroozi, Chaopeng Shen, Daniel Kifer, and Kathryn Lawson. Sensitivity-constrained neural operators for data-efficient forward and inverse modeling of partial differential equation systems. arXiv preprint arXiv:2608.29888 , 2026. [3] Kaifeng Bi, Lingxi Xie, Hengheng Zhang, Xin Chen, Xiaotao Gu, and Qi Tian. Accurate medium-range global weather forecasting with 3D neural networks. Nature , 619:533–538, 2023. [4] Johannes Brandstetter, Daniel Worrall, and Max Welling. Message passing neural PDE solvers. In International Conference on Learning Representations (ICLR) , 2022. [5] Hugues Chaté. Spatiotemporal intermittency regimes of the one-dimensional complex Ginzburg–Landau equation. Nonlinearity , 7(1):185–204, 1994. doi: 10.1088/0951-7715/7/1/007 . [6] S. M. Cox and P. C. Matthews. Exponential time differencing for stiff systems. Journal of Computational Physics , 176(2):430–455, 2002. [7] S. M. Cox and P. C. Matthews. Pattern formation in the damped Nikolaevskiy equation. Physical Review E , 76(5):056202, 2007. doi: 10.1103/PhysRevE.76.056202 . [8] Wojciech M. Czarnecki, Simon Osindero, Max Jaderberg, Grzegorz Świrszcz, and Razvan Pascanu. Sobolev training for neural networks. In Advances in Neural Information Processing Systems , volume 30, 2017. [9] J.-P. Eckmann and D. Ruelle. Ergodic theory of chaos and strange attractors. Reviews of Modern Physics , 57(3):617–656, 1985. [10] Russell A. Edson, Judith E. Bunder, Trent W. Mattner, and Anthony J. Roberts. Lyapunov exponents of the Kuramoto–Sivashinsky PDE. The ANZIAM Journal , 61(3):270–285, 2019. doi: 10.1017/S1446181119000105 . [11] Hiroshi Gotoda, Marc Pradas, and Serafim Kalliadasis. Nonlinear forecasting of the generalised Kuramoto–Sivashinsky equation. International Journal of Bifurcation and Chaos , 25(5):1530015, 2015. doi: 10.1142/S0218127415300153 . [12] Jayesh K. Gupta and Johannes Brandstetter. Towards multi-spatiotemporal-scale generalized PDE modeling. Transactions on Machine Learning Research , 2023. [13] Shinhoo Kang, Hai V. Nguyen, and Tan Bui-Thanh. Second-order consistency for learning chaotic dynamics via randomized Jacobian matching. arXiv preprint arXiv:2606.01596 , 2026. [14] Aly-Khan Kassam and Lloyd N. Trefethen. Fourth-order time-stepping for stiff PDEs. SIAM Journal on Scientific Computing , 26(4):1214–1233, 2005. [15] Dmitrii Kochkov, Jamie A. Smith, Ayya Alieva, Qing Wang, Michael P. Brenner, and Stephan Hoyer. Machine learning-accelerated computational fluid dynamics. Proceedings of the National Academy of Sciences , 118(21):e2101784118, 2021. [16] Felix Koehler, Simon Niedermayr, Rüdiger Westermann, and Nils Thuerey. APEBench: A benchmark for autoregressive neural emulators of PDEs. In Advances in Neural Information Processing Systems , volume 37, 2024. doi: 10.52202/079017-3822 . [17] Nikola Kovachki, Zongyi Li, Burigede Liu, Kamyar Azizzadenesheli, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. Neural operator: Learning maps between function spaces with applications to PDEs. Journal of Machine Learning Research , 24(89):1–97, 2023. [18] Remi Lam, Alvaro Sanchez-Gonzalez, Matthew Willson, Peter Wirnsberger, Meire Fortunato, Ferran Alet, Suman Ravuri, Timo Ewalds, Zach Eaton-Rosen, Weihua Hu, Alexander Merose, Stephan Hoyer, George Holland, Oriol Vinyals, Jacklynn Stott, Alexander Pritzel, Shakir Mohamed, and Peter Battaglia. Learning skillful medium-range global weather forecasting. Science , 382(6677):1416–1421, 2023. [19] Zongyi Li, Nikola Kovachki, Kamyar Azizzadenesheli, Burigede Liu, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. Fourier neural operator for parametric partial differential equations. In International Conference on Learning Representations (ICLR) , 2021. [20] Phillip Lippe, Bastiaan S. Veeling, Paris Perdikaris, Richard E. Turner, and Johannes Brandstetter. PDE-Refiner: Achieving accurate long rollouts with neural PDE solvers. In Advances in Neural Information Processing Systems (NeurIPS) , 2023. [21] Lu Lu, Pengzhan Jin, Guofei Pang, Zhongqiang Zhang, and George Em Karniadakis. Learning nonlinear operators via DeepONet based on the universal approximation theorem of operators. Nature Machine Intelligence , 3:218–229, 2021. [22] Michael McCabe, Peter Harrington, Shashank Subramanian, and Jed Brown. Towards stability of autoregressive neural operators. Transactions on Machine Learning Research , 2023. [23] Fengxiang Nie and Yasuhiro Suzuki. Jacobian-adaptive weighting for stability: Enhancing long-term rollout of neural partial differential equation solvers via spatially-adaptive regularization. arXiv preprint arXiv:2603.05538 , 2026. [24] Jaideep Pathak, Shashank Subramanian, Peter Harrington, Sanjeev Raja, Ashesh Chattopadhyay, Morteza Mardani, Thorsten Kurth, David Hall, Zongyi Li, Kamyar Azizzadenesheli, Pedram Hassanzadeh, Karthik Kashinath, and Animashree Anandkumar. FourCastNet: A global data-driven high-resolution weather model using adaptive Fourier neural operators. arXiv preprint arXiv:2202.11214 , 2022. [25] Alvaro Sanchez-Gonzalez, Jonathan Godwin, Tobias Pfaff, Rex Ying, Jure Leskovec, and Peter Battaglia. Learning to simulate complex physics with graph networks. In Proceedings of the 37th International Conference on Machine Learning , volume 119 of Proceedings of Machine Learning Research , pages 8459–8468, 2020. [26] Kim Stachenfeld, Drummond Buschman Fielding, Dmitrii Kochkov, Miles Cranmer, Tobias Pfaff, Jonathan Godwin, Can Cui, Shirley Ho, Peter Battaglia, and Alvaro Sanchez-Gonzalez. Learned simulators for turbulence. In International Conference on Learning Representations (ICLR) , 2022. [27] Oliver Watt-Meyer, Gideon Dresdner, Jeremy McGibbon, Spencer K. Clark, Brian Henn, James Duncan, Noah D. Brenowitz, Karthik Kashinath, Michael S. Pritchard, Boris Bonev, Matthew E. Peters, and Christopher S. Bretherton. ACE: A fast, skillful learned global atmospheric model for climate prediction. arXiv preprint arXiv:2310.02074 , 2023. [28] Gege Wen, Zongyi Li, Kamyar Azizzadenesheli, Anima Anandkumar, and Sally M. Benson. U-FNO — an enhanced Fourier neural operator-based deep-learning model for multiphase flow. Advances in Water Resources , 163:104180, 2022."
+      },
+      {
+        "id": "A1.SS0.SSS0.Px1",
+        "heading": "Equations.",
+        "level": 3,
+        "text": "All systems are one-dimensional with periodic boundaries and are solved on N = 256 N=256 points. In the form we integrate, KS: u t + u ​ u x + u x ​ x + u x ​ x ​ x ​ x = 0 , \\displaystyle u_{t}+uu_{x}+u_{xx}+u_{xxxx}=0, gKS: u t + u ​ u x + u x ​ x + δ ​ u x ​ x ​ x + ν ​ u x ​ x ​ x ​ x = 0 , \\displaystyle u_{t}+uu_{x}+u_{xx}+\\delta\\,u_{xxx}+\\nu\\,u_{xxxx}=0, CGLE: A t = A + ( 1 + i ​ b 1 ) ​ A x ​ x − ( b 3 − i ) ​ | A | 2 ​ A , \\displaystyle A_{t}=A+(1+ib_{1})A_{xx}-(b_{3}-i)\\,|A|^{2}A, Nikolaevskiy: u t + u u x = − ∂ x 2 [ r N u − ( 1 + ∂ x 2 ) 2 u ] . \\displaystyle u_{t}+uu_{x}=-\\partial_{x}^{2}\\big[r_{\\mathrm{N}}u-(1+\\partial_{x}^{2})^{2}u\\big]. The CGLE field is complex and is represented as two real channels. Table 2 lists the parameters, which follow Edson et al. [10] , Gotoda et al. [11] , Chaté [5] , Cox and Matthews [7] . system parameters L L Δ ​ t \\Delta t (substeps) channels λ \\lambda per step 1 LT [steps] KS – 60 0.25 (1) 1 0.0175 57 gKS δ = 0.2 \\delta=0.2 , ν = 1 \\nu=1 200 0.25 (1) 1 0.0081 123 CGLE b 1 = 3.5 b_{1}=3.5 , b 3 = 1.4 b_{3}=1.4 250 0.2 (4) 2 0.0085 118 Nikolaevskiy r N = 0.02 r_{\\mathrm{N}}=0.02 200 10.0 (5) 1 0.0918 11 Table 2: Systems. Δ ​ t \\Delta t is the time advanced by one emulator step, integrated with the given number of solver substeps. r N r_{\\mathrm{N}} is the supercriticality parameter r r of Cox and Matthews [7] , renamed to avoid a clash with the error ratio."
+      },
+      {
+        "id": "A1.SS0.SSS0.Px2",
+        "heading": "Solver.",
+        "level": 3,
+        "text": "We use ETDRK4 [ 6 ] with the contour-integral evaluation of Kassam and Trefethen [14] , written in JAX in double precision. The contour is a full circle of 64 points, because the half-circle form is valid only for real linear operators and the gKS and CGLE operators are complex. The quadratic nonlinearities of KS, gKS and Nikolaevskiy are dealiased with the 2 / 3 2/3 rule. Solver Jacobian-vector products J P ​ v J_{P}v are obtained by forward-mode differentiation through the solver."
+      },
+      {
+        "id": "A1.SS0.SSS0.Px3",
+        "heading": "Validation of the solver.",
+        "level": 3,
+        "text": "Before training, each system passed four checks: tangent-map products agree with central finite differences (relative error below 10 − 9 10^{-9} ); the tangent map is linear to 10 − 14 10^{-14} ; the leading Lyapunov exponent is positive; and the grid resolves the linearly unstable band."
+      },
+      {
+        "id": "A1.SS0.SSS0.Px4",
+        "heading": "Data.",
+        "level": 3,
+        "text": "An initial condition is u 0 ​ ( x ) = ∑ m = 1 6 ξ m ​ m − 1 ​ sin ⁡ ( 2 ​ π ​ m ​ x / L + ϕ m ) u_{0}(x)=\\sum_{m=1}^{6}\\xi_{m}m^{-1}\\sin(2\\pi mx/L+\\phi_{m}) with ξ m ∼ 𝒩 ⁡ ( 0 , 1 ) \\xi_{m}\\sim\\mathcal{N}(0,1) and ϕ m ∼ 𝒰 ⁡ ( 0 , 2 ​ π ) \\phi_{m}\\sim\\mathcal{U}(0,2\\pi) , scaled to a maximum amplitude of 0.5 (independently per channel draw for CGLE). Each is evolved for 300 emulator steps (each of length Δ ​ t \\Delta t , Table 2 ) onto the attractor before recording. For each system we generate 128 training trajectories of 50 steps, 16 validation trajectories of 100 steps and 30 test trajectories of 200 steps, with fixed random seeds (1000, 4242 and 773). Both studies use the same trajectories, regenerated with identical settings and seeds. Data are stored in single precision."
+      },
+      {
+        "id": "A1.SS0.SSS0.Px5",
+        "heading": "Lyapunov time.",
+        "level": 3,
+        "text": "We propagate a perturbation of size 10 − 9 10^{-9} with the solver’s tangent map for 200 steps from two attractor states, fit the slope of its log-norm over the middle 60% of the run, and take the median. One Lyapunov time is 1 / λ 1/\\lambda emulator steps."
+      },
+      {
+        "id": "A2.SS0.SSS0.Px1",
+        "heading": "Emulators.",
+        "level": 3,
+        "text": "All emulators compute f ⁡ ( u ) = u + net ⁡ ( u ) f(u)=u+\\mathrm{net}(u) with the last layer initialised to zero, and use periodic padding. Table 3 lists the architectures. architecture configuration parameters 8–10k parameters (main study) CNN 5 hidden convolutions, width 23, kernel 3, no internal skips 8.2k ResNet 8 residual blocks, width 13, kernel 3, ReLU 8.4k U-Net 3 levels, average-pool down, repeat up, skip concatenation 10.3k FNO 4 blocks, width 9, 12 modes, GELU (gKS: width 6, 32 modes) 8.9k (9.9k) Transformer patches of 4 points, 2 pre-norm blocks, width 20, 2 heads 8.1k 33k parameters (APEBench presets) ResNet Res;26;8;relu : 8 blocks, width 26 33.0k FNO FNO;12;18;4;gelu : 4 blocks, width 18, 12 modes 33.8k Table 3: Architectures. Parameter counts are for one channel; the two-channel CGLE models are slightly larger. On gKS the small FNO uses 32 modes so that it covers the unstable band of the larger domain."
+      },
+      {
+        "id": "A2.SS0.SSS0.Px2",
+        "heading": "Pretraining.",
+        "level": 3,
+        "text": "All models are trained on the one-step mean squared error with Adam and gradient-norm clipping at 1. The small models use 40k updates with batch size 64; the learning rate rises linearly from 10 − 4 10^{-4} to 10 − 3 10^{-3} over the first 5% of updates and then decays to 10 − 5 10^{-5} with a cosine schedule. The 33k models use 150k updates with batch size 32; the learning rate rises linearly to 10 − 3 10^{-3} over 2,000 updates and then decays to 10 − 5 10^{-5} with a cosine schedule. Ten 33k ResNet runs stopped at 145k updates when the compute budget ran out. In both studies the starting model for fine-tuning is the pretraining checkpoint with the lowest validation rollout error, defined under Checkpoints below."
+      },
+      {
+        "id": "A2.SS0.SSS0.Px3",
+        "heading": "Fine-tuning.",
+        "level": 3,
+        "text": "Each update draws 32 windows of 20 consecutive true states u 0 , … , u 19 u_{0},\\dots,u_{19} , in the same order for every arm. We use Adam with gradient-norm clipping at 1; the learning rate rises linearly to 10 − 4 10^{-4} over 300 updates and then decays to 10 − 6 10^{-6} with a cosine schedule, for 5k (small) or 20k (33k) updates."
+      },
+      {
+        "id": "A2.SS0.SSS0.Px4",
+        "heading": "Jacobian penalty.",
+        "level": 3,
+        "text": "For EDJM, we roll the current model out from u 0 u_{0} and take the unit direction of its error, e ^ k = e k / ‖ e k ‖ \\hat{e}_{k}=e_{k}/\\|e_{k}\\| with e k = f k ​ ( u 0 ) − u k e_{k}=f^{k}(u_{0})-u_{k} , for k = 1 , … , 19 k=1,\\dots,19 ; the direction is held fixed (no gradient), and states with a non-finite error are skipped. For RJM, e ^ k \\hat{e}_{k} is replaced by a random unit Gaussian direction at the same states. The loss is Equation 10 , with the one-step mean squared error as ℒ one-step \\mathcal{L}_{\\text{one-step}} and K = { 1 , … , 19 } K=\\{1,\\dots,19\\} ; D D is the number of state entries, and both Jacobian-vector products are computed by forward-mode differentiation, with the solver term treated as data. The weight μ \\mu is set once, at update 0, so that the penalty equals 100 times the one-step loss, each averaged over 16 training batches."
+      },
+      {
+        "id": "A2.SS0.SSS0.Px5",
+        "heading": "Input-noise baseline (Noise).",
+        "level": 3,
+        "text": "Inputs are perturbed as u k + σ ​ ξ u_{k}+\\sigma\\xi with ξ ∼ 𝒩 ⁡ ( 0 , I ) \\xi\\sim\\mathcal{N}(0,I) , and the target remains the clean solver step u k + 1 u_{k+1} . The scale σ \\sigma is a multiple of the starting model’s RMS one-step error, measured at update 0 over 16 training batches: 1 × 1\\times for the small models, and 0.3 × 0.3\\times , 1 × 1\\times and 3 × 3\\times for the 33k KS-ResNet, of which we report 1 × 1\\times , the best."
+      },
+      {
+        "id": "A2.SS0.SSS0.Px6",
+        "heading": "Checkpoints.",
+        "level": 3,
+        "text": "During fine-tuning we evaluate the validation rollout error 20 times per run for the small models and 40 times at 33k, and also at update 0. The validation rollout error is the geometric mean over 100 steps of the relative error averaged over the 16 validation trajectories. For gKS and CGLE these 100 steps are shorter than one Lyapunov time (123 and 118 steps), so checkpoint selection does not see the full evaluation horizon on these systems. The best checkpoint has the lowest validation rollout error, with the starting model as a candidate; the final checkpoint is the last update."
+      },
+      {
+        "id": "A2.SS0.SSS0.Px7",
+        "heading": "Metrics.",
+        "level": 3,
+        "text": "Relative errors ‖ e n ‖ / ‖ u n ‖ \\|e_{n}\\|/\\|u_{n}\\| are aggregated over the 30 test trajectories by a geometric mean, excluding non-finite values. The counterfactual error e n P e^{P}_{n} propagates the model’s measured one-step mistakes d n = f ⁡ ( u n ) − P ⁡ ( u n ) d_{n}=f(u_{n})-P(u_{n}) along the true test trajectory with the solver’s Jacobian, starting from e 0 P = 0 e^{P}_{0}=0 ; the model runs in single precision and the propagation in double precision. The valid prediction time quoted in Section 1 is the first step at which the RMSE, normalised by the per-channel standard deviation of the training data, exceeds 0.5, taking the median over the test trajectories."
+      },
+      {
+        "id": "A3",
+        "heading": "Appendix C Compute",
+        "level": 1,
+        "text": "All experiments ran on single NVIDIA T4 GPUs on Kaggle. Pretraining the 33k models took 8.2 GPU-hours (FNO, 20 runs) and 10.0 GPU-hours (ResNet, 20 runs). The small-model study, including pretraining and fine-tuning, took 3.3–3.9 GPU-hours per PDE. Fine-tuning the 33k models took about 70 GPU-hours, including penalty variants not reported here, and the input-noise runs on the 33k KS-ResNet took 3.5 GPU-hours."
+      },
+      {
+        "id": "A4.SS0.SSS0.Px1",
+        "heading": "Per-configuration results.",
+        "level": 3,
+        "text": "Table 4 lists the amplification ratio and the outcome of EDJM fine-tuning for each configuration, the data behind Figure 2 . configuration seeds ρ \\rho error ratio r r improved 8–10k parameters (14 configurations, 42 seeds) CGLE FNO 3 0.88 1 0/3 KS FNO 3 0.93 2.2 0/3 KS U-Net 3 1 2.3 0/3 gKS FNO 3 1 1 1/3 gKS ResNet 3 1 1.4 0/3 gKS U-Net 3 1.1 2 0/3 CGLE ResNet 3 2.2 1 2/3 CGLE CNN 3 2.4 0.93 1/3 gKS Transformer 3 2.6 0.43 3/3 CGLE U-Net 3 3.6 0.91 2/3 CGLE Transformer 3 3.8 0.46 2/3 gKS CNN 3 7.1 0.14 3/3 KS ResNet 3 12 0.081 3/3 KS Transformer 3 33 0.15 3/3 33k parameters (7 configurations, 32 seeds) gKS FNO 5 0.48 1 1/5 CGLE FNO 5 0.86 1.5 0/5 KS FNO 5 0.96 1.7 0/5 gKS ResNet 2 1.1 2 0/2 CGLE ResNet 5 1.7 0.72 5/5 KS ResNet 5 6 0.043 5/5 Nik. ResNet 5 40 0.012 5/5 Table 4: Per configuration, ordered by ρ \\rho within each size: median amplification ratio of the starting models, geometric-mean error ratio after EDJM (final checkpoint), and seeds with r < 0.9 r<0.9 ."
+      },
+      {
+        "id": "A4.SS0.SSS0.Px2",
+        "heading": "All methods by amplification ratio.",
+        "level": 3,
+        "text": "Table 5 extends Figure 2 to all fine-tuning methods. On the small models with ρ ≤ 1.25 \\rho\\leq 1.25 , no method improved more than one of 17 seeds, and both Jacobian methods increased the error on average. Continued training and input noise at 33k are omitted: noise was run on one configuration only, and several continued-training rollouts diverge at 33k, which dominates their average. ρ ≤ 1.25 \\rho\\leq 1.25 1.25 < ρ < 4 1.25<\\rho<4 ρ ≥ 4 \\rho\\geq 4 8–10k parameters (17 / 14 / 11 seeds) Cont. training 0/17 (0.97) 0/14 (1.08) 0/11 (1.50) Noise 1/17 (0.95) 3/14 (0.87) 9/11 (0.25) RJM 0/17 (1.71) 5/14 (0.87) 10/11 (0.18) EDJM 0/17 (1.73) 9/14 (0.82) 11/11 (0.13) 33k parameters (17 / 6 / 9 seeds) RJM 0/17 (2.40) 6/6 (0.60) 9/9 (0.034) EDJM 1/17 (1.43) 6/6 (0.56) 9/9 (0.018) Table 5: Seeds improved by more than 10% at one Lyapunov time, and in parentheses the geometric-mean error ratio over seeds, grouped by the amplification ratio of the starting model; final checkpoints."
+      },
+      {
+        "id": "A4.SS0.SSS0.Px3",
+        "heading": "Paired comparisons.",
+        "level": 3,
+        "text": "Table 6 gives the full paired statistics behind Figure 4 . comparison EDJM better sign test p p geo. mean ratio 8–10k ( ρ > 1.25 \\rho>1.25 , 25 seeds) vs RJM 16/20 0.012 0.86 vs Cont. training 19/25 0.015 0.36 vs Noise 16/25 0.23 0.72 33k ( ρ > 1.25 \\rho>1.25 , 15 seeds) vs RJM 12/15 0.035 0.69 vs Cont. training 14/15 0.001 0.07 vs Noise (KS ResNet) 0/5 0.063 1.12 Table 6: Paired comparisons of the error at one Lyapunov time, validation-selected checkpoints. Ties (both runs kept the starting model) are dropped from the counts and sign tests; the geometric-mean ratio of EDJM error to the other method’s is over all seeds, ties included. Input noise at 33k uses the best of three noise levels."
+      },
+      {
+        "id": "A4.SS0.SSS0.Px4",
+        "heading": "Input noise at 33k.",
+        "level": 3,
+        "text": "We compared input noise with EDJM at 33k on one configuration, KS ResNet (last row of Table 6 ). Input noise, tuned over three noise levels ( 0.3 × 0.3\\times , 1 × 1\\times and 3 × 3\\times the RMS one-step error), was better at its best level, 1 × 1\\times , on all 5 seeds, by 12% in geometric mean ( p = 0.063 p=0.063 ). EDJM was run at a single setting and beat the other two noise levels on 5 and 4 of the 5 seeds, so the comparison favours noise in tuning effort; we did not tune EDJM or run noise on the other 33k configurations."
+      },
+      {
+        "id": "A4.SS0.SSS0.Px5",
+        "heading": "Sensitivity to the evaluation time and thresholds.",
+        "level": 3,
+        "text": "The evaluation at one Lyapunov time and the thresholds ρ ≤ 1.25 \\rho\\leq 1.25 and ρ ≥ 4 \\rho\\geq 4 were chosen after inspecting the results. Table 7 repeats the analysis of Figure 2 with both ρ \\rho and the error ratio read at half and one and a half Lyapunov times. Varying the low threshold over { 1.1 , 1.25 , 1.5 } \\{1.1,1.25,1.5\\} and the high threshold over { 3 , 4 , 5 } \\{3,4,5\\} at every evaluation time, at most 15.4% (2 of 13) of the low- ρ \\rho seeds and at least 87.5% (14 of 16) of the high- ρ \\rho seeds improved by more than 10%. The separation does not depend on these choices. 8–10k parameters 33k parameters evaluated at ρ ≤ 1.25 \\rho\\leq 1.25 ρ ≥ 4 \\rho\\geq 4 ρ ≤ 1.25 \\rho\\leq 1.25 ρ ≥ 4 \\rho\\geq 4 0.5 Lyapunov times 1/18 7/7 0/17 7/7 1 Lyapunov time 0/17 11/11 1/17 9/9 1.5 Lyapunov times 2/17 10/11 2/18 9/9 Table 7: Seeds whose error improved by more than 10% after EDJM fine-tuning (final checkpoint), with ρ \\rho and the error ratio both read at the given time. The middle row is the analysis of the main text."
+      },
+      {
+        "id": "A4.SS0.SSS0.Px6",
+        "heading": "The counterfactual error for every configuration.",
+        "level": 3,
+        "text": "Figures 5 and 6 extend Figure 1 to all configurations. Where ρ ≈ 1 \\rho\\approx 1 the actual error follows the counterfactual error up to one Lyapunov time; where ρ \\rho is large it grows faster from the first steps. Several FNOs have ρ < 1 \\rho<1 , most clearly gKS FNO at 33k ( ρ = 0.48 \\rho=0.48 ): there the model damps its own mistakes more than the solver would. Figure 5: Actual error (solid) and counterfactual error (dashed) for every small-model configuration; thin lines are the three seeds, thick lines their geometric mean over 30 test trajectories, and ρ \\rho is the median over seeds at one Lyapunov time (dotted). The KS CNN, excluded from all analyses, is shown in grey. Figure 6: As Figure 5 , for the 33k-parameter models (five seeds; two for gKS ResNet)."
+      }
+    ]
+  },
+  "text": "When Does Jacobian Fine-Tuning Stabilize Neural PDE Emulators? Skip to main content Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: Why HTML? Report Issue Back to Abstract Download PDF Contents Reading mode Colour theme License: arXiv.org perpetual non-exclusive license arXiv:2610.42013v1 [cs.LG] 30 Oct 2026 When Does Jacobian Fine-Tuning Stabilize Neural PDE Emulators? Shreeyam Bangera † † thanks: Equal contribution. Affiliation: IIT Roorkee Email: shreekant_sb@ph.iitr.ac.in Manya Gupta 1 1 footnotemark: 1 Affiliation: IIT Roorkee Email: manya_g@ph.iitr.ac.in Abstract Neural emulators of chaotic PDEs are trained on one-step prediction but deployed autoregressively, where their errors compound. Jacobian-based regularisers aim to curb this growth, but in a chaotic system part of the growth is physical and cannot be trained away. We separate the two sources of this error with a first-order decomposition. We compare the emulator’s error with a counterfactual that propagates the same one-step mistakes through the solver’s Jacobian, giving an amplification ratio: the factor by which the model’s own dynamics amplify its errors. We study 21 configurations across four PDEs, five architectures and two model sizes (8–10k and 33k parameters), with errors measured at one Lyapunov time. Jacobian fine-tuning reduced the error by more than 10% for 1 of 34 seeds whose amplification ratio was at most 1.25, and for all 20 seeds whose ratio was at least four; for the latter, the error fell by a factor of 8 (small models) and 55 (33k models) in geometric mean over seeds. The gain approximately equals the one-step accuracy cost of fine-tuning divided by the amplification ratio. Matching the solver’s Jacobian along the model’s own error direction (EDJM) outperformed random directions at the same cost on 28 of 35 seeds; input-noise injection performed comparably to EDJM. 1 Introduction In recent years neural networks have been trained to replace numerical solvers across a range of physics problems: medium-range weather forecasting [ 18 , 3 ] , turbulent fluid flow [ 15 ] , climate simulation [ 27 ] , and subsurface flow [ 28 ] . A single run can require millions of solver steps, and the cost of each is what makes high-fidelity simulation expensive; a neural network that emulates one step can do it faster by orders of magnitude. These models are trained with a Markovian bias, in the sense that they are only asked to predict the next state given the previous one, and they become accurate on this task. During inference, however, they are deployed autoregressively : each prediction becomes the input to the next call, for hundreds or thousands of steps. Training never presents this situation: the model learns from real simulation data, then runs on inputs it generated itself, which are slightly wrong after the first step and worse thereafter. Errors compound until the trajectory bears no relation to the truth — most severely for chaotic systems, where nearby states separate exponentially at a rate set by the leading Lyapunov exponent [ 9 , 10 ] . Among the models we train here, a Kuramoto–Sivashinsky emulator with a one-step error of 0.4% loses its forecast skill (normalised error above 0.5) within four steps. A large body of work aims to slow this growth, through modified training objectives [ 4 , 25 , 26 ] or corrective machinery at inference [ 20 ] . One prominent family instead constrains the emulator’s local dynamics , that is, its Jacobian, the linear map that describes how it responds to small perturbations of its input [ 22 , 23 , 1 , 13 ] . This family assumes that rollout error arises because the emulator responds more violently than the real physics and so manufactures instability the equation does not contain, but it does not check this assumption. A rollout error has two origins. The system is chaotic, so any error grows at a rate fixed by the equation, and that growth is neither the model’s fault nor removable by training. Separately, the model may carry its own mistakes forward more violently than the true dynamics would — a genuine defect these methods could repair. From the outside the two are indistinguishable: a diverging rollout looks the same either way. Moreover, none of these works reports what the constraint costs in one-step accuracy. Two of these works already contain the effect. Ainslie et al. [1] decompose the rollout error into an injected term, set by the one-step error, and an amplified term, set by the Jacobian; they then observe that several models trained with their Jacobian-based loss still destabilise because the injected term remains large. Nie and Suzuki [23] measure the other side of the trade, reporting a fourfold increase in one-step error on their out-of-distribution test (0.009 to 0.036) alongside their rollout improvements. But neither evaluates the two terms against each other for a given model: the first never reports their relative size, and the second never reports the amplification its accuracy cost purchased. Neither can therefore establish whether the intervention was worth making, nor anticipate whether it would be on a different system. Contributions. C1. We present a first-order decomposition of the autoregressive error into mistakes propagated by the true dynamics plus a Jacobian-mismatch term. This yields a counterfactual error e n P e^{P}_{n} : the error of a model with the solver’s exact Jacobian that makes the same one-step mistakes. C2. We introduce the amplification ratio ρ n = ‖ e n ‖ / ‖ e n P ‖ \\rho_{n}=\\|e_{n}\\|/\\|e^{P}_{n}\\| , evaluated at one Lyapunov time, before the error saturates. It separates amplification by the model’s Jacobian from the physical instability of the system. Across 21 configurations (over PDEs, architectures and sizes), it identifies when Jacobian matching via fine-tuning can help. C3. We show that ρ n \\rho_{n} limits the achievable rollout improvement. Fine-tuning removes the excess Jacobian amplification but changes the one-step accuracy, and the resulting change in rollout error approximately equals this one-step cost divided by ρ n \\rho_{n} . C4. We propose error-directed Jacobian matching (EDJM): matching the solver’s Jacobian specifically along the model’s own error vector e n e_{n} . At the same penalty weight and training budget, it outperforms matching along random directions. 2 Related work Neural emulators and autoregressive rollouts. Neural networks emulate one step of a numerical solver across weather forecasting [ 18 , 3 , 24 ] , climate [ 27 ] , turbulence [ 15 , 26 ] and subsurface flow [ 28 ] , using convolutional, graph and operator architectures [ 19 , 21 , 17 , 12 ] . These models are trained on one-step prediction but deployed autoregressively, and their rollouts drift or diverge even when the one-step error is small. Accordingly, benchmarks such as APEBench [ 16 ] report rollout metrics alongside one-step accuracy. Using APEBench architectures on chaotic systems, where error accumulation is intrinsic, we isolate the portion of error amplification (exceeding underlying physical divergence) driven by the model itself. Training for stable rollouts. Most remedies change what the model sees during training. Input-noise injection [ 25 , 26 ] trains on perturbed states so the model learns to correct small deviations; the pushforward trick and unrolled training [ 4 ] expose it to its own predictions; PDE-Refiner [ 20 ] adds an iterative refinement step to recover the low-amplitude modes that one-step models neglect; and spectral constraints on the architecture bound the operator norm of each layer [ 22 ] . These methods are applied uniformly, without first asking whether a given model’s instability comes from its own dynamics. We use input noise and continued training as baselines ( Section 5.4 ). On the small models whose amplification ratio is close to one, neither of them, nor Jacobian matching, improved more than one of 17 seeds ( Table 5 ): when a model already propagates its mistakes as the true dynamics would, none of the methods we test helps. Jacobian and derivative supervision. Matching derivatives in addition to values dates back to Sobolev training [ 8 ] . For PDE surrogates, Behroozi et al. [2] supervise the sensitivities of a neural operator with respect to its input parameter fields to improve data efficiency and inverse modelling. Kang et al. [13] match the Jacobians of the true and learned vector fields at randomly perturbed states, which implicitly enforces second-order consistency and improves the Lyapunov spectra of learned chaotic systems. Other methods penalise the model’s Jacobian without reference to the solver: JAWS [ 23 ] penalises its Frobenius norm with a spatially adaptive weight, and Ainslie et al. [1] penalise the one-step residual propagated through the learned Jacobian. In all of these, the directions along which the Jacobian is constrained are fixed by the data or drawn at random. EDJM instead matches the solver’s Jacobian along the direction of the model’s own rollout error, the direction in which a Jacobian mismatch actually enters the error ( Section 5.4 ). Analysing error growth in learned dynamics. In a chaotic system any error grows at a rate set by the leading Lyapunov exponent [ 9 , 10 ] , so a growing rollout error is not by itself evidence of a defective model. Ainslie et al. [1] linearise the error dynamics of learned one-step maps and separate an injected one-step error from a term propagated by the model’s Jacobian; they use the largest Jacobian eigenvalue as an indicator of error growth. An eigenvalue above one, however, is expected in a chaotic system and does not distinguish the model’s instability from the physics. We compare the model’s error with a counterfactual that propagates the same one-step mistakes through the solver’s Jacobian ( Section 5.1 ). The resulting amplification ratio measures only the excess amplification that the model adds, identifies when Jacobian fine-tuning can help ( Section 5.2 ), and limits how much it can gain once its cost in one-step accuracy is accounted for ( Section 5.3 ). 3 Method In this section, we first define the errors and the counterfactual. We then derive when a Jacobian-matching objective can remove the excess error. 3.1 Error Notation We train a neural emulator f f to approximate one time step of the numerical solver P P . Long-term trajectories are then generated by applying f f iteratively to its own outputs. Let u 0 , u 1 , … u_{0},u_{1},\\dots be the true trajectory, u n + 1 = P ⁡ ( u n ) u_{n+1}=P(u_{n}) . Starting at the same initial state u ^ 0 = u 0 \\hat{u}_{0}=u_{0} , the emulator sequence is given by u ^ n + 1 = f ⁡ ( u ^ n ) \\hat{u}_{n+1}=f(\\hat{u}_{n}) . d n = f ⁡ ( u n ) − P ⁡ ( u n ) ⏟ the defect : one step, from a correct state e n = u ^ n − u n ⏟ the rollout error , after n free-running steps \\underbrace{d_{n}=f(u_{n})-P(u_{n})}_{\\text{the \\emph{defect}: one step, from a \\emph{correct} state}}\\qquad\\qquad\\underbrace{e_{n}=\\hat{u}_{n}-u_{n}}_{\\text{the \\emph{rollout error}, after $n$ free-running steps}} Training on one-step prediction directly minimizes d n d_{n} , whereas the rollout error e n e_{n} reflects the actual drift experienced in practice. The defect and rollout error are linked by an exact identity. Since u ^ n = u n + e n \\hat{u}_{n}=u_{n}+e_{n} , we have: e n + 1 \\displaystyle e_{n+1} = u ^ n + 1 − u n + 1 \\displaystyle=\\hat{u}_{n+1}-u_{n+1} = f ⁡ ( u ^ n ) − P ⁡ ( u n ) \\displaystyle=f(\\hat{u}_{n})-P(u_{n}) = f ⁡ ( u n + e n ) − P ⁡ ( u n ) \\displaystyle=f(u_{n}+e_{n})-P(u_{n}) = [ f ⁡ ( u n + e n ) − f ⁡ ( u n ) ] ⏟ propagated error + [ f ⁡ ( u n ) − P ⁡ ( u n ) ] ⏟ one-step defect ​ d n \\displaystyle=\\underbrace{\\big[f(u_{n}+e_{n})-f(u_{n})\\big]}_{\\text{propagated error}}\\;+\\;\\underbrace{\\big[f(u_{n})-P(u_{n})\\big]}_{\\text{one-step defect }d_{n}} (1) = J f ​ ( u n ) ​ e n + 𝒪 ⁡ ( ‖ e n ‖ 2 ) ⏟ Taylor expansion of ​ f ​ about ​ u n + d n \\displaystyle=\\underbrace{J_{f}(u_{n})\\,e_{n}\\;+\\;\\mathcal{O}\\big(\\|e_{n}\\|^{2}\\big)}_{\\text{Taylor expansion of }f\\text{ about }u_{n}}\\;+\\;d_{n} ≈ J f ​ ( u n ) ​ e n + d n . \\displaystyle\\approx\\;J_{f}(u_{n})\\,e_{n}\\;+\\;d_{n}. Equation ( 1 ) is exact. Neglecting the 𝒪 ⁡ ( ‖ e n ‖ 2 ) \\mathcal{O}(\\|e_{n}\\|^{2}) remainder yields the linearized error e n f e^{f}_{n} , governed by: e n + 1 f = J f ​ ( u n ) ​ e n f + d n , e 0 f = 0 . e^{f}_{n+1}=J_{f}(u_{n})\\,e^{f}_{n}+d_{n},\\qquad e^{f}_{0}=0. (2) While the error is small, e n = e n f + 𝒪 ⁡ ( ‖ e ‖ 2 ) e_{n}=e^{f}_{n}+\\mathcal{O}(\\|e\\|^{2}) . 3.2 Counterfactual Notation Let J P = D ​ P J_{P}=DP be the solver’s Jacobian. Running the same recursion as ( 2 ) with J P J_{P} in place of J f J_{f} , and with the same measured defects, gives e n + 1 P = J P ​ ( u n ) ​ e n P + d n , e 0 P = 0 . e^{P}_{n+1}=J_{P}(u_{n})\\,e^{P}_{n}+d_{n},\\qquad e^{P}_{0}=0. (3) e n P e^{P}_{n} is the error of a hypothetical emulator that commits exactly the same mistakes but carries them forward with the true physics; we call it the counterfactual error . Comparing the real rollout error to this baseline gives the amplification ratio : ρ n = ‖ e n ‖ ‖ e n P ‖ . \\rho_{n}\\;=\\;\\frac{\\|e_{n}\\|}{\\|e^{P}_{n}\\|}. (4) We use the actual error e n e_{n} so that ρ n \\rho_{n} describes the model’s real rollouts; to first order it equals ‖ e n f ‖ / ‖ e n P ‖ \\|e^{f}_{n}\\|/\\|e^{P}_{n}\\| , which is the quantity the analysis below uses. ρ n ≈ 1 \\rho_{n}\\approx 1 indicates that the rollout error is just what the defects force under the true dynamics; ρ n ≫ 1 \\rho_{n}\\gg 1 indicates that the emulator inflates its own mistakes, and a better Jacobian can remove this excess. Crucially, ρ n \\rho_{n} can be measured before any intervention is attempted. 3.3 Where the Mismatch Acts To analyze how Jacobian errors drive trajectory drift, we define two quantities: Δ n \\displaystyle\\Delta_{n} = J f ​ ( u n ) − J P ​ ( u n ) \\displaystyle=J_{f}(u_{n})-J_{P}(u_{n})\\quad (Jacobian mismatch) , \\displaystyle\\text{(Jacobian mismatch)}, (5) g n \\displaystyle g_{n} = e n f − e n P , g 0 = 0 \\displaystyle=e^{f}_{n}-e^{P}_{n},\\qquad g_{0}=0\\quad (accumulated error gap) . \\displaystyle\\text{(accumulated error gap)}. (6) Lemma 1 (Error Gap Accumulation) . Let Φ n , m P = J P ( u n − 1 ) ⋯ J P ( u m ) \\Phi^{P}_{n,m}=J_{P}(u_{n-1})\\cdots J_{P}(u_{m}) denote the ground-truth state transition matrix for n > m n>m , with Φ m , m P = I \\Phi^{P}_{m,m}=I . The error gap at step n n satisfies: g n = ∑ j < n Φ n , j + 1 P ​ Δ j ​ e j f . g_{n}=\\sum_{j<n}\\Phi^{P}_{n,j+1}\\,\\Delta_{j}\\,e^{f}_{j}. (7) Proof. Subtracting e n + 1 P e^{P}_{n+1} from e n + 1 f e^{f}_{n+1} cancels the one-step defects d n d_{n} : g n + 1 = J f ​ ( u n ) ​ e n f − J P ​ ( u n ) ​ e n P g_{n+1}=J_{f}(u_{n})e^{f}_{n}-J_{P}(u_{n})e^{P}_{n} . Substituting J f ​ ( u n ) = J P ​ ( u n ) + Δ n J_{f}(u_{n})=J_{P}(u_{n})+\\Delta_{n} yields: g n + 1 = J P ​ ( u n ) ​ g n + Δ n ​ e n f . g_{n+1}=J_{P}(u_{n})\\,g_{n}+\\Delta_{n}\\,e^{f}_{n}. Unrolling this linear recurrence from g 0 = 0 g_{0}=0 yields ( 7 ). ∎ Equation ( 7 ) shows that g n g_{n} is driven solely by the Jacobian mismatch Δ j \\Delta_{j} acting on the current error e j f e^{f}_{j} . We measure this directional mismatch along a unit vector v v via: G n ​ ( v ) = ‖ Δ n ​ v ‖ 2 . G_{n}(v)=\\|\\Delta_{n}v\\|^{2}. (8) Corollary 1 (Optimal Probing Direction) . Let e ^ j = e j f / ‖ e j f ‖ \\hat{e}_{j}=e^{f}_{j}/\\|e^{f}_{j}\\| be the unit error direction, D D the state dimension, v v a direction sampled uniformly from the unit sphere, and { q 1 , … , q D } \\{q_{1},\\dots,q_{D}\\} an orthonormal basis with q 1 = e ^ j q_{1}=\\hat{e}_{j} . For each j < n j<n : (i) The error generated at step j j satisfies ‖ Δ j ​ e j f ‖ 2 = ‖ e j f ‖ 2 ​ G j ​ ( e ^ j ) \\|\\Delta_{j}e^{f}_{j}\\|^{2}=\\|e^{f}_{j}\\|^{2}\\,G_{j}(\\hat{e}_{j}) . (ii) The expected mismatch under random probing satisfies: 𝔼 v ​ [ G j ​ ( v ) ] = 1 D ​ G j ​ ( e ^ j ) + 1 D ​ ∑ i ≥ 2 G j ​ ( q i ) . \\mathbb{E}_{v}[G_{j}(v)]=\\frac{1}{D}\\,G_{j}(\\hat{e}_{j})+\\frac{1}{D}\\sum_{i\\geq 2}G_{j}(q_{i}). (9) Hence, G j ​ ( e ^ j ) ≤ D ⋅ 𝔼 v ​ [ G j ​ ( v ) ] G_{j}(\\hat{e}_{j})\\leq D\\cdot\\mathbb{E}_{v}[G_{j}(v)] , with equality if and only if G j ​ ( q i ) = 0 G_{j}(q_{i})=0 for all i ≥ 2 i\\geq 2 . Proof. (i) Write Δ j ​ e j f = ‖ e j f ‖ ​ Δ j ​ e ^ j \\Delta_{j}e^{f}_{j}=\\|e^{f}_{j}\\|\\,\\Delta_{j}\\hat{e}_{j} and take squared norms. (ii) Expanding v = ∑ i c i ​ q i v=\\sum_{i}c_{i}q_{i} with 𝔼 ⁡ [ c i ​ c k ] = δ i ​ k / D \\mathbb{E}[c_{i}c_{k}]=\\delta_{ik}/D yields 𝔼 v ​ ‖ Δ j ​ v ‖ 2 = 1 D ​ ∑ i ‖ Δ j ​ q i ‖ 2 \\mathbb{E}_{v}\\|\\Delta_{j}v\\|^{2}=\\frac{1}{D}\\sum_{i}\\|\\Delta_{j}q_{i}\\|^{2} . The bound follows from G j ≥ 0 G_{j}\\geq 0 . ∎ Remark 1 . By Lemma 1 and Corollary 1 (i), the contribution of step j j satisfies ‖ Φ n , j + 1 P ​ Δ j ​ e j f ‖ ≤ ‖ Φ n , j + 1 P ‖ ​ ‖ e j f ‖ ​ G j ​ ( e ^ j ) 1 / 2 . \\|\\Phi^{P}_{n,j+1}\\Delta_{j}e^{f}_{j}\\|\\leq\\|\\Phi^{P}_{n,j+1}\\|\\,\\|e^{f}_{j}\\|\\,G_{j}(\\hat{e}_{j})^{1/2}. Thus g n g_{n} depends on the mismatch only through G j ​ ( e ^ j ) G_{j}(\\hat{e}_{j}) . The remaining terms ∑ i ≥ 2 G j ​ ( q i ) \\sum_{i\\geq 2}G_{j}(q_{i}) in ( 9 ) play no role in driving the rollout error, yet take up D − 1 D \\frac{D-1}{D} of the penalty under random probing. Probing along e ^ j \\hat{e}_{j} is therefore up to D D times more efficient than probing along random directions. 3.4 Error-Directed Jacobian Matching Remark 1 suggests penalising the mismatch along the error direction. During fine-tuning we roll the current model out from a true state u 0 u_{0} and take the unit direction of its rollout error, e ^ k = e k / ‖ e k ‖ \\hat{e}_{k}=e_{k}/\\|e_{k}\\| , which equals the direction of e k f e^{f}_{k} to first order. Holding e ^ k \\hat{e}_{k} fixed, error-directed Jacobian matching (EDJM) minimises ℒ = ℒ one-step + μ ​ 1 | K | ​ ∑ k ∈ K 1 D ​ G k ​ ( e ^ k ) = ℒ one-step + μ ​ 1 | K | ​ ∑ k ∈ K 1 D ​ ‖ ( J f ​ ( u k ) − J P ​ ( u k ) ) ​ e ^ k ‖ 2 , \\mathcal{L}=\\mathcal{L}_{\\text{one-step}}+\\mu\\,\\frac{1}{|K|}\\sum_{k\\in K}\\frac{1}{D}\\,G_{k}(\\hat{e}_{k})=\\mathcal{L}_{\\text{one-step}}+\\mu\\,\\frac{1}{|K|}\\sum_{k\\in K}\\frac{1}{D}\\big\\|\\big(J_{f}(u_{k})-J_{P}(u_{k})\\big)\\hat{e}_{k}\\big\\|^{2}, (10) where K K indexes the states of the rollout window and μ \\mu is the penalty weight. Random-direction Jacobian matching (RJM) replaces e ^ k \\hat{e}_{k} by a random unit direction. Both need only Jacobian-vector products of f f and P P . 3.5 When an Intervention Helps Adding a Jacobian penalty introduces a trade-off: the model must balance one-step accuracy against trajectory stability. Throughout, the amplification ratio ρ \\rho and the error ratio r r are evaluated at a fixed horizon n n , which we suppress from the notation. Lemma 2 (Price of Intervention) . Let an intervention replace f f by f ′ f^{\\prime} , change the amplification ratio from ρ \\rho to ρ ′ \\rho^{\\prime} , and scale every one-step defect by the same factor, d m ′ = α ​ d m d^{\\prime}_{m}=\\alpha\\,d_{m} . The resulting rollout error ratio satisfies r = ‖ e n ′ ‖ ‖ e n ‖ = ρ ′ ρ ​ α . r=\\frac{\\|e^{\\prime}_{n}\\|}{\\|e_{n}\\|}=\\frac{\\rho^{\\prime}}{\\rho}\\,\\alpha. (11) Proof. Unrolling ( 3 ) from e 0 P = 0 e^{P}_{0}=0 yields e n P = ∑ m < n Φ n , m + 1 P ​ d m e^{P}_{n}=\\sum_{m<n}\\Phi^{P}_{n,m+1}d_{m} , which is linear in { d m } \\{d_{m}\\} . Scaling the defects to d m ′ = α ​ d m d^{\\prime}_{m}=\\alpha d_{m} gives ∥ e P ′ n ∥ = α ∥ e P n ∥ \\|e^{P\\prime}_{n}\\|=\\alpha\\|e^{P}_{n}\\| . Substituting into ( 4 ) yields ‖ e n ′ ‖ ‖ e n ‖ = ρ ′ ∥ e P ′ n ∥ ρ ​ ‖ e n P ‖ = ρ ′ ρ ​ α . ∎ \\frac{\\|e^{\\prime}_{n}\\|}{\\|e_{n}\\|}=\\frac{\\rho^{\\prime}\\|e^{P\\prime}_{n}\\|}{\\rho\\|e^{P}_{n}\\|}=\\frac{\\rho^{\\prime}}{\\rho}\\,\\alpha.\\qed (12) Uniform scaling of the defects is an idealisation. In our experiments we estimate α \\alpha by the measured one-step cost c c , the ratio of one-step errors after and before fine-tuning ( Equation 15 ). Proposition 1 (Floor, Threshold, and Local Minima) . (i) Floor: Eliminating the mismatch completely ( Δ j = 0 \\Delta_{j}=0 for j < n j<n ) yields g n = 0 g_{n}=0 in ( 7 ), so e n f = e n P e^{f}_{n}=e^{P}_{n} , ρ ′ = 1 \\rho^{\\prime}=1 to first order, and r = α / ρ r=\\alpha/\\rho . (ii) Threshold: An intervention achieves an error ratio r < τ r<\\tau if and only if ρ > ρ ∗ = ρ ′ τ ​ α , and in the floor case ​ ( ρ ′ = 1 ) , ρ ∗ = α τ . \\rho>\\rho^{*}=\\frac{\\rho^{\\prime}}{\\tau}\\,\\alpha,\\qquad\\text{and in the floor case }(\\rho^{\\prime}=1),\\quad\\rho^{*}=\\frac{\\alpha}{\\tau}. (13) (iii) Local minima: If the initial parameters lie at a local minimum of the one-step loss 𝔼 ​ ‖ d ‖ 2 \\mathbb{E}\\|d\\|^{2} , then α ≥ 1 \\alpha\\geq 1 for any non-zero penalty weight, so ρ ∗ ≥ ρ ′ / τ \\rho^{*}\\geq\\rho^{\\prime}/\\tau ; in the floor case, ρ ∗ ≥ 1 / τ \\rho^{*}\\geq 1/\\tau . Proof. Claim (i) follows from Lemma 1 with Δ j = 0 \\Delta_{j}=0 , substituted into ( 11 ). Claim (ii) is a rearrangement of ( 11 ). For claim (iii), under uniform scaling α 2 = 𝔼 ​ ‖ d ′ ‖ 2 / 𝔼 ​ ‖ d ‖ 2 \\alpha^{2}=\\mathbb{E}\\|d^{\\prime}\\|^{2}/\\mathbb{E}\\|d\\|^{2} , and this is at least 1 because moving away from a local minimizer does not decrease the one-step loss. ∎ Remark 2 . Neither α \\alpha nor ρ ′ \\rho^{\\prime} is known before retraining, so ( 13 ) is not a decision rule by itself. Under the approximation ρ ′ ≈ 1 \\rho^{\\prime}\\approx 1 , which our fine-tuned models satisfy ( Section 5.3 ), it gives a necessary condition: starting from a local minimum of the one-step loss, no penalty weight achieves an error ratio below τ \\tau unless ρ > 1 / τ \\rho>1/\\tau . A starting model that is not at a local minimum can have α < 1 \\alpha<1 ; we observe this for the 33k models ( Section 5.3 ). 4 Experimental setup Our experiments test contributions C2–C4; C1 is illustrated in Section 5.1 . We answer these on small emulators (8–10k parameters) spanning five architectures and three PDEs, and repeat the analysis on larger emulators (about 33k parameters) on all four PDEs. Throughout, errors are read at one Lyapunov time, before rollouts saturate, where the first-order decomposition of Section 3 is valid. Full details are in Appendices A , B and C . 4.1 Systems and data We consider four one-dimensional chaotic PDEs with periodic boundaries: the Kuramoto–Sivashinsky equation (KS), the generalised KS equation (gKS), the complex Ginzburg–Landau equation in the phase-turbulent regime (CGLE), and the Nikolaevskiy equation. Following APEBench [ 16 ] , each system is discretised on 256 points and integrated with an ETDRK4 solver [ 6 , 14 ] in double precision. We implement the solver in JAX, so its Jacobian-vector products are exact. For each system we generate 128 training trajectories of 50 steps, 16 validation trajectories of 100 steps and 30 test trajectories of 200 steps. Each starts from a random initial condition that is first evolved onto the attractor. Both studies use the same trajectories. One Lyapunov time (LT), measured with the solver’s tangent map, is 57, 123, 118 and 11 emulator steps for KS, gKS, CGLE and Nikolaevskiy. Parameters and the data recipe are in Appendix A . 4.2 Emulators All emulators are residual one-step maps, f ⁡ ( u ) = u + net ⁡ ( u ) f(u)=u+\\mathrm{net}(u) , trained on the one-step mean squared error. Table 1 summarises the two studies. The main study uses five architectures with 8.1–10.3k parameters ( Table 3 ), which we refer to as 8–10k, on KS, gKS and CGLE. We exclude the KS CNN, which diverges in every arm including the control. The scaling check uses the APEBench ResNet and FNO presets at about 33k parameters on the four systems. We did not fine-tune the 33k FNO on Nikolaevskiy, which failed to learn the one-step map (relative one-step error of about 39% on four of five seeds). In both studies, fine-tuning starts from the pretraining checkpoint with the lowest validation rollout error. Architectures and training schedules are in Appendix B . systems architectures parameters seeds Main study KS, gKS, CGLE CNN, ResNet, U-Net, FNO, Transformer 8–10k 3 Scaling check KS, gKS, CGLE, Nik. ResNet, FNO 33k 5 † Table 1: Study design. The main study has 14 configurations and 42 seeds (KS CNN excluded); the scaling check has 7 configurations and 32 seeds. † Two seeds for gKS-ResNet, which showed no effect on both and was not extended. 4.3 Fine-tuning methods All methods start from the same pretrained model, see the same training windows in the same order, and keep the one-step loss. Training runs for 5k updates for the small models and 20k for the 33k models. Error-directed Jacobian matching (EDJM). At each update we roll the model out over windows of 20 true states and take the unit direction of its error at each state, held fixed. We then penalise the difference between the model’s and the solver’s Jacobian along that direction ( Equation 10 ). The penalty weight is fixed at the start so that the penalty equals 100 times the one-step loss. Random-direction Jacobian matching (RJM). The same penalty and calibration, applied along random unit directions at the same states. It is an ablation that isolates the effect of the direction. Baselines. Continued training trains on the one-step loss alone for the same budget, separating the effect of further training from that of Jacobian matching. Input-noise injection (Noise) [ 25 , 26 ] perturbs the inputs with Gaussian noise while keeping the clean target. Its scale equals the starting model’s RMS one-step error. We compare it with EDJM on the small models; one 33k configuration is reported in Appendix D . 4.4 Evaluation Each model is rolled out for 200 steps from the 30 test initial conditions. For a model f f we write E f ​ ( n ) E_{f}(n) for the relative error ‖ e n ‖ / ‖ u n ‖ \\|e_{n}\\|/\\|u_{n}\\| at step n n , aggregated over trajectories by a geometric mean, and n ⋆ n^{\\star} for one Lyapunov time. Our primary metric is the error ratio r = E fine-tuned ​ ( n ⋆ ) E start ​ ( n ⋆ ) , r=\\frac{E_{\\text{fine-tuned}}(n^{\\star})}{E_{\\text{start}}(n^{\\star})}, (14) and a fine-tuning run counts as an improvement when r < 0.9 r<0.9 . The amplification ratio ρ ≡ ρ n ⋆ \\rho\\equiv\\rho_{n^{\\star}} ( Equation 4 ) is read at n ⋆ n^{\\star} , for the starting model (the diagnostic) and after fine-tuning. For each seed it is the geometric mean over the 30 test trajectories of the per-trajectory ratio ‖ e n ⋆ ‖ / ‖ e n ⋆ P ‖ \\|e_{n^{\\star}}\\|/\\|e^{P}_{n^{\\star}}\\| ; per-configuration values are medians over seeds. The one-step cost is c = ε fine-tuned ε start , c=\\frac{\\varepsilon_{\\text{fine-tuned}}}{\\varepsilon_{\\text{start}}}, (15) where ε \\varepsilon is the relative one-step error ‖ d n ‖ / ‖ u n ‖ \\|d_{n}\\|/\\|u_{n}\\| , averaged by a geometric mean over all states of the test trajectories. It is our estimate of the defect scaling α \\alpha in Lemma 2 . Each run keeps its final checkpoint and its best checkpoint by validation rollout error, with the starting model as a candidate; each result states which it uses. Comparisons between methods are paired by seed, with two-sided sign tests; ties, where both runs kept the starting model, are dropped from the tests. All experiments ran on Kaggle T4 GPUs; compute is in Appendix C . 5 Results We evaluate model performance across two scale regimes: standard small emulators (8–10k parameters) followed by scaled configurations (33k parameters). 5.1 The counterfactual error is a meaningful baseline (C1) Figure 1 compares the actual error with the counterfactual error for two small gKS emulators. For the ResNet the two coincide up to one Lyapunov time ( ρ = 1.0 \\rho=1.0 ), which implies that the model propagates one-step errors like the true physics. The CNN’s counterfactual error at one Lyapunov time ( 0.13 0.13 ) is of the same order as the ResNet’s ( 0.07 0.07 ), but its actual error ( 0.84 0.84 ) is six times larger ( ρ = 6.4 \\rho=6.4 for the seed-averaged curves): the model amplifies its mistakes more than the true physics. The gap between the curves is the part of the error that a better Jacobian can remove. The same picture holds across all 21 configurations ( Figures 5 and 6 ). Figure 1: Example on one system: actual error ‖ e n ‖ \\|e_{n}\\| (solid) and counterfactual error ‖ e n P ‖ \\|e^{P}_{n}\\| (dashed) for two small emulators of gKS, one with ρ ≈ 1 \\rho\\approx 1 and the configuration with the highest amplification ratio on this system. Thin lines: the three seeds; thick lines: their geometric mean over 30 test trajectories. Dotted: one Lyapunov time. Shaded: error in excess of the counterfactual. The ρ \\rho in the panel titles is computed from the thick (seed-averaged) curves; Table 4 reports the median over seeds (7.1 for the CNN). All configurations are shown in Figures 5 and 6 . 5.2 The amplification ratio identifies when fine-tuning helps (C2) Figure 2 plots the error ratio after EDJM fine-tuning (final checkpoint) against the amplification ratio of the starting model. On the small models, none of the 17 seeds with ρ ≤ 1.25 \\rho\\leq 1.25 improved by more than 10%, while all 11 with ρ ≥ 4 \\rho\\geq 4 did. The pattern holds at 33k: 1 of 17 seeds with ρ ≤ 1.25 \\rho\\leq 1.25 improved, against 9 of 9 with ρ ≥ 4 \\rho\\geq 4 . Hence, the amplification ratio identifies where Jacobian matching will help. We chose the thresholds and the evaluation at one Lyapunov time after inspecting the results; the separation holds from half to one and a half Lyapunov times and for nearby thresholds ( Table 7 ). A low amplification ratio is a signal not to fine-tune for stability. On the small models with ρ ≤ 1.25 \\rho\\leq 1.25 , EDJM made the error worse, by a factor of 1.7 1.7 in geometric mean over seeds, while continued training left it unchanged ( r = 0.97 r=0.97 ; final checkpoints; other methods in Table 5 ). When ρ ≈ 1 \\rho\\approx 1 the model already propagates its one-step mistakes as the true dynamics would, so there is no excess amplification to remove; the Jacobian penalty only raises the one-step error, and the rollout error rises with it ( Section 5.3 ). In this regime the remedy is a more accurate one-step model, not a better Jacobian. Figure 2: Error ratio r r ( Equation 14 ) after EDJM fine-tuning, final checkpoint, against the amplification ratio of the starting model. Each point is one seed; below the dotted line is an improvement of more than 10%. Grey: ρ ≤ 1.25 \\rho\\leq 1.25 ; blue: ρ ≥ 4 \\rho\\geq 4 . 5.3 The amplification ratio limits the gain (C3) Fine-tuning reduces error amplification by bringing the model’s error down to the counterfactual error. After EDJM, the median amplification ratio reaches 0.99 0.99 on the small models and 0.93 0.93 at 33k, independent of its initial value ( Figure 3 a; final checkpoints). This is the floor case of Proposition 1 (i): with ρ ′ ≈ 1 \\rho^{\\prime}\\approx 1 , Lemma 2 gives r ≈ α / ρ r\\approx\\alpha/\\rho , and we estimate α \\alpha by the one-step cost c c . On the small models with ρ > 1.25 \\rho>1.25 the one-step error grows by a median factor c = 2.2 c=2.2 . At 33k it falls ( c = 0.68 c=0.68 ), which Proposition 1 (iii) excludes for a model at a minimum of the one-step loss. Our starting checkpoints are selected by validation rollout error rather than by one-step loss, and ten of the 33k ResNets stopped at 145k of 150k pretraining updates, so these models were likely not at a minimum and fine-tuning could still lower their one-step error. The measured error ratios track c / ρ c/\\rho closely ( Figure 3 b; log-space correlation 0.88 0.88 on the small models and 0.99 0.99 at 33k). This also accounts for the mixed outcomes at intermediate ρ \\rho in Figure 2 : under our 10% criterion, a model with ρ = 2 \\rho=2 improves only if fine-tuning raises its one-step error by less than a factor of 1.8 1.8 . Because c c is known only after fine-tuning, this relation explains the size of the gain rather than predicting it; we return to this in Section 6 . Figure 3: (a) Amplification ratio before and after EDJM fine-tuning (dashed: unchanged). (b) Error ratio against c / ρ c/\\rho , where c c is the one-step cost ( Equation 15 ); dashed: r = c / ρ r=c/\\rho . Colour: system; marker shape: architecture; filled: 8–10k parameters; hollow: 33k. Final checkpoints, 74 seeds. 5.4 Error-directed Jacobian matching (C4) Corollary 1 predicts that the penalty is most effective along the direction of the error. Figure 4 compares EDJM with random-direction Jacobian matching (RJM) on all seeds with ρ > 1.25 \\rho>1.25 , and with input noise on the small models, using validation-selected checkpoints; full paired statistics, including continued training, are in Table 6 . EDJM beats RJM on 16 of 20 small-model seeds ( p = 0.012 p=0.012 ) and on 12 of 15 seeds at 33k ( p = 0.035 p=0.035 ), with 14% and 31% lower error in geometric mean. It also beats continued training (19 of 25 and 14 of 15), so the gain does not come from further optimisation. Against input noise the evidence does not favour EDJM. On the small models EDJM has lower error on 16 of 25 seeds, which is not significant ( p = 0.23 p=0.23 ). A single comparison at 33k, on KS ResNet, is reported in Appendix D . Figure 4: Per-seed error ratio of EDJM against (a) RJM and (b) Noise, on all seeds with ρ > 1.25 \\rho>1.25 , validation-selected checkpoints. Points in the shaded region favour EDJM; points on the diagonal at r = 1 r=1 are seeds where both runs kept the starting model. Colour: system; marker shape: architecture; filled: 8–10k; hollow: 33k. Panel (b) shows the small models only; the 33k comparison is in Table 6 . 6 Discussion The amplification ratio is a cheap diagnostic of whether a model carries its errors forward like the true physics. When ρ ≈ 1 \\rho\\approx 1 , Jacobian fine-tuning has nothing to remove and makes the error worse, and the effort is better spent on one-step accuracy. When ρ \\rho is large, it removes most of the excess growth. The relation r ≈ c / ρ r\\approx c/\\rho explains the size of the gain but does not predict it, since the one-step cost c c is known only after fine-tuning. There are also some limitations. The thresholds on ρ \\rho and the evaluation at one Lyapunov time were chosen after inspecting the results, although the separation holds from half to one and a half Lyapunov times and for nearby thresholds ( Table 7 ). Input-noise injection matched EDJM on the small models (a single 33k comparison is in Appendix D ), so our evidence for EDJM is its advantage over random directions, not over other stabilisation methods. The counterfactual requires solver Jacobian-vector products, which are available only for differentiable solvers and, in weather and climate, from tangent-linear models. Our systems are one-dimensional, and future work would extend this analysis to two- and three-dimensional flows. 7 Conclusion A rollout error in a chaotic system has two sources: the one-step mistakes of the emulator, amplified by the true dynamics, and the excess amplification of the emulator’s own Jacobian. Comparing the error with a counterfactual that propagates the same mistakes through the solver’s Jacobian separates the two. Across 21 configurations and two model sizes, the resulting amplification ratio identified when Jacobian fine-tuning helps: almost never when ρ ≤ 1.25 \\rho\\leq 1.25 (1 of 34 seeds), and always when ρ ≥ 4 \\rho\\geq 4 (20 of 20). Fine-tuning removes the excess, and the gain follows the ratio of the one-step cost to ρ \\rho . Matching the solver’s Jacobian along the model’s own error direction outperformed random directions at the same cost. Before stabilising an emulator, it is worth measuring how much of its error it is responsible for. Code availability Code, starting checkpoints and per-run results, with scripts that regenerate every figure and table, are available at https://github.com/manyagupta13/jacobian_matching . References [1] Conrad Ainslie, Pedram Hassanzadeh, Michael W. Mahoney, and Ashesh Chattopadhyay. Eigenanalysis framework for autoregressive neural emulators of multi-scale chaotic dynamics. arXiv preprint arXiv:2608.16084 , 2026. [2] Abdolmehdi Behroozi, Chaopeng Shen, Daniel Kifer, and Kathryn Lawson. Sensitivity-constrained neural operators for data-efficient forward and inverse modeling of partial differential equation systems. arXiv preprint arXiv:2608.29888 , 2026. [3] Kaifeng Bi, Lingxi Xie, Hengheng Zhang, Xin Chen, Xiaotao Gu, and Qi Tian. Accurate medium-range global weather forecasting with 3D neural networks. Nature , 619:533–538, 2023. [4] Johannes Brandstetter, Daniel Worrall, and Max Welling. Message passing neural PDE solvers. In International Conference on Learning Representations (ICLR) , 2022. [5] Hugues Chaté. Spatiotemporal intermittency regimes of the one-dimensional complex Ginzburg–Landau equation. Nonlinearity , 7(1):185–204, 1994. doi: 10.1088/0951-7715/7/1/007 . [6] S. M. Cox and P. C. Matthews. Exponential time differencing for stiff systems. Journal of Computational Physics , 176(2):430–455, 2002. [7] S. M. Cox and P. C. Matthews. Pattern formation in the damped Nikolaevskiy equation. Physical Review E , 76(5):056202, 2007. doi: 10.1103/PhysRevE.76.056202 . [8] Wojciech M. Czarnecki, Simon Osindero, Max Jaderberg, Grzegorz Świrszcz, and Razvan Pascanu. Sobolev training for neural networks. In Advances in Neural Information Processing Systems , volume 30, 2017. [9] J.-P. Eckmann and D. Ruelle. Ergodic theory of chaos and strange attractors. Reviews of Modern Physics , 57(3):617–656, 1985. [10] Russell A. Edson, Judith E. Bunder, Trent W. Mattner, and Anthony J. Roberts. Lyapunov exponents of the Kuramoto–Sivashinsky PDE. The ANZIAM Journal , 61(3):270–285, 2019. doi: 10.1017/S1446181119000105 . [11] Hiroshi Gotoda, Marc Pradas, and Serafim Kalliadasis. Nonlinear forecasting of the generalised Kuramoto–Sivashinsky equation. International Journal of Bifurcation and Chaos , 25(5):1530015, 2015. doi: 10.1142/S0218127415300153 . [12] Jayesh K. Gupta and Johannes Brandstetter. Towards multi-spatiotemporal-scale generalized PDE modeling. Transactions on Machine Learning Research , 2023. [13] Shinhoo Kang, Hai V. Nguyen, and Tan Bui-Thanh. Second-order consistency for learning chaotic dynamics via randomized Jacobian matching. arXiv preprint arXiv:2606.01596 , 2026. [14] Aly-Khan Kassam and Lloyd N. Trefethen. Fourth-order time-stepping for stiff PDEs. SIAM Journal on Scientific Computing , 26(4):1214–1233, 2005. [15] Dmitrii Kochkov, Jamie A. Smith, Ayya Alieva, Qing Wang, Michael P. Brenner, and Stephan Hoyer. Machine learning-accelerated computational fluid dynamics. Proceedings of the National Academy of Sciences , 118(21):e2101784118, 2021. [16] Felix Koehler, Simon Niedermayr, Rüdiger Westermann, and Nils Thuerey. APEBench: A benchmark for autoregressive neural emulators of PDEs. In Advances in Neural Information Processing Systems , volume 37, 2024. doi: 10.52202/079017-3822 . [17] Nikola Kovachki, Zongyi Li, Burigede Liu, Kamyar Azizzadenesheli, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. Neural operator: Learning maps between function spaces with applications to PDEs. Journal of Machine Learning Research , 24(89):1–97, 2023. [18] Remi Lam, Alvaro Sanchez-Gonzalez, Matthew Willson, Peter Wirnsberger, Meire Fortunato, Ferran Alet, Suman Ravuri, Timo Ewalds, Zach Eaton-Rosen, Weihua Hu, Alexander Merose, Stephan Hoyer, George Holland, Oriol Vinyals, Jacklynn Stott, Alexander Pritzel, Shakir Mohamed, and Peter Battaglia. Learning skillful medium-range global weather forecasting. Science , 382(6677):1416–1421, 2023. [19] Zongyi Li, Nikola Kovachki, Kamyar Azizzadenesheli, Burigede Liu, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. Fourier neural operator for parametric partial differential equations. In International Conference on Learning Representations (ICLR) , 2021. [20] Phillip Lippe, Bastiaan S. Veeling, Paris Perdikaris, Richard E. Turner, and Johannes Brandstetter. PDE-Refiner: Achieving accurate long rollouts with neural PDE solvers. In Advan",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Skip to main content",
+      "url": "https://arxiv.org/html/2610.42013v1#infobox"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/IgnoreMe"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "Why HTML?",
+      "url": "https://info.arxiv.org/about/accessible_HTML.html"
+    },
+    {
+      "text": "Back to Abstract",
+      "url": "https://arxiv.org/abs/2610.42013v1"
+    },
+    {
+      "text": "Download PDF",
+      "url": "https://arxiv.org/pdf/2610.42013v1"
+    },
+    {
+      "text": "License: arXiv.org perpetual non-exclusive license",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "18",
+      "url": "https://arxiv.org/html/2610.42013v1#bib.bib18"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2610.42013v1#bib.bib3"
+    },
+    {
+      "text": "15",
+      "url": "https://arxiv.org/html/2610.42013v1#bib.bib15"
+    },
+    {
+      "text": "27",
+      "url": "https://arxiv.org/html/2610.42013v1#bib.bib27"
+    },
+    {
+      "text": "28",
+      "url": "https://arxiv.org/html/2610.42013v1#bib.bib28"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2610.42013v1#bib.bib9"
+    },
+    {
+      "text": "10",
+      "url": "https://arxiv.org/html/2610.42013v1#bib.bib10"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2610.42013v1#bib.bib4"
+    },
+    {
+      "text": "25",
+      "url": "https://arxiv.org/html/2610.42013v1#bib.bib25"
+    },
+    {
+      "text": "26",
+      "url": "https://arxiv.org/html/2610.42013v1#bib.bib26"
+    },
+    {
+      "text": "20",
+      "url": "https://arxiv.org/html/2610.42013v1#bib.bib20"
+    },
+    {
+      "text": "22",
+      "url": "https://arxiv.org/html/2610.42013v1#bib.bib22"
+    },
+    {
+      "text": "23",
+      "url": "https://arxiv.org/html/2610.42013v1#bib.bib23"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2610.42013v1#bib.bib1"
+    },
+    {
+      "text": "13",
+      "url": "https://arxiv.org/html/2610.42013v1#bib.bib13"
+    },
+    {
+      "text": "24",
+      "url": "https://arxiv.org/html/2610.42013v1#bib.bib24"
+    },
+    {
+      "text": "19",
+      "url": "https://arxiv.org/html/2610.42013v1#bib.bib19"
+    },
+    {
+      "text": "21",
+      "url": "https://arxiv.org/html/2610.42013v1#bib.bib21"
+    },
+    {
+      "text": "17",
+      "url": "https://arxiv.org/html/2610.42013v1#bib.bib17"
+    },
+    {
+      "text": "12",
+      "url": "https://arxiv.org/html/2610.42013v1#bib.bib12"
+    },
+    {
+      "text": "16",
+      "url": "https://arxiv.org/html/2610.42013v1#bib.bib16"
+    },
+    {
+      "text": "Section 5.4",
+      "url": "https://arxiv.org/html/2610.42013v1#S5.SS4"
+    },
+    {
+      "text": "Table 5",
+      "url": "https://arxiv.org/html/2610.42013v1#A4.T5"
+    },
+    {
+      "text": "8",
+      "url": "https://arxiv.org/html/2610.42013v1#bib.bib8"
+    },
+    {
+      "text": "Behroozi et al. [2]",
+      "url": "https://arxiv.org/html/2610.42013v1#bib.bib2"
+    },
+    {
+      "text": "Section 5.1",
+      "url": "https://arxiv.org/html/2610.42013v1#S5.SS1"
+    },
+    {
+      "text": "Section 5.2",
+      "url": "https://arxiv.org/html/2610.42013v1#S5.SS2"
+    },
+    {
+      "text": "Section 5.3",
+      "url": "https://arxiv.org/html/2610.42013v1#S5.SS3"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2610.42013v1#S3.E1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2610.42013v1#S3.E2"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2610.42013v1#S3.E7"
+    },
+    {
+      "text": "Lemma 1",
+      "url": "https://arxiv.org/html/2610.42013v1#Thmlemma1"
+    },
+    {
+      "text": "Corollary 1",
+      "url": "https://arxiv.org/html/2610.42013v1#Thmcorollary1"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2610.42013v1#S3.E9"
+    },
+    {
+      "text": "Remark 1",
+      "url": "https://arxiv.org/html/2610.42013v1#Thmremark1"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2610.42013v1#S3.E3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2610.42013v1#S3.E4"
+    },
+    {
+      "text": "Equation 15",
+      "url": "https://arxiv.org/html/2610.42013v1#S4.E15"
+    },
+    {
+      "text": "11",
+      "url": "https://arxiv.org/html/2610.42013v1#S3.E11"
+    },
+    {
+      "text": "13",
+      "url": "https://arxiv.org/html/2610.42013v1#S3.E13"
+    },
+    {
+      "text": "Section 3",
+      "url": "https://arxiv.org/html/2610.42013v1#S3"
+    },
+    {
+      "text": "Appendices A",
+      "url": "https://arxiv.org/html/2610.42013v1#A1"
+    },
+    {
+      "text": "B",
+      "url": "https://arxiv.org/html/2610.42013v1#A2"
+    },
+    {
+      "text": "C",
+      "url": "https://arxiv.org/html/2610.42013v1#A3"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2610.42013v1#bib.bib6"
+    },
+    {
+      "text": "14",
+      "url": "https://arxiv.org/html/2610.42013v1#bib.bib14"
+    },
+    {
+      "text": "Table 1",
+      "url": "https://arxiv.org/html/2610.42013v1#S4.T1"
+    },
+    {
+      "text": "Table 3",
+      "url": "https://arxiv.org/html/2610.42013v1#A2.T3"
+    },
+    {
+      "text": "Equation 10",
+      "url": "https://arxiv.org/html/2610.42013v1#S3.E10"
+    },
+    {
+      "text": "Appendix D",
+      "url": "https://arxiv.org/html/2610.42013v1#A4"
+    },
+    {
+      "text": "Lemma 2",
+      "url": "https://arxiv.org/html/2610.42013v1#Thmlemma2"
+    },
+    {
+      "text": "Figure 1",
+      "url": "https://arxiv.org/html/2610.42013v1#S5.F1"
+    },
+    {
+      "text": "Figures 5",
+      "url": "https://arxiv.org/html/2610.42013v1#A4.F5"
+    }
+  ],
+  "matching_link_count": 76,
+  "links_truncated": true,
+  "invalid_links": []
+}

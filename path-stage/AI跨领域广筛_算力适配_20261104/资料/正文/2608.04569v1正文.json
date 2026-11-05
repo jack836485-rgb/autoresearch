@@ -1,0 +1,636 @@
+{
+  "url": "https://arxiv.org/html/2608.04569v1",
+  "final_url": "https://arxiv.org/html/2608.04569v1",
+  "status": 200,
+  "title": "Relevant but Incomplete: Referential Dangling as a Paradigm-LevelFailure Mode in Hard Prompt Compression",
+  "metadata": {},
+  "paper": {
+    "title": "Relevant but Incomplete: Referential Dangling as a Paradigm-Level Failure Mode in Hard Prompt Compression",
+    "title_warning": null,
+    "abstract": "Abstract Hard prompt compression reduces long-context inference cost by scoring tokens, sentences, or chunks independently and retaining the highest-scoring units under a budget. We identify a structural failure in this procedure: independent selection can split dependent evidence pairs, retaining one member while deleting the other. When the retained text span contains an answer but the deleted span defines the entity needed to interpret it, we call the result referential dangling . At compression ratio 0.30 0.30 , Beaver , which ranks coherent chunks using Qwen3-0.6B embeddings, leaves the answer path incomplete in 34 34 to 54 % 54\\% of bridge examples across three multi-hop question answering (QA) datasets. The failure is not specific to that implementation: on a shared HotpotQA bridge set, all six hard compressors we test exhibit dangling at rates reaching 60 % 60\\% , and every document in LongBench-v2 Single-Document QA contains at least one dangling reference. We then test whether selecting different content at the same budget helps. On dangling examples evaluated with Qwen3-8B, reinserting the missing supporting paragraph and offsetting its tokens by removing paragraphs not annotated as supporting the answer improves accuracy by 29 29 to 34 34 points ( p < 10 − 4 p<10^{-4} ), recovering at least 88 % 88\\% of the gap to contexts that retain both annotated supporting paragraphs. Stronger answer models do not absorb the loss: on MuSiQue, GPT-5.5 is 8.8 8.8 points less accurate on the compressed contexts than on contexts retaining both supporting paragraphs. Finally, we train a compact classifier to rank sentences the compressor omitted by whether they are needed to interpret retained text, and reinsert the top-ranked candidates without using support annotations at inference. On HotpotQA with Qwen3-8B as the downstream answer model, this automatic restoration improves accuracy by 4.7 4.7 points while changing the compression ratio only from 0.30 0.30 to 0.31 0.31 . Hard compressors should optimize relevance and referential completeness.",
+    "authors": [
+      {
+        "name": "Zhengpei Hu",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Kai Li",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Dapeng Fu",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Xuechao Zou",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Yuanhao Tang",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Yue Li",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Tengfei Cao",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Jianqiang Huang \\corresponding",
+        "affiliations": [],
+        "notes": []
+      }
+    ],
+    "author_block": "Zhengpei Hu Kai Li Dapeng Fu Xuechao Zou Yuanhao Tang Yue Li Tengfei Cao Jianqiang Huang \\corresponding",
+    "arxiv_version": "2608.04569v1",
+    "arxiv_version_date": "2026-08-05",
+    "sections": [
+      {
+        "id": "S1",
+        "heading": "1 Introduction",
+        "level": 1,
+        "text": "Figure 1: Referential dangling with a missing bridge. Independent scoring retains the query subject and the answer string but removes the fact that Tim DuBois was born in Southwest City, leaving the inference chain incomplete. In recent frontier models, the context windows of large language models (LLMs) have expanded from a few thousand tokens to the million-token scale. These expanded windows enable reasoning over entire documents and collections of documents. Yet long contexts remain expensive: the quadratic cost of self-attention inflates prefill latency, and models underuse relevant content when it appears away from prompt boundaries ( Liu et al. 2024 ) . Prompt compression addresses this tension by pruning the input before it reaches the target model while trying to preserve the information needed for the task ( Jiang et al. 2023b ; Pan et al. 2024 ; Li et al. 2023 ) . Many hard prompt compressors follow a common selection procedure: they score each token, sentence, or chunk for importance and retain the highest scoring fragments within a token budget. These scores may reflect query relevance or perplexity ( Jiang et al. 2024 ) , embedding similarity ( Hu et al. 2026 ) , information content or learned classifier scores ( Li et al. 2023 ; Pan et al. 2024 ) , syntactic salience ( Mao et al. 2025 ) , or importance derived from attention ( Zhao et al. 2025 ) . Although these methods differ in architecture and supervision, they share the objective of retaining fragments that appear important. This objective assumes that the selected fragments collectively form a usable prompt. However, an important fragment need not be self-contained, because its meaning may depend on an earlier definition, an antecedent, or a bridge fact that the compressor removes independently. We call this failure referential dangling and formalize it in Section 3 . A compressed prompt exhibits referential dangling when it retains a relevant fragment but omits a dependency required for its interpretation, leaving the fragment unusable to the target model. Figure 1 illustrates this mechanism. The compressor retains one fragment mentioning Tim DuBois and another stating that Southwest City is in McDonald County, but deletes the bridge stating that DuBois was born in Southwest City. Although the answer string remains in the compressed prompt, the retained fragments no longer support an inference from the query subject to the answer. This example illustrates why relevance alone does not guarantee a usable compressed context. It remains unclear whether dangling is systematic, fixed-budget reselection recovers accuracy, or restoration can be automated. We first examine the official implementation of Beaver ( Hu et al. 2026 ) . At compression ratio 0.30 0.30 , it leaves answer paths incomplete in 34 34 to 54 % 54\\% of bridge examples across HotpotQA ( Yang et al. 2018 ) , 2WikiMultiHopQA ( Ho et al. 2020 ) , and MuSiQue ( Trivedi et al. 2022 ) . A human audit finds 95 % 95\\% precision. The diagnosis extends beyond this setting: all six compressors tested exhibit dangling at rates from 32 32 to 60 % 60\\% on the shared bridge set, and all 80 80 documents in LongBench-v2 Single-Document QA ( Bai et al. 2025 ) contain at least one dangling reference. We next conduct an annotation-guided reselection experiment: the omitted supporting paragraph is reinserted, and its token count is offset by removing the lowest-scoring paragraphs not annotated as supporting the answer. On dangling examples evaluated with Qwen3-8B, this intervention improves accuracy by 29 29 to 34 34 points without increasing the token budget ( p < 10 − 4 p<10^{-4} ) and recovers at least 88 % 88\\% of the accuracy gap between the original compressed contexts and contexts retaining both annotated supporting paragraphs. Finally, we generate candidate sentences from the omitted text and train a compact classifier to rank them according to whether they are needed to interpret retained text. Without using supporting paragraph annotations at inference, the method reinserts the highest ranked candidates. On HotpotQA with Qwen3-8B as the downstream answer model, this automatic restoration improves accuracy by 4.7 4.7 points while changing the compression ratio only from 0.30 0.30 to 0.31 0.31 . We released the code, results for individual examples, and the trained model 1 1 1 https://cslikai.cn/Referential-Dangling/ ."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px1",
+        "heading": "Prompt and context compression.",
+        "level": 3,
+        "text": "Prompt compression reduces long-context inference cost by shortening the input before it reaches the target model. It complements model-side efficiency methods, including elastic subnetworks, compact discrete semantic tokens for multimodal inputs, and efficient encoder–decoder or state-space architectures ( Li and Luo 2024 ; Li et al. 2025b ; Li et al. 2022 ; Li et al. 2025a ) . We study hard compression, which selects tokens, sentences, chunks, or parse nodes under a budget using self-information or perplexity ( Li et al. 2023 ; Jiang et al. 2024 ) , learned token classifiers ( Jiang et al. 2023b ; Pan et al. 2024 ) , embedding similarity ( Hu et al. 2026 ) , syntactic salience ( Mao et al. 2025 ) , attention-based signals ( Zhao et al. 2025 ) , or training-free sentence and fragment selection ( Tang et al. 2025 ) . Task-aware selectors add reinforcement-learning rewards or key-information density objectives ( Shandilya et al. 2025 ; Lin et al. 2025 ) , whereas soft or latent approaches use gist tokens, autoencoders, semantic source coding, or learned special-token representations ( Mu et al. 2023 ; Chevalier et al. 2023 ; Ge et al. 2023 ; Fei et al. 2024 ; Li et al. 2025d ) . A further line of work compresses hidden activations or KV caches instead of source text ( Zhang et al. 2025a ; Zhang et al. 2023 ) ; because these methods never produce a reduced text sequence, the failure we study does not arise in the same form and we do not evaluate them. Hard methods differ in supervision, granularity, and query access but select fragments by salience or relevance. Existing surveys organize prompt-compression methods by hard versus soft strategies and discuss their downstream adaptations ( Li et al. 2025c ) . Comparative studies further show that downstream performance and information preservation vary with the compression method, task, and compression setting ( Jha et al. 2024 ; Łajewska et al. 2025 ) , while rate-distortion analysis formalizes the budget–performance trade-off and the role of query-aware selection ( Nagle et al. 2024 ) . We study how independent hard selection can retain a fragment but remove its required definition or bridge."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px2",
+        "heading": "Dependency-preserving selection.",
+        "level": 3,
+        "text": "Extractive summarization identified this dependency and built a constraint for it: Durrett et al. (2016) add anaphoricity constraints to the selection objective, so a sentence may not be extracted unless the text its pronouns depend on is extracted with it. Hard prompt compressors inherit the selection problem without the constraint: they score units by salience or query relevance and keep the highest-scoring units under a budget, with no term rewarding the joint retention of a unit and the text needed to interpret it. Other work approaches the dependency from different angles. Coreference resolution identifies anaphoric links ( Lee et al. 2017 ) , but on complete documents; resolving links in the source does not indicate whether the retained subset stays interpretable once the antecedent is deleted. Faithfulness evaluation asks the converse question, whether a generated summary is supported by its source ( Maynez et al. 2020 ) , rather than whether the retained source is self-contained. Closest to our setting, Deng et al. (2025) report boundary and information-path failures under gist-based compression. Retrieval-augmented generation retrieves, rewrites, or attends over evidence to favor passages that support generation ( Lewis et al. 2020 ; Xu et al. 2024 ; Liu et al. 2023 ; Choi et al. 2024 ) , but scoring by answer support still lets a passage qualify while remaining uninterpretable once its definition is removed. Long-context studies show that accuracy also depends on where relevant information sits and on surrounding distractors ( Liu et al. 2024 ; Shi et al. 2023 ) , factors that fixed-budget reselection changes and that we therefore control. We measure what the missing constraint costs: how often independent selection splits a dependency pair, and how much downstream accuracy is lost when it does."
+      },
+      {
+        "id": "S3.SS0.SSS0.Px1",
+        "heading": "Referential dangling.",
+        "level": 3,
+        "text": "Let C = ( c 1 , … , c | C | ) C=(c_{1},\\ldots,c_{|C|}) denote a tokenized context, Q ∈ 𝒬 Q\\in\\mathcal{Q} a query, and τ ∈ ℕ \\tau\\in\\mathbb{N} a token budget. We restrict the formal definition to extractive hard compressors. For any extractive output A A , let Pos C ⁡ ( A ) ⊆ { 1 , … , | C | } \\operatorname{Pos}_{C}(A)\\subseteq\\{1,\\ldots,|C|\\} denote the source-token positions emitted in A A , each emitted at most once and in source order. An extractive compressor f f returns C ~ = f ⁡ ( C , Q , τ ) \\tilde{C}=f(C,Q,\\tau) with | C ~ | ≤ τ < | C | |\\tilde{C}|\\leq\\tau<|C| , where | ⋅ | |\\cdot| denotes the number of tokens. A compressor that does not use Q Q is query agnostic. The downstream LLM receives Q Q and C ~ \\tilde{C} but not C C . A sentence relevant to the task may depend on explicit support elsewhere in the context, and several alternative support paths may be valid. Let Sent ⁡ ( C ) \\operatorname{Sent}(C) denote the indexed source-sentence occurrences in C C . For any indexed source fragment y y , let ℐ ⁡ ( y ) ⊆ { 1 , … , | C | } \\mathcal{I}(y)\\subseteq\\{1,\\ldots,|C|\\} contain its source-token positions. Let 𝒯 C , Q ⊆ Sent ⁡ ( C ) \\mathcal{T}_{C,Q}\\subseteq\\operatorname{Sent}(C) contain the task-relevant sentences whose interpretation or use in answering Q Q may require such support. We define exact sentence retention by Ret C ⁡ ( A ) = { s ∈ Sent ⁡ ( C ) : ℐ ⁡ ( s ) ⊆ Pos C ⁡ ( A ) } . \\operatorname{Ret}_{C}(A)=\\left\\{s\\in\\operatorname{Sent}(C):\\mathcal{I}(s)\\subseteq\\operatorname{Pos}_{C}(A)\\right\\}. For s ∈ 𝒯 C , Q s\\in\\mathcal{T}_{C,Q} and D ⊆ Sent ⁡ ( C ) ∖ { s } D\\subseteq\\operatorname{Sent}(C)\\setminus\\{s\\} , let Suff C , Q ⁡ ( s , D ) \\operatorname{Suff}_{C,Q}(s,D) hold when the source-ordered text formed by D ∪ { s } D\\cup\\{s\\} , together with Q Q , contains all explicit information from C C needed to interpret s s and use it in an evidence chain for Q Q . Sufficiency is assessed jointly on D ∪ { s } D\\cup\\{s\\} rather than one dependency edge at a time. Define the complete family of inclusion-minimal sufficient support sets 𝒟 C , Q ( s ) = { D : \\displaystyle\\mathcal{D}_{C,Q}(s)=\\bigl\\{D: D ⊆ Sent ⁡ ( C ) ∖ { s } , Suff C , Q ⁡ ( s , D ) , \\displaystyle D\\subseteq\\operatorname{Sent}(C)\\setminus\\{s\\},\\quad\\operatorname{Suff}_{C,Q}(s,D), ∄ D ′ ⊊ D with Suff C , Q ( s , D ′ ) } . \\displaystyle\\nexists D^{\\prime}\\subsetneq D\\ \\text{with}\\ \\operatorname{Suff}_{C,Q}(s,D^{\\prime})\\bigr\\}. For every s ∈ 𝒯 C , Q s\\in\\mathcal{T}_{C,Q} , we assume 𝒟 C , Q ​ ( s ) ≠ ∅ \\mathcal{D}_{C,Q}(s)\\neq\\varnothing . Because Sent ⁡ ( C ) \\operatorname{Sent}(C) is finite, every sufficient D D contains an inclusion-minimal sufficient subset, so retaining a sufficient support set is equivalent to retaining some member of this minimal family. If s s requires no additional support, then ∅ ∈ 𝒟 C , Q ​ ( s ) \\varnothing\\in\\mathcal{D}_{C,Q}(s) . Following the notion of referential completeness in extractive summarization ( Durrett et al. 2016 ) , we consider only support stated explicitly in C C and exclude commonsense inferences, implicit temporal relations, and relations that require external information. Write ℛ = Ret C ⁡ ( C ~ ) \\mathcal{R}=\\operatorname{Ret}_{C}(\\tilde{C}) . The compressed context C ~ \\tilde{C} exhibits referential dangling if it retains a sentence relevant to the task but retains no sufficient support set in full: ∃ s ∈ ℛ ∩ 𝒯 C , Q such that ∀ D ∈ 𝒟 C , Q ​ ( s ) , D ⊈ ℛ . \\exists\\,s\\in\\mathcal{R}\\cap\\mathcal{T}_{C,Q}\\quad\\text{such that}\\quad\\forall D\\in\\mathcal{D}_{C,Q}(s),\\quad D\\nsubseteq\\mathcal{R}. (1) This query-dependent definition distinguishes support in the original context from support retained after compression."
+      },
+      {
+        "id": "S3.SS0.SSS0.Px2",
+        "heading": "Additive fragment selection.",
+        "level": 3,
+        "text": "We isolate the additive selection rule for hard compressors with nonoverlapping candidate units. Let ℱ = { x 1 , … , x n } \\mathcal{F}=\\{x_{1},\\ldots,x_{n}\\} be a finite collection of candidate fragments from C C , with source-token positions ℐ ⁡ ( x ) \\mathcal{I}(x) as above. We assume ℐ ⁡ ( x i ) ∩ ℐ ⁡ ( x j ) = ∅ \\mathcal{I}(x_{i})\\cap\\mathcal{I}(x_{j})=\\varnothing for all i ≠ j i\\neq j . For any 𝒮 ⊆ ℱ \\mathcal{S}\\subseteq\\mathcal{F} , let Out C ⁡ ( 𝒮 ) \\operatorname{Out}_{C}(\\mathcal{S}) be the text formed by emitting, once and in source order, the tokens in ⋃ x ∈ 𝒮 ℐ ⁡ ( x ) \\bigcup_{x\\in\\mathcal{S}}\\mathcal{I}(x) . Define cost ⁡ ( 𝒮 ) \\displaystyle\\operatorname{cost}(\\mathcal{S}) = | Out C ⁡ ( 𝒮 ) | = ∑ x ∈ 𝒮 | ℐ ⁡ ( x ) | , \\displaystyle=\\big|\\operatorname{Out}_{C}(\\mathcal{S})\\big|=\\sum_{x\\in\\mathcal{S}}|\\mathcal{I}(x)|, (2) ℛ C ​ ( 𝒮 ) \\displaystyle\\mathcal{R}_{C}(\\mathcal{S}) = Ret C ⁡ ( Out C ⁡ ( 𝒮 ) ) . \\displaystyle=\\operatorname{Ret}_{C}\\!\\left(\\operatorname{Out}_{C}(\\mathcal{S})\\right). This exact formulation covers token-, sentence-, and fixed-chunk selectors with nonoverlapping candidate units whose final selection solves the stated global modular knapsack objective. Selectors with overlapping or hierarchical candidates are not claimed to be exact instances of this objective and are evaluated empirically. For fixed ( C , Q ) (C,Q) , a scorer assigns each fragment a scalar utility u ⁡ ( x ) = σ ⁡ ( x , C , Q ) ∈ ℝ , u(x)=\\sigma(x;C,Q)\\in\\mathbb{R}, (3) where σ \\sigma may use the entire context and query. The additive assumption concerns how the final selector combines fragment utilities rather than how those utilities are computed. We model the selected set as a solution to 𝒦 ∈ arg ​ max 𝒮 ⊆ ℱ cost ⁡ ( 𝒮 ) ≤ τ ∑ x ∈ 𝒮 u ( x ) . \\mathcal{K}\\in\\operatorname*{arg\\,max}_{\\begin{subarray}{c}\\mathcal{S}\\subseteq\\mathcal{F}\\\\ \\operatorname{cost}(\\mathcal{S})\\leq\\tau\\end{subarray}}\\sum_{x\\in\\mathcal{S}}u(x). (4) Ties are resolved by a fixed deterministic rule. The resulting compressed text is C ~ = Out C ⁡ ( 𝒦 ) \\tilde{C}=\\operatorname{Out}_{C}(\\mathcal{K}) . It avoids referential dangling if and only if ∀ s ∈ ℛ C ​ ( 𝒦 ) ∩ 𝒯 C , Q , \\displaystyle\\forall s\\in\\mathcal{R}_{C}(\\mathcal{K})\\cap\\mathcal{T}_{C,Q}, ∃ D ∈ 𝒟 C , Q ​ ( s ) \\displaystyle\\exists D\\in\\mathcal{D}_{C,Q}(s) (5) such that D ⊆ ℛ C ​ ( 𝒦 ) . \\displaystyle\\text{such that}\\quad D\\subseteq\\mathcal{R}_{C}(\\mathcal{K}). This condition is the complement of Equation ( 1 ) for the emitted text. The additive objective contains no interaction term that enforces it. The following construction shows that additive selection can omit required support even when the same budget admits a complete alternative. Proposition 1 (No guarantee of complete support) Let ℱ = Sent ⁡ ( C ) = { x , d , z } \\mathcal{F}=\\operatorname{Sent}(C)=\\{x,d,z\\} consist of three disjoint fragments with equal cost m ∈ ℕ > 0 m\\in\\mathbb{N}_{>0} , and assume ℛ C ​ ( 𝒮 ) = 𝒮 \\mathcal{R}_{C}(\\mathcal{S})=\\mathcal{S} for every 𝒮 ⊆ ℱ \\mathcal{S}\\subseteq\\mathcal{F} . Let τ = 2 ​ m \\tau=2m , 𝒯 C , Q = { x } \\mathcal{T}_{C,Q}=\\{x\\} , and 𝒟 C , Q ​ ( x ) = { { d } } \\mathcal{D}_{C,Q}(x)=\\{\\{d\\}\\} . If u ⁡ ( x ) > u ⁡ ( z ) > u ⁡ ( d ) ≥ 0 u(x)>u(z)>u(d)\\geq 0 , then the unique additive maximizer is 𝒦 = { x , z } \\mathcal{K}=\\{x,z\\} , whose output dangles even though the feasible selection { x , d } \\{x,d\\} has complete support. Proof. The two largest utilities belong to x x and z z , so the unique maximizer under the budget is { x , z } \\{x,z\\} . Its retained sentence x x has the sole sufficient support set { d } \\{d\\} , which is absent. The alternative { x , d } \\{x,d\\} has cost 2 ​ m 2m and retains this support set, so it is feasible and complete. □ \\square The proposition is an existence result. It shows that the additive objective alone provides no guarantee for arbitrary utilities, but it does not claim that every compressed context will dangle or that a complete alternative always fits the same budget. The exact class includes context-aware ( Liskavets et al. 2025 ) or reinforcement-learned scores ( Jung and Kim 2024 ) only when the final selector solves the stated fixed modular objective without a support constraint. Section 4 evaluates recurrence empirically for selectors both inside and outside this class."
+      },
+      {
+        "id": "S4",
+        "heading": "4 Empirical Diagnosis of Referential Dangling",
+        "level": 1,
+        "text": "The formulation in Section 3 motivates two empirical analyses. We first use Beaver to measure the prevalence of referential dangling and its variation with compression ratio, annotated hop count, and reference distance. We then compare six compressors to test whether the diagnostic recurs across scoring signals and output granularities."
+      },
+      {
+        "id": "S4.SS0.SSS0.Px1",
+        "heading": "Measurement protocol.",
+        "level": 3,
+        "text": "Because support annotations are incomplete and exact sentence retention is not uniformly available, we use directional content-word coverage. Let CW ⁡ ( y ) \\operatorname{CW}(y) be the normalized content-word multiset of unit y y , and let 𝒰 ⁡ ( A ) \\mathcal{U}(A) contain the retained output units. When | CW ⁡ ( v ) | > 0 |\\operatorname{CW}(v)|>0 and 𝒰 ⁡ ( A ) ≠ ∅ \\mathcal{U}(A)\\neq\\varnothing , define cov ⁡ ( v , A ) = max a ∈ 𝒰 ⁡ ( A ) ⁡ | CW ⁡ ( v ) ∩ CW ⁡ ( a ) | | CW ⁡ ( v ) | . \\operatorname{cov}(v,A)=\\max_{a\\in\\mathcal{U}(A)}\\frac{|\\operatorname{CW}(v)\\cap\\operatorname{CW}(a)|}{|\\operatorname{CW}(v)|}. Set cov ⁡ ( v , A ) = 0 \\operatorname{cov}(v,A)=0 when | CW ⁡ ( v ) | = 0 |\\operatorname{CW}(v)|=0 or 𝒰 ⁡ ( A ) = ∅ \\mathcal{U}(A)=\\varnothing . Span-, sentence-, and chunk-level outputs use native retained units; token-level outputs regroup retained tokens by source sentence. Intersections count multiplicity, and the maximum is per output unit, not over their union. For θ ∈ ( 0 , 1 ] \\theta\\in(0,1] , write Keep θ ⁡ ( v , A ) \\operatorname{Keep}_{\\theta}(v,A) when cov ⁡ ( v , A ) ≥ θ \\operatorname{cov}(v,A)\\geq\\theta . We use θ = 0.5 \\theta=0.5 , with a sweep in Appendix A . This protocol approximates Equation ( 1 ) rather than evaluating it exactly. In bridge questions, the definition paragraph introduces a bridge entity and the answer paragraph refers to it. At each evaluation granularity, we apply the same directional event to the paired answer and definition units: an example is answer-path dangling when Keep θ \\operatorname{Keep}_{\\theta} holds for the answer unit but not for the definition unit. The prevalence analysis uses paragraphs, whereas the cross-compressor analysis uses the corresponding source sentences. This test does not enumerate alternative support paths. Among bridge examples whose answer paragraph satisfies Keep θ \\operatorname{Keep}_{\\theta} , ρ d \\rho_{\\mathrm{d}} is the fraction whose paired definition paragraph does not satisfy Keep θ \\operatorname{Keep}_{\\theta} . The complete evidence retention rate ρ e \\rho_{\\mathrm{e}} is the fraction of all evaluated examples retaining every annotated evidence paragraph. LongBench-v2 Single-Document QA uses a separate first-mention diagnostic."
+      },
+      {
+        "id": "S4.SS1",
+        "heading": "4.1 Referential Dangling under Beaver",
+        "level": 2,
+        "text": "Figure 2: Referential dangling under Beaver . Panel (a) reports ρ d \\rho_{\\mathrm{d}} across compression ratios on HotpotQA ( n = 269 n{=}269 to 300 300 per point, including partial paragraph retention). Panel (b) reports ρ d \\rho_{\\mathrm{d}} by annotated hop count on HotpotQA ( n = 234 n{=}234 ), 2WikiMultiHopQA ( n = 241 n{=}241 ), and MuSiQue ( n = 286 n{=}286 ). Panel (c) reports dangling rates for 4,649 4{,}649 reference pairs in LongBench-v2 Single-Document QA by sentence distance from first mention to later reference. Error bars are bootstrap 95 % 95\\% confidence intervals."
+      },
+      {
+        "id": "S4.SS1.SSS0.Px1",
+        "heading": "Setup.",
+        "level": 3,
+        "text": "We use the official Beaver implementation ( Hu et al. 2026 ) with Qwen3-0.6B embeddings ( Yang et al. 2025 ; Zhang et al. 2025b ) . We evaluate HotpotQA ( Yang et al. 2018 ) , 2WikiMultiHopQA ( Ho et al. 2020 ) , and MuSiQue ( Trivedi et al. 2022 ) . HotpotQA and 2WikiMultiHopQA use contexts of about 40 40 paragraphs and 5.7 5.7 k tokens, formed by mixing annotated supporting paragraphs with sampled distractors; MuSiQue uses its native 20 20 -paragraph contexts. We define r = | C ~ | / | C | r=|\\tilde{C}|/|C| and use binary search to reach each target ratio."
+      },
+      {
+        "id": "S4.SS1.SSS0.Px2",
+        "heading": "Prevalence.",
+        "level": 3,
+        "text": "At r = 0.30 r=0.30 , ρ d \\rho_{\\mathrm{d}} ranges from 34.2 % 34.2\\% to 54.2 % 54.2\\% across the three datasets, while ρ e \\rho_{\\mathrm{e}} ranges from 27.0 % 27.0\\% to 61.0 % 61.0\\% (Table 1 ). MuSiQue has the highest ρ d \\rho_{\\mathrm{d}} and the lowest ρ e \\rho_{\\mathrm{e}} . Figure 2 a uses a broader HotpotQA sample that includes partial paragraph retention ( n = 293 n{=}293 at r = 0.30 r=0.30 ) and reports 31.1 % 31.1\\% , compared with 34.2 % 34.2\\% for the 234 234 -example table sample. In a manual audit, the omitted paragraph was required in 38 38 of 40 40 flagged examples, yielding 95 % 95\\% precision. Appendix B reports the dependency categories, false positives, and qualitative examples. Dataset Hops ρ d \\rho_{\\mathrm{d}} (%) ρ e \\rho_{\\mathrm{e}} (%) HotpotQA 2 34.2 61.0 2WikiMultiHopQA 2 53.5 30.7 MuSiQue 2 to 4 54.2 27.0 Table 1: Referential dangling and complete evidence retention under Beaver at r = 0.30 r=0.30 ."
+      },
+      {
+        "id": "S4.SS1.SSS0.Px3",
+        "heading": "Long documents.",
+        "level": 3,
+        "text": "LongBench-v2 Single-Document QA ( Bai et al. 2025 ) lacks annotations of supporting evidence and multi-hop structure, so we use a separate first-mention diagnostic. A later reference dangles when its entity’s first-mention sentence is omitted while the reference sentence survives. Across 80 80 documents at r = 0.30 r=0.30 , the mean per-document rate is 30.5 % 30.5\\% , and every document contains at least one dangling reference. Rates range from 25 % 25\\% to 37 % 37\\% across seven subdomains (Appendix C ). Because this diagnostic uses retained sentences as its denominator rather than bridge examples with a retained answer paragraph, it is not directly comparable with ρ d \\rho_{\\mathrm{d}} ."
+      },
+      {
+        "id": "S4.SS1.SSS0.Px4",
+        "heading": "Variation across measured conditions.",
+        "level": 3,
+        "text": "On the broader HotpotQA sample in Figure 2 a, ρ d \\rho_{\\mathrm{d}} rises from 6.3 % 6.3\\% at r = 0.70 r=0.70 to 53.5 % 53.5\\% at r = 0.20 r=0.20 , with nonoverlapping bootstrap 95 % 95\\% confidence intervals between adjacent operating points. This endpoint is distinct from the 53.5 % 53.5\\% reported for 2WikiMultiHopQA in Table 1 . Dataset groups with larger annotated hop counts also have larger ρ d \\rho_{\\mathrm{d}} values (Figure 2 b), but dataset construction differs, so this comparison does not isolate reasoning depth. On LongBench-v2 Single-Document QA, the pair-level dangling rate is 51.7 % 51.7\\% for distances of 1 1 to 10 10 sentences, 67.0 % 67.0\\% for 71 71 to 150 150 , and 64.2 % 64.2\\% beyond 150 150 . Dangling pairs have a mean distance of 89 89 sentences, compared with 73 73 for complete pairs."
+      },
+      {
+        "id": "S4.SS2",
+        "heading": "4.2 Comparison Across Six Scoring Signals",
+        "level": 2,
+        "text": "The comparison includes six hard compressors that assign importance using different signals: embedding similarity with Beaver ( Hu et al. 2026 ) , syntactic parse structure with PartPrompt ( Mao et al. 2025 ) , self-information with Selective-Context ( Li et al. 2023 ) , a learned token classifier with LLMLingua-2 ( Pan et al. 2024 ) , perplexity with LongLLMLingua ( Jiang et al. 2024 ) , and importance derived from attention with DAC ( Zhao et al. 2025 ) . These methods span chunk, parse node, sentence, and token outputs. Beaver and LongLLMLingua use the query, whereas the other four methods do not. The procedures differ, but none explicitly constrains joint dependency retention. All six compressors process the same 184 184 HotpotQA bridge examples at compression ratio 0.30 0.30 . We apply the sentence-level predicate Keep 0.5 \\operatorname{Keep}_{0.5} defined above to outputs at every granularity. Under this criterion, Beaver has a dangling rate of 32.1 % 32.1\\% on the shared set. Table 1 reports 34.2 % 34.2\\% under the paragraph-level predicate on a different 234 234 -example sample, so the two values are not a controlled comparison of the predicates. Appendix A sweeps the threshold from 0.3 0.3 to 0.7 0.7 ; Appendix E details each compressor’s implementation. Figure 3: Dangling rates for six compressors on the shared HotpotQA bridge set ( n = 184 n{=}184 ) at compression ratio 0.30 0.30 . PartPr. denotes PartPrompt, Sel.-Ctx denotes Selective-Context, LLML-2 denotes LLMLingua-2, and LongLL denotes LongLLMLingua. All outputs are evaluated using the content-word overlap criterion with threshold 0.5 0.5 . Light bars denote methods that use the query, and darker bars denote methods that do not."
+      },
+      {
+        "id": "S4.SS2.SSS0.Px1",
+        "heading": "Results across scoring signals.",
+        "level": 3,
+        "text": "Figure 3 reports rates from 32.1 % 32.1\\% for Beaver to 59.8 % 59.8\\% for LongLLMLingua. Referential dangling is therefore observed beyond selection based on embeddings. The two methods that use the query, Beaver and LongLLMLingua, have rates at opposite ends of the measured range, so query access alone does not remove the diagnostic event. PartPrompt has a rate of 47.8 % 47.8\\% on the shared set, indicating that the event also occurs under hierarchical syntactic selection in this setting. These comparisons extend the diagnosis beyond the exact additive model without implying that every evaluated selector instantiates it."
+      },
+      {
+        "id": "S4.SS2.SSS0.Px2",
+        "heading": "Definition salience.",
+        "level": 3,
+        "text": "We next examine whether omitted definitions simply receive low importance scores. For each bridge example, we measure the isolated salience percentile of the answer sentence and the definition sentence among all sentences using Beaver sentence similarity, which uses the query, and self-information, which does not. Figure 4 reports the results for 180 180 examples. Under Beaver similarity, the mean percentile is 92.8 % 92.8\\% for definitions and 84.1 % 84.1\\% for answer sentences. Under self-information, the corresponding values are 46.7 % 46.7\\% and 54.3 % 54.3\\% . Low isolated salience is therefore insufficient to explain the omitted definitions, although these measurements do not identify the reason for each individual selection decision. Figure 4: Mean salience percentiles (%) for answer and definition sentences among all sentences in 180 180 bridge examples. Beaver similarity is query-aware; self-information is not."
+      },
+      {
+        "id": "S4.SS2.SSS0.Px3",
+        "heading": "Overlap of affected examples.",
+        "level": 3,
+        "text": "We compare the dangling case sets using Jaccard similarity to determine whether the compressors fail on the same examples. Table 2 reports a mean pairwise similarity of 0.38 0.38 , compared with 0.34 0.34 expected under independent occurrence at the observed rates. Only 5.4 % 5.4\\% of examples dangle under all six compressors, whereas 95 % 95\\% dangle under at least one. The affected sets therefore vary across scoring methods, a pattern consistent with selection that varies by method rather than a single fixed pool of difficult examples. These measurements quantify prevalence under the diagnostic but do not determine whether changing the selected content at the same budget improves downstream accuracy, which we evaluate next. BEAVER PartPr. Sel.-Ctx LLML-2 DAC LongLL Dangling rate (%) 32.1 47.8 51.6 56.0 58.7 59.8 BEAVER N/A 0.36 0.23 0.30 0.29 0.32 PartPr. 0.36 N/A 0.36 0.44 0.44 0.37 Sel.-Ctx 0.23 0.36 N/A 0.39 0.35 0.51 LLML-2 0.30 0.44 0.39 N/A 0.47 0.45 DAC 0.29 0.44 0.35 0.47 N/A 0.48 LongLL 0.32 0.37 0.51 0.45 0.48 N/A Table 2: Pairwise Jaccard similarities between dangling case sets on the shared HotpotQA bridge set ( n = 184 n{=}184 ) at compression ratio 0.30 0.30 . The first row reports the dangling rate of each compressor. Abbreviations match Figure 3 ."
+      },
+      {
+        "id": "S5",
+        "heading": "5 Fixed-Budget Content Reselection",
+        "level": 1,
+        "text": "The preceding diagnostics show that compression often separates annotated support pairs, but prevalence alone does not determine whether selecting different content improves downstream accuracy without increasing the token budget. We test this by restoring the omitted supporting paragraph and removing at least as many tokens from paragraphs that are not annotated as supporting the answer."
+      },
+      {
+        "id": "S5.SS0.SSS0.Px1",
+        "heading": "Comparison protocol.",
+        "level": 3,
+        "text": "Panel 1 of Table 3 evaluates three content conditions on the dangling subsets. Base is the original compressed context. Reselected reinserts the omitted supporting paragraph and removes the lowest scoring paragraphs not annotated as supporting the answer until at least the same number of tokens has been removed. Full support retains both annotated supporting paragraphs and provides a reference for complete evidence retention. Base and Reselected form the fixed-budget comparison, while Full support provides the reference used to quantify the accuracy recovered through reselection. Panel 2 separately compares Base with Full support on 200 200 HotpotQA examples and does not evaluate Reselected. We conduct these comparisons with Beaver because its coherent chunk output permits paragraph replacement while leaving the remaining retained text unchanged. Applying the same operation to token-level output would require inserting whole paragraphs into fragmented text and would not yield a directly comparable setting. Appendix D specifies the construction for each dataset. Panel 1: dangling subsets evaluated with Qwen3-8B Dataset Downstream LLM Base Reselected Full support McNemar p p HotpotQA Qwen3-8B 0.287 0.287 0.575 0.575 0.600 0.600 1.6 × 10 − 6 1.6\\times 10^{-6} 2WikiMultiHopQA Qwen3-8B 0.097 0.097 0.403 0.403 0.444 0.444 1.1 × 10 − 5 1.1\\times 10^{-5} MuSiQue Qwen3-8B 0.147 0.147 0.490 0.490 0.471 0.471 3.1 × 10 − 8 3.1\\times 10^{-8} Panel 2: a 200 200 example HotpotQA evaluation set with four downstream LLMs Dataset Downstream LLM Base Full support McNemar p p HotpotQA Qwen3-8B 0.535 0.535 0.615 0.615 0.001 0.001 Qwen3-4B 0.500 0.500 0.585 0.585 0.002 0.002 Llama-3.1-8B 0.575 0.575 0.660 0.660 0.004 0.004 Mistral-7B 0.455 0.455 0.545 0.545 0.0005 0.0005 Table 3: Answer accuracy with base contexts produced by Beaver at target compression ratio 0.30 0.30 . Panel 1 uses the dangling subsets of HotpotQA ( n = 80 n{=}80 ), 2WikiMultiHopQA ( n = 72 n{=}72 ), and MuSiQue ( n = 102 n{=}102 ), with McNemar p p values comparing Base and Reselected. Panel 2 uses a separate set of 200 200 HotpotQA examples, with McNemar p p values comparing Base and Full support. We evaluate GPT-5.5 ( OpenAI 2026 ) and GLM-5.2 ( Zhipu AI 2026 ) as proprietary downstream models. Their API identifiers are listed in Table 9 . Model Dataset n n Base Full support McNemar p p GPT-5.5 HotpotQA 184 184 0.913 0.913 0.913 0.913 1.0 1.0 GPT-5.5 MuSiQue 102 102 0.775 0.775 0.863 0.863 0.011 0.011 GLM-5.2 MuSiQue 95 95 0.695 0.695 0.937 0.937 2.4 × 10 − 7 2.4\\times 10^{-7} Table 4: Answer accuracy of proprietary models under Base and Full support, with base contexts produced by Beaver at target compression ratio 0.30 0.30 . HotpotQA uses the full shared bridge set, while MuSiQue uses the dangling subset. GLM-5.2 returned answers for 95 95 of the 102 102 MuSiQue contexts because of API timeouts."
+      },
+      {
+        "id": "S5.SS0.SSS0.Px2",
+        "heading": "Accuracy on dangling examples.",
+        "level": 3,
+        "text": "The dangling subsets are defined by paragraph retention and do not depend on whether the downstream model answers correctly. Panel 1 of Table 3 shows that Reselected improves accuracy over Base by 28.8 28.8 to 34.3 34.3 points, with p < 10 − 4 p<10^{-4} on all three datasets. It recovers 92 % 92\\% and 88 % 88\\% of the difference between Base and Full support on HotpotQA and 2WikiMultiHopQA, respectively, and exceeds Full support by 1.9 1.9 points on MuSiQue. Because Reselected and Full support remove different paragraphs that are not annotated as supporting the answer, these comparisons measure the joint change in retained content rather than the isolated contribution of the reinserted paragraph. The reselected contexts are shorter than the base contexts on average, as reported in Appendix D, so their gains cannot be explained by a larger token budget. The protocol relies on annotated supporting paragraphs, and we apply it to all three multi-hop QA datasets used in the prevalence analysis."
+      },
+      {
+        "id": "S5.SS0.SSS0.Px3",
+        "heading": "Results across downstream models.",
+        "level": 3,
+        "text": "We next compare Base and Full support across Qwen3, Llama-3.1, and Mistral models ( Yang et al. 2025 ; Grattafiori et al. 2024 ; Jiang et al. 2023a ) . Exact checkpoint and API identifiers are listed in Table 9 . Panel 2 of Table 3 reports gains of 8.0 8.0 to 9.0 9.0 accuracy points for Full support, with p < 0.01 p<0.01 for all four models. These comparisons remain significant after Holm correction at α = 0.05 \\alpha{=}0.05 . The gains for Qwen3-4B and Qwen3-8B are similar, at 8.5 8.5 and 8.0 8.0 points, respectively. Additional comparisons with proprietary models are reported in Table 4 . On HotpotQA, GPT-5.5 has the same aggregate accuracy under both conditions because restoring both supporting paragraphs produces four fixes and four breaks. On MuSiQue, Full support improves accuracy by 8.8 8.8 points for GPT-5.5 and 24.2 24.2 points for GLM-5.2. Full support improves accuracy for all four evaluated open-weight models on HotpotQA and both proprietary models on MuSiQue, while GPT-5.5 shows no aggregate difference on HotpotQA."
+      },
+      {
+        "id": "S6",
+        "heading": "6 Automatic Context Restoration",
+        "level": 1,
+        "text": "The fixed-budget comparison relies on annotated supporting paragraphs to determine which content to restore. We therefore test whether omitted supporting sentences can be selected automatically at inference with only a small increase in the token budget. We treat the resulting pipeline as a diagnostic of targeted sentence restoration rather than a complete compression system. We evaluate it on Beaver outputs because their coherent blocks containing multiple sentences permit controlled insertion at sentence boundaries while leaving the remaining compressed context unchanged."
+      },
+      {
+        "id": "S6.SS0.SSS0.Px1",
+        "heading": "Restoration pipeline and training.",
+        "level": 3,
+        "text": "A candidate generator first collects sentences from the omitted context that may support retained text. A bert-base-uncased classifier ( Devlin et al. 2019 ) then ranks the candidates using a retained sentence, a candidate sentence, and the question, separated by [SEP] tokens. Training pairs are constructed from the HotpotQA training split. Positive pairs consist of a retained sentence and an omitted annotated supporting sentence that share an entity. Pairs that share an entity but do not meet this positive criterion serve as hard negatives, whereas pairs without a shared entity serve as easy negatives. After negative downsampling, the training set contains 7,565 7{,}565 pairs, of which 40 % 40\\% are positive. Pairs are split by example identifier into classifier training and development partitions, and the source contexts are disjoint from the downstream evaluation contexts. We fine-tune the classifier for three epochs with AdamW using a learning rate of 2 × 10 − 5 2\\times 10^{-5} , a batch size of 32 32 , and a maximum sequence length of 256 256 , and retain the checkpoint with the highest development F1. At inference, the K K candidates with the highest classifier scores are reinserted. We use K = 3 K{=}3 in the main analyses; Appendix F reports the K K sweep and remaining implementation details."
+      },
+      {
+        "id": "S6.SS0.SSS0.Px2",
+        "heading": "Downstream accuracy.",
+        "level": 3,
+        "text": "With first-mention candidates, the restoration pipeline improves Qwen3-8B accuracy by 4.7 4.7 points ( p = 0.022 p{=}0.022 ) while changing the compression ratio from 0.30 0.30 to 0.31 0.31 . The same procedure improves Mistral-7B accuracy by 6.5 6.5 points ( p = 0.012 p{=}0.012 ). On Llama-3.1-8B, the gain ranges from 1.3 1.3 to 2.3 2.3 points across candidate sources and is not statistically significant. Subsequent analyses use Qwen3-8B; Appendix G reports all downstream-model results."
+      },
+      {
+        "id": "S6.SS0.SSS0.Px3",
+        "heading": "Candidate sources.",
+        "level": 3,
+        "text": "Table 5 compares candidate sources while holding the classifier fixed. First-mention candidates yield a gain of 4.7 4.7 points on HotpotQA but only 0.5 0.5 points on 2WikiMultiHopQA. Combining first-mention candidates with embedding retrieval gives point estimates of 4.5 4.5 and 5.5 5.5 points, respectively. In a diagnostic condition that includes the annotated supporting sentence in the candidate set, the gain reaches 8.0 8.0 points ( p = 0.008 p{=}0.008 ) while adding only 0.4 0.4 sentences on average. The larger point estimate suggests that candidate construction limits the current pipeline. Appendix G further compares cases with successful and unsuccessful restoration. Candidate source HotpotQA 2WikiMultiHopQA First mention +4.7 ( p = 0.022 p{=}0.022 ) +0.5 (not significant) All mentions +4.5 ( p = 0.15 p{=}0.15 ) +4.0 ( p = 0.20 p{=}0.20 ) Hybrid +4.5 ( p = 0.12 p{=}0.12 ) +5.5 ( p = 0.063 p{=}0.063 ) Annotated support included +8.0 ( p = 0.008 p{=}0.008 ) N/A Table 5: Changes in answer accuracy, in percentage points relative to Base, for candidate sources with a fixed classifier and Qwen3-8B ( K = 3 K{=}3 ). Hybrid augments first-mention candidates with embedding retrieval, and the final row includes the annotated supporting sentence in the candidate set."
+      },
+      {
+        "id": "S6.SS0.SSS0.Px4",
+        "heading": "Matched addition control.",
+        "level": 3,
+        "text": "Adding the same number of randomly selected sentences improves accuracy by 2.0 2.0 points, compared with 4.7 4.7 points for targeted restoration (Appendix G). The direct contrast is suggestive but not significant at this sample size ( p = 0.15 p{=}0.15 ); it therefore does not establish an advantage over random insertion."
+      },
+      {
+        "id": "S6.SS0.SSS0.Px5",
+        "heading": "Transfer across compressors.",
+        "level": 3,
+        "text": "Applying the same restoration configuration to three additional compressor outputs yields smaller gains that are not statistically significant. Because the configuration is calibrated on Beaver and HotpotQA and output granularity varies, transfer to other compressors remains unresolved (Appendix H)."
+      },
+      {
+        "id": "S7",
+        "heading": "7 Conclusion",
+        "level": 1,
+        "text": "We identify referential dangling, in which independent hard compression retains task-relevant text but removes support required for interpretation. At r = 0.30 r=0.30 , paragraph-level dangling occurs in 34 % 34\\% to 54 % 54\\% of bridge examples with a retained answer paragraph under Beaver across three multi-hop QA datasets. The event also recurs across six compressors on HotpotQA, and a separate LongBench-v2 Single-Document QA diagnostic flags every evaluated document. On affected Beaver examples, fixed-budget reselection improves Qwen3-8B accuracy by 29 29 to 34 34 points, and automatic restoration adds 4.7 4.7 points on HotpotQA while changing the compression ratio from 0.30 0.30 to 0.31 0.31 . These findings motivate dependency-preserving selection, although transfer beyond Beaver and annotated-support QA remains unresolved."
+      },
+      {
+        "id": "bib",
+        "heading": "References",
+        "level": 1,
+        "text": "Bai et al. (2025) Y. Bai, S. Tu, J. Zhang, H. Peng, X. Wang, X. Lv, S. Cao, J. Xu, L. Hou, Y. Dong, et al. Longbench v2: towards deeper understanding and reasoning on realistic long-context multitasks . In Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pp. 3639–3664 . Cited by: §1 , §4.1 . Chevalier et al. (2023) A. Chevalier, A. Wettig, A. Ajith, and D. Chen Adapting language models to compress contexts . In Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing , pp. 3829–3846 . Cited by: §2 . Choi et al. (2024) E. Choi, S. Lee, M. Choi, J. Park, and J. Lee From reading to compressing: exploring the multi-document reader for prompt compression . In Findings of the Association for Computational Linguistics: EMNLP 2024 , pp. 14734–14754 . Cited by: §2 . Deng et al. (2025) C. Deng, Z. Zhang, K. Mao, S. Li, X. Huang, D. Yu, and Z. Dou A silver bullet or a compromise for full attention? a comprehensive study of gist token-based context compression . In Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pp. 4861–4879 . Cited by: §2 . Devlin et al. (2019) J. Devlin, M. Chang, K. Lee, and K. Toutanova Bert: pre-training of deep bidirectional transformers for language understanding . In Proceedings of the 2019 conference of the North American chapter of the association for computational linguistics: human language technologies, volume 1 (long and short papers) , pp. 4171–4186 . Cited by: §6 . Durrett et al. (2016) G. Durrett, T. Berg-Kirkpatrick, and D. Klein Learning-based single-document summarization with compression and anaphoricity constraints . In Proceedings of the 54th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pp. 1998–2008 . Cited by: §2 , §3 . Fei et al. (2024) W. Fei, X. Niu, P. Zhou, L. Hou, B. Bai, L. Deng, and W. Han Extending context window of large language models via semantic compression . In Findings of the Association for Computational Linguistics: ACL 2024 , pp. 5169–5181 . Cited by: §2 . Ge et al. (2023) T. Ge, J. Hu, L. Wang, X. Wang, S. Chen, and F. Wei In-context autoencoder for context compression in a large language model . Cited by: §2 . Grattafiori et al. (2024) A. Grattafiori, A. Dubey, A. Jauhri, A. Pandey, A. Kadian, A. Al-Dahle, A. Letman, A. Mathur, A. Schelten, A. Vaughan, et al. The llama 3 herd of models . Cited by: §5 . Ho et al. (2020) X. Ho, A. D. Nguyen, S. Sugawara, and A. Aizawa Constructing a multi-hop qa dataset for comprehensive evaluation of reasoning steps . In Proceedings of the 28th International Conference on Computational Linguistics , pp. 6609–6625 . Cited by: §1 , §4.1 . Hu et al. (2026) Z. Hu, K. Li, D. Fu, C. Zeng, Y. Li, Y. Tang, and J. Huang BEAVER: a training-free hierarchical prompt compression method via structure-aware page selection . Cited by: §1 , §1 , §2 , §4.1 , §4.2 . Jha et al. (2024) S. Jha, L. E. Erdogan, S. Kim, K. Keutzer, and A. Gholami Characterizing prompt compression methods for long context inference . Cited by: §2 . Jiang et al. (2023a) A. Q. Jiang, A. Sablayrolles, A. Mensch, C. Bamford, D. S. Chaplot, D. de las Casas, F. Bressand, G. Lengyel, G. Lample, L. Saulnier, L. R. Lavaud, M. Lachaux, P. Stock, T. L. Scao, T. Lavril, T. Wang, T. Lacroix, and W. E. Sayed Mistral 7b . External Links: 2310.06825 , Link Cited by: §5 . Jiang et al. (2023b) H. Jiang, Q. Wu, C. Lin, Y. Yang, and L. Qiu Llmlingua: compressing prompts for accelerated inference of large language models . In Proceedings of the 2023 conference on empirical methods in natural language processing , pp. 13358–13376 . Cited by: §1 , §2 . Jiang et al. (2024) H. Jiang, Q. Wu, X. Luo, D. Li, C. Lin, Y. Yang, and L. Qiu Longllmlingua: accelerating and enhancing llms in long context scenarios via prompt compression . In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pp. 1658–1677 . Cited by: §1 , §2 , §4.2 . Jung and Kim (2024) H. Jung and K. Kim Discrete prompt compression with reinforcement learning . IEEE Access 12 , pp. 72578–72587 . Cited by: §3 . Lee et al. (2017) K. Lee, L. He, M. Lewis, and L. Zettlemoyer End-to-end neural coreference resolution . In Proceedings of the 2017 conference on empirical methods in natural language processing , pp. 188–197 . Cited by: §2 . Lewis et al. (2020) P. Lewis, E. Perez, A. Piktus, F. Petroni, V. Karpukhin, N. Goyal, H. Küttler, M. Lewis, W. Yih, T. Rocktäschel, et al. Retrieval-augmented generation for knowledge-intensive nlp tasks . Advances in neural information processing systems 33 , pp. 9459–9474 . Cited by: §2 . Li et al. (2025a) K. Li, G. Chen, R. Yang, and X. Hu SPMamba: leveraging long-sequence modeling with state space models for speech separation . In 2025 IEEE International Conference on Multimedia and Expo (ICME) , pp. 1–6 . Cited by: §2 . Li et al. (2025b) K. Li, K. Gao, and X. Hu Efficient audio-visual speech separation with discrete lip semantics and multi-scale global-local attention . Cited by: §2 . Li and Luo (2024) K. Li and Y. Luo Subnetwork-to-go: elastic neural network with dynamic training and customizable inference . In ICASSP 2024-2024 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) , pp. 6775–6779 . Cited by: §2 . Li et al. (2022) K. Li, R. Yang, and X. Hu An efficient encoder-decoder architecture with top-down attention for speech separation . Cited by: §2 . Li et al. (2023) Y. Li, B. Dong, F. Guerin, and C. Lin Compressing context to enhance inference efficiency of large language models . In Proceedings of the 2023 conference on empirical methods in natural language processing , pp. 6342–6353 . Cited by: Appendix E , §1 , §1 , §2 , §4.2 . Li et al. (2025c) Z. Li, Y. Liu, Y. Su, and N. Collier Prompt compression for large language models: a survey . In Proceedings of the 2025 Conference of the Nations of the Americas Chapter of the Association for Computational Linguistics: Human Language Technologies (Volume 1: Long Papers) , pp. 7182–7195 . Cited by: §2 . Li et al. (2025d) Z. Li, Y. Su, and N. Collier 500xcompressor: generalized prompt compression for large language models . In Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pp. 25081–25091 . Cited by: §2 . Lin et al. (2025) Y. Lin, W. Guo, Y. Zhang, C. Yang, and Z. Li Prompt compression based on key-information density . Expert Systems with Applications 284 , pp. 127738 . Cited by: §2 . Liskavets et al. (2025) B. Liskavets, M. Ushakov, S. Roy, M. Klibanov, A. Etemad, and S. K. Luke Prompt compression with context-aware sentence encoding for fast and improved llm inference . In Proceedings of the AAAI Conference on Artificial Intelligence , Vol. 39 , pp. 24595–24604 . Cited by: §3 . Liu et al. (2023) J. Liu, L. Li, T. Xiang, B. Wang, and Y. Qian Tcra-llm: token compression retrieval augmented large language model for inference cost reduction . In Findings of the association for computational linguistics: EMNLP 2023 , pp. 9796–9810 . Cited by: §2 . Liu et al. (2024) N. F. Liu, K. Lin, J. Hewitt, A. Paranjape, M. Bevilacqua, F. Petroni, and P. Liang Lost in the middle: how language models use long contexts . Transactions of the association for computational linguistics 12 , pp. 157–173 . Cited by: §1 , §2 . Mao et al. (2025) W. Mao, C. Hou, T. Zhang, X. Lin, K. Tang, and H. Lv Parse trees guided llm prompt compression . IEEE Transactions on Pattern Analysis and Machine Intelligence . Cited by: §1 , §2 , §4.2 . Maynez et al. (2020) J. Maynez, S. Narayan, B. Bohnet, and R. McDonald On faithfulness and factuality in abstractive summarization . In Proceedings of the 58th annual meeting of the association for computational linguistics , pp. 1906–1919 . Cited by: §2 . Mu et al. (2023) J. Mu, X. Li, and N. Goodman Learning to compress prompts with gist tokens . Advances in Neural Information Processing Systems 36 , pp. 19327–19352 . Cited by: §2 . Nagle et al. (2024) A. Nagle, A. Girish, M. Bondaschi, M. Gastpar, A. V. Makkuva, and H. Kim Fundamental limits of prompt compression: a rate-distortion framework for black-box language models . Advances in Neural Information Processing Systems 37 , pp. 94934–94970 . Cited by: §2 . OpenAI (2026) OpenAI Models . Note: OpenAI API documentationAccessed July 18, 2026. Available at https://developers.openai.com/api/docs/models Cited by: §5 . Pan et al. (2024) Z. Pan, Q. Wu, H. Jiang, M. Xia, X. Luo, J. Zhang, Q. Lin, V. Rühle, Y. Yang, C. Lin, et al. Llmlingua-2: data distillation for efficient and faithful task-agnostic prompt compression . In Findings of the Association for Computational Linguistics: ACL 2024 , pp. 963–981 . Cited by: §1 , §1 , §2 , §4.2 . Radford et al. (2019) A. Radford, J. Wu, R. Child, D. Luan, D. Amodei, I. Sutskever, et al. Language models are unsupervised multitask learners . OpenAI blog 1 ( 8 ), pp. 9 . Cited by: Appendix A . Shandilya et al. (2025) S. Shandilya, M. Xia, S. Ghosh, H. Jiang, J. Zhang, Q. Wu, V. Rühle, and S. Rajmohan Taco-rl: task aware prompt compression optimization with reinforcement learning . In Findings of the Association for Computational Linguistics: ACL 2025 , pp. 1582–1597 . Cited by: §2 . Shi et al. (2023) F. Shi, X. Chen, K. Misra, N. Scales, D. Dohan, E. H. Chi, N. Schärli, and D. Zhou Large language models can be easily distracted by irrelevant context . In International Conference on Machine Learning , pp. 31210–31227 . Cited by: §2 . Tang et al. (2025) J. Tang, J. Xu, T. Lu, Z. Zhang, Y. YimingZhao, L. LinHai, and H. Zheng Perception compressor: a training-free prompt compression framework in long context scenarios . In Findings of the Association for Computational Linguistics: NAACL 2025 , pp. 4093–4108 . Cited by: §2 . Touvron et al. (2023) H. Touvron, L. Martin, K. Stone, P. Albert, A. Almahairi, Y. Babaei, N. Bashlykov, S. Batra, P. Bhargava, S. Bhosale, et al. Llama 2: open foundation and fine-tuned chat models . Cited by: Appendix E , Appendix E . Trivedi et al. (2022) H. Trivedi, N. Balasubramanian, T. Khot, and A. Sabharwal MuSiQue: multihop questions via single-hop question composition . Transactions of the Association for Computational Linguistics 10 , pp. 539–554 . Cited by: §1 , §4.1 . Xu et al. (2024) F. Xu, W. Shi, and E. Choi Recomp: improving retrieval-augmented lms with context compression and selective augmentation . In International Conference on Learning Representations , Vol. 2024 , pp. 43478–43502 . Cited by: §2 . Yang et al. (2025) A. Yang, A. Li, B. Yang, B. Zhang, B. Hui, B. Zheng, B. Yu, C. Gao, C. Huang, C. Lv, et al. Qwen3 technical report . Cited by: Appendix E , §4.1 , §5 . Yang et al. (2018) Z. Yang, P. Qi, S. Zhang, Y. Bengio, W. Cohen, R. Salakhutdinov, and C. D. Manning HotpotQA: a dataset for diverse, explainable multi-hop question answering . In Proceedings of the 2018 conference on empirical methods in natural language processing , pp. 2369–2380 . Cited by: §1 , §4.1 . Zhang et al. (2025a) P. Zhang, Z. Liu, S. Xiao, N. Shao, Q. Ye, and Z. Dou Long context compression with activation beacon . In International Conference on Learning Representations , Vol. 2025 , pp. 101932–101948 . Cited by: §2 . Zhang et al. (2025b) Y. Zhang, M. Li, D. Long, X. Zhang, H. Lin, B. Yang, P. Xie, A. Yang, D. Liu, J. Lin, et al. Qwen3 embedding: advancing text embedding and reranking through foundation models . Cited by: §4.1 . Zhang et al. (2023) Z. Zhang, Y. Sheng, T. Zhou, T. Chen, L. Zheng, R. Cai, Z. Song, Y. Tian, C. Ré, C. Barrett, et al. H2o: heavy-hitter oracle for efficient generative inference of large language models . Advances in Neural Information Processing Systems 36 , pp. 34661–34710 . Cited by: §2 . Zhao et al. (2025) Y. Zhao, Z. Li, H. Zhao, B. Qi, and L. Guoming DAC: a dynamic attention-aware approach for task-agnostic prompt compression . In Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pp. 19395–19407 . Cited by: §1 , §2 , §4.2 . Zhipu AI (2026) Zhipu AI GLM-5.2 . Note: Zhipu AI open documentationAccessed July 18, 2026. Available at https://docs.bigmodel.cn/cn/guide/models/text/glm-5.2 Cited by: §5 . Łajewska et al. (2025) W. Łajewska, M. Hardalov, L. Aina, N. A. John, H. Su, and L. Màrquez Understanding and improving information preservation in prompt compression for llms . Cited by: §2 ."
+      },
+      {
+        "id": "A1",
+        "heading": "Appendix A Robustness to Experimental Choices",
+        "level": 1,
+        "text": "The main diagnostic depends on the Beaver embedding model, the content-word-overlap threshold, and the compression ratio. This appendix varies each choice and shows that the diagnosis remains stable across all variations."
+      },
+      {
+        "id": "A1.SS0.SSS0.Px1",
+        "heading": "Embedding scorer.",
+        "level": 3,
+        "text": "Beaver scores chunks by cosine similarity to the query under an embedding model; the main text uses the released Qwen3-0.6B embeddings configuration. Substituting the GPT-2 checkpoint ( Radford et al. 2019 ) leaves the HotpotQA dangling rate essentially unchanged (Table 7 , n = 300 n{=}300 , ratio 0.30 0.30 ). The GPT-2 encoder changes ρ d \\rho_{\\mathrm{d}} by at most 0.9 0.9 percentage points. The diagnosis is therefore robust across both Beaver embedding encoders."
+      },
+      {
+        "id": "A1.SS0.SSS0.Px2",
+        "heading": "Overlap threshold.",
+        "level": 3,
+        "text": "The unified cross-compressor metric uses the sentence-level predicate Keep θ \\operatorname{Keep}_{\\theta} defined in Section 4 ; paragraph-level prevalence uses the separate paragraph instantiation described there. Sweeping θ \\theta from 0.3 0.3 to 0.7 0.7 (Figure 5 , Table 6 ) keeps dangling substantial for both a chunk-level and a token-level compressor across the entire range, and at every threshold up to 0.6 0.6 , including the setting most lenient to token fragments, LLMLingua-2 dangles at least as much as Beaver , whereas a metric biased against fragments would show the reverse. So the cross-signal agreement in Section 4.2 is not an artifact of one lenient cutoff. The token-level curve is nonmonotonic by construction: at strict thresholds a partially retained supporting sentence fails the overlap test and the case moves from dangling to full evidence loss rather than to safety, whereas Beaver ’s coherent blocks keep clearing the bar. Overlap threshold 0.3 0.3 0.4 0.4 0.5 0.5 0.6 0.6 0.7 0.7 LLMLingua-2 (token) 28.3 28.3 43.5 43.5 56.0 56.0 57.6 57.6 36.4 36.4 Beaver (chunk) 19.6 19.6 25.0 25.0 32.1 32.1 36.4 36.4 40.2 40.2 Table 6: Dangling rate (%) across content-word overlap retention thresholds on the same 184 184 bridge examples as Figure 3 at compression ratio 0.30 0.30 . The 0.5 0.5 column matches Figure 3 . Check Variation Outcome Embedding scorer Qwen3-0.6B embeddings → \\to GPT-2 + 0.9 +0.9 points Overlap threshold 0.3 0.3 to 0.7 0.7 substantial throughout Compression ratio 0.70 0.70 to 0.20 0.20 monotonic increase Table 7: Robustness of the dangling diagnostic to its three main free choices (HotpotQA, n = 300 n{=}300 , ratio 0.30 0.30 unless swept). Embedding shifts are measured in percentage points relative to the released Qwen3-0.6B embedding setup. Figure 5: Dangling rate across content-word-overlap thresholds for 184 184 bridge examples (Figure 3 ; ratio 0.30 0.30 ). Figure 6: Referential dangling examples from HotpotQA, 2WikiMultiHopQA, MuSiQue, and LongBench-v2 Single-Document QA. Each panel shows the original context and the compressed output."
+      },
+      {
+        "id": "A1.SS0.SSS0.Px3",
+        "heading": "Compression ratio.",
+        "level": 3,
+        "text": "The compression ratio analysis (Figure 2 a) sweeps the ratio from 0.70 0.70 to 0.20 0.20 and finds the HotpotQA dangling rate rising monotonically with no qualitative threshold or reversal. The finding is therefore not limited to a single operating ratio. Table 7 summarizes all three checks."
+      },
+      {
+        "id": "A2",
+        "heading": "Appendix B Manual Audit and Qualitative Examples",
+        "level": 1,
+        "text": "We present one representative dangling case from each dataset to illustrate the “answer present but bridge deleted” mechanism. All examples are real cases from the experimental data. Each panel shows the original context and the compressed output with referential dangling. Among the 38 38 confirmed cases in the manual audit, the omitted paragraph contained the dataset answer string in 26 26 , the entity definition in 10 10 , and another dependency in 2 2 . The two false positives involved an answer paragraph that was sufficient on its own and an omitted paragraph that supplied only a generic modifier."
+      },
+      {
+        "id": "A3",
+        "heading": "Appendix C Long-Document Dangling by Subdomain",
+        "level": 1,
+        "text": "Table 8 breaks down the LongBench-v2 Single-Document QA diagnostic (Section 4 , n = 80 n{=}80 , ratio 0.30 0.30 ) by subdomain. The per-kept-sentence dangling rate is consistent across all seven subdomains ( 25.1 % 25.1\\% to 36.5 % 36.5\\% ), and every document in every subdomain has at least one dangling reference. Academic text has the highest rate and also contains dense terminology, frequent cross-section references, and the longest retained-sentence counts. This pattern is consistent with the association between dependency span and dangling reported in Section 4 . No subdomain falls below 25 % 25\\% , suggesting that the phenomenon is not confined to a single document type. Subdomain n n Mean rate Affected docs Academic 13 13 36.5 % 36.5\\% 100 % 100\\% Literary 12 12 34.4 % 34.4\\% 100 % 100\\% Financial 12 12 32.3 % 32.3\\% 100 % 100\\% Legal 8 8 29.1 % 29.1\\% 100 % 100\\% Detective 15 15 27.3 % 27.3\\% 100 % 100\\% Event ordering 11 11 27.0 % 27.0\\% 100 % 100\\% Governmental 9 9 25.1 % 25.1\\% 100 % 100\\% All 80 80 30.5 % \\mathbf{30.5\\%} 𝟏𝟎𝟎 % \\mathbf{100\\%} Table 8: Referential dangling on LongBench-v2 Single-Document QA by subdomain ( Beaver , ratio 0.30 0.30 , n = 80 n{=}80 documents). “Mean rate” is the per-document average fraction of retained sentences that are dangling, macro-averaged over documents. “Affected docs” is the fraction of documents with at least one dangling reference."
+      },
+      {
+        "id": "A4",
+        "heading": "Appendix D Protocol for Fixed-Budget Content Reselection",
+        "level": 1,
+        "text": "The comparison in Section 5 measures the accuracy change when a missing supporting paragraph replaces lower scoring paragraphs that are not annotated as supporting the answer, without increasing the token budget."
+      },
+      {
+        "id": "A4.SS0.SSS0.Px1",
+        "heading": "Three conditions.",
+        "level": 3,
+        "text": "Each dangling example is evaluated under three conditions. Base is the compressor’s original dangling output at target compression ratio 0.30 0.30 . Reselected reinserts one omitted supporting paragraph and removes paragraphs not annotated as supporting the answer whose combined length is at least as large. Full support retains both annotated supporting paragraphs while removing two paragraphs not annotated as supporting the answer. We use Base and Reselected for the fixed-budget comparison, while Full support provides a reference for complete evidence retention."
+      },
+      {
+        "id": "A4.SS0.SSS0.Px2",
+        "heading": "Token budget enforcement.",
+        "level": 3,
+        "text": "We tokenize all paragraphs with spaCy, which is also used during compressor preprocessing, and track cumulative token counts. For Reselected, we rank omitted supporting paragraphs by their isolated salience score under the compressor and select the highest scoring paragraph. We then remove the lowest scoring paragraphs not annotated as supporting the answer until their combined token count matches or exceeds that of the reinserted paragraph. Contexts under Reselected are shorter than those under Base on average by 1.5 % 1.5\\% on HotpotQA, 1.6 % 1.6\\% on 2WikiMultiHopQA, and 9.6 % 9.6\\% on MuSiQue."
+      },
+      {
+        "id": "A4.SS0.SSS0.Px3",
+        "heading": "Dataset specifics.",
+        "level": 3,
+        "text": "HotpotQA uses bridge examples with two annotated supporting paragraphs. Panel 1 uses a dangling subset of 80 80 examples, while Panel 2 uses a separate evaluation set of 200 200 examples. 2WikiMultiHopQA uses compositional examples with exactly two annotated supporting paragraphs and a dangling subset of 72 72 examples. MuSiQue uses paragraph-level supporting facts with exactly two annotated supporting paragraphs per example in the first 200 200 examples of the development split, yielding a dangling subset of 102 102 examples. The dangling subset uses directional content-word overlap at threshold 0.5 0.5 (Section 4 ): the answer paragraph survives but its paired definition paragraph does not."
+      },
+      {
+        "id": "A4.SS0.SSS0.Px4",
+        "heading": "Statistical test.",
+        "level": 3,
+        "text": "Significance is assessed with the two-sided exact McNemar test on the 2 × 2 2{\\times}2 contingency table of fixes, where the answer under Base is incorrect and the comparison answer is correct, and breaks, where the answer under Base is correct and the comparison answer is incorrect. All three datasets yield p < 10 − 4 p<10^{-4} for the comparison between Base and Reselected on the dangling subset. Base versus Full support yields p < 0.01 p<0.01 for all four downstream LLMs on the 200 200 -example HotpotQA set."
+      },
+      {
+        "id": "A5",
+        "heading": "Appendix E Compressor Configurations",
+        "level": 1,
+        "text": "The six compressors of Section 4.2 all compress the same 184 184 HotpotQA bridge examples to ratio 0.30 0.30 (keep 30 % 30\\% of tokens). We use official implementations where available; training-free methods require no adaptation. Role and reported name Official checkpoint or API identifier Beaver scorer Qwen3-0.6B embeddings Qwen/Qwen3-0.6B Robustness scorer GPT-2 openai-community/gpt2 DAC proxy Qwen3 0.6B Qwen/Qwen3-0.6B Downstream QA Qwen3 4B; Qwen3 8B Qwen/Qwen3-4B ; Qwen/Qwen3-8B Downstream QA Llama 3.1 8B; Mistral 7B meta-llama/Llama-3.1-8B-Instruct mistralai/Mistral-7B-Instruct-v0.3 Self-information / perplexity proxy Llama 2 7B meta-llama/Llama-2-7b-hf Compression / restoration classifiers microsoft/llmlingua-2-xlm-roberta-large- meetingbank ; google-bert/bert-base-uncased Proprietary downstream QA GPT-5.5; GLM-5.2 API IDs: gpt-5.5 ; glm-5.2 Table 9: Official checkpoint and API identifiers. Display names are the shorthand used in the paper; exact identifiers are shown for reproducibility."
+      },
+      {
+        "id": "A5.SS0.SSS0.Px1",
+        "heading": "Beaver (embedding similarity, query-aware).",
+        "level": 3,
+        "text": "Official repository github.com/JusperLee/BEAVER , coherent-block selection. We use the released configuration with the Qwen/Qwen3-0.6B checkpoint as the embedding scorer. Each document is segmented into 64 64 -token pages; the compressor scores pages by cosine similarity between the query embedding and the page’s inverse document frequency weighted token embedding average, then selects top- k k pages to meet the target ratio. Hardware: NVIDIA A100 80GB."
+      },
+      {
+        "id": "A5.SS0.SSS0.Px2",
+        "heading": "LLMLingua-2 (trained token classifier, query-agnostic).",
+        "level": 3,
+        "text": "Official repository https://github.com/microsoft/LLMLingua , checkpoint microsoft/llmlingua-2-xlm-roberta-large-meetingbank . Token-level binary classifier over a sliding 512 512 -token window; tokens are kept if the classifier score exceeds a threshold calibrated to the target ratio. No query input."
+      },
+      {
+        "id": "A5.SS0.SSS0.Px3",
+        "heading": "Selective-Context (self-information, query-agnostic).",
+        "level": 3,
+        "text": "Reproduced from Li et al. (2023) . Each token’s self-information is computed as − log ⁡ p ⁡ ( token ∣ prefix ) -\\log p(\\text{token}\\mid\\text{prefix}) under the meta-llama/Llama-2-7b-hf proxy model ( Touvron et al. 2023 ) ; tokens with self-information below a calibrated threshold are dropped. No query input."
+      },
+      {
+        "id": "A5.SS0.SSS0.Px4",
+        "heading": "PartPrompt (syntactic parse tree, query-agnostic).",
+        "level": 3,
+        "text": "Official repository. Constituency parse tree built with Berkeley Neural Parser; each node (phrase) scores by syntactic salience (depth and span); a knapsack solver based on dynamic programming selects a subset of nodes covering the target ratio. The selected nodes’ token spans are concatenated in document order. No query input."
+      },
+      {
+        "id": "A5.SS0.SSS0.Px5",
+        "heading": "LongLLMLingua (perplexity, query-aware).",
+        "level": 3,
+        "text": "Official repository microsoft/LLMLingua . Scores sentences by perplexity under the proxy model conditioned on the query and preceding context; keeps lowest-perplexity (most “expected”) sentences up to the budget. Uses the meta-llama/Llama-2-7b-hf proxy model ( Touvron et al. 2023 ) ."
+      },
+      {
+        "id": "A5.SS0.SSS0.Px6",
+        "heading": "DAC (attention, query-agnostic).",
+        "level": 3,
+        "text": "Official implementation, method dynamic_attn_ppl , fusion additive with α = 0.8 \\alpha{=}0.8 . Token-level importance derived from attention weights during a single forward pass of the Qwen/Qwen3-0.6B proxy model ( Yang et al. 2025 ) over the context; tokens below the importance threshold are dropped. Parameter compress_ratio (the drop fraction) set to 0.70 0.70 to keep 30 % 30\\% . We run DAC with a memory-efficient attention accumulator that is numerically identical to its original scoring, allowing the full 184 184 -example bridge set to fit in memory. All compressors run single-threaded on an A100 80GB for consistency."
+      },
+      {
+        "id": "A6",
+        "heading": "Appendix F Implementation Details for Automatic Context Restoration",
+        "level": 1,
+        "text": "The following engineering details document the automatic restoration pipeline of Section 6 for reproducibility. Downstream LLM Candidate source Base Restored p p Qwen3-8B First mention 0.567 0.613 0.022 Mistral-7B First mention 0.455 0.520 0.012 Llama-3.1-8B First mention 0.587 0.600 0.60 Llama-3.1-8B Hybrid 0.587 0.610 0.17 Table 10: Automatic restoration results with the classifier fixed at K = 3 K{=}3 . The evaluation uses 300 300 HotpotQA examples, except for Mistral-7B, which uses 200 200 . Base is Beaver at compression ratio 0.30 0.30 , and Restored has an average ratio of 0.31 0.31 . The reported p p values use paired McNemar tests. Figure 7: Accuracy gains from full support and first-mention automatic restoration on HotpotQA ( Beaver at ratio 0.30 0.30 , K = 3 K{=}3 ). Full support uses 200 200 examples; restoration uses 300 300 for Qwen3-8B and Llama-3.1-8B and 200 200 for Mistral-7B. Feature Fixed (23) Failed (107) Sentences added, mean ± \\pm SD 2.13 ± \\pm 1.08 1.79 ± \\pm 1.17 Sentences added, median 3.0 2.0 McNemar: 23 fixes, 9 breaks, p = 0.022 p=0.022 Table 11: Restoration statistics when the Beaver baseline was incorrect (HotpotQA, n = 300 n{=}300 , compression ratio 0.30 0.30 ; downstream Qwen3-8B). SD denotes standard deviation. Condition Accuracy [95% CI] Δ \\Delta Base compressor 0.567 0.567 [.51,.62] N/A Random insertion, m m sentences 0.587 0.587 [.53,.64] + 2.0 +2.0 Targeted restoration, m m sentences 0.613 \\mathbf{0.613} [.55,.67] + 4.7 +4.7 Table 12: Matched addition control on HotpotQA with Qwen3-8B ( n = 300 n{=}300 ). Random insertion and targeted restoration add the same number of sentences per example ( m m : mean 1.81 1.81 , median 2 2 , interquartile range [ 1 , 3 ] [1,3] ; approximately 40 40 tokens; compression ratio 0.30 0.30 to 0.31 0.31 ; K = 3 K{=}3 ). Brackets report bootstrap 95 % 95\\% confidence intervals. Compressor (output type) Gain McNemar p p Beaver (coherent chunks) + 4.7 +4.7 p = 0.022 p{=}0.022 PartPrompt (parse tree spans) + 3.2 +3.2 0.30 0.30 Selective-Context (self-information) + 1.0 +1.0 0.80 0.80 LLMLingua-2 (token fragments) + 1.0 +1.0 0.75 0.75 Table 13: Transfer of one restoration configuration across four compressor outputs on HotpotQA with downstream Qwen3-8B ( n ≈ 150 n{\\approx}150 to 300 300 )."
+      },
+      {
+        "id": "A6.SS0.SSS0.Px1",
+        "heading": "Output granularity.",
+        "level": 3,
+        "text": "We evaluate automatic restoration on Beaver because its coherent multi-sentence blocks permit controlled changes at sentence boundaries and keep restored sentences interpretable. Compressors with token-level outputs produce fragmented text in which inserting complete supporting sentences may alter the original selection objective and complicate comparison. Appendix H reports transfer across four compressor outputs, including LLMLingua-2. The classifier does not take compressor scores or identities as input, although its training distribution and integration strategy may affect transfer across output granularities."
+      },
+      {
+        "id": "A6.SS0.SSS0.Px2",
+        "heading": "Classifier architecture and training.",
+        "level": 3,
+        "text": "The classifier is bert-base-uncased (about 110 110 M parameters) with a binary classification head over a retained sentence, a candidate sentence, and the question, separated by [SEP] tokens. The maximum sequence length is 256 256 . We fine-tune the classifier for three epochs with AdamW using a learning rate of 2 × 10 − 5 2\\times 10^{-5} , a batch size of 32 32 , a linear schedule with 10 % 10\\% warmup, and fp16, and retain the checkpoint with the highest development F1. The resulting development F1 is 0.82 0.82 , with a precision of 0.84 0.84 ."
+      },
+      {
+        "id": "A6.SS0.SSS0.Px3",
+        "heading": "Training pair construction.",
+        "level": 3,
+        "text": "Positive pairs consist of a retained sentence and an omitted annotated supporting sentence that share an entity. Hard negatives also share an entity but do not satisfy this positive-pair rule, while easy negatives share no entity. Positive pairs account for 1.9 % 1.9\\% of all candidate pairs ( 3026 / 157887 3026/157887 ), so we downsample negatives to 1.5 × 1.5\\times the number of positives, yielding 7,565 7{,}565 rebalanced pairs with 40 % 40\\% positives. Pairs are split by example identifier so that no example crosses the training and development boundary. The source contexts come from the HotpotQA training split and are disjoint from the evaluation contexts used in all downstream experiments."
+      },
+      {
+        "id": "A6.SS0.SSS0.Px4",
+        "heading": "Number of restored sentences ( K K ).",
+        "level": 3,
+        "text": "At inference, we add the top- K K candidates by classifier confidence. In the Qwen3-8B sweep, K = 2 K{=}2 gives + 3.7 +3.7 points ( p = 0.08 p{=}0.08 ), K = 3 K{=}3 gives + 4.7 +4.7 points ( p = 0.02 p{=}0.02 ), and adding all candidates gives + 4.3 +4.3 points ( p = 0.03 p{=}0.03 ). We use K = 3 K{=}3 , the setting with the largest observed gain, which adds about 1.8 1.8 sentences per example."
+      },
+      {
+        "id": "A7.SS0.SSS0.Px1",
+        "heading": "Downstream results.",
+        "level": 3,
+        "text": "Table 10 reports the accuracies and significance tests for automatic restoration, and Figure 7 compares the restoration gain with the gain obtained when both supporting paragraphs are retained."
+      },
+      {
+        "id": "A7.SS0.SSS0.Px2",
+        "heading": "Restoration outcomes.",
+        "level": 3,
+        "text": "Table 11 compares cases corrected by automatic restoration with those that remain incorrect among the 130 130 examples for which the Beaver baseline is incorrect. The two groups receive similar numbers of restored sentences. These measurements show that restoration size alone does not distinguish the outcomes."
+      },
+      {
+        "id": "A7.SS0.SSS0.Px3",
+        "heading": "Matched addition control.",
+        "level": 3,
+        "text": "Table 12 reports the control experiment of Section 6 . Random insertion and targeted restoration add the same number of sentences per example."
+      },
+      {
+        "id": "A8",
+        "heading": "Appendix H Transfer Across Compressor Outputs",
+        "level": 1,
+        "text": "Table 13 applies the same restoration configuration to each compressor output with Qwen3-8B as the downstream model on HotpotQA. The classifier and candidate generator are calibrated on Beaver ’s retained sentence distribution and HotpotQA first-mention structure, so the experiment evaluates transfer of one fixed configuration rather than configurations optimized separately for each compressor."
+      }
+    ]
+  },
+  "text": "Relevant but Incomplete: Referential Dangling as a Paradigm-LevelFailure Mode in Hard Prompt Compression Skip to main content Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: Why HTML? Report Issue Back to Abstract Download PDF Contents Reading mode Colour theme License: CC BY 4.0 arXiv:2608.04569v1 [cs.CL] 05 Aug 2026 Relevant but Incomplete: Referential Dangling as a Paradigm-Level Failure Mode in Hard Prompt Compression Zhengpei Hu Kai Li Dapeng Fu Xuechao Zou Yuanhao Tang Yue Li Tengfei Cao Jianqiang Huang \\corresponding Abstract Hard prompt compression reduces long-context inference cost by scoring tokens, sentences, or chunks independently and retaining the highest-scoring units under a budget. We identify a structural failure in this procedure: independent selection can split dependent evidence pairs, retaining one member while deleting the other. When the retained text span contains an answer but the deleted span defines the entity needed to interpret it, we call the result referential dangling . At compression ratio 0.30 0.30 , Beaver , which ranks coherent chunks using Qwen3-0.6B embeddings, leaves the answer path incomplete in 34 34 to 54 % 54\\% of bridge examples across three multi-hop question answering (QA) datasets. The failure is not specific to that implementation: on a shared HotpotQA bridge set, all six hard compressors we test exhibit dangling at rates reaching 60 % 60\\% , and every document in LongBench-v2 Single-Document QA contains at least one dangling reference. We then test whether selecting different content at the same budget helps. On dangling examples evaluated with Qwen3-8B, reinserting the missing supporting paragraph and offsetting its tokens by removing paragraphs not annotated as supporting the answer improves accuracy by 29 29 to 34 34 points ( p < 10 − 4 p<10^{-4} ), recovering at least 88 % 88\\% of the gap to contexts that retain both annotated supporting paragraphs. Stronger answer models do not absorb the loss: on MuSiQue, GPT-5.5 is 8.8 8.8 points less accurate on the compressed contexts than on contexts retaining both supporting paragraphs. Finally, we train a compact classifier to rank sentences the compressor omitted by whether they are needed to interpret retained text, and reinsert the top-ranked candidates without using support annotations at inference. On HotpotQA with Qwen3-8B as the downstream answer model, this automatic restoration improves accuracy by 4.7 4.7 points while changing the compression ratio only from 0.30 0.30 to 0.31 0.31 . Hard compressors should optimize relevance and referential completeness. 1 School of Computer Technology and Application, Qinghai University 2 Tsinghua University 3 Ant Group Security and Intelligence Laboratory (SIL) 1 Introduction Figure 1: Referential dangling with a missing bridge. Independent scoring retains the query subject and the answer string but removes the fact that Tim DuBois was born in Southwest City, leaving the inference chain incomplete. In recent frontier models, the context windows of large language models (LLMs) have expanded from a few thousand tokens to the million-token scale. These expanded windows enable reasoning over entire documents and collections of documents. Yet long contexts remain expensive: the quadratic cost of self-attention inflates prefill latency, and models underuse relevant content when it appears away from prompt boundaries ( Liu et al. 2024 ) . Prompt compression addresses this tension by pruning the input before it reaches the target model while trying to preserve the information needed for the task ( Jiang et al. 2023b ; Pan et al. 2024 ; Li et al. 2023 ) . Many hard prompt compressors follow a common selection procedure: they score each token, sentence, or chunk for importance and retain the highest scoring fragments within a token budget. These scores may reflect query relevance or perplexity ( Jiang et al. 2024 ) , embedding similarity ( Hu et al. 2026 ) , information content or learned classifier scores ( Li et al. 2023 ; Pan et al. 2024 ) , syntactic salience ( Mao et al. 2025 ) , or importance derived from attention ( Zhao et al. 2025 ) . Although these methods differ in architecture and supervision, they share the objective of retaining fragments that appear important. This objective assumes that the selected fragments collectively form a usable prompt. However, an important fragment need not be self-contained, because its meaning may depend on an earlier definition, an antecedent, or a bridge fact that the compressor removes independently. We call this failure referential dangling and formalize it in Section 3 . A compressed prompt exhibits referential dangling when it retains a relevant fragment but omits a dependency required for its interpretation, leaving the fragment unusable to the target model. Figure 1 illustrates this mechanism. The compressor retains one fragment mentioning Tim DuBois and another stating that Southwest City is in McDonald County, but deletes the bridge stating that DuBois was born in Southwest City. Although the answer string remains in the compressed prompt, the retained fragments no longer support an inference from the query subject to the answer. This example illustrates why relevance alone does not guarantee a usable compressed context. It remains unclear whether dangling is systematic, fixed-budget reselection recovers accuracy, or restoration can be automated. We first examine the official implementation of Beaver ( Hu et al. 2026 ) . At compression ratio 0.30 0.30 , it leaves answer paths incomplete in 34 34 to 54 % 54\\% of bridge examples across HotpotQA ( Yang et al. 2018 ) , 2WikiMultiHopQA ( Ho et al. 2020 ) , and MuSiQue ( Trivedi et al. 2022 ) . A human audit finds 95 % 95\\% precision. The diagnosis extends beyond this setting: all six compressors tested exhibit dangling at rates from 32 32 to 60 % 60\\% on the shared bridge set, and all 80 80 documents in LongBench-v2 Single-Document QA ( Bai et al. 2025 ) contain at least one dangling reference. We next conduct an annotation-guided reselection experiment: the omitted supporting paragraph is reinserted, and its token count is offset by removing the lowest-scoring paragraphs not annotated as supporting the answer. On dangling examples evaluated with Qwen3-8B, this intervention improves accuracy by 29 29 to 34 34 points without increasing the token budget ( p < 10 − 4 p<10^{-4} ) and recovers at least 88 % 88\\% of the accuracy gap between the original compressed contexts and contexts retaining both annotated supporting paragraphs. Finally, we generate candidate sentences from the omitted text and train a compact classifier to rank them according to whether they are needed to interpret retained text. Without using supporting paragraph annotations at inference, the method reinserts the highest ranked candidates. On HotpotQA with Qwen3-8B as the downstream answer model, this automatic restoration improves accuracy by 4.7 4.7 points while changing the compression ratio only from 0.30 0.30 to 0.31 0.31 . We released the code, results for individual examples, and the trained model 1 1 1 https://cslikai.cn/Referential-Dangling/ . 2 Related Work Prompt and context compression. Prompt compression reduces long-context inference cost by shortening the input before it reaches the target model. It complements model-side efficiency methods, including elastic subnetworks, compact discrete semantic tokens for multimodal inputs, and efficient encoder–decoder or state-space architectures ( Li and Luo 2024 ; Li et al. 2025b ; Li et al. 2022 ; Li et al. 2025a ) . We study hard compression, which selects tokens, sentences, chunks, or parse nodes under a budget using self-information or perplexity ( Li et al. 2023 ; Jiang et al. 2024 ) , learned token classifiers ( Jiang et al. 2023b ; Pan et al. 2024 ) , embedding similarity ( Hu et al. 2026 ) , syntactic salience ( Mao et al. 2025 ) , attention-based signals ( Zhao et al. 2025 ) , or training-free sentence and fragment selection ( Tang et al. 2025 ) . Task-aware selectors add reinforcement-learning rewards or key-information density objectives ( Shandilya et al. 2025 ; Lin et al. 2025 ) , whereas soft or latent approaches use gist tokens, autoencoders, semantic source coding, or learned special-token representations ( Mu et al. 2023 ; Chevalier et al. 2023 ; Ge et al. 2023 ; Fei et al. 2024 ; Li et al. 2025d ) . A further line of work compresses hidden activations or KV caches instead of source text ( Zhang et al. 2025a ; Zhang et al. 2023 ) ; because these methods never produce a reduced text sequence, the failure we study does not arise in the same form and we do not evaluate them. Hard methods differ in supervision, granularity, and query access but select fragments by salience or relevance. Existing surveys organize prompt-compression methods by hard versus soft strategies and discuss their downstream adaptations ( Li et al. 2025c ) . Comparative studies further show that downstream performance and information preservation vary with the compression method, task, and compression setting ( Jha et al. 2024 ; Łajewska et al. 2025 ) , while rate-distortion analysis formalizes the budget–performance trade-off and the role of query-aware selection ( Nagle et al. 2024 ) . We study how independent hard selection can retain a fragment but remove its required definition or bridge. Dependency-preserving selection. Extractive summarization identified this dependency and built a constraint for it: Durrett et al. (2016) add anaphoricity constraints to the selection objective, so a sentence may not be extracted unless the text its pronouns depend on is extracted with it. Hard prompt compressors inherit the selection problem without the constraint: they score units by salience or query relevance and keep the highest-scoring units under a budget, with no term rewarding the joint retention of a unit and the text needed to interpret it. Other work approaches the dependency from different angles. Coreference resolution identifies anaphoric links ( Lee et al. 2017 ) , but on complete documents; resolving links in the source does not indicate whether the retained subset stays interpretable once the antecedent is deleted. Faithfulness evaluation asks the converse question, whether a generated summary is supported by its source ( Maynez et al. 2020 ) , rather than whether the retained source is self-contained. Closest to our setting, Deng et al. (2025) report boundary and information-path failures under gist-based compression. Retrieval-augmented generation retrieves, rewrites, or attends over evidence to favor passages that support generation ( Lewis et al. 2020 ; Xu et al. 2024 ; Liu et al. 2023 ; Choi et al. 2024 ) , but scoring by answer support still lets a passage qualify while remaining uninterpretable once its definition is removed. Long-context studies show that accuracy also depends on where relevant information sits and on surrounding distractors ( Liu et al. 2024 ; Shi et al. 2023 ) , factors that fixed-budget reselection changes and that we therefore control. We measure what the missing constraint costs: how often independent selection splits a dependency pair, and how much downstream accuracy is lost when it does. 3 Problem Formulation Referential dangling. Let C = ( c 1 , … , c | C | ) C=(c_{1},\\ldots,c_{|C|}) denote a tokenized context, Q ∈ 𝒬 Q\\in\\mathcal{Q} a query, and τ ∈ ℕ \\tau\\in\\mathbb{N} a token budget. We restrict the formal definition to extractive hard compressors. For any extractive output A A , let Pos C ⁡ ( A ) ⊆ { 1 , … , | C | } \\operatorname{Pos}_{C}(A)\\subseteq\\{1,\\ldots,|C|\\} denote the source-token positions emitted in A A , each emitted at most once and in source order. An extractive compressor f f returns C ~ = f ⁡ ( C , Q , τ ) \\tilde{C}=f(C,Q,\\tau) with | C ~ | ≤ τ < | C | |\\tilde{C}|\\leq\\tau<|C| , where | ⋅ | |\\cdot| denotes the number of tokens. A compressor that does not use Q Q is query agnostic. The downstream LLM receives Q Q and C ~ \\tilde{C} but not C C . A sentence relevant to the task may depend on explicit support elsewhere in the context, and several alternative support paths may be valid. Let Sent ⁡ ( C ) \\operatorname{Sent}(C) denote the indexed source-sentence occurrences in C C . For any indexed source fragment y y , let ℐ ⁡ ( y ) ⊆ { 1 , … , | C | } \\mathcal{I}(y)\\subseteq\\{1,\\ldots,|C|\\} contain its source-token positions. Let 𝒯 C , Q ⊆ Sent ⁡ ( C ) \\mathcal{T}_{C,Q}\\subseteq\\operatorname{Sent}(C) contain the task-relevant sentences whose interpretation or use in answering Q Q may require such support. We define exact sentence retention by Ret C ⁡ ( A ) = { s ∈ Sent ⁡ ( C ) : ℐ ⁡ ( s ) ⊆ Pos C ⁡ ( A ) } . \\operatorname{Ret}_{C}(A)=\\left\\{s\\in\\operatorname{Sent}(C):\\mathcal{I}(s)\\subseteq\\operatorname{Pos}_{C}(A)\\right\\}. For s ∈ 𝒯 C , Q s\\in\\mathcal{T}_{C,Q} and D ⊆ Sent ⁡ ( C ) ∖ { s } D\\subseteq\\operatorname{Sent}(C)\\setminus\\{s\\} , let Suff C , Q ⁡ ( s , D ) \\operatorname{Suff}_{C,Q}(s,D) hold when the source-ordered text formed by D ∪ { s } D\\cup\\{s\\} , together with Q Q , contains all explicit information from C C needed to interpret s s and use it in an evidence chain for Q Q . Sufficiency is assessed jointly on D ∪ { s } D\\cup\\{s\\} rather than one dependency edge at a time. Define the complete family of inclusion-minimal sufficient support sets 𝒟 C , Q ( s ) = { D : \\displaystyle\\mathcal{D}_{C,Q}(s)=\\bigl\\{D: D ⊆ Sent ⁡ ( C ) ∖ { s } , Suff C , Q ⁡ ( s , D ) , \\displaystyle D\\subseteq\\operatorname{Sent}(C)\\setminus\\{s\\},\\quad\\operatorname{Suff}_{C,Q}(s,D), ∄ D ′ ⊊ D with Suff C , Q ( s , D ′ ) } . \\displaystyle\\nexists D^{\\prime}\\subsetneq D\\ \\text{with}\\ \\operatorname{Suff}_{C,Q}(s,D^{\\prime})\\bigr\\}. For every s ∈ 𝒯 C , Q s\\in\\mathcal{T}_{C,Q} , we assume 𝒟 C , Q ​ ( s ) ≠ ∅ \\mathcal{D}_{C,Q}(s)\\neq\\varnothing . Because Sent ⁡ ( C ) \\operatorname{Sent}(C) is finite, every sufficient D D contains an inclusion-minimal sufficient subset, so retaining a sufficient support set is equivalent to retaining some member of this minimal family. If s s requires no additional support, then ∅ ∈ 𝒟 C , Q ​ ( s ) \\varnothing\\in\\mathcal{D}_{C,Q}(s) . Following the notion of referential completeness in extractive summarization ( Durrett et al. 2016 ) , we consider only support stated explicitly in C C and exclude commonsense inferences, implicit temporal relations, and relations that require external information. Write ℛ = Ret C ⁡ ( C ~ ) \\mathcal{R}=\\operatorname{Ret}_{C}(\\tilde{C}) . The compressed context C ~ \\tilde{C} exhibits referential dangling if it retains a sentence relevant to the task but retains no sufficient support set in full: ∃ s ∈ ℛ ∩ 𝒯 C , Q such that ∀ D ∈ 𝒟 C , Q ​ ( s ) , D ⊈ ℛ . \\exists\\,s\\in\\mathcal{R}\\cap\\mathcal{T}_{C,Q}\\quad\\text{such that}\\quad\\forall D\\in\\mathcal{D}_{C,Q}(s),\\quad D\\nsubseteq\\mathcal{R}. (1) This query-dependent definition distinguishes support in the original context from support retained after compression. Additive fragment selection. We isolate the additive selection rule for hard compressors with nonoverlapping candidate units. Let ℱ = { x 1 , … , x n } \\mathcal{F}=\\{x_{1},\\ldots,x_{n}\\} be a finite collection of candidate fragments from C C , with source-token positions ℐ ⁡ ( x ) \\mathcal{I}(x) as above. We assume ℐ ⁡ ( x i ) ∩ ℐ ⁡ ( x j ) = ∅ \\mathcal{I}(x_{i})\\cap\\mathcal{I}(x_{j})=\\varnothing for all i ≠ j i\\neq j . For any 𝒮 ⊆ ℱ \\mathcal{S}\\subseteq\\mathcal{F} , let Out C ⁡ ( 𝒮 ) \\operatorname{Out}_{C}(\\mathcal{S}) be the text formed by emitting, once and in source order, the tokens in ⋃ x ∈ 𝒮 ℐ ⁡ ( x ) \\bigcup_{x\\in\\mathcal{S}}\\mathcal{I}(x) . Define cost ⁡ ( 𝒮 ) \\displaystyle\\operatorname{cost}(\\mathcal{S}) = | Out C ⁡ ( 𝒮 ) | = ∑ x ∈ 𝒮 | ℐ ⁡ ( x ) | , \\displaystyle=\\big|\\operatorname{Out}_{C}(\\mathcal{S})\\big|=\\sum_{x\\in\\mathcal{S}}|\\mathcal{I}(x)|, (2) ℛ C ​ ( 𝒮 ) \\displaystyle\\mathcal{R}_{C}(\\mathcal{S}) = Ret C ⁡ ( Out C ⁡ ( 𝒮 ) ) . \\displaystyle=\\operatorname{Ret}_{C}\\!\\left(\\operatorname{Out}_{C}(\\mathcal{S})\\right). This exact formulation covers token-, sentence-, and fixed-chunk selectors with nonoverlapping candidate units whose final selection solves the stated global modular knapsack objective. Selectors with overlapping or hierarchical candidates are not claimed to be exact instances of this objective and are evaluated empirically. For fixed ( C , Q ) (C,Q) , a scorer assigns each fragment a scalar utility u ⁡ ( x ) = σ ⁡ ( x , C , Q ) ∈ ℝ , u(x)=\\sigma(x;C,Q)\\in\\mathbb{R}, (3) where σ \\sigma may use the entire context and query. The additive assumption concerns how the final selector combines fragment utilities rather than how those utilities are computed. We model the selected set as a solution to 𝒦 ∈ arg ​ max 𝒮 ⊆ ℱ cost ⁡ ( 𝒮 ) ≤ τ ∑ x ∈ 𝒮 u ( x ) . \\mathcal{K}\\in\\operatorname*{arg\\,max}_{\\begin{subarray}{c}\\mathcal{S}\\subseteq\\mathcal{F}\\\\ \\operatorname{cost}(\\mathcal{S})\\leq\\tau\\end{subarray}}\\sum_{x\\in\\mathcal{S}}u(x). (4) Ties are resolved by a fixed deterministic rule. The resulting compressed text is C ~ = Out C ⁡ ( 𝒦 ) \\tilde{C}=\\operatorname{Out}_{C}(\\mathcal{K}) . It avoids referential dangling if and only if ∀ s ∈ ℛ C ​ ( 𝒦 ) ∩ 𝒯 C , Q , \\displaystyle\\forall s\\in\\mathcal{R}_{C}(\\mathcal{K})\\cap\\mathcal{T}_{C,Q}, ∃ D ∈ 𝒟 C , Q ​ ( s ) \\displaystyle\\exists D\\in\\mathcal{D}_{C,Q}(s) (5) such that D ⊆ ℛ C ​ ( 𝒦 ) . \\displaystyle\\text{such that}\\quad D\\subseteq\\mathcal{R}_{C}(\\mathcal{K}). This condition is the complement of Equation ( 1 ) for the emitted text. The additive objective contains no interaction term that enforces it. The following construction shows that additive selection can omit required support even when the same budget admits a complete alternative. Proposition 1 (No guarantee of complete support) Let ℱ = Sent ⁡ ( C ) = { x , d , z } \\mathcal{F}=\\operatorname{Sent}(C)=\\{x,d,z\\} consist of three disjoint fragments with equal cost m ∈ ℕ > 0 m\\in\\mathbb{N}_{>0} , and assume ℛ C ​ ( 𝒮 ) = 𝒮 \\mathcal{R}_{C}(\\mathcal{S})=\\mathcal{S} for every 𝒮 ⊆ ℱ \\mathcal{S}\\subseteq\\mathcal{F} . Let τ = 2 ​ m \\tau=2m , 𝒯 C , Q = { x } \\mathcal{T}_{C,Q}=\\{x\\} , and 𝒟 C , Q ​ ( x ) = { { d } } \\mathcal{D}_{C,Q}(x)=\\{\\{d\\}\\} . If u ⁡ ( x ) > u ⁡ ( z ) > u ⁡ ( d ) ≥ 0 u(x)>u(z)>u(d)\\geq 0 , then the unique additive maximizer is 𝒦 = { x , z } \\mathcal{K}=\\{x,z\\} , whose output dangles even though the feasible selection { x , d } \\{x,d\\} has complete support. Proof. The two largest utilities belong to x x and z z , so the unique maximizer under the budget is { x , z } \\{x,z\\} . Its retained sentence x x has the sole sufficient support set { d } \\{d\\} , which is absent. The alternative { x , d } \\{x,d\\} has cost 2 ​ m 2m and retains this support set, so it is feasible and complete. □ \\square The proposition is an existence result. It shows that the additive objective alone provides no guarantee for arbitrary utilities, but it does not claim that every compressed context will dangle or that a complete alternative always fits the same budget. The exact class includes context-aware ( Liskavets et al. 2025 ) or reinforcement-learned scores ( Jung and Kim 2024 ) only when the final selector solves the stated fixed modular objective without a support constraint. Section 4 evaluates recurrence empirically for selectors both inside and outside this class. 4 Empirical Diagnosis of Referential Dangling The formulation in Section 3 motivates two empirical analyses. We first use Beaver to measure the prevalence of referential dangling and its variation with compression ratio, annotated hop count, and reference distance. We then compare six compressors to test whether the diagnostic recurs across scoring signals and output granularities. Measurement protocol. Because support annotations are incomplete and exact sentence retention is not uniformly available, we use directional content-word coverage. Let CW ⁡ ( y ) \\operatorname{CW}(y) be the normalized content-word multiset of unit y y , and let 𝒰 ⁡ ( A ) \\mathcal{U}(A) contain the retained output units. When | CW ⁡ ( v ) | > 0 |\\operatorname{CW}(v)|>0 and 𝒰 ⁡ ( A ) ≠ ∅ \\mathcal{U}(A)\\neq\\varnothing , define cov ⁡ ( v , A ) = max a ∈ 𝒰 ⁡ ( A ) ⁡ | CW ⁡ ( v ) ∩ CW ⁡ ( a ) | | CW ⁡ ( v ) | . \\operatorname{cov}(v,A)=\\max_{a\\in\\mathcal{U}(A)}\\frac{|\\operatorname{CW}(v)\\cap\\operatorname{CW}(a)|}{|\\operatorname{CW}(v)|}. Set cov ⁡ ( v , A ) = 0 \\operatorname{cov}(v,A)=0 when | CW ⁡ ( v ) | = 0 |\\operatorname{CW}(v)|=0 or 𝒰 ⁡ ( A ) = ∅ \\mathcal{U}(A)=\\varnothing . Span-, sentence-, and chunk-level outputs use native retained units; token-level outputs regroup retained tokens by source sentence. Intersections count multiplicity, and the maximum is per output unit, not over their union. For θ ∈ ( 0 , 1 ] \\theta\\in(0,1] , write Keep θ ⁡ ( v , A ) \\operatorname{Keep}_{\\theta}(v,A) when cov ⁡ ( v , A ) ≥ θ \\operatorname{cov}(v,A)\\geq\\theta . We use θ = 0.5 \\theta=0.5 , with a sweep in Appendix A . This protocol approximates Equation ( 1 ) rather than evaluating it exactly. In bridge questions, the definition paragraph introduces a bridge entity and the answer paragraph refers to it. At each evaluation granularity, we apply the same directional event to the paired answer and definition units: an example is answer-path dangling when Keep θ \\operatorname{Keep}_{\\theta} holds for the answer unit but not for the definition unit. The prevalence analysis uses paragraphs, whereas the cross-compressor analysis uses the corresponding source sentences. This test does not enumerate alternative support paths. Among bridge examples whose answer paragraph satisfies Keep θ \\operatorname{Keep}_{\\theta} , ρ d \\rho_{\\mathrm{d}} is the fraction whose paired definition paragraph does not satisfy Keep θ \\operatorname{Keep}_{\\theta} . The complete evidence retention rate ρ e \\rho_{\\mathrm{e}} is the fraction of all evaluated examples retaining every annotated evidence paragraph. LongBench-v2 Single-Document QA uses a separate first-mention diagnostic. 4.1 Referential Dangling under Beaver Figure 2: Referential dangling under Beaver . Panel (a) reports ρ d \\rho_{\\mathrm{d}} across compression ratios on HotpotQA ( n = 269 n{=}269 to 300 300 per point, including partial paragraph retention). Panel (b) reports ρ d \\rho_{\\mathrm{d}} by annotated hop count on HotpotQA ( n = 234 n{=}234 ), 2WikiMultiHopQA ( n = 241 n{=}241 ), and MuSiQue ( n = 286 n{=}286 ). Panel (c) reports dangling rates for 4,649 4{,}649 reference pairs in LongBench-v2 Single-Document QA by sentence distance from first mention to later reference. Error bars are bootstrap 95 % 95\\% confidence intervals. Setup. We use the official Beaver implementation ( Hu et al. 2026 ) with Qwen3-0.6B embeddings ( Yang et al. 2025 ; Zhang et al. 2025b ) . We evaluate HotpotQA ( Yang et al. 2018 ) , 2WikiMultiHopQA ( Ho et al. 2020 ) , and MuSiQue ( Trivedi et al. 2022 ) . HotpotQA and 2WikiMultiHopQA use contexts of about 40 40 paragraphs and 5.7 5.7 k tokens, formed by mixing annotated supporting paragraphs with sampled distractors; MuSiQue uses its native 20 20 -paragraph contexts. We define r = | C ~ | / | C | r=|\\tilde{C}|/|C| and use binary search to reach each target ratio. Prevalence. At r = 0.30 r=0.30 , ρ d \\rho_{\\mathrm{d}} ranges from 34.2 % 34.2\\% to 54.2 % 54.2\\% across the three datasets, while ρ e \\rho_{\\mathrm{e}} ranges from 27.0 % 27.0\\% to 61.0 % 61.0\\% (Table 1 ). MuSiQue has the highest ρ d \\rho_{\\mathrm{d}} and the lowest ρ e \\rho_{\\mathrm{e}} . Figure 2 a uses a broader HotpotQA sample that includes partial paragraph retention ( n = 293 n{=}293 at r = 0.30 r=0.30 ) and reports 31.1 % 31.1\\% , compared with 34.2 % 34.2\\% for the 234 234 -example table sample. In a manual audit, the omitted paragraph was required in 38 38 of 40 40 flagged examples, yielding 95 % 95\\% precision. Appendix B reports the dependency categories, false positives, and qualitative examples. Dataset Hops ρ d \\rho_{\\mathrm{d}} (%) ρ e \\rho_{\\mathrm{e}} (%) HotpotQA 2 34.2 61.0 2WikiMultiHopQA 2 53.5 30.7 MuSiQue 2 to 4 54.2 27.0 Table 1: Referential dangling and complete evidence retention under Beaver at r = 0.30 r=0.30 . Long documents. LongBench-v2 Single-Document QA ( Bai et al. 2025 ) lacks annotations of supporting evidence and multi-hop structure, so we use a separate first-mention diagnostic. A later reference dangles when its entity’s first-mention sentence is omitted while the reference sentence survives. Across 80 80 documents at r = 0.30 r=0.30 , the mean per-document rate is 30.5 % 30.5\\% , and every document contains at least one dangling reference. Rates range from 25 % 25\\% to 37 % 37\\% across seven subdomains (Appendix C ). Because this diagnostic uses retained sentences as its denominator rather than bridge examples with a retained answer paragraph, it is not directly comparable with ρ d \\rho_{\\mathrm{d}} . Variation across measured conditions. On the broader HotpotQA sample in Figure 2 a, ρ d \\rho_{\\mathrm{d}} rises from 6.3 % 6.3\\% at r = 0.70 r=0.70 to 53.5 % 53.5\\% at r = 0.20 r=0.20 , with nonoverlapping bootstrap 95 % 95\\% confidence intervals between adjacent operating points. This endpoint is distinct from the 53.5 % 53.5\\% reported for 2WikiMultiHopQA in Table 1 . Dataset groups with larger annotated hop counts also have larger ρ d \\rho_{\\mathrm{d}} values (Figure 2 b), but dataset construction differs, so this comparison does not isolate reasoning depth. On LongBench-v2 Single-Document QA, the pair-level dangling rate is 51.7 % 51.7\\% for distances of 1 1 to 10 10 sentences, 67.0 % 67.0\\% for 71 71 to 150 150 , and 64.2 % 64.2\\% beyond 150 150 . Dangling pairs have a mean distance of 89 89 sentences, compared with 73 73 for complete pairs. 4.2 Comparison Across Six Scoring Signals The comparison includes six hard compressors that assign importance using different signals: embedding similarity with Beaver ( Hu et al. 2026 ) , syntactic parse structure with PartPrompt ( Mao et al. 2025 ) , self-information with Selective-Context ( Li et al. 2023 ) , a learned token classifier with LLMLingua-2 ( Pan et al. 2024 ) , perplexity with LongLLMLingua ( Jiang et al. 2024 ) , and importance derived from attention with DAC ( Zhao et al. 2025 ) . These methods span chunk, parse node, sentence, and token outputs. Beaver and LongLLMLingua use the query, whereas the other four methods do not. The procedures differ, but none explicitly constrains joint dependency retention. All six compressors process the same 184 184 HotpotQA bridge examples at compression ratio 0.30 0.30 . We apply the sentence-level predicate Keep 0.5 \\operatorname{Keep}_{0.5} defined above to outputs at every granularity. Under this criterion, Beaver has a dangling rate of 32.1 % 32.1\\% on the shared set. Table 1 reports 34.2 % 34.2\\% under the paragraph-level predicate on a different 234 234 -example sample, so the two values are not a controlled comparison of the predicates. Appendix A sweeps the threshold from 0.3 0.3 to 0.7 0.7 ; Appendix E details each compressor’s implementation. Figure 3: Dangling rates for six compressors on the shared HotpotQA bridge set ( n = 184 n{=}184 ) at compression ratio 0.30 0.30 . PartPr. denotes PartPrompt, Sel.-Ctx denotes Selective-Context, LLML-2 denotes LLMLingua-2, and LongLL denotes LongLLMLingua. All outputs are evaluated using the content-word overlap criterion with threshold 0.5 0.5 . Light bars denote methods that use the query, and darker bars denote methods that do not. Results across scoring signals. Figure 3 reports rates from 32.1 % 32.1\\% for Beaver to 59.8 % 59.8\\% for LongLLMLingua. Referential dangling is therefore observed beyond selection based on embeddings. The two methods that use the query, Beaver and LongLLMLingua, have rates at opposite ends of the measured range, so query access alone does not remove the diagnostic event. PartPrompt has a rate of 47.8 % 47.8\\% on the shared set, indicating that the event also occurs under hierarchical syntactic selection in this setting. These comparisons extend the diagnosis beyond the exact additive model without implying that every evaluated selector instantiates it. Definition salience. We next examine whether omitted definitions simply receive low importance scores. For each bridge example, we measure the isolated salience percentile of the answer sentence and the definition sentence among all sentences using Beaver sentence similarity, which uses the query, and self-information, which does not. Figure 4 reports the results for 180 180 examples. Under Beaver similarity, the mean percentile is 92.8 % 92.8\\% for definitions and 84.1 % 84.1\\% for answer sentences. Under self-information, the corresponding values are 46.7 % 46.7\\% and 54.3 % 54.3\\% . Low isolated salience is therefore insufficient to explain the omitted definitions, although these measurements do not identify the reason for each individual selection decision. Figure 4: Mean salience percentiles (%) for answer and definition sentences among all sentences in 180 180 bridge examples. Beaver similarity is query-aware; self-information is not. Overlap of affected examples. We compare the dangling case sets using Jaccard similarity to determine whether the compressors fail on the same examples. Table 2 reports a mean pairwise similarity of 0.38 0.38 , compared with 0.34 0.34 expected under independent occurrence at the observed rates. Only 5.4 % 5.4\\% of examples dangle under all six compressors, whereas 95 % 95\\% dangle under at least one. The affected sets therefore vary across scoring methods, a pattern consistent with selection that varies by method rather than a single fixed pool of difficult examples. These measurements quantify prevalence under the diagnostic but do not determine whether changing the selected content at the same budget improves downstream accuracy, which we evaluate next. BEAVER PartPr. Sel.-Ctx LLML-2 DAC LongLL Dangling rate (%) 32.1 47.8 51.6 56.0 58.7 59.8 BEAVER N/A 0.36 0.23 0.30 0.29 0.32 PartPr. 0.36 N/A 0.36 0.44 0.44 0.37 Sel.-Ctx 0.23 0.36 N/A 0.39 0.35 0.51 LLML-2 0.30 0.44 0.39 N/A 0.47 0.45 DAC 0.29 0.44 0.35 0.47 N/A 0.48 LongLL 0.32 0.37 0.51 0.45 0.48 N/A Table 2: Pairwise Jaccard similarities between dangling case sets on the shared HotpotQA bridge set ( n = 184 n{=}184 ) at compression ratio 0.30 0.30 . The first row reports the dangling rate of each compressor. Abbreviations match Figure 3 . 5 Fixed-Budget Content Reselection The preceding diagnostics show that compression often separates annotated support pairs, but prevalence alone does not determine whether selecting different content improves downstream accuracy without increasing the token budget. We test this by restoring the omitted supporting paragraph and removing at least as many tokens from paragraphs that are not annotated as supporting the answer. Comparison protocol. Panel 1 of Table 3 evaluates three content conditions on the dangling subsets. Base is the original compressed context. Reselected reinserts the omitted supporting paragraph and removes the lowest scoring paragraphs not annotated as supporting the answer until at least the same number of tokens has been removed. Full support retains both annotated supporting paragraphs and provides a reference for complete evidence retention. Base and Reselected form the fixed-budget comparison, while Full support provides the reference used to quantify the accuracy recovered through reselection. Panel 2 separately compares Base with Full support on 200 200 HotpotQA examples and does not evaluate Reselected. We conduct these comparisons with Beaver because its coherent chunk output permits paragraph replacement while leaving the remaining retained text unchanged. Applying the same operation to token-level output would require inserting whole paragraphs into fragmented text and would not yield a directly comparable setting. Appendix D specifies the construction for each dataset. Panel 1: dangling subsets evaluated with Qwen3-8B Dataset Downstream LLM Base Reselected Full support McNemar p p HotpotQA Qwen3-8B 0.287 0.287 0.575 0.575 0.600 0.600 1.6 × 10 − 6 1.6\\times 10^{-6} 2WikiMultiHopQA Qwen3-8B 0.097 0.097 0.403 0.403 0.444 0.444 1.1 × 10 − 5 1.1\\times 10^{-5} MuSiQue Qwen3-8B 0.147 0.147 0.490 0.490 0.471 0.471 3.1 × 10 − 8 3.1\\times 10^{-8} Panel 2: a 200 200 example HotpotQA evaluation set with four downstream LLMs Dataset Downstream LLM Base Full support McNemar p p HotpotQA Qwen3-8B 0.535 0.535 0.615 0.615 0.001 0.001 Qwen3-4B 0.500 0.500 0.585 0.585 0.002 0.002 Llama-3.1-8B 0.575 0.575 0.660 0.660 0.004 0.004 Mistral-7B 0.455 0.455 0.545 0.545 0.0005 0.0005 Table 3: Answer accuracy with base contexts produced by Beaver at target compression ratio 0.30 0.30 . Panel 1 uses the dangling subsets of HotpotQA ( n = 80 n{=}80 ), 2WikiMultiHopQA ( n = 72 n{=}72 ), and MuSiQue ( n = 102 n{=}102 ), with McNemar p p values comparing Base and Reselected. Panel 2 uses a separate set of 200 200 HotpotQA examples, with McNemar p p values comparing Base and Full support. We evaluate GPT-5.5 ( OpenAI 2026 ) and GLM-5.2 ( Zhipu AI 2026 ) as proprietary downstream models. Their API identifiers are listed in Table 9 . Model Dataset n n Base Full support McNemar p p GPT-5.5 HotpotQA 184 184 0.913 0.913 0.913 0.913 1.0 1.0 GPT-5.5 MuSiQue 102 102 0.775 0.775 0.863 0.863 0.011 0.011 GLM-5.2 MuSiQue 95 95 0.695 0.695 0.937 0.937 2.4 × 10 − 7 2.4\\times 10^{-7} Table 4: Answer accuracy of proprietary models under Base and Full support, with base contexts produced by Beaver at target compression ratio 0.30 0.30 . HotpotQA uses the full shared bridge set, while MuSiQue uses the dangling subset. GLM-5.2 returned answers for 95 95 of the 102 102 MuSiQue contexts because of API timeouts. Accuracy on dangling examples. The dangling subsets are defined by paragraph retention and do not depend on whether the downstream model answers correctly. Panel 1 of Table 3 shows that Reselected improves accuracy over Base by 28.8 28.8 to 34.3 34.3 points, with p < 10 − 4 p<10^{-4} on all three datasets. It recovers 92 % 92\\% and 88 % 88\\% of the difference between Base and Full support on HotpotQA and 2WikiMultiHopQA, respectively, and exceeds Full support by 1.9 1.9 points on MuSiQue. Because Reselected and Full support remove different paragraphs that are not annotated as supporting the answer, these comparisons measure the joint change in retained content rather than the isolated contribution of the reinserted paragraph. The reselected contexts are shorter than the base contexts on average, as reported in Appendix D, so their gains cannot be explained by a larger token budget. The protocol relies on annotated supporting paragraphs, and we apply it to all three multi-hop QA datasets used in the prevalence analysis. Results across downstream models. We next compare Base and Full support across Qwen3, Llama-3.1, and Mistral models ( Yang et al. 2025 ; Grattafiori et al. 2024 ; Jiang et al. 2023a ) . Exact checkpoint and API identifiers are listed in Table 9 . Panel 2 of Table 3 reports gains of 8.0 8.0 to 9.0 9.0 accuracy points for Full support, with p < 0.01 p<0.01 for all four models. These comparisons remain significant after Holm correction at α = 0.05 \\alpha{=}0.05 . The gains for Qwen3-4B and Qwen3-8B are similar, at 8.5 8.5 and 8.0 8.0 points, respectively. Additional comparisons with proprietary models are reported in Table 4 . On HotpotQA, GPT-5.5 has the same aggregate accuracy under both conditions because restoring both supporting paragraphs produces four fixes and four breaks. On MuSiQue, Full support improves accuracy by 8.8 8.8 points for GPT-5.5 and 24.2 24.2 points for GLM-5.2. Full support improves accuracy for all four evaluated open-weight models on HotpotQA and both proprietary models on MuSiQue, while GPT-5.5 shows no aggregate difference on HotpotQA. 6 Automatic Context Restoration The fixed-budget comparison relies on annotated supporting paragraphs to determine which content to restore. We therefore test whether omitted supporting sentences can be selected automatically at inference with only a small increase in the token budget. We treat the resulting pipeline as a diagnostic of targeted sentence restoration rather than a complete compression system. We evaluate it on Beaver outputs because their coherent blocks containing multiple sentences permit controlled insertion at sentence boundaries while leaving the remaining compressed context unchanged. Restoration pipeline and training. A candidate generator first collects sentences from the omitted context that may support retained text. A bert-base-uncased classifier ( Devlin et al. 2019 ) then ranks the candidates using a retained sentence, a candidate sentence, and the question, separated by [SEP] tokens. Training pairs are constructed from the HotpotQA training split. Positive pairs consist of a retained sentence and an omitted annotated supporting sentence that share an entity. Pairs that share an entity but do not meet this positive criterion serve as hard negatives, whereas pairs without a shared entity serve as easy negatives. After negative downsampling, the training set contains 7,565 7{,}565 pairs, of which 40 % 40\\% are positive. Pairs are split by example identifier into classifier training and development partitions, and the source contexts are disjoint from the downstream evaluation contexts. We fine-tune the classifier for three epochs with AdamW using a learning rate of 2 × 10 − 5 2\\times 10^{-5} , a batch size of 32 32 , and a maximum sequence length of 256 256 , and retain the checkpoint with the highest development F1. At inference, the K K candidates with the highest classifier scores are reinserted. We use K = 3 K{=}3 in the main analyses; Appendix F reports the K K sweep and remaining implementation details. Downstream accuracy. With first-mention candidates, the restoration pipeline improves Qwen3-8B accuracy by 4.7 4.7 points ( p = 0.022 p{=}0.022 ) while changing the compression ratio from 0.30 0.30 to 0.31 0.31 . The same procedure improves Mistral-7B accuracy by 6.5 6.5 points ( p = 0.012 p{=}0.012 ). On Llama-3.1-8B, the gain ranges from 1.3 1.3 to 2.3 2.3 points across candidate sources and is not statistically significant. Subsequent analyses use Qwen3-8B; Appendix G reports all downstream-model results. Candidate sources. Table 5 compares candidate sources while holding the classifier fixed. First-mention candidates yield a gain of 4.7 4.7 points on HotpotQA but only 0.5 0.5 points on 2WikiMultiHopQA. Combining first-mention candidates with embedding retrieval gives point estimates of 4.5 4.5 and 5.5 5.5 points, respectively. In a diagnostic condition that includes the annotated supporting sentence in the candidate set, the gain reaches 8.0 8.0 points ( p = 0.008 p{=}0.008 ) while adding only 0.4 0.4 sentences on average. The larger point estimate suggests that candidate construction limits the current pipeline. Appendix G further compares cases with successful and unsuccessful restoration. Candidate source HotpotQA 2WikiMultiHopQA First mention +4.7 ( p = 0.022 p{=}0.022 ) +0.5 (not significant) All mentions +4.5 ( p = 0.15 p{=}0.15 ) +4.0 ( p = 0.20 p{=}0.20 ) Hybrid +4.5 ( p = 0.12 p{=}0.12 ) +5.5 ( p = 0.063 p{=}0.063 ) Annotated support included +8.0 ( p = 0.008 p{=}0.008 ) N/A Table 5: Changes in answer accuracy, in percentage points relative to Base, for candidate sources with a fixed classifier and Qwen3-8B ( K = 3 K{=}3 ). Hybrid augments first-mention candidates with embedding retrieval, and the final row includes the annotated supporting sentence in the candidate set. Matched addition control. Adding the same number of randomly selected sentences improves accuracy by 2.0 2.0 points, compared with 4.7 4.7 points for targeted restoration (Appendix G). The direct contrast is suggestive but not significant at this samp",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Skip to main content",
+      "url": "https://arxiv.org/html/2608.04569v1#infobox"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/IgnoreMe"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "Why HTML?",
+      "url": "https://info.arxiv.org/about/accessible_HTML.html"
+    },
+    {
+      "text": "Back to Abstract",
+      "url": "https://arxiv.org/abs/2608.04569v1"
+    },
+    {
+      "text": "Download PDF",
+      "url": "https://arxiv.org/pdf/2608.04569v1"
+    },
+    {
+      "text": "License: CC BY 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "Liu et al. 2024",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib1"
+    },
+    {
+      "text": "Jiang et al. 2023b",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib3"
+    },
+    {
+      "text": "Pan et al. 2024",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib4"
+    },
+    {
+      "text": "Li et al. 2023",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib6"
+    },
+    {
+      "text": "Jiang et al. 2024",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib5"
+    },
+    {
+      "text": "Hu et al. 2026",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib7"
+    },
+    {
+      "text": "Mao et al. 2025",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib8"
+    },
+    {
+      "text": "Zhao et al. 2025",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib9"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2608.04569v1#S3"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2608.04569v1#S1.F1"
+    },
+    {
+      "text": "Yang et al. 2018",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib21"
+    },
+    {
+      "text": "Ho et al. 2020",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib22"
+    },
+    {
+      "text": "Trivedi et al. 2022",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib23"
+    },
+    {
+      "text": "Bai et al. 2025",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib24"
+    },
+    {
+      "text": "Li and Luo 2024",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib17"
+    },
+    {
+      "text": "Li et al. 2025b",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib20"
+    },
+    {
+      "text": "Li et al. 2022",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib18"
+    },
+    {
+      "text": "Li et al. 2025a",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib19"
+    },
+    {
+      "text": "Tang et al. 2025",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib47"
+    },
+    {
+      "text": "Shandilya et al. 2025",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib38"
+    },
+    {
+      "text": "Lin et al. 2025",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib39"
+    },
+    {
+      "text": "Mu et al. 2023",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib13"
+    },
+    {
+      "text": "Chevalier et al. 2023",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib14"
+    },
+    {
+      "text": "Ge et al. 2023",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib15"
+    },
+    {
+      "text": "Fei et al. 2024",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib37"
+    },
+    {
+      "text": "Li et al. 2025d",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib45"
+    },
+    {
+      "text": "Zhang et al. 2025a",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib42"
+    },
+    {
+      "text": "Zhang et al. 2023",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib25"
+    },
+    {
+      "text": "Li et al. 2025c",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib16"
+    },
+    {
+      "text": "Jha et al. 2024",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib40"
+    },
+    {
+      "text": "Łajewska et al. 2025",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib46"
+    },
+    {
+      "text": "Nagle et al. 2024",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib41"
+    },
+    {
+      "text": "Durrett et al. (2016)",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib26"
+    },
+    {
+      "text": "Lee et al. 2017",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib27"
+    },
+    {
+      "text": "Maynez et al. 2020",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib28"
+    },
+    {
+      "text": "Deng et al. (2025)",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib44"
+    },
+    {
+      "text": "Lewis et al. 2020",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib29"
+    },
+    {
+      "text": "Xu et al. 2024",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib10"
+    },
+    {
+      "text": "Liu et al. 2023",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib36"
+    },
+    {
+      "text": "Choi et al. 2024",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib43"
+    },
+    {
+      "text": "Shi et al. 2023",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib2"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2608.04569v1#S3.E1"
+    },
+    {
+      "text": "Liskavets et al. 2025",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib12"
+    },
+    {
+      "text": "Jung and Kim 2024",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib11"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2608.04569v1#S4"
+    },
+    {
+      "text": "A",
+      "url": "https://arxiv.org/html/2608.04569v1#A1"
+    },
+    {
+      "text": "Yang et al. 2025",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib31"
+    },
+    {
+      "text": "Zhang et al. 2025b",
+      "url": "https://arxiv.org/html/2608.04569v1#bib.bib34"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2608.04569v1#S4.T1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2608.04569v1#S4.F2"
+    },
+    {
+      "text": "B",
+      "url": "https://arxiv.org/html/2608.04569v1#A2"
+    },
+    {
+      "text": "C",
+      "url": "https://arxiv.org/html/2608.04569v1#A3"
+    },
+    {
+      "text": "E",
+      "url": "https://arxiv.org/html/2608.04569v1#A5"
+    }
+  ],
+  "matching_link_count": 105,
+  "links_truncated": true,
+  "invalid_links": []
+}

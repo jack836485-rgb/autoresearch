@@ -1,0 +1,942 @@
+{
+  "url": "https://arxiv.org/html/2610.23374v1",
+  "final_url": "https://arxiv.org/html/2610.23374v1",
+  "status": 200,
+  "title": "MOSS-Image Technical Report",
+  "metadata": {},
+  "paper": {
+    "title": "MOSS-Image Technical Report",
+    "title_warning": null,
+    "abstract": "Abstract Recent closed-source image generation systems can produce diverse visual content from simple compositions to information-dense graphics, yet open-weight text-to-image models still struggle with dense text and intricate layouts.\nTo narrow this gap, we introduce MOSS-Image , an open generation system that combines high-fidelity visual synthesis with intent-aware composition.\nFirst, we pretrain a 5B single-stream diffusion transformer (DiT) from scratch with a carefully designed recipe, enabling bilingual long-form text rendering and precise layout control.\nSecond, we develop an intention-aware agentic prompt enhancement (PE) module that translates diverse user requests into detailed content and layout specifications.\nTogether, they enable MOSS-Image to generate text-rich and layout-coherent images.\nWe further introduce LongLongTextBench ( LLTB ) for evaluating long-form English and Chinese text rendering, and RealLayoutArena ( RLA ) for end-to-end layout-rich generation. MOSS-Image achieves state-of-the-art performance among open-weight models on LLTB , with an average text coverage of 96.3%.\nOn RLA , MOSS-Image ranks second in the end-to-end system comparison, while its backbone ranks first among generators evaluated with shared enhanced prompts.\nWe will release the model, training recipe, and evaluation framework to support further research and promote the text-to-image community.",
+    "authors": [
+      {
+        "name": "MOSI.AI",
+        "affiliations": [
+          "Affiliation: [",
+          "Affiliation: [",
+          "Affiliation: [",
+          "Affiliation: ["
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "MOSI.AI Affiliation: [ Affiliation: [ Affiliation: [ Affiliation: [",
+    "arxiv_version": "2610.23374v1",
+    "arxiv_version_date": "2026-10-16",
+    "sections": [
+      {
+        "id": "S1",
+        "heading": "1 Introduction",
+        "level": 1,
+        "text": "Text-to-image (T2I) foundation models have made substantial progress in visual quality, semantic alignment, and text rendering in recent years. Proprietary systems, such as GPT Image 2 [ 1 ] , Seedream 5.0 Pro [ 2 ] , Qwen Image 3.0 Pro [ 3 ] , and Nano Banana Pro [ 4 ] have extended image generation from artistic creation to practical visual communication, such as infographics, user interfaces, and knowledge cards. Open-weight models, including Stable Diffusion [ 5 ] , SDXL [ 6 ] , FLUX [ 7 ] , Qwen-Image [ 8 ] , Z-Image [ 9 ] , ERNIE-Image [ 10 ] , and Boogu-Image [ 11 ] , have made these capabilities increasingly accessible, yet they still struggle with dense text and intricate layouts. For such graphics, a plausible overall appearance does not guarantee legible text, complete content, or coherent spatial organization (Figure 1 ). At the same time, a concise request may specify only a topic and format, leaving the actual content, information hierarchy, and spatial organization to be developed. We attribute this gap to two coupled challenges: rendering and specification . Rendering involves accurately reproducing long text and following spatial constraints. Specification involves translating a concise user request into content and layout instructions, with a level of detail appropriate to the request. Neither capability alone is sufficient: detailed specifications do not guarantee faithful rendering, while rendering ability alone does not resolve the content and design decisions left unspecified by the user. This calls for a system that connects intent-aware specification with faithful rendering, and for evaluation that assesses the resulting designs end to end. Figure 1 : Complex graphic generation from a concise user request. The examples illustrate differences in content, composition, and text rendering across generation configurations. MOSS-Image combines a pretrained diffusion transformer with prompt enhancement and optional explicit layout specifications. The proprietary output provides a visual reference; quantitative comparisons are reported in Section 5 . To address these issues, we present MOSS-Image , which pairs a text-and-layout-capable generator with an agent that enriches sparse requests and designs deliberate layouts. On the generation side, we pretrain a 5B single-stream diffusion transformer (DiT) from scratch for dense bilingual text and multi-element graphics. Its recipe combines broad data retention, multi-granularity and structure-aware textual supervision, and progressive-resolution training; crucially, natural-language descriptions and explicit layout specifications are learned through a single text-conditioning pathway, so the model can follow either form. On the composition side, we develop an intention-aware agentic prompt enhancement (PE) module that routes each request to task-specific guidance and retrieves knowledge and visual references as needed. Unlike such generator-agnostic agents [ 12 ] , which can only communicate through natural-language prompts, our enhancer turns brief requests into structured layouts that the DiT follows for precise composition control. To evaluate rendering, we introduce LongLongTextBench ( LLTB ) for long-form English and Chinese text, complementing LongTextBench and 7Bench. These benchmarks assess the execution of specified text or spatial constraints, but do not measure whether a complete system can select and organize content into a coherent design from a concise user request. We therefore introduce RealLayoutArena ( RLA ) to evaluate end-to-end generation of complex graphics from short design requests. Since a request can admit multiple valid designs, RLA uses blind pairwise human comparisons to jointly assess instruction following, content completeness, text readability, and visual organization. We further conduct prompt-strategy ablations and cross-backbone comparisons under shared enhanced prompts to disentangle the roles of specification and generator. On LLTB , MOSS-Image achieves state-of-the-art performance among open-weight models with a Mean-6 score of 96.3, surpassing Qwen Image 2512 (64.9) by 31.4 percentage points. On RLA , MOSS-Image achieves 1698.70 Elo, ranking second in the end-to-end comparison, behind GPT Image 2 and ahead of Seedream 5.0 Pro. With shared enhanced natural-language prompts, our backbone achieves the highest rating at 1807.34 Elo. Prompt comparisons further show that detailed specifications substantially improve human preference over concise requests. Our contributions are summarized as follows: • A pretrained foundation model for information-dense graphics. We develop a 5B diffusion transformer pretrained from scratch that demonstrates strong bilingual long-form text rendering and layout control through a unified text-conditioning interface. We detail its pretraining recipe, including broad data retention, multi-granularity and structure-aware textual supervision, and progressive-resolution training, providing a practical foundation for further research on complex graphic generation. • An agentic end-to-end generation system. We build MOSS-Image by pairing the foundation model with an intention-aware agentic prompt enhancer that translates diverse user requests, even those of fewer than ten words, into detailed, executable generation specifications. Through task-specific routing, knowledge and visual reference retrieval, and structured layout planning, the system produces graphics that remain faithful to user intent while adapting their information density to what each request calls for, from minimalist designs to information-rich layouts. • Benchmarks and systematic analysis. We introduce LLTB , which evaluates bilingual text rendering under extended text lengths, and RLA , which evaluates complex graphic generation under realistic user requests at the system level. MOSS-Image achieves state-of-the-art open-weight performance on LLTB (96.3 Mean-6), ranks second in the end-to-end RLA comparison, and attains the highest rating under shared enhanced prompts. Prompt comparisons further assess the effects of content and layout details."
+      },
+      {
+        "id": "S2",
+        "heading": "2 System Overview",
+        "level": 1,
+        "text": "MOSS-Image pairs a pretrained text-and-layout generator with an intent-aware prompt enhancer (Figure 2 ). The enhancer turns a concise request into a content and layout specification; the generator renders that specification into an image. Figure 2 : Overview of MOSS-Image. An intent-aware prompt enhancer constructs content and layout specifications from user requests, and a pretrained 5B single-stream DiT renders them into images through a shared text-conditioning interface. The right panel details the renderer’s joint self-attention and gated feed-forward components."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px1",
+        "heading": "Text and layout rendering.",
+        "level": 4,
+        "text": "To render long text and follow spatial constraints, we pretrain a 5B single-stream DiT from scratch. Natural-language descriptions and structured layouts share one text-conditioning pathway. Broad data retention, multi-granularity and structure-aware supervision, and progressive training build this capability. Section 3 details the model pretraining recipe."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px2",
+        "heading": "Intent-aware prompt enhancement.",
+        "level": 4,
+        "text": "To resolve the content and design choices left unspecified by a short request, an agent selects task-specific guidance, retrieves knowledge and visual references as needed, and constructs detailed generation specifications. Its layout output uses the same textual interface learned by the generator. Section 4 describes this inference-time module."
+      },
+      {
+        "id": "S3",
+        "heading": "3 Pretraining Strategy",
+        "level": 1,
+        "text": "We pretrain a general-purpose text-to-image foundation model and evaluate the resulting backbone on long-form text rendering and layout control. Figure 3 summarizes the recipe: corpus construction, multi-granularity and structure-aware textual supervision, and multi-stage DiT pretraining. This recipe develops the rendering module in Section 2 ; at inference, the enhancer in Section 4 supplies content and layout specifications through the same conditioning interface. Figure 3 : Pretraining recipe of MOSS-Image. (a) After deduplication and AI-image removal, we keep all images and caption their artifacts instead of filtering them out. (b) A ReLAION sample with its original caption, three recaptions, and layout JSON (excerpts); the JSON’s object and text boxes are drawn in orange and blue. Visible text, marked in blue, is transcribed verbatim, line breaks () included. (c) Maximum tokens per sample in each stage."
+      },
+      {
+        "id": "S3.SS0.SSS0.Px1",
+        "heading": "Backbone architecture.",
+        "level": 4,
+        "text": "The 5B single-stream DiT jointly processes text tokens from a frozen Qwen3.5-9B encoder and image latents from a frozen FLUX.2 VAE. Its blocks use joint self-attention, shared modulation [ 13 ] , and SiTU-GLU feed-forward layers [ 14 ] . For an input 𝐱 \\mathbf{x} , let 𝐠 = W g ​ 𝐱 \\mathbf{g}=W_{g}\\mathbf{x} and 𝐮 = W u ​ 𝐱 \\mathbf{u}=W_{u}\\mathbf{x} . With the smooth cap c β ​ ( v ) = β ​ tanh ⁡ ( v / β ) c_{\\beta}(v)=\\beta\\tanh(v/\\beta) , the SiTU-GLU layer computes FFN ⁡ ( 𝐱 ) = W o ​ [ c β g ​ ( 𝐠 ) ⊙ sigmoid ⁡ ( 𝐠 ) ⊙ c β u ​ ( 𝐮 ) ] , \\operatorname{FFN}(\\mathbf{x})=W_{o}\\!\\left[c_{\\beta_{g}}(\\mathbf{g})\\odot\\operatorname{sigmoid}(\\mathbf{g})\\odot c_{\\beta_{u}}(\\mathbf{u})\\right], (1) where W g , W u , W o W_{g},W_{u},W_{o} are learned projections, β g , β u > 0 \\beta_{g},\\beta_{u}>0 control saturation, and ⊙ \\odot denotes elementwise multiplication. For 4D RoPE, each query or key head is partitioned as 𝐳 = [ 𝐳 r ; 𝐳 t ; 𝐳 w ; 𝐳 h ] \\mathbf{z}=[\\mathbf{z}_{r};\\mathbf{z}_{t};\\mathbf{z}_{w};\\mathbf{z}_{h}] and assigned coordinates 𝐩 = ( r , t , w , h ) \\mathbf{p}=(r,t,w,h) for reference index, sequence position, width, and height. We apply independent rotations to the four subspaces: RoPE 4 ​ D ⁡ ( 𝐳 , 𝐩 ) \\displaystyle\\operatorname{RoPE}_{4D}(\\mathbf{z},\\mathbf{p}) = [ R r ​ ( r ) ​ 𝐳 r ; R t ​ ( t ) ​ 𝐳 t ; R w ​ ( w ) ​ 𝐳 w ; R h ​ ( h ) ​ 𝐳 h ] , \\displaystyle=[R_{r}(r)\\mathbf{z}_{r};R_{t}(t)\\mathbf{z}_{t};R_{w}(w)\\mathbf{z}_{w};R_{h}(h)\\mathbf{z}_{h}], (2) R a ​ ( p a ) \\displaystyle R_{a}(p_{a}) = diag j ⁡ ( cos ⁡ ( p a ​ ω a , j ) − sin ⁡ ( p a ​ ω a , j ) sin ⁡ ( p a ​ ω a , j ) cos ⁡ ( p a ​ ω a , j ) ) . \\displaystyle=\\operatorname{diag}_{j}\\!\\begin{pmatrix}\\cos(p_{a}\\omega_{a,j})&-\\sin(p_{a}\\omega_{a,j})\\\\ \\sin(p_{a}\\omega_{a,j})&\\cos(p_{a}\\omega_{a,j})\\end{pmatrix}. Here a ∈ { r , t , w , h } a\\in\\{r,t,w,h\\} , j j indexes feature pairs, ω a , j \\omega_{a,j} is the corresponding rotary frequency, and diag j \\operatorname{diag}_{j} assembles the rotation blocks. The coordinate t t is a positional index, distinct from the diffusion timestep. Without reference inputs, r = 0 r=0 gives R r ​ ( 0 ) = I R_{r}(0)=I , leaving the reference subspace unrotated and yielding partial RoPE. Appendix A.1 gives the model configuration."
+      },
+      {
+        "id": "S3.SS1",
+        "heading": "3.1 Pretraining Corpus Construction",
+        "level": 2,
+        "text": "We construct the corpus from ReLAION [ 15 ] , OmniCorpus [ 16 ] , DataComp [ 17 ] , and additional public image-text datasets. Following source-specific build preprocessing, corpus preparation uses SSCD-based deduplication [ 18 ] and removal of AI-generated images using an in-house detector, reducing the corpus from approximately 5 billion to 3 billion images. We mix data sources in their original proportions."
+      },
+      {
+        "id": "S3.SS1.SSS0.Px1",
+        "heading": "No additional data filtering.",
+        "level": 4,
+        "text": "At this subsequent corpus-preparation stage, we apply no further filtering beyond deduplication and AI-image removal; this does not exclude quality filters already applied during source builds, such as the ReLAION NSFW and watermark checks. This is a deliberate pretraining choice, supported by preliminary filtering experiments, to retain broad visual coverage. Residual attributes such as watermarks, blurry faces, and compression artifacts are incorporated into the textual supervision rather than used as exclusion criteria. Appendix B provides dataset details, and Appendix B.2 describes the preliminary experiments. Annotate rather than filter. We advocate preserving real-world data distributions by annotating undesirable attributes rather than filtering out images."
+      },
+      {
+        "id": "S3.SS2.SSS0.Px1",
+        "heading": "Descriptions at multiple granularities.",
+        "level": 4,
+        "text": "We caption images with gemma4 [ 19 ] at different semantic granularities: a short sentence, a medium paragraph, or a detailed description of composition, subjects, scene attributes, and visible text. These variants are defined by content rather than fixed token budgets. Training samples among available descriptions using domain-specific policies. Appendix C.1 details generation recipes, length statistics, and conditional sampling."
+      },
+      {
+        "id": "S3.SS2.SSS0.Px2",
+        "heading": "Explicit text and structure.",
+        "level": 4,
+        "text": "For a subset of images, we additionally construct structured annotations containing global descriptions and localized elements with bounding boxes, categories, and, where applicable, transcribed text and typography attributes. The documented annotation recipes validate JSON structure and coordinate constraints. During training, annotations are geometrically aligned and optional fields undergo stochastic dropout before serialization through the text-conditioning interface in Section 2 . Appendix C.2 describes annotation checks, and Appendix C.3 details the schemas and preprocessing policies."
+      },
+      {
+        "id": "S3.SS2.SSS0.Px3",
+        "heading": "Preserving line structure.",
+        "level": 4,
+        "text": "We preserve line breaks in annotated text to match its arrangement in the image. This is important because accurate transcription specifies which words appear, while line breaks additionally encode how they are organized across lines. Aligning the annotation with the visible line structure provides explicit supervision for multi-line text rendering. Section 6 examines this design through a case study. Text line breaks are also a form of layout."
+      },
+      {
+        "id": "S3.SS3.SSS0.Px1",
+        "heading": "Progressive training.",
+        "level": 4,
+        "text": "Training increases image resolution and text-context capacity across three stages (Table ). The final stage preserves aspect ratio, aligns image dimensions to multiples of 16, and caps target image area at 1024 2 1024^{2} pixels. We concatenate the condition fields, apply the Qwen chat template, and tokenize with a final-stage limit of 4096 text tokens."
+      },
+      {
+        "id": "S3.SS3.SSS0.Px2",
+        "heading": "Caption sampling ratios.",
+        "level": 4,
+        "text": "We mix original captions with multi-granularity recaptions. In the standard caption branch, original captions and recaptions are sampled at a 20:80 ratio when both are available, with uniform selection among valid recaption variants (1:1:1 for short/medium/long when all three are present). Missing alternatives fall back to available descriptions. We additionally annotate a selected subset of high-quality data with layout descriptions, serialized as bbox JSON, to provide explicit text and spatial supervision. These structured annotations are sampled according to domain-specific policies and annotation availability. Appendix C.1 provides the details. Detailed annotations raise the performance ceiling; diverse annotations preserve generalization."
+      },
+      {
+        "id": "S3.SS3.SSS0.Px3",
+        "heading": "RoPE design.",
+        "level": 4,
+        "text": "Preliminary ablations (Appendix D ) show similar overall image-generation performance across RoPE coordinate assignments, with trade-offs across metrics. We retain a dedicated reference-index axis r r to allow future extensions to reference-conditioned generation. In the current setting without reference inputs, all tokens use r = 0 r=0 , so its associated feature subspace remains unrotated, while the other axes encode sequence and spatial positions. This supports more references without changing the positional encoding."
+      },
+      {
+        "id": "S3.SS3.SSS0.Px4",
+        "heading": "Muon and convergence efficiency.",
+        "level": 4,
+        "text": "We choose hybrid Muon–AdamW for its sustained convergence advantage, applying Muon to eligible matrices and AdamW to the remaining parameters throughout pretraining. Our 1B ablation shows lower denoising loss in both early and late training, reaching losses of 0.41 and 0.403 with 33.2% and 28.6% fewer steps than AdamW, respectively. Appendix E reports the convergence curves and measurement protocol; final training settings are given in Appendix A.2 ."
+      },
+      {
+        "id": "S4",
+        "heading": "4 Agentic Prompt Enhancement",
+        "level": 1,
+        "text": "A concise user request leaves much of the literal content and visual organization unspecified. Our agentic prompt enhancer resolves these choices before rendering, turning user intent into content and layout conditions that the generator can execute. Our Layout PE uses GPT-6 with modular task instructions at inference time."
+      },
+      {
+        "id": "S4.SS0.SSS0.Px1",
+        "heading": "Intent-specific task routing.",
+        "level": 4,
+        "text": "GPT-6 selects task modules according to the requested medium. A shared core defines constraints, the JSON interface, and validation, while task-specific modules supply content and design guidance. Modules can be extended or customized without changing the interface or pretrained DiT."
+      },
+      {
+        "id": "S4.SS0.SSS0.Px2",
+        "heading": "Knowledge and visual context.",
+        "level": 4,
+        "text": "The agent retrieves relevant knowledge and inspects visual references as needed to develop the requested content and composition. It adapts the specification to the target canvas. Reference images guide this planning process without directly conditioning the DiT."
+      },
+      {
+        "id": "S4.SS0.SSS0.Px3",
+        "heading": "Executable layout planning.",
+        "level": 4,
+        "text": "The enhancer specifies literal text, elements, bounding boxes, typography, and spatial relationships in JSON. It checks user constraints, completeness, layout consistency, and text fit before passing the specification to the shared text-conditioning interface in Section 2 . This connects intent-level planning to the renderer’s text and spatial control. Sections 5.4.1 and 5.4.2 compare prompts and backbones; Appendix F covers implementation and skill rules."
+      },
+      {
+        "id": "S5.SS1",
+        "heading": "5.1 Experimental Setup and Benchmarks",
+        "level": 2,
+        "text": "We separate evaluation of the pretrained generator from evaluation of complete generation systems. LongTextBench [ 20 ] and LLTB measure bilingual text rendering, while 7Bench [ 21 ] measures layout control. These evaluations use the MOSS-Image backbone without our agentic prompt enhancer. RLA evaluates complete systems on concise design requests. Baseline scores on LongTextBench are collected from public reports, whereas all results on 7Bench, LLTB , and RLA are obtained through our own evaluation. Benchmark construction, generation settings, and evaluation protocols are specified in Appendix G ."
+      },
+      {
+        "id": "S5.SS1.SSS0.Px1",
+        "heading": "LongTextBench saturation.",
+        "level": 4,
+        "text": "The collected LongTextBench results cluster between 96.05 and 98.85 overall (Appendix G.4 ). We therefore consider LongTextBench close to saturation for current strong models under its text-coverage metric. Its targets average only 120.3 characters (Table ); near-ceiling scores on these relatively short targets offer limited discrimination of sustained long-text rendering ability. We retain the detailed results in the appendix and emphasize longer text conditions in our main evaluation."
+      },
+      {
+        "id": "S5.SS1.SSS0.Px2",
+        "heading": "LongLongTextBench .",
+        "level": 4,
+        "text": "We construct 240 literary-text rendering tasks, with 120 each in English and Chinese and three body-length bins. Table compares the two benchmarks: LLTB averages 1,339.8 characters per target, approximately 11.1 × 11.1\\times LongTextBench, and contains 321,545 characters in total, approximately 8.4 × 8.4\\times as many. Its shortest target (444 characters) already approaches LongTextBench’s longest (482), shifting the evaluation toward dense, page-length text. We reuse the LongTextBench OCR and word/character multiset-recall metric. Coverage is computed within each language–length group and averaged equally across the six groups (Mean-6). Construction and scoring details are given in Appendix G.1 ."
+      },
+      {
+        "id": "S5.SS1.SSS0.Px3",
+        "heading": "RealLayoutArena.",
+        "level": 4,
+        "text": "We construct 61 tasks from manually selected design references: 20 posters, 20 infographics, and 21 user interfaces. Raters compare two outputs for the same short request, with model names hidden, considering instruction following, rendering quality, and spatial organization. We fit Bradley–Terry ratings on an Elo scale with asymptotic 95% confidence intervals; ties and both bad count as half-wins. Appendix G.2 details the protocol."
+      },
+      {
+        "id": "S5.SS2",
+        "heading": "5.2 Base DiT Evaluation",
+        "level": 2,
+        "text": "We first evaluate capabilities acquired by the pretrained backbone independently of our prompt enhancement pipeline. These results characterize the resulting model; they do not isolate the causal contribution of individual pretraining choices."
+      },
+      {
+        "id": "S5.SS2.SSS0.Px1",
+        "heading": "Text rendering.",
+        "level": 4,
+        "text": "We emphasize LLTB to assess rendering under substantially longer text conditions (Table ); supplementary LongTextBench results are reported in Appendix G.4 . MOSS-Image obtains 96.3 Mean-6 on LLTB , the highest score among the open-weight models listed in the table. Its scores on the longest English and Chinese conditions are 97.1 and 92.4, respectively. Text recall is high overall but lower for the longest Chinese texts."
+      },
+      {
+        "id": "S5.SS2.SSS0.Px2",
+        "heading": "Layout control.",
+        "level": 4,
+        "text": "Table reports mean IoU over detected target objects ( mIoU det \\mathrm{mIoU}_{\\mathrm{det}} ) and Layout AUC. MOSS-Image achieves 0.88 and 0.70, respectively, compared with 0.44 and 0.20 for Ideogram 4, leading all evaluated models on both metrics. These results demonstrate precise object placement through the text-conditioning interface. Appendix G.4 details the evaluation protocol, filtered outputs, detection rates, and results including undetected objects."
+      },
+      {
+        "id": "S5.SS3",
+        "heading": "5.3 End-to-End Evaluation on RLA",
+        "level": 2,
+        "text": "We compare nine end-to-end systems on the same short design requests.Figure 4 4 reports the results. Appendix G.2 describes the evaluation protocol and configurations. Figure 4 : Human preference on RLA : (a) generators under shared enhanced natural-language prompts; (b) prompt strategies; and (c) end-to-end systems. Bars show Bradley–Terry ratings on an Elo scale with asymptotic 95% confidence intervals. Ratings are fitted separately for the three comparison groups."
+      },
+      {
+        "id": "S5.SS3.SSS0.Px1",
+        "heading": "End-to-end results.",
+        "level": 4,
+        "text": "MOSS-Image achieves 1698.70 Elo (95% CI: 1655.96–1741.43), ranking second behind GPT Image 2 (1844.35) and ahead of Seedream 5.0 Pro (1661.16), Qwen Image 3.0 Pro with PE (1614.84), and Nano Banana Pro (1590.19). These results demonstrate competitive end-to-end performance on complex graphic-design requests."
+      },
+      {
+        "id": "S5.SS3.SSS0.Px2",
+        "heading": "Content quality and rendering fidelity.",
+        "level": 4,
+        "text": "Arena judgments jointly assess instruction following, content completeness, text readability, and visual organization. This evaluation captures whether a system can turn a concise request into a coherent, usable design. Supplementary GPT-6 rubric-based evaluations are reported in Appendix H ."
+      },
+      {
+        "id": "S5.SS4",
+        "heading": "5.4 Ablation Studies",
+        "level": 2,
+        "text": "We examine prompt configurations for MOSS-Image and compare generators under shared enhanced natural-language prompts."
+      },
+      {
+        "id": "S5.SS4.SSS1",
+        "heading": "5.4.1 Prompt Strategies",
+        "level": 3,
+        "text": "Figure 4 4 compares five strategies. Short and Detailed use original descriptions; Direct expansion expands short requests without agentic routing or reference retrieval; Natural and JSON layout express Layout PE plans as prose and JSON. See Appendix G.3 for generation details. Detailed prompts and direct expansion obtain 1509.21 and 1541.45 Elo, respectively, compared with 1081.70 for short requests. These results demonstrate the value of supplying explicit content and design instructions. Among the five configurations, JSON layout achieves the highest rating (1622.87), while the natural-language configuration scores 1506.20."
+      },
+      {
+        "id": "S5.SS4.SSS2",
+        "heading": "5.4.2 Backbones under Shared Enhanced Natural Prompts",
+        "level": 3,
+        "text": "Figure 4 4 compares nine generators using the same natural-language rewrite of each Layout PE specification, without additional prompt enhancement. MOSS-Image achieves the highest rating at 1807.34 Elo (95% CI: 1727.44–1887.24), followed by ERNIE Image (1748.51) and SenseNova-U1 (1689.23). These results show the backbone follows detailed text-and-layout instructions."
+      },
+      {
+        "id": "S6.SS0.SSS0.Px1",
+        "heading": "Layout-Guided Zero-Shot Modification.",
+        "level": 4,
+        "text": "Modifying the layout prompt enables targeted content replacement and element rearrangement while retaining the overall design. These changes are achieved through text-to-image regeneration without conditioning on the original image or additional training. Qualitative examples are provided in Appendix I ."
+      },
+      {
+        "id": "S6.SS0.SSS0.Px2",
+        "heading": "Line-Break Alignment in Text Annotations.",
+        "level": 4,
+        "text": "We observe that prompts with explicit line breaks help the model establish the character content of each line earlier and more readily during denoising, leading to better final text rendering. Appendix J provides a qualitative comparison."
+      },
+      {
+        "id": "S6.SS0.SSS0.Px3",
+        "heading": "Bounding-Box Coordinate Representations.",
+        "level": 4,
+        "text": "We observe that zero-centered absolute bounding-box coordinates generalize better to resolutions unseen during training than relative coordinates normalized to [ 0 , 1000 ] [0,1000] . Appendix K provides a qualitative comparison."
+      },
+      {
+        "id": "S7",
+        "heading": "7 Related Works",
+        "level": 1,
+        "text": "A detailed discussion of related work is provided in Appendix L ."
+      },
+      {
+        "id": "S8",
+        "heading": "8 Limitations",
+        "level": 1,
+        "text": "The current MOSS-Image backbone supports text-to-image generation but does not directly condition on reference images or support image editing. Extending the model to image-conditioned generation and iterative design refinement would broaden its use in creative workflows; these capabilities remain future work under our current computational budget. The prompt enhancer relies on external language models, whose limitations in aesthetic judgment, reference interpretation, and factual errors can reduce specification quality despite faithful rendering."
+      },
+      {
+        "id": "S9",
+        "heading": "9 Conclusion",
+        "level": 1,
+        "text": "We present MOSS-Image , an open complex graphic generation system built around a 5B diffusion transformer pretrained from scratch. Its training recipe combines broad image-text data, multi-granularity and structure-aware supervision, and multi-stage resolution training. The resulting backbone supports strong bilingual long-form text rendering and layout control, while an agentic prompt enhancer translates concise requests into detailed generation specifications. LLTB and RLA evaluate rendering capability and complete-system performance, complemented by prompt-strategy and shared-prompt cross-backbone comparisons. MOSS-Image achieves state-of-the-art performance among open-weight models on LLTB with a Mean-6 score of 96.3. On RLA , MOSS-Image ranks second in the end-to-end comparison, while its backbone achieves the highest rating under shared enhanced natural-language prompts. The prompt comparisons show that supplying detailed content and design instructions improves human preference over concise requests. Together, these results support combining a capable renderer with explicit generation specifications for complex graphics."
+      },
+      {
+        "id": "Sx1",
+        "heading": "Contributors",
+        "level": 1,
+        "text": "Project Lead Zhe Xu ∗ , Donghua Yu ∗ , Qinyuan Cheng, Zhaoye Fei \\authornote ∗ Equal Contribution. Core Contributors Zhe Xu, Donghua Yu, Tengyue Zhang, Yanbing Zhang Contributors Ying Zhu, Yinze Luo, Qianyi Wu, Zhiyu Zhang, Wenbo Zhang, Yiyang Zhang, Ruixiao Li, Yiwei Zhao, Qian Chen, Haowei Zhang, Tianyi Liang, Chenghao Liu, Qi Luo, Zhijie Cao, Xiangyu Peng, Yang Gao, Shimin Li Advisor Xie Chen, Xipeng Qiu"
+      },
+      {
+        "id": "bib",
+        "heading": "References",
+        "level": 1,
+        "text": "[1] OpenAI. GPT Image 2. https://developers.openai.com/api/docs/models/gpt-image-2 , 2026. [2] ByteDance Seed Team. Seedream 5.0 Pro. https://seed.bytedance.com/en/seedream5_0_pro , 2026. [3] Qwen Team. Qwen Image 3.0. https://qwen.ai/blog?id=qwen-image-3.0 , 2026a. [4] Google DeepMind. Nano Banana Pro. https://deepmind.google/models/gemini-image/pro/ , 2025. [5] Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Björn Ommer. High-resolution image synthesis with latent diffusion models, 2021. [6] Dustin Podell, Zion English, Kyle Lacey, Andreas Blattmann, Tim Dockhorn, Jonas Müller, Joe Penna, and Robin Rombach. Sdxl: Improving latent diffusion models for high-resolution image synthesis. In International Conference on Learning Representations , volume 2024, pages 1862–1874, 2024. [7] Black Forest Labs. FLUX.2: Frontier Visual Intelligence. https://bfl.ai/blog/flux-2 , 2025. [8] Chenfei Wu, Jiahao Li, Jingren Zhou, Junyang Lin, Kaiyuan Gao, Kun Yan, Sheng-ming Yin, Shuai Bai, Xiao Xu, Yilei Chen, et al. Qwen-Image technical report. arXiv preprint arXiv:2508.02324 , 2025. [9] Huanqia Cai, Sihan Cao, Ruoyi Du, Peng Gao, Aiming Hao, Steven Hoi, Zhaohui Hou, Shijie Huang, Dengyang Jiang, Yuming Jiang, et al. Z-Image: An efficient image generation foundation model with single-stream diffusion transformer. arXiv preprint arXiv:2511.22699 , 2025. [10] Jiaxiang Liu, Zhida Feng, Pengyu Zou, Zhenyu Qian, Tianrui Zhu, Jun Xia, Yuehu Dong, Yanzheng Lin, Honglin Xiong, Anqi Chen, et al. ERNIE-Image technical report. arXiv preprint arXiv:2605.25347 , 2026. [11] Guoxuan Chen, Chufeng Xiao, Haoran Yang, Siyue Xie, Binxiao Huang, Ming Zhang, Cheuk Him Chau, Xinyu Fu, Yingzhao Lian, Tom S. Y. Li, et al. Boogu-Image-0.1: Boosting open agentic multimodal generation via understanding under a minimal budget. arXiv preprint arXiv:2607.13125 , 2026. [12] Zekai Zhang, Jiahao Li, Jie Zhang, Kaiyuan Gao, Kun Yan, Lihan Jiang, Ningyuan Tang, Shengming Yin, Tianhe Wu, Xiaoyue Chen, et al. Qwen-Image-Agent: Bridging the context gap in real-world image generation. arXiv preprint arXiv:2606.26907 , 2026. [13] Black Forest Labs. FLUX. https://github.com/black-forest-labs/flux , 2024. [14] Kimi Team, Tongtong Bai, Yifan Bai, Yiping Bao, Jianfeng Cai, Xinyuan Cai, Peizhou Cao, Yuxuan Cao, Ziwei Chai, Y Charles, et al. Kimi K3: Open frontier intelligence. arXiv preprint arXiv:2607.24653 , 2026. [15] LAION. Releasing re-laion-5b: transparent iteration on laion-5b with additional safety fixes. https://laion.ai/blog/relaion-5b/ , 2024. Accessed: 30 aug, 2024. [16] Qingyun Li, Zhe Chen, Weiyun Wang, Wenhai Wang, Shenglong Ye, Zhenjiang Jin, et al. Omnicorpus: A unified multimodal corpus of 10 billion-level images interleaved with text. In The Thirteenth International Conference on Learning Representations , 2025. [17] Samir Yitzhak Gadre, Gabriel Ilharco, Alex Fang, Jonathan Hayase, Georgios Smyrnis, Thao Nguyen, Ryan Marten, Mitchell Wortsman, Dhruba Ghosh, Jieyu Zhang, et al. Datacomp: In search of the next generation of multimodal datasets. Advances in Neural Information Processing Systems , 36:27092–27112, 2023. [18] Ed Pizzi, Sreya Dutta Roy, Sugosh Nagavara Ravindra, Priya Goyal, and Matthijs Douze. A self-supervised descriptor for image copy detection. In 2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 14512–14522. IEEE, 2022. [19] Gemma Team, Sherif El Abd, Vaibhav Aggarwal, Robin Algayres, Alek Andreev, Olivier Bachem, Ian Ballantyne, Cormac Brick, Victor Cărbune, Michelle Casbon, et al. Gemma 4 technical report. arXiv preprint arXiv:2607.02770 , 2026. [20] Zigang Geng, Yibing Wang, Yeyao Ma, Chen Li, Yongming Rao, Shuyang Gu, Zhao Zhong, Qinglin Lu, Han Hu, Xiaosong Zhang, Linus, Di Wang, and Jie Jiang. X-Omni: Reinforcement learning makes discrete autoregressive image generative models great again. arXiv preprint arXiv:2507.22058 , 2025. URL https://arxiv.org/abs/2507.22058 . [21] Elena Izzo, Luca Parolari, Davide Vezzaro, and Lamberto Ballan. 7Bench: A comprehensive benchmark for layout-guided text-to-image models. In International Conference on Image Analysis and Processing , pages 481–493. Springer, 2025. [22] Yunfei Xie, Ce Zhou, Lang Gao, Juncheng Wu, Xianhang Li, Hong-Yu Zhou, Sheng Liu, Lei Xing, James Zou, Cihang Xie, and Yuyin Zhou. Medtrinity-25m: A large-scale multimodal dataset with multigranular annotations for medicine, 2024. URL https://arxiv.org/abs/2408.02900 . [23] Fengxiang Wang, Hongzhen Wang, Di Wang, Zonghao Guo, Zhenyu Zhong, Long Lan, Wenjing Yang, and Jing Zhang. Harnessing massive satellite imagery with efficient masked image modeling. arXiv preprint arXiv:2406.11933 , 2025a. [24] Tianyu Zhu, Myong Chol Jung, and Jesse Clark. Generalized contrastive learning for multi-modal retrieval and ranking, 2024. [25] Chenyang Liu, Keyan Chen, Rui Zhao, Zhengxia Zou, and Zhenwei Shi. Text2earth: Unlocking text-driven remote sensing image generation with a global-scale dataset and a foundation model. IEEE Geoscience and Remote Sensing Magazine , pages 2–23, 2025. 10.1109/MGRS.2025.3560455 . [26] Ollin Boer Bohan. Megalith-10M. https://huggingface.co/datasets/madebyollin/megalith-10m , 2024. [27] Aaron Gokaslan, A Feder Cooper, Jasmine Collins, Landan Seguin, Austin Jacobson, Mihir Patel, Jonathan Frankle, Cory Stephenson, and Volodymyr Kuleshov. Commoncanvas: An open diffusion model trained with creative-commons images. arXiv preprint arXiv:2310.16825 , 2023. [28] Alex Jinpeng Wang, Dongxing Mao, Jiawei Zhang, Weiming Han, Zhuobai Dong, Linjie Li, Yiqi Lin, Zhengyuan Yang, Libo Qin, Fuwei Zhang, et al. Textatlas5m: A large-scale dataset for dense text image generation. arXiv preprint arXiv:2502.07870 , 2025b. [29] Dawei Dai, Xu Long, Li Yutang, Zhang Yuanhui, and Shuyin Xia. Humanvlm: Foundation for human-scene vision-language model, 2024. URL https://arxiv.org/abs/2411.03034 . [30] chestnutlzj. t-e-x-t-re-c-a-p. https://huggingface.co/datasets/chestnutlzj/t-e-x-t-re-c-a-p , 2026. Hugging Face dataset repository. Accessed September 24, 2026. [31] Hyeonwoo Noh, Andre Araujo, Jack Sim, Tobias Weyand, and Bohyung Han. Large-scale image retrieval with attentive deep local features. In Proceedings of the IEEE International Conference on Computer Vision , 2017. [32] Babak Saleh and Ahmed Elgammal. Large-scale classification of fine-art paintings: Learning the right metric on the right feature. arXiv preprint arXiv:1505.00855 , 2015. [33] Bolei Zhou, Agata Lapedriza, Aditya Khosla, Aude Oliva, and Antonio Torralba. Places: A 10 million image database for scene recognition. IEEE Transactions on Pattern Analysis and Machine Intelligence , 2017. [34] Sixiang Chen, Jianyu Lai, Jialin Gao, Tian Ye, Haoyu Chen, Hengyu Shi, Shitong Shao, Yunlong Lin, Song Fei, Zhaohu Xing, Yeying Jin, Junfeng Luo, Xiaoming Wei, and Lei Zhu. Postercraft: Rethinking high-quality aesthetic poster generation in a unified framework. arXiv preprint arXiv:2506.10741 , 2025. [35] Jiawei Yang, Zhengyang Geng, Xuan Ju, Yonglong Tian, and Yue Wang. Representation Fréchet loss for visual generation. arXiv preprint arXiv:2604.28190 , 2026. [36] Ideogram AI. Ideogram 4. https://ideogram.ai/blog/ideogram-4.0/ , 2026. [37] William Peebles and Saining Xie. Scalable Diffusion Models with Transformers. arXiv preprint arXiv:2212.09748 , 2022. URL https://arxiv.org/abs/2212.09748 . [38] Patrick Esser, Sumith Kulal, Andreas Blattmann, Rahim Entezari, Jonas Müller, Harry Saini, Yam Levi, Dominik Lorenz, Axel Sauer, Frederic Boesel, Dustin Podell, Tim Dockhorn, Zion English, Kyle Lacey, Alex Goodwin, Yannik Marek, and Robin Rombach. Scaling rectified flow transformers for high-resolution image synthesis. arXiv preprint arXiv:2403.03206 , 2024. URL https://arxiv.org/abs/2403.03206 . [39] Qwen Team. Qwen-Image-2.1: Compact, efficient, and unified image creation, 2026b. URL https://qwen.ai/blog?id=qwen-image-2.1 . [40] Haiwen Diao, Jiahao Wang, Chenjing Ding, Hanming Deng, Jiangnan Chen, Ruixi Zhang, Ruohui Wang, Wenwen Tong, Xiangyu Fan, Yubo Wang, et al. SenseNova-U1.5: Towards native unified visual intelligence. arXiv preprint arXiv:2609.11929 , 2026. [41] Junsong Chen, Jincheng Yu, Chongjian Ge, Lewei Yao, Enze Xie, Yue Wu, Zhongdao Wang, James Kwok, Ping Luo, Huchuan Lu, and Zhenguo Li. PixArt- α \\alpha : Fast training of diffusion transformer for photorealistic text-to-image synthesis. arXiv preprint arXiv:2310.00426 , 2023a. URL https://arxiv.org/abs/2310.00426 . [42] Yukang Yang, Dongnan Gui, Yuhui Yuan, Weicong Liang, Haisong Ding, Han Hu, and Kai Chen. GlyphControl: Glyph conditional control for visual text generation. arXiv preprint arXiv:2305.18259 , 2023. URL https://arxiv.org/abs/2305.18259 . [43] Jingye Chen, Yupan Huang, Tengchao Lv, Lei Cui, Qifeng Chen, and Furu Wei. TextDiffuser: Diffusion models as text painters. arXiv preprint arXiv:2305.10855 , 2023b. URL https://arxiv.org/abs/2305.10855 . [44] Yuxiang Tuo, Wangmeng Xiang, Jun-Yan He, Yifeng Geng, and Xuansong Xie. AnyText: Multilingual visual text generation and editing. arXiv preprint arXiv:2311.03054 , 2023. URL https://arxiv.org/abs/2311.03054 . [45] Yuxiang Tuo, Yifeng Geng, and Liefeng Bo. AnyText2: Visual text generation and editing with customizable attributes. arXiv preprint arXiv:2411.15245 , 2024. URL https://arxiv.org/abs/2411.15245 . [46] Jingye Chen, Yupan Huang, Tengchao Lv, Lei Cui, Qifeng Chen, and Furu Wei. TextDiffuser-2: Unleashing the power of language models for text rendering. arXiv preprint arXiv:2311.16465 , 2023c. URL https://arxiv.org/abs/2311.16465 . [47] Lvmin Zhang, Anyi Rao, and Maneesh Agrawala. Adding conditional control to text-to-image diffusion models. arXiv preprint arXiv:2302.05543 , 2023. URL https://arxiv.org/abs/2302.05543 . [48] Chong Mou, Xintao Wang, Liangbin Xie, Yanze Wu, Jian Zhang, Zhongang Qi, Ying Shan, and Xiaohu Qie. T2I-Adapter: Learning adapters to dig out more controllable ability for text-to-image diffusion models. arXiv preprint arXiv:2302.08453 , 2023. URL https://arxiv.org/abs/2302.08453 . [49] Yuheng Li, Haotian Liu, Qingyang Wu, Fangzhou Mu, Jianwei Yang, Jianfeng Gao, Chunyuan Li, and Yong Jae Lee. GLIGEN: Open-set grounded text-to-image generation. arXiv preprint arXiv:2301.07093 , 2023. URL https://arxiv.org/abs/2301.07093 . [50] Guangcong Zheng, Xianpan Zhou, Xuewei Li, Zhongang Qi, Ying Shan, and Xi Li. LayoutDiffusion: Controllable diffusion model for layout-to-image generation. arXiv preprint arXiv:2303.17189 , 2023. URL https://arxiv.org/abs/2303.17189 . [51] Jinheng Xie, Yuexiang Li, Yawen Huang, Haozhe Liu, Wentian Zhang, Yefeng Zheng, and Mike Zheng Shou. BoxDiff: Text-to-image synthesis with training-free box-constrained diffusion. arXiv preprint arXiv:2307.10816 , 2023. URL https://arxiv.org/abs/2307.10816 . [52] Eyal Gutflaish, Eliran Kachlon, Hezi Zisman, Tal Hacham, Nimrod Sarid, Alexander Visheratin, Saar Huberman, Gal Davidi, Guy Bukchin, Kfir Goldberg, et al. Generating an image from 1,000 words: Enhancing text-to-image with structured captions. arXiv preprint arXiv:2511.06876 , 2025. [53] Yaru Hao, Zewen Chi, Li Dong, and Furu Wei. Optimizing prompts for text-to-image generation. arXiv preprint arXiv:2212.09611 , 2022. URL https://arxiv.org/abs/2212.09611 . [54] Dhruba Ghosh, Hanna Hajishirzi, and Ludwig Schmidt. GenEval: An object-focused framework for evaluating text-to-image alignment. arXiv preprint arXiv:2310.11513 , 2023. URL https://arxiv.org/abs/2310.11513 . [55] Kaiyi Huang, Kaiyue Sun, Enze Xie, Zhenguo Li, and Xihui Liu. T2I-CompBench: A comprehensive benchmark for open-world compositional text-to-image generation. arXiv preprint arXiv:2307.06350 , 2023. URL https://arxiv.org/abs/2307.06350v1 ."
+      },
+      {
+        "id": "A1.SS1",
+        "heading": "A.1 Model Configuration",
+        "level": 2,
+        "text": "Table 1 summarizes the diffusion generator and its frozen encoders. The 5B designation refers to the diffusion generator and excludes the frozen text encoder and VAE. Table 1: Model configuration of MOSS-Image . Component Configuration Diffusion generator 5B single-stream Transformer Text encoder Qwen3.5-9B (frozen) Text features Final-layer token hidden states, dimension 4096 Text adapter Linear projection 4096 → 3072 4096\\rightarrow 3072 ; two text-only Transformer blocks Joint backbone depth 42 blocks, excluding the text adapter and encoder Hidden size 3072 Attention 24 heads, 128 dimensions per head FFN hidden size 8192 Position axes ( r , t , w , h ) (r,t,w,h) : reference index, temporal position, width, height RoPE configuration Leading 32 of 128 head dimensions unrotated; remaining dimensions use ( t , w , h ) (t,w,h) VAE FLUX.2 VAE (frozen), loaded from FLUX.2-klein-4B VAE latents 32 channels; spatial downsampling factor 8 Latent patch size 2 × 2 2\\times 2 ; 128 values per token before projection Effective image stride 16 pixels; token grid ( H / 16 ) × ( W / 16 ) (H/16)\\times(W/16) Final-stage text limit 4096 tokens (Stage 3)"
+      },
+      {
+        "id": "A1.SS1.SSS0.Px1",
+        "heading": "Latent patchification.",
+        "level": 4,
+        "text": "The FLUX.2 VAE downsamples each spatial dimension by a factor of 8. We group each 2 × 2 2\\times 2 block of latent cells into one DiT input token, giving an effective image stride of 16 pixels. The number of image tokens is N img = ( H / 16 ) ​ ( W / 16 ) N_{\\mathrm{img}}=(H/16)(W/16) : square images at 256 2 256^{2} , 512 2 512^{2} , and 1024 2 1024^{2} yield 256, 1024, and 4096 image tokens, respectively."
+      },
+      {
+        "id": "A1.SS1.SSS0.Px2",
+        "heading": "Positional coordinates.",
+        "level": 4,
+        "text": "The 4D coordinate system uses axes ( r , t , w , h ) (r,t,w,h) for reference index, sequence position, width, and height. Without reference inputs, all tokens use r = 0 r=0 , so the leading quarter of each attention head assigned to the reference axis remains unrotated, yielding partial RoPE. The remaining dimensions encode ( t , w , h ) (t,w,h) . Spatial coordinates are centered at zero, and the image sequence position follows the text positions. The coordinate t t is a positional index rather than the diffusion timestep."
+      },
+      {
+        "id": "A1.SS1.SSS0.Px3",
+        "heading": "Sequence lengths and packing.",
+        "level": 4,
+        "text": "The text-length limits increase across training stages as shown in Table . In Stage 3, a 1024 2 1024^{2} image with a full-length text condition contains 4096 + 4096 = 8192 4096+4096=8192 image and text tokens. The multi-sample packing budget is 8576 tokens per pack, with a static execution length of 8588. These batching settings are distinct from the per-sample text limit."
+      },
+      {
+        "id": "A1.SS2",
+        "heading": "A.2 Training Configuration",
+        "level": 2,
+        "text": "Pretraining proceeds through three stages with increasing resolution and text length. The final Stage 3 checkpoint is taken at step 310,000, using exponential moving average (EMA) weights. We describe the loss, noise distribution, optimization, and batching settings below."
+      },
+      {
+        "id": "A1.SS2.SSS0.Px1",
+        "heading": "Flow-matching loss.",
+        "level": 4,
+        "text": "For image i i , let N i N_{i} be its number of image latent tokens and C C the token channel dimension. For packed training in the final stage, the loss is ℒ FM = 𝔼 ⁡ [ 1 ∑ i N i ​ ∑ i ∑ p = 1 N i 1 C ​ ‖ v θ ​ ( z σ i , 1000 ​ σ i , c i ) p − ( ϵ i − z 0 , i ) p ‖ 2 2 ] . \\mathcal{L}_{\\mathrm{FM}}=\\mathbb{E}\\left[\\frac{1}{\\sum_{i}N_{i}}\\sum_{i}\\sum_{p=1}^{N_{i}}\\frac{1}{C}\\left\\|v_{\\theta}(z_{\\sigma_{i}},1000\\sigma_{i},c_{i})_{p}-(\\epsilon_{i}-z_{0,i})_{p}\\right\\|_{2}^{2}\\right]. (3) Text tokens do not contribute to this prediction loss, and there is no additional σ \\sigma - or SNR-dependent weighting. Different-resolution images contribute in proportion to their valid image-token counts. Stage 2 transitions from per-sample to per-token normalization as the packed-training configuration is expanded."
+      },
+      {
+        "id": "A1.SS2.SSS0.Px2",
+        "heading": "Noise sampling.",
+        "level": 4,
+        "text": "Table 2 records the four sampling intervals in Stage 3. The scheduler uses T = 1000 T=1000 time steps. For the final interval, define Z ∼ 𝒩 ⁡ ( μ , s 2 ) Z\\sim\\mathcal{N}(\\mu,s^{2}) , S = 1 − sigmoid ⁡ ( Z ) S=1-\\operatorname{sigmoid}(Z) , and F ⁡ ( x ) = Pr ⁡ ( S ≤ x ) = 1 − Φ ⁡ ( log ⁡ ( ( 1 − x ) / x ) − μ s ) , F(x)=\\Pr(S\\leq x)=1-\\Phi\\!\\left(\\frac{\\log((1-x)/x)-\\mu}{s}\\right), where Φ \\Phi is the standard normal CDF. With μ = − 1.09 \\mu=-1.09 , s = 0.95 s=0.95 , cutoff a = 0.95 a=0.95 , and uniform-mixture weight ρ = 0.01 \\rho=0.01 , the final discrete distribution is σ j = j T , p j = ( 1 − ρ ) F ⁡ ( a ​ j / T ) − F ⁡ ( a ⁡ ( j − 1 ) / T ) F ⁡ ( a ) + ρ T , j = 1 , … , T . \\sigma_{j}=\\frac{j}{T},\\qquad p_{j}=(1-\\rho)\\frac{F(aj/T)-F(a(j-1)/T)}{F(a)}+\\frac{\\rho}{T},\\quad j=1,\\ldots,T. (4) The cutoff is applied before rescaling onto the full grid { 0.001 , … , 1.000 } \\{0.001,\\ldots,1.000\\} . The final interval mixes truncated logit-normal sampling with 1% uniform sampling. The first two intervals additionally sample the full-noise endpoint with probability 0.01, as shown in Table 2 . Table 2: Stage 3 noise-sampling schedule. The final interval mixes in 1% discrete uniform sampling. The full-noise column gives the probability of separately selecting the full-noise endpoint. Stage 3 steps Shift ( μ , s ) (\\mu,s) Cutoff Full-noise override 1–140,000 3 ( 0 , 1 ) (0,1) None 0.01 140,001–207,000 1 ( − 1.45 , 1.05 ) (-1.45,1.05) None 0.01 207,001–274,000 1 ( − 1.45 , 1.05 ) (-1.45,1.05) 0.95 0 274,001–310,000 1 ( − 1.09 , 0.95 ) (-1.09,0.95) 0.95 0 For untruncated sampling, u = sigmoid ⁡ ( Z ) u=\\operatorname{sigmoid}(Z) selects index k = min ⁡ ( ⌊ T ​ u ⌋ , T − 1 ) k=\\min(\\lfloor Tu\\rfloor,T-1) in a descending noise grid. The initial interval uses a grid with shift 3; subsequent intervals use shift 1 and the logit-normal parameters listed in Table 2 ."
+      },
+      {
+        "id": "A1.SS2.SSS0.Px3",
+        "heading": "Optimizer and numerical precision.",
+        "level": 4,
+        "text": "All three pretraining stages use a hybrid Muon–AdamW optimizer. In the final configuration, eligible two-dimensional matrices are updated with Muon; non-matrix, embedding-like, output-head, and explicitly excluded parameters use AdamW. Fused QKV and gated-FFN matrices are split for Muon updates. Table 3 gives the principal settings. Weight decay is disabled for bias, normalization, one-dimensional/scalar, and embedding parameter groups. A separate decay-to-one rule with coefficient 0.01 is applied to the q/k normalization weights in the final Transformer block. Table 3: Optimizer hyperparameters settings. Setting Value Learning Rate (AdamW) 5 × 10 − 5 5\\times 10^{-5} Learning Rate (Muon) 5 × 10 − 5 5\\times 10^{-5} , RMS-matched AdamW β 1 = 0.9 \\beta_{1}=0.9 , β 2 = 0.95 \\beta_{2}=0.95 , ε = 10 − 8 \\varepsilon=10^{-8} Muon μ = 0.95 \\mu=0.95 , 5 N–S steps Weight Decay 0.01 Gradient Clipping 1.0 EMA 0.9999 Learning-rate Warmup 2000 steps"
+      },
+      {
+        "id": "A1.SS2.SSS0.Px4",
+        "heading": "Text formatting and packing.",
+        "level": 4,
+        "text": "Caption, structural, and metadata fields are combined before applying the Qwen chat template and tokenization. The final-stage limit of 4096 tokens applies to the complete formatted condition. We use right padding and truncate conditions to this limit; attention masks identify valid text tokens for variable-length packing. Each device processes up to 8576 image-and-text tokens per microbatch. With 512 devices and two gradient-accumulation steps, the nominal capacity is 8,781,824 tokens per update. Actual image and valid-token counts depend on packing, while the static execution length of 8588 includes padding."
+      },
+      {
+        "id": "A2",
+        "heading": "Appendix B Pretraining Dataset Details",
+        "level": 1,
+        "text": "We construct the pretraining corpus from multiple image–text sources and apply SSCD-based duplicate detection and an in-house AI-image detector during corpus preparation. Source-specific preprocessing, including the quality filters used by ReLAION, precedes this stage. We mix sources in their original proportions. Training captions are predominantly in English, without dedicated Chinese-caption annotation."
+      },
+      {
+        "id": "A2.SS1",
+        "heading": "B.1 Data Sources and Preprocessing",
+        "level": 2,
+        "text": "Table 4 summarizes the input and selection counts for the listed sources. Inputs are records received by the data pipeline, rather than the sizes of the original website crawls. The table reports source-level records. Table 4 : Per-source record counts. The last column gives preprocessing output sizes. Source Input records Retained records ReLAION [ 15 ] 1.95 × 10 9 1.95\\times 10^{9} 1.19 × 10 9 1.19\\times 10^{9} OmniCorpus [ 16 ] 3.21 × 10 9 3.21\\times 10^{9} 1.82 × 10 9 1.82\\times 10^{9} datacomp [ 17 ] 2.91 × 10 8 2.91\\times 10^{8} 1.67 × 10 8 1.67\\times 10^{8} medtrinity_25m [ 22 ] 1.85 × 10 7 1.85\\times 10^{7} 1.36 × 10 7 1.36\\times 10^{7} optical-rs [ 23 ] 1.32 × 10 7 1.32\\times 10^{7} 7.35 × 10 6 7.35\\times 10^{6} marqo [ 24 ] 9.81 × 10 6 9.81\\times 10^{6} 4.21 × 10 6 4.21\\times 10^{6} git_10m [ 25 ] 9.81 × 10 6 9.81\\times 10^{6} 9.72 × 10 6 9.72\\times 10^{6} megalith [ 26 ] 8.56 × 10 6 8.56\\times 10^{6} 8.15 × 10 6 8.15\\times 10^{6} commoncatalog [ 27 ] 7.89 × 10 6 7.89\\times 10^{6} 7.78 × 10 6 7.78\\times 10^{6} text_atlas [ 28 ] 5.40 × 10 6 5.40\\times 10^{6} 2.87 × 10 6 2.87\\times 10^{6} humancaption [ 29 ] 4.90 × 10 6 4.90\\times 10^{6} 1.14 × 10 6 1.14\\times 10^{6} textrecap [ 30 ] 2.42 × 10 6 2.42\\times 10^{6} 1.38 × 10 6 1.38\\times 10^{6} google_landmarks [ 31 ] 1.26 × 10 6 1.26\\times 10^{6} 1.21 × 10 6 1.21\\times 10^{6} wikiart [ 32 ] 8.14 × 10 4 8.14\\times 10^{4} 7.67 × 10 4 7.67\\times 10^{4} place365 [ 33 ] 3.65 × 10 4 3.65\\times 10^{4} 3.46 × 10 4 3.46\\times 10^{4} poster100k [ 34 ] 7.09 × 10 3 7.09\\times 10^{3} 6.37 × 10 3 6.37\\times 10^{3} The effect of additional heuristic filtering is studied separately in Appendix B.2 ."
+      },
+      {
+        "id": "A2.SS2.SSS0.Px1",
+        "heading": "Experimental setup.",
+        "level": 4,
+        "text": "We conducted an early comparison between a deduplicated, recaptioned ReLAION baseline and an additionally filtered dataset produced by the pretrain_v1 pipeline. Here, “unfiltered” denotes omission of this additional filter, rather than raw data without preprocessing. Both runs use the same 24-layer multi-stream diffusion transformer (hidden width 1280, feed-forward width 3072, and 20 attention heads), Qwen3.5-0.8B text encoder, and ViViT2-REPAE autoencoder. Training uses 256 × 256 256\\times 256 images, 32 GPUs, a global batch size of 1024, a learning rate of 10 − 4 10^{-4} , and recaption probability 0.8. Each run reaches 1.6M steps, with 32 recorded checkpoints at 50K-step intervals. These experiments use an early model configuration rather than the final 5B backbone."
+      },
+      {
+        "id": "A2.SS2.SSS0.Px2",
+        "heading": "Filtering criteria and retained data.",
+        "level": 4,
+        "text": "The additional filter applies the criteria in Table 5 conjunctively. A NULL value passes only its corresponding field-level check; every other applicable condition must still be satisfied. Of 1,183,622,445 source records, the pipeline retains 513,110,382 (43.35%). Table 5: Additional data-filtering criteria. All conditions must hold for non-NULL fields; NULL values pass the corresponding check. Field Retention condition Width and height Each ≥ 192 \\geq 192 pixels Aspect ratio ≥ 0.33 \\geq 0.33 and < 3 <3 Entropy ≥ 4 \\geq 4 Brightness ≥ 0.1 \\geq 0.1 and < 0.9 <0.9 Saturation < 0.8 <0.8 Sum of watermark area ratios < 0.1 <0.1 Natural score ≥ 0.2 \\geq 0.2"
+      },
+      {
+        "id": "A2.SS2.SSS0.Px3",
+        "heading": "Evaluation protocol.",
+        "level": 4,
+        "text": "We evaluate on DPG-Bench, GenEval, OneIG, and FDR6-LAION. FDR6-LAION measures distributional image quality using the six-representation normalized Fréchet metric FDr 6 [ 35 ] . For each feature space, Fréchet distance (FD) compares the means and covariances of generated-image features with real-image reference statistics. We aggregate six feature spaces: Inception-v3, CLIP, ConvNeXt-v2, DINOv2, MAE, and SigLIP2. The score is 1 6 ​ ∑ i = 1 6 FD i / c i \\frac{1}{6}\\sum_{i=1}^{6}\\mathrm{FD}_{i}/c_{i} , with fixed normalization constants c i = ( 1.68 , 5.60 , 56.87 , 14.19 , 0.04 , 0.60 ) c_{i}=(1.68,5.60,56.87,14.19,0.04,0.60) in the same order. This normalization accounts for the different numerical scales of the feature spaces; lower scores indicate closer agreement with the reference distribution. Each reported checkpoint score is computed from 50,000 generated images. We sweep classifier-free guidance (CFG) scales { 1 , 1.25 , 1.5 , 1.75 , 2 , 3 , 4 , 5 } \\{1,1.25,1.5,1.75,2,3,4,5\\} and compute the six-space aggregate separately at each scale. For each run and checkpoint, we report the minimum aggregate score over this sweep. Both final checkpoints at 1.6M training steps attain their minimum at CFG 3. Figure 5 : Early data-filtering comparison. Curves show recorded checkpoint scores without smoothing. FDR6-LAION is the minimum over the recorded CFG sweep. Each curve represents one training run. Table 6: Results at 1.6M training steps. FDR6-LAION reports the minimum over the recorded CFG sweep. Training data DPG-Bench ↑ \\uparrow GenEval ↑ \\uparrow OneIG ↑ \\uparrow FDR6-LAION ↓ \\downarrow Baseline 82.420 0.6484 0.4363 2.4126 Additional filtering 82.411 0.6244 0.3482 3.2184"
+      },
+      {
+        "id": "A2.SS2.SSS0.Px4",
+        "heading": "Results and implications.",
+        "level": 4,
+        "text": "Additional filtering degrades overall generation quality in this ablation. At 1.6M steps, the filtered model performs worse on GenEval, OneIG, and FDR6-LAION, while DPG-Bench remains nearly unchanged (Table 6 ). The filtered model also has a higher (worse) FDR6-LAION score at all 32 evaluated checkpoints (Figure 5 )l. However, FDr 6 may not provide a fair comparison when training datasets differ, so these results should be interpreted only as indicative of trends. Text rendering is particularly affected: the final OneIG text score drops from 0.5243 to 0.1180 after filtering. We therefore retain broad training-data coverage and omit this additional heuristic filter."
+      },
+      {
+        "id": "A3.SS1",
+        "heading": "C.1 Caption Generation and Sampling",
+        "level": 2,
+        "text": "We generate short, medium, and long descriptions to provide multi-granularity textual supervision, and sample among the available captions during training."
+      },
+      {
+        "id": "A3.SS1.SSS0.Px1",
+        "heading": "Generation recipe.",
+        "level": 4,
+        "text": "We generate three complementary descriptions for each image: a short single-sentence summary, a medium paragraph condensed from the long description, and a detailed account of composition, subjects, actions, environment, and style. The three levels differ in semantic detail rather than fixed token or word counts. Caption generation is conditioned on the image, its original caption, and a descriptive perspective. Visible text is transcribed without translation or transliteration, preserving line breaks, reading order, location, alignment, font, color, and spacing."
+      },
+      {
+        "id": "A3.SS1.SSS0.Px2",
+        "heading": "Availability and observed lengths.",
+        "level": 4,
+        "text": "We characterize caption lengths using 5,792 images sampled across 94 data shards, with up to 64 uniformly spaced images per shard. Of these, 4,335 contain a complete short/medium/long triplet. Table 7 reports token-length statistics for these triplets using the Qwen3.5-9B tokenizer, excluding special tokens, training prefixes, and layout annotations, and without truncation. The longest sampled long caption contains 3,126 tokens. The statistics describe this annotation sample. Table 7: Token lengths of 4,335 sampled short/medium/long caption triplets, measured with the Qwen3.5-9B tokenizer. Variant Mean P10 Median P90 Short 20.86 16 20 26 Medium 76.61 59 75 97 Long 235.12 153 193 293"
+      },
+      {
+        "id": "A3.SS1.SSS0.Px3",
+        "heading": "Conditional sampling.",
+        "level": 4,
+        "text": "When both an original caption and a generated caption are available, we select the generated caption with probability 0.8; otherwise, we use the available source. We then sample uniformly among its nonempty descriptions, assigning probability 1 / 3 1/3 to each length when all three are present."
+      },
+      {
+        "id": "A3.SS2",
+        "heading": "C.2 Annotation Validation",
+        "level": 2,
+        "text": "Caption validation checks JSON syntax and the presence of three nonempty descriptions. Layout validation checks required fields, four-integer bounding boxes, coordinate ranges, positive box area, unique element identifiers, parent references, and color formats. The Gemma- and Qwen-based annotation generators allow up to three retries for invalid outputs. These checks enforce the annotation structure; the coordinate transformations and field selection used for textual conditioning are described in Appendix C.3 ."
+      },
+      {
+        "id": "A3.SS3",
+        "heading": "C.3 Conditioning Schemas and Coordinate Conventions",
+        "level": 2,
+        "text": "The structured annotation pipeline supports two main schema families: scene/element and summary/items. Both combine global descriptions with localized content and bounding boxes. Figure 6 illustrates the two formats; a supplementary format appends item-level annotations to a natural-language caption."
+      },
+      {
+        "id": "A3.SS3.SSS0.Px1",
+        "heading": "Scene/element schema.",
+        "level": 4,
+        "text": "The scene/element format combines a scene category and global brief with composition metadata, localized elements, spatial anchors, and a palette. Object elements describe identity and appearance; text elements specify visible text, typography, and watermark status. The stored boxes use [ y 1 , x 1 , y 2 , x 2 ] [y_{1},x_{1},y_{2},x_{2}] coordinates normalized to [ 0 , 1000 ] [0,1000] . Training transforms boxes to match the image geometry and samples normalized, absolute-pixel, or center-relative pixel coordinates with probabilities 0.4 / 0.3 / 0.3 0.4/0.3/0.3 within this branch. The normalized cases are split equally between implicit and explicit coordinate-format markers. For a transformed image of height H H and width W W , center-relative pixel boxes are [ y 1 − H / 2 , x 1 − W / 2 , y 2 − H / 2 , x 2 − W / 2 ] , [y_{1}-H/2,\\;x_{1}-W/2,\\;y_{2}-H/2,\\;x_{2}-W/2], where ( x , y ) (x,y) are pixel coordinates after geometric transformation. Optional fields are dropped and element order is randomized, while gen_brief and elements are retained (Table 8 )."
+      },
+      {
+        "id": "A3.SS3.SSS0.Px2",
+        "heading": "Summary/items schema.",
+        "level": 4,
+        "text": "The summary/items format contains a global summary and localized items , labeled as panels, objects, characters, text, or watermarks. We convert provider-specific box conventions to normalized [ 0 , 1000 ] [0,1000] y ​ x ​ y ​ x yxyx coordinates and transform them consistently with image resizing, cropping, and flipping. Fully cropped or degenerate items are removed. Element identifiers and parent references are discarded, leaving the localized descriptions and spatial coordinates as the structural condition. Summary fields and item attributes undergo the stochastic transformations in Table 8 . The serialized condition is processed by the shared text encoder. (a) Scene/element { \"scene_type\": \"poster\", \"gen_brief\": \"A red circle below SALE.\", \"layout\": { \"formula\": \"centered\", \"camera\": \"front\" }, \"elements\": [ {\"type\": \"obj\", \"salience\": \"primary\", \"identity\": \"circle\", \"shape\": \"solid disk\", \"colors\": [{\"color\": \"red\", \"hex\": \"#FF0000\"}], \"bbox\": [300, 250, 800, 750]}, {\"type\": \"text\", \"text\": \"SALE\", \"where\": \"upper\", \"bbox\": [80, 250, 200, 750], \"shape\": \"bold black type\", \"is_watermark\": false} ], \"anchors\": [\"Title above circle.\"], \"palette\": [\"#FFFFFF\", \"#FF0000\"] } (b) Summary/items { \"summary\": { \"meta\": [\"poster\"], \"canvas\": \"single\", \"caption\": \"A red circle below SALE.\" }, \"items\": [ {\"bbox\": [300, 250, 800, 750], \"label\": \"object\", \"caption\": \"a solid red circle\", \"tags\": [\"circle\"], \"palette\": [\"#FF0000\"]}, {\"bbox\": [80, 250, 200, 750], \"label\": \"text\", \"text\": \"SALE\", \"caption\": \"bold black type\", \"tags\": [\"title\"]} ] } Figure 6 : Illustrative scene/element and summary/items conditions in normalized y ​ x ​ y ​ x yxyx coordinates. The examples use schematic content and coordinates. Element identifiers and parent references are removed during preprocessing; optional attributes are subject to field dropout. Table 8: Stochastic preprocessing of structured annotations. Probabilities are conditional on the corresponding schema branch and the availability of the relevant fields. Schema Operation Policy Scene/element Field dropout Activate with p = 0.5 p=0.5 ; conditional on activation, apply dropout to each configured field group with p = 0.5 p=0.5 . Retain gen_brief and elements . Scene/element Ordering and aliases Randomize element order. With p = 0.5 p=0.5 , use an alternative key for the appearance description. Summary/items Structural fields Remove id and parent with p = 1 p=1 . Drop the entire summary with p = 0.1 p=0.1 . Summary/items Summary attributes Within a retained summary, drop meta with p = 0.1 p=0.1 , and canvas / caption with p = 0.5 p=0.5 each. Replace a retained caption with the selected base prompt with p = 0.5 p=0.5 . Summary/items Item attributes Apply p = 0.5 p=0.5 dropout to palettes and other optional fields. Use three equal-weight modes for tags / caption : both, tags only, or caption only. Summary/items Element order Shuffle items with p = 0.5 p=0.5 ."
+      },
+      {
+        "id": "A3.SS3.SSS0.Px3",
+        "heading": "Supplementary item-level conditions and sampling.",
+        "level": 4,
+        "text": "A supplementary condition appends item-level boxes, labels, tags, and captions to a base natural-language description, together with a coordinate-system marker. This branch samples normalized, absolute-pixel, and center-relative pixel coordinates with probabilities 0.2 / 0.4 / 0.4 0.2/0.4/0.4 . The inference-time specifications produced by the prompt enhancer are described in Appendix F ."
+      },
+      {
+        "id": "A4.SS0.SSS0.Px1",
+        "heading": "Coordinate assignments.",
+        "level": 4,
+        "text": "We compare four positional-coordinate designs in preliminary 1B experiments: the baseline RoPE of the experimental backbone; modality separation along the sequence axis; modality separation along the r r axis; and sequential text–image coordinates with r = 0 r=0 . In the sequence-axis variant, text and image tokens occupy separate sequence-coordinate ranges while sharing r = 0 r=0 . In the r r -axis variant, text and image tokens use r = 0 r=0 and r = 1 r=1 , respectively. The sequential variant keeps r = 0 r=0 for all tokens and places image sequence positions after the text positions, preserving the r r axis for reference indexing."
+      },
+      {
+        "id": "A4.SS0.SSS0.Px2",
+        "heading": "Evaluation.",
+        "level": 4,
+        "text": "We evaluate DPG-Bench, GenEval, and OneIG; OneIG is the arithmetic mean of its alignment, text, reasoning, style, and diversity scores. Table 9 compares all four designs at 200K training steps and summarizes the longer comparison of the baseline and two modality-separation variants using ten checkpoints from 800K to 1.25M steps at 50K-step intervals. Each comparison uses the same generation scheduler. Table 9: RoPE coordinate ablations. The upper block compares four designs at 200K steps; the lower block reports checkpoint means from 800K to 1.25M steps. Higher is better for all metrics. Coordinate assignment DPG-Bench GenEval OneIG Four-way comparison at 200K steps Baseline 81.94 0.6313 0.3483 Modality on sequence axis 81.41 0.6101 0.3588 Modality on r r axis 80.93 0.6280 0.3597 Sequential text–image, r = 0 r=0 81.89 0.6026 0.3605 Mean over 800K–1.25M steps Baseline 83.54 0.6941 0.4157 Modality on sequence axis 83.56 0.6867 0.4170 Modality on r r axis 82.77 0.6782 0.4255"
+      },
+      {
+        "id": "A4.SS0.SSS0.Px3",
+        "heading": "Design choice.",
+        "level": 4,
+        "text": "The coordinate assignments yield similar overall image-generation performance with trade-offs across metrics. Sequential text–image coordinates retain nearly the same DPG-Bench score as the baseline at 200K steps, with higher OneIG and lower GenEval. The longer comparison likewise shows that using the r r axis for modality separation improves OneIG while reducing DPG-Bench and GenEval. We retain a dedicated reference-index axis for extensibility. Without reference inputs, setting r = 0 r=0 makes the associated rotations identity transformations, leaving that feature subspace unrotated and yielding partial RoPE. Distinct reference indices can be introduced within the same coordinate structure when extending the model to reference-conditioned generation. Appendix A.1 specifies the configuration used by MOSS-Image ."
+      },
+      {
+        "id": "A5.SS0.SSS0.Px1",
+        "heading": "Setup.",
+        "level": 4,
+        "text": "We compare AdamW with hybrid Muon–AdamW in early ReLAION training of a 1.016B generator at 256 × 256 256\\times 256 , using a frozen Qwen3.5-0.8B-Base encoder. The primary pair uses logit-normal timestep sampling (mean 0, standard deviation 1) and 64 text tokens throughout. Both runs use BF16, 32 samples/device, gradient accumulation 1, learning rate 10 − 4 10^{-4} , 2000 warmup steps, cosine decay, and weight decay 0.01. AdamW uses β = ( 0.9 , 0.95 ) \\beta=(0.9,0.95) ; Muon uses momentum 0.95, Nesterov updates, five Newton–Schulz steps, and RMS matching, while a subset of parameters retains AdamW updates."
+      },
+      {
+        "id": "A5.SS0.SSS0.Px2",
+        "heading": "Loss measurement.",
+        "level": 4,
+        "text": "We measure convergence using training denoising mean-squared error. Loss values recorded every 10 steps are averaged in non-overlapping 10K-step bins with at least 90% coverage for Figure 7 (b–d). A target-loss step is the first intersection of the resulting piecewise-linear curve with that target, obtained by interpolation between adjacent bin endpoints. Step counts are rounded to the nearest 1K for display; ratios use the unrounded values. Panel (a) reports AdamW loss minus Muon–AdamW loss over 500K–1.6M steps, using 10K-step moving means evaluated every 100 steps. Figure 7 : Muon–AdamW maintains a convergence advantage from early to late training. Matched logit-normal runs: (a) the AdamW minus Muon–AdamW loss gap; (b) first-crossing steps at four loss targets; (c) early convergence through 500K steps; and (d) late convergence from 500K to 1.6M steps. Red lines and dots in (c,d) mark target losses and interpolated first crossings. Panels (a,b) use logarithmic step axes. Each curve represents one training run."
+      },
+      {
+        "id": "A5.SS0.SSS0.Px3",
+        "heading": "Training-step efficiency.",
+        "level": 4,
+        "text": "Muon–AdamW reaches loss 0.41 at 257K steps versus 385K for AdamW, requiring 33.2% fewer updates with an AdamW/Muon step ratio of 1.50 × 1.50\\times . This advantage persists later: at loss 0.403, the corresponding steps are 939K and 1317K, giving 28.6% fewer updates and a 1.40 × 1.40\\times step ratio. The loss gap remains positive throughout 500K–1.6M steps, ending at 1.655 × 10 − 3 1.655\\times 10^{-3} ; the final 10K-step mean losses are 0.40082 for Muon–AdamW and 0.40247 for AdamW. This sustained convergence advantage motivates our use of hybrid Muon–AdamW throughout pretraining."
+      },
+      {
+        "id": "A5.SS0.SSS0.Px4",
+        "heading": "Sensitivity.",
+        "level": 4,
+        "text": "Using 5K, 10K, or 20K bins, the first-crossing step ratios (AdamW/Muon) are 1.37, 1.50, and 1.47 at loss 0.41, and 1.35, 1.40, and 1.35 at loss 0.403, respectively. The convergence advantage therefore persists across aggregation widths in both early and late training."
+      },
+      {
+        "id": "A6.SS1",
+        "heading": "F.1 GPT-6 Planner and Task Guidance",
+        "level": 2,
+        "text": "We use GPT-6 as a planner with shared instructions for constraint extraction, text preservation, composition, readability, and structured output. Task-specific guidance covers posters, infographics, and user interfaces (Table 10 ). Routing prioritizes the medium explicitly requested by the user, followed by the inferred communication goal. For example, an educational poster follows the poster route unless an infographic is explicitly requested. User-specified content, literal strings, language, and canvas dimensions constrain the resulting plan."
+      },
+      {
+        "id": "A6.SS1.SSS0.Px1",
+        "heading": "Planner sessions.",
+        "level": 4,
+        "text": "The final Layout PE plans each task in an independent session. An earlier version planned all 61 RLA tasks within a single shared context. The main system uses the final version, while the prompt-strategy ablation and the shared-prompt generator comparison use the earlier version. Table 10: Task-specific planning guidance for the prompt enhancer. Suggested reference counts are adapted to the request and the available material. Route Planning priorities Reference guidance Poster Information hierarchy, complete event or campaign content, typography, and coherent visual composition. Search same-theme posters; typically inspect 3–5 distinct examples and compare content, density, and typography/layout. Infographic Develop factual explanations jointly with diagrams, labels, and reading order; preserve substantive content when grouping elements. Inspect relevant visual references and consult authoritative sources for unfamiliar or uncertain facts. User interface Match the intended page, platform, viewport, version, and populated interface state. Collect roughly 3–6 candidates and normally inspect at least 3 distinct screenshots; prefer 2 sources and 2 relevant page views when available. The planner is instructed to retrieve relevant material through web and image search and visually inspect candidate references. The guidance recommends 1–3 focused queries and 2–4 useful images, with task-specific guidance as listed in Table 10 . For user interfaces, the search can be refined to match the requested page, platform, and populated state. Retrieved designs inform composition and appearance, while unfamiliar factual content is checked against authoritative sources. For broad knowledge graphics, the infographic guidance suggests 6–9 substantive modules, 22–36 knowledge units, and approximately 300–500 visible English words on a 1024 × ( 1400 ​ – ​ 1600 ) 1024\\times(1400\\text{--}1600) canvas. The planner adjusts these targets to the requested scope, language, canvas, and readability. Related content is grouped into coherent visual units, with the number of elements determined by the design."
+      },
+      {
+        "id": "A6.SS2",
+        "heading": "F.2 Structured Prompt Format",
+        "level": 2,
+        "text": "The planner returns one JSON object with eight root fields: scene_type , gen_brief , aspect_ratio , layout , elements , anchors , must_not , and palette . Compared with the representative scene/element training schema in Appendix C.3 , the inference format additionally includes aspect_ratio and must_not . The global brief uses 60–120 English words; layout specifies composition and viewpoint. Elements use type=obj or type=text ; object salience distinguishes primary and secondary roles. Type-specific fields encode appearance, literal copy, color, and placement. Every visible string is written literally in a text element, preserving the user’s original characters and intended line breaks. Descriptive fields are in English. Related strings and mixed typography may share a box when their internal organization remains explicit. Up to three anchors encode important spatial relationships, and up to three must_not entries describe concrete, request-specific visual exclusions. The planner emits integer boxes in normalized [ 0 , 1000 ] [0,1000] coordinates with a top-left origin and order [ y min , x min , y max , x max ] [y_{\\min},x_{\\min},y_{\\max},x_{\\max}] . It requires positive box width and height and allows overlap when implied by the intended composition. For output dimensions W × H W\\times H , the planner checks text fit using the physical box dimensions Δ ​ x ​ W / 1000 \\Delta x\\,W/1000 and Δ ​ y ​ H / 1000 \\Delta y\\,H/1000 , literal line breaks, and typography hierarchy. Boxes describe coherent visual units, not mandatory visible panels."
+      },
+      {
+        "id": "A6.SS3",
+        "heading": "F.3 Specification Validation",
+        "level": 2,
+        "text": "Before returning a specification, the planner is instructed to check JSON syntax, required fields, coordinate validity, literal text, and consistency between the global composition and localized elements. Task-specific checks cover content completeness and readability. Intended line breaks are represented as escaped newline characters in JSON. Reference information is incorporated into self-contained visual descriptions, while research notes and source URLs are kept outside the image-description fields."
+      },
+      {
+        "id": "A7.SS1.SSS0.Px1",
+        "heading": "Tasks and source texts.",
+        "level": 4,
+        "text": "The benchmark contains 240 tasks: 120 English and 120 Chinese, with 40 tasks per language in each of three text-length bins (Table 11 ). We select 80 source entries, with 20 in each language–style group (English/Chinese and classical/modern). Each entry supplies three prefix excerpts, allowing length conditions to share source material. The English entries come from 40 Project Gutenberg works. Chinese classical entries include 17 excerpts from Mencius , two from The Doctrine of the Mean , and one from The Great Learning , collected through the Chinese-poetry collection. Chinese modern entries comprise 20 excerpts from seven Lu Xun works on Chinese Wikisource, including 12 from The True Story of Ah Q . Titles, authors, and source URLs accompany each entry. Table 11: LLTB construction. Bin limits count body characters including retained whitespace and punctuation; observed ranges below exclude whitespace. Each bin has 40 tasks per language. Bin Construction interval Observed EN range Observed ZH range Short 180–420 335–355 402–420 Medium 700–1,200 962–1,013 1,164–1,200 Long 1,600–2,800 2,238–2,334 1,657–1,788"
+      },
+      {
+        "id": "A7.SS1.SSS0.Px2",
+        "heading": "Construction and formatting.",
+        "level": 4,
+        "text": "We clean source text, apply Unicode NFC normalization, remove control/format characters, and normalize whitespace. Chinese text is converted to simplified Chinese with OpenCC. Source passages are selected in a fixed order and truncated to prefixes; passages below the required minimum are rejected rather than repeated. Length bins are defined by character count, including whitespace and punctuation, with an additional lower bound on non-whitespace characters. Each input contains A paper writes: , title, author, and body. Automatic wrapping uses DejaVuSans font metrics for a 1024 × 1024 1024\\times 1024 canvas with 88-pixel margins and searches body sizes from 32 down to 8 pixels, wrapping English by word and Chinese by character. These metrics construct the input line breaks without constraining the generator’s actual font. The construction intervals count body text only; full-target statistics below also include the title and author."
+      },
+      {
+        "id": "A7.SS1.SSS0.Px3",
+        "heading": "Target-length statistics.",
+        "level": 4,
+        "text": "Table reports the scale of the full target strings, separately from the body-only construction intervals above. LLTB contains 12 language–style–length slots with 20 tasks each, equivalently 40 tasks per language–length group. The complete targets contain 321,545 characters including whitespace, or 285,792 characters after removing whitespace. The full-target mean, median, and range are 1,339.8, 1,250, and 444–2,863 characters, respectively. These descriptive character counts are distinct from the normalized English-word and Chinese-character units used by the coverage metric. Within the short bin, mean target lengths are approximately 468 English characters and 458 Chinese characters (roughly 460 overall). The medium-bin mean is approximately 1,244 characters pooled across languages. In the long bin, the means are approximately 2,848 for English and 1,770 for Chinese; the language-specific settings use a lower character limit for Chinese. By comparison, LongTextBench contains 320 tasks and 38,489 target characters, averaging approximately 184 per English task and 56.5 per Chinese task. These statistics distinguish rendering relatively short text within a scene from sustaining dense text across a page."
+      },
+      {
+        "id": "A7.SS1.SSS0.Px4",
+        "heading": "OCR and matching.",
+        "level": 4,
+        "text": "We follow the X-Omni LongTextBench OCR and scoring procedure, using Qwen2.5-VL-7B-Instruct with a 4096-token output limit. Images are resized to 1024 × 1024 1024\\times 1024 with LANCZOS interpolation. Ground truth drops the instruction prefix and retains title, author, and body. English preprocessing removes characters outside the scorer’s whitelist, collapses whitespace, lowercases, and splits into words. Chinese preprocessing removes out-of-whitelist characters and whitespace and matches characters, without lowercasing embedded Latin letters. The whitelist covers basic Chinese characters, Latin letters, digits, and specified French accented characters; it excludes punctuation. For image i i , let G i G_{i} and O i O_{i} be the ground-truth and OCR multisets of matching units. We compute m i = ∑ u min ⁡ { count G i ⁡ ( u ) , count O i ⁡ ( u ) } , r i = m i | G i | . m_{i}=\\sum_{u}\\min\\{\\operatorname{count}_{G_{i}}(u),\\operatorname{count}_{O_{i}}(u)\\},\\qquad r_{i}=\\frac{m_{i}}{|G_{i}|}. For language ℓ \\ell and length bin b b , coverage and the overall score are C ℓ , b = ∑ i ∈ ( ℓ , b ) m i ∑ i ∈ ( ℓ , b ) | G i | , Mean-6 = 1 6 ​ ∑ ℓ , b C ℓ , b . C_{\\ell,b}=\\frac{\\sum_{i\\in(\\ell,b)}m_{i}}{\\sum_{i\\in(\\ell,b)}|G_{i}|},\\qquad\\text{Mean-6}=\\frac{1}{6}\\sum_{\\ell,b}C_{\\ell,b}. Each generated image contributes once. Coverage is weighted by target-unit count within a group, followed by an equal-weight average over six groups. The metric does not check order or directly penalize extra OCR units; it is not edit distance or exact string accuracy. Pooling all matching units across languages yields a different micro-coverage score and mixes English words with Chinese characters."
+      },
+      {
+        "id": "A7.SS1.SSS0.Px5",
+        "heading": "Generation settings.",
+        "level": 4,
+        "text": "For every evaluated model, we generate four images per task and include all four samples in scoring, without best-of-four selection. OCR inputs are resized to 1024 × 1024 1024\\times 1024 , while native generation resolutions follow each model’s supported settings. Ideogram 4 safety-refusal images receive a score of zero."
+      },
+      {
+        "id": "A7.SS1.SSS0.Px6",
+        "heading": "Ideogram 4 refusals.",
+        "level": 4,
+        "text": "At CFG 4, Ideogram 4 produces 61 refusal images among 960 generation attempts, all in the EN-short group (61 of 160). These tasks feature relatively sparse text rendered in large type. No refusals occur in EN-medium, EN-long, or any of the 480 Chinese images. Table counts each refusal as zero coverage: its matched-unit count is set to m i = 0 m_{i}=0 , while its target units remain in the denominator. We also evaluate a second convention that excludes refusal images from both the numerator and denominator. This leaves 99 scored images in EN-short and 160 in each of the other five groups, for 899 images in total. Table 12 compares the two conventions. Mean-3 averages the three length-bin scores within a language, while language coverage and total coverage pool matching and target units over the corresponding images. Mean-6 retains equal weighting across the six language–length groups under both conventions. Excluding refusals raises EN-short coverage from 44.93% to 72.41% and Mean-6 from 63.47% to 68.05%; Chinese scores are unchanged. Table 12 : LLTB coverage (%) of Ideogram 4 at CFG 4 under two refusal-handling conventions. Refusal handling EN-S ↑ \\uparrow EN-M ↑ \\uparrow EN-L ↑ \\uparrow ZH-S ↑ \\uparrow ZH-M ↑ \\uparrow ZH-L ↑ \\uparrow Mean-6 ↑ \\uparrow Scored as zero 44.9 97.9 97.5 48.8 59.9 31.8 63.5 Excluded 72.4 97.9 97.5 48.8 59.9 31.8 68.1 With refusals scored as zero, EN Mean-3 and pooled coverage are 80.11% and 92.34%, respectively; excluding refusals raises them to 89.27% and 96.00%. ZH Mean-3 and pooled coverage remain 46.83% and 44.03% under both conventions. Total pooled coverage is 55.03% with refusals scored as zero and 55.51% with refusals excluded."
+      },
+      {
+        "id": "A7.SS2.SSS0.Px1",
+        "heading": "Task construction.",
+        "level": 4,
+        "text": "We construct 61 tasks from manually screened design references: 20 posters, 20 infographics, and 21 user interfaces. Each task is expressed as a concise Chinese request; the reference images contain text in multiple languages. Short, detailed, and enhanced prompts are alternative descriptions of the same task, allowing prompt strategies to be compared on a shared task set."
+      },
+      {
+        "id": "A7.SS2.SSS0.Px2",
+        "heading": "Generation and fixed outputs.",
+        "level": 4,
+        "text": "A participant is a generator paired with a prompt strategy. Each participant generates a single image per task, using a fixed seed where the generator supports it, without re-sampling, manual filtering, or best-of- k k selection, and this image is held fixed for all raters. Target canvases preserve the reference aspect ratio at approximately one megapixel, with dimensions divisible by 16. The 31 target sizes span 1,034,752–1,063,424 pixels. Generation sizes follow model-specific constraints: Krea 2 Raw limits the longest side to 1024 pixels; HiDream-O1 and SenseNova U1 may produce larger images; Nano Banana Pro and Hunyuan Image 3 use their supported size and aspect-ratio options."
+      },
+      {
+        "id": "A7.SS2.SSS0.Px3",
+        "heading": "Presentation and judging.",
+        "level": 4,
+        "text": "Raters compare two images for the same task while viewing its original short request. The interface hides model names and expanded prompts. Image pairs are fixed before voting, and left/right positions are randomized for each rater and pair. Pair selection uses participant- and comparison-group exposure weights, with a shuffled presentation order for each rater. The number of judgments can vary across pairs. The choices are A better, B better, tie, both bad, and skip. Instructions prioritize adherence to the short request, then rendering quality, and then spatial relationships when content and quality are comparable. Raters consider completeness, readable and intact text/elements, grouping, reading order, and visual hierarchy. Optional defect tags provide supporting annotations rather than separately scored dimensions. Skip is reserved for images that cannot be loaded or judged."
+      },
+      {
+        "id": "A7.SS2.SSS0.Px4",
+        "heading": "Votes and Bradley–Terry ratings.",
+        "level": 4,
+        "text": "Wins and losses count as one and zero; tie and both-bad votes split one win equally. We fit P ⁡ ( i ≻ j ) = exp ⁡ ( θ i ) exp ⁡ ( θ i ) + exp ⁡ ( θ j ) , E i = 1500 + 400 ln ⁡ 10 ​ θ i . P(i\\succ j)=\\frac{\\exp(\\theta_{i})}{\\exp(\\theta_{i})+\\exp(\\theta_{j})},\\qquad E_{i}=1500+\\frac{400}{\\ln 10}\\theta_{i}. Each participant receives 0.25 pseudo-wins and 0.25 pseudo-losses against a strength-one virtual anchor to keep estimates finite. Ratings are ordered by fitted E i E_{i} ; they are not sequential Elo updates. Preference score rate, when reported, is ( w + 0.5 ​ t ) / ( w + l + t ) (w+0.5t)/(w+l+t) , with both-bad included in t t . Unequal opponent exposure makes this a different statistic from the fitted rating. Fitting aggregates votes without equal-task/category averaging or inverse-exposure weighting."
+      },
+      {
+        "id": "A7.SS2.SSS0.Px5",
+        "heading": "Confidence intervals.",
+        "level": 4,
+        "text": "Asymptotic 95% confidence intervals use the Fisher information of real comparisons, excluding pseudo-match curvature. Within each connected comparison component, we impose a zero-sum parameter constraint and take a generalized inverse to obtain standard errors, reporting E i ± 1.959964 ​ SE ​ ( E i ) E_{i}\\pm 1.959964\\,\\mathrm{SE}(E_{i}) . These intervals quantify uncertainty in relative ratings under the comparison model and do not adjust for correlations between votes from the same task or rater. We fit each comparison group separately using votes between its participants."
+      },
+      {
+        "id": "A7.SS2.SSS0.Px6",
+        "heading": "Evaluation coverage.",
+        "level": 4,
+        "text": "Table 13 summarizes the complete comparison groups used to fit the ratings. Figure 4 presents nine end-to-end systems, five prompt strategies, and nine shared-prompt generators from these groups. Ratings use all valid within-group comparisons. Every model pair in each group receives at least one judgment. Table 13: Human-evaluation coverage of the rating groups on the 61 RLA tasks. A task–pair is one task paired with an unordered pair of participants. Coverage counts task–pairs with at least one valid vote. Group Participants Votes Model pairs Task–pairs Coverage Main systems 11 1420 55/55 1045/3355 31.1% Prompt strategies 9 1533 36/36 848/2196 38.6% Shared natural prompts 10 576 45/45 539/2745 19.6% Skip and rejected votes are excluded, and all remaining votes receive equal weight. In the main-system comparison, MOSS-Image with Layout PE receives 293 wins, 100 ties, and 64 losses across 457 votes, giving a preference score rate of 75.1%. In the shared-prompt comparison, MOSS-Image receives 98 wins, 18 ties, and 12 losses across 128 votes, giving a preference score rate of 83.6%. The Bradley–Terry ratings additionally account for opponent strength."
+      },
+      {
+        "id": "A7.SS3.SSS0.Px1",
+        "heading": "End-to-end systems.",
+        "level": 4,
+        "text": "The main MOSS-Image system uses the final Layout PE, with one independent planner session per task (Appendix F ). The eight baseline systems receive the original short request and use their respective prompt-processing pipelines. The Ideogram 4 baseline uses local Qwen3VL-8B prompt enhancement. The comparison evaluates the complete generation pipeline for each configuration."
+      },
+      {
+        "id": "A7.SS3.SSS0.Px2",
+        "heading": "Prompt configurations.",
+        "level": 4,
+        "text": "Short uses the concise task request, Detailed uses the benchmark’s detailed description, and Direct expansion enriches the short request without agentic routing or reference retrieval. JSON layout passes the Layout PE specification directly to the generator, including literal text, elements, bounding boxes, typography, and spatial relationships; Natural rewrites that plan as prose. JSON layout and Natural use specifications from the earlier shared-context Layout PE (Appendix F ). Human evaluation uses one fixed image per configuration and task."
+      },
+      {
+        "id": "A7.SS3.SSS0.Px3",
+        "heading": "Shared-prompt generators.",
+        "level": 4,
+        "text": "The generators receive the same enhanced natural-language description for each task, derived from the earlier shared-context Layout PE, without further prompt enhancement. The rewrite preserves requested literal text and expresses coordinates, pixel dimensions, aspect ratios, and colors in prose. Each generator follows its supported resolution and aspect-ratio settings, and one fixed image per task is used for pairwise evaluation."
+      },
+      {
+        "id": "A7.SS4",
+        "heading": "G.4 LongTextBench and 7Bench",
+        "level": 2,
+        "text": "Baseline scores on LongTextBench are collected from publicly available reports. All 7Bench results reported here are obtained through our own evaluation, as are the results on LLTB and RLA ."
+      },
+      {
+        "id": "A7.SS4.SSS0.Px1",
+        "heading": "LongTextBench results.",
+        "level": 4,
+        "text": "Table reports the LongTextBench comparison, including the 97.63 overall score of MOSS-Image . The listed models score 96.05–98.85 overall, consistent with near-saturation under this coverage metric. We therefore treat LongTextBench as supplementary evidence and use the substantially longer targets of LLTB to probe sustained text rendering in the main evaluation."
+      },
+      {
+        "id": "A7.SS4.SSS0.Px2",
+        "heading": "7Bench tasks and inputs.",
+        "level": 4,
+        "text": "7Bench [ 21 ] evaluates layout-guided image generation on 224 prompt–layout pairs, with 32 tasks in each of seven categories: object binding, small bounding boxes, overlapping bounding boxes, color binding, attribute binding, object relationships, and complex compositions. Each task contains a scene description and one to four objects with target bounding boxes. The released annotations specify boxes as ( x min , y min , x max , y max ) (x_{\\min},y_{\\min},x_{\\max},y_{\\max}) . These annotations define the desired object positions and sizes for evaluating spatial control."
+      },
+      {
+        "id": "A7.SS4.SSS0.Px3",
+        "heading": "7Bench generation and scoring.",
+        "level": 4,
+        "text": "Each run contains one generated image per task, covering 224 images and 576 target-object instances. GPT Image 2, Nano Banana Pro (Gemini 3 Pro Image), Seedream 5.0 Pro, and Qwen Image 3.0 Pro receive the original vision JSON prompts and generate at 1024 × 1024 1024\\times 1024 . Ideogram 4 is evaluated with its publicly released FP8 checkpoint, the higher-precision of its two public quantized variants (FP8 and NF4), at CFG 4. Its prompts are converted from the 7Bench annotations into its JSON input schema using a fixed rule applied uniformly to all tasks, preserving the scene description, object phrases, and bounding boxes without manual editing. We use the Extended TIFA evaluation pipeline with OWL-ViT to localize target objects. For each target box, the scorer selects the same-category detection with the largest intersection-over-union (IoU); a missing detection receives zero. Let u j u_{j} denote the resulting IoU for target instance j j , N = 576 N=576 , and D = { j : u j > 0 } D=\\{j:u_{j}>0\\} . We report mIoU = 1 N ​ ∑ j = 1 N u j , mIoU det = 1 | D | ​ ∑ j ∈ D u j , DetRate = | D | N . \\mathrm{mIoU}=\\frac{1}{N}\\sum_{j=1}^{N}u_{j},\\qquad\\mathrm{mIoU}_{\\mathrm{det}}=\\frac{1}{|D|}\\sum_{j\\in D}u_{j},\\qquad\\mathrm{DetRate}=\\frac{|D|}{N}. Thus, mIoU det \\mathrm{mIoU}_{\\mathrm{det}} measures localization quality for objects with positive detected overlap, while mIoU includes all target instances. Layout AUC is the arithmetic mean of the evaluator’s threshold accuracies at IoU thresholds 0.1 , 0.2 , … , 0.9 0.1,0.2,\\ldots,0.9 : LayoutAUC = 1 9 ​ ∑ k = 1 9 Acc ​ @ ​ k 10 . \\mathrm{LayoutAUC}=\\frac{1}{9}\\sum_{k=1}^{9}\\mathrm{Acc}@\\frac{k}{10}. The threshold accuracies are reported in Table 15 ."
+      },
+      {
+        "id": "A7.SS4.SSS0.Px4",
+        "heading": "Filtered outputs and results.",
+        "level": 4,
+        "text": "GPT Image 2 has 22 safety-blocked requests out of 224; their white placeholder images are retained in evaluation and contribute zero IoU. Ideogram 4 also produces filtered outputs. Table reports mIoU det \\mathrm{mIoU}_{\\mathrm{det}} alongside Layout AUC, separating localization quality among detected objects from overall threshold accuracy. Table 14 additionally reports mIoU over all 576 target instances and the positive-overlap detection counts and rates. MOSS-Image achieves mIoU det = 0.8786 \\mathrm{mIoU}_{\\mathrm{det}}=0.8786 , Layout AUC = 0.7031 =0.7031 , and mIoU = 0.6788 =0.6788 , with positive overlap for 445 of 576 target instances. The Ideogram 4 report lists a 7Bench mIoU of about 0.69 [ 36 ] , whereas we measure 0.2433 (0.4449 over detected instances). Our evaluation uses the public FP8 checkpoint, rule-converted prompts, and the Extended TIFA pipeline, with filtered outputs and missing detections scored as zero. Differences in model variant, prompt format, and evaluation implementation may account for the gap. Table 14: Detailed layout-control results on 7Bench. All runs contain 224 images and 576 target objects. Detected objects have IoU greater than zero. Model mIoU ↑ \\uparrow mIoU det \\mathrm{mIoU}_{\\mathrm{det}} ↑ \\uparrow Detected Det. rate ↑ \\uparrow Layout AUC ↑ \\uparrow GPT Image 2 0.1431 0.3042 271 0.4705 0.1554 Nano Banana Pro 0.1493 0.3296 261 0.4531 0.1628 Qwen Image 3.0 Pro 0.1694 0.3148 310 0.5382 0.1758 Seedream 5.0 Pro 0.1670 0.3273 294 0.5104 0.1794 Ideogram 4.0 0.2433 0.4449 315 0.5469 0.2046 MOSS-Image 0.6788 0.8786 445 0.7726 0.7031 Table 15 : 7Bench accuracy at IoU thresholds from 0.1 to 0.9. Layout AUC is the arithmetic mean of these nine scores. Model Acc@0.1 Acc@0.2 Acc@0.3 Acc@0.4 Acc@0.5 Acc@0.6 Acc@0.7 Acc@0.8 Acc@0.9 GPT Image 2 0.4055 0.3337 0.2608 0.1749 0.1194 0.0662 0.0290 0.0089 0.0000 Nano Banana Pro 0.4018 0.3441 0.2727 0.2046 0.1287 0.0748 0.0320 0.0067 0.0000 Qwen Image 3.0 Pro 0.4647 0.3925 0.2980 0.2083 0.1339 0.0614 0.0216 0.0015 0.0000 Seedream 5.0 Pro 0.4803 0.3973 0.3114 0.2087 0.1194 0.0714 0.0246 0.0011 0.0000 Ideogram 4.0 0.4301 0.3813 0.3311 0.2786 0.2161 0.1484 0.0487 0.0052 0.0015 MOSS-Image 0.7556 0.7511 0.7481 0.7336 0.7295 0.7284 0.7221 0.6942 0.4650"
+      },
+      {
+        "id": "A8",
+        "heading": "Appendix H Supplementary Rubric-Based Evaluation",
+        "level": 1,
+        "text": "We additionally evaluate the 61 RLA tasks with a task-specific GPT-6 scoring rubric. This evaluation provides dimension-level diagnostics alongside the human-preference results in the main paper."
+      },
+      {
+        "id": "A8.SS0.SSS0.Px1",
+        "heading": "Task-specific criteria.",
+        "level": 4,
+        "text": "The task set contains 20 posters, 20 infographics, and 21 user interfaces. Each rubric is derived from the original short request. All outputs, including those generated from detailed or enhanced prompts, are judged against the same request. Layout criteria reflect the requested genre or the typical organization of a named product. Unspecified copy, colors, and composition remain open to design choices; additional content or visual complexity is rewarded only when it serves the request."
+      },
+      {
+        "id": "A8.SS0.SSS0.Px2",
+        "heading": "Dimensions and aggregation.",
+        "level": 4,
+        "text": "The six dimensions are theme and explicit requirements (including obvious factual errors), layout and genre correctness, text readability, content coherence, aesthetics and visual hierarchy, and rendering integrity. Their weights are 𝐰 = ( 30 , 20 , 15 , 10 , 20 , 5 ) \\mathbf{w}=(30,20,15,10,20,5) . Each dimension is scored from 0 to 5: 0 denotes missing or unusable core requirements, 1 severe problems, 2 partial fulfillment, 3 the main requirements with visible problems, 4 minor local defects, and 5 clear and coordinated fulfillment. For model m m on task i i , we compute s m , i = ∑ d = 1 6 w d ​ r m , i , d 5 , S m = 1 61 ​ ∑ i = 1 61 s m , i . s_{m,i}=\\sum_{d=1}^{6}w_{d}\\frac{r_{m,i,d}}{5},\\qquad S_{m}=\\frac{1}{61}\\sum_{i=1}^{61}s_{m,i}. Thus S m S_{m} lies in [ 0,100 ] [0,100] and weights tasks equally; equal totals are tied. Failed, blank, garbled, or blocked outputs remain in the denominator, and a blank image without an identifiable design receives six zeros. Output-size compliance is recorded separately and does not enter the visual score. Checks within a dimension are considered jointly rather than weighted by their count, and defects are not indiscriminately penalized across multiple dimensions."
+      },
+      {
+        "id": "A8.SS0.SSS0.Px3",
+        "heading": "Judging procedure.",
+        "level": 4,
+        "text": "Each image receives one primary GPT-6 assessment using the anonymized image, the original short request, and its task-specific rubric. Model identities and human-preference rankings are hidden from the judge. Targeted visual spot checks identify scoring issues. Factual content is classified as showing no obvious error, containing a concrete error, or being unverifiable. Identified factual errors affect the theme-and-requirements score, without an additional penalty to the total. Plausible fictional details are permitted when appropriate to the task."
+      },
+      {
+        "id": "A8.SS0.SSS0.Px4",
+        "heading": "Configurations and results.",
+        "level": 4,
+        "text": "Table reports separate GPT-6 rubric evaluations of end-to-end systems, prompt strategies, and generators under enhanced natural-language prompts. In the system comparison, MOSS-Image obtains 94.93, compared with 97.72 for GPT Image 2. Under shared enhanced natural-language prompts, MOSS-Image obtains 87.62, followed by SenseNova U1 at 79.51. The same MOSS-Image natural-language outputs are used in both ablations. The MOSS-Image JSON-layout entries in panels (a) and (b) use the final and earlier Layout PE versions, respectively (Appendix F ), and are therefore not directly comparable."
+      },
+      {
+        "id": "A8.SS0.SSS0.Px5",
+        "heading": "Interpretation.",
+        "level": 4,
+        "text": "The rubric provides dimension-level diagnostics but limited separation among the strongest configurations. In the prompt-enhancement ablation, enhancement without agentic planning, detailed prompts, and JSON layout score 95.59, 95.46, and 95.07, respectively, a spread of only 0.52 points. This requirement-focused scale is less sensitive to fine differences in complex content organization and visual design. We therefore use human preferences as the primary ranking evidence and the rubric as supplementary analysis. Because GPT-6 serves as both planner and automated judge, the human evaluation also provides an independent assessment of the resulting designs."
+      },
+      {
+        "id": "A9",
+        "heading": "Appendix I Layout-Guided Control: Case Studies",
+        "level": 1,
+        "text": "Figure 8 presents two qualitative editing cases: rearranging information blocks and replacing prominent text while retaining the overall design."
+      },
+      {
+        "id": "A9.SS0.SSS0.Px1",
+        "heading": "Reordering information blocks.",
+        "level": 4,
+        "text": "In the typhoon infographic, the second and third panels exchange positions: water-vapor ascent precedes convection development in the revised version. The associated headings, explanatory text, and illustrations follow the new order, while the seven-panel structure, blue palette, title banner, and bottom summary remain recognizable. The change therefore involves coordinating several related elements within a common layout."
+      },
+      {
+        "id": "A9.SS0.SSS0.Px2",
+        "heading": "Replacing prominent text.",
+        "level": 4,
+        "text": "In the city poster, the dominant three-line title changes from KRASNOYARSK to CALIFORNIA . The revised design retains the large photograph-filled letters, light background, red accents, and peripheral annotations. Letter shapes and interior imagery adapt to the new word while preserving the typographic composition. Smaller city labels remain from the original design. Together, the two cases demonstrate targeted changes to content and spatial arrangement while preserving the overall visual style. (a) Reorder steps 2 and 3 (b) Replace the main title Before After Before After Figure 8 : Qualitative editing cases under layout constraints. (a) Reordering the second and third infographic steps together with their associated content. (b) Replacing KRASNOYARSK with CALIFORNIA while retaining the photograph-filled lettering style and overall composition. Within each pair, left: before; right: after. Local visual details vary."
+      },
+      {
+        "id": "A10",
+        "heading": "Appendix J Line-Break Alignment: Denoising Case Study",
+        "level": 1,
+        "text": "Figure 9 compares the denoising process with and without explicit line breaks in the prompt. The columns show outputs after sampling steps 1, 8, 16, 24, and 30. Both runs use 30 denoising updates with a timestep shift of s = 3 s=3 . Starting from the uniform unshifted grid u k = 1 − k / 30 u_{k}=1-k/30 , the shifted noise level is σ k = s ​ u k 1 + ( s − 1 ) ​ u k = 3 ​ u k 1 + 2 ​ u k , k = 0 , … , 30 . \\sigma_{k}=\\frac{su_{k}}{1+(s-1)u_{k}}=\\frac{3u_{k}}{1+2u_{k}},\\qquad k=0,\\ldots,30. The displayed snapshots are recorded after update k k and are labeled with the corresponding σ k \\sigma_{k} ; the final step has σ 30 = 0 \\sigma_{30}=0 . With explicit line breaks, the character content of many lines is already distinguishable at step 8 and becomes clearer as denoising proceeds. Without line breaks, several rows remain ambiguous at intermediate steps, and malformed characters persist in the final displayed step. This qualitative comparison illustrates how specifying line boundaries can help establish the content of each line earlier and improve the final text rendering. With line breaks Step 1 σ = 0.9886 \\sigma=0.9886 Step 8 σ = 0.8919 \\sigma=0.8919 Step 16 σ = 0.7241 \\sigma=0.7241 Step 24 σ = 0.4286 \\sigma=0.4286 Step 30 σ = 0 \\sigma=0 Without line breaks Step 1 σ = 0.9886 \\sigma=0.9886 Step 8 σ = 0.8919 \\sigma=0.8919 Step 16 σ = 0.7241 \\sigma=0.7241 Step 24 σ = 0.4286 \\sigma=0.4286 Step 30 σ = 0 \\sigma=0 Figure 9 : Line-break conditioning during denoising. Top: prompt with explicit line breaks. Bottom: prompt without line breaks. Each column shows the same denoising step, progressing from left to right; labels give the step number and post-update noise level σ \\sigma . Explicit line breaks help the character content of each line become recognizable earlier, with clearer text in the final displayed step."
+      },
+      {
+        "id": "A11",
+        "heading": "Appendix K Bounding-Box Coordinates: Generalization to Unseen Resolutions",
+        "level": 1,
+        "text": "Figure 10 compares a lower-resolution bee-anatomy infographic with two outputs generated at a higher resolution unseen during training, using different bounding-box coordinate representations. Zero-centered absolute coordinates follow the center-relative pixel convention described in Appendix C.3 ; relative coordinates are normalized to [ 0 , 1000 ] [0,1000] . At the unseen resolution, normalized coordinates in panel (b) concentrate the infographic in a smaller central region, leaving wider margins. Center-relative pixel coordinates in panel (c) distribute the content across the canvas and more closely preserve the spatial scale of the lower-resolution design. This example shows how the coordinate representation affects layout transfer to a larger canvas. (a) Lower resolution Comparison (b) Unseen resolution Relative [ 0 , 1000 ] [0,1000] (c) Unseen resolution Zero-centered absolute Figure 10 : Generalization to a resolution unseen during training. (a) Lower-resolution comparison. (b) Relative coordinates normalized to [ 0 , 1000 ] [0,1000] concentrate the content into a smaller central region at the unseen resolution. (c) Zero-centered absolute coordinates better preserve the overall spatial scale at the same unseen resolution. Images are displayed at a common height for visual comparison."
+      },
+      {
+        "id": "A12.SS0.SSS0.Px1",
+        "heading": "Foundation models and pretraining.",
+        "level": 4,
+        "text": "Latent diffusion [ 5 ] and diffusion transformers [ 37 ] underpin modern image generation. SDXL [ 6 ] , Stable Diffusion 3 [ 38 ] , FLUX [ 7 ] , Qwen-Image [ 8 ] , Z-Image [ 9 ] , and ERNIE-Image [ 10 ] advance general-purpose synthesis and instruction following. Qwen-Image-2.1 [ 39 ] further unifies image generation and editing with a compact 7B visual generator, improved typography, and native support for transparent images. SenseNova-U1.5 [ 40 ] pursues native unified visual understanding and generation through an encoder-free and VAE-free architecture, with advances in bilingual text rendering, infographic generation, and complex composition. Training recipes are also central: PixArt- α \\alpha [ 41 ] emphasizes informative captions and staged training, while Z-Image combines data curation, multi-level captions, and progressive training. Building on this direction, MOSS-Image documents the corpus, multi-granularity and structure-aware supervision, and resolution schedule used to pretrain a 5B generator, with a focus on bilingual long-form text and complex graphics."
+      },
+      {
+        "id": "A12.SS0.SSS0.Px2",
+        "heading": "Visual text generation.",
+        "level": 4,
+        "text": "GlyphControl [ 42 ] and TextDiffuser [ 43 ] use glyph or character-level guidance to improve text rendering. AnyText [ 44 ] extends controlled rendering to multiple languages, and AnyText2 [ 45 ] adds customizable font and color attributes. TextDiffuser-2 [ 46 ] further uses language models for layout planning and line-level text-position encoding, while Qwen-Image [ 8 ] incorporates strong text rendering into a general-purpose model. These advances motivate our study of long passages within dense, multi-element graphics, where character fidelity and overall composition must be evaluated together."
+      },
+      {
+        "id": "A12.SS0.SSS0.Px3",
+        "heading": "Layout-conditioned generation.",
+        "level": 4,
+        "text": "ControlNet [ 47 ] and T2I-Adapter [ 48 ] introduce spatial control through auxiliary conditioning modules; GLIGEN [ 49 ] , LayoutDiffusion [ 50 ] , and BoxDiff [ 51 ] explore grounding, layout-aware modeling, and training-free box constraints, respectively. FIBO [ 52 ] improves compositional control through long structured captions with descriptive spatial fields, while MOSS-Image additionally supports explicit bounding-box coordinates. Spatial alignment alone, however, does not establish accurate long-form text rendering. Closely related concurrent work, Ideogram 4 [ 36 ] , trains on structured JSON captions with text and layout descriptions, supports bounding-box control and LLM-based prompt expansion, and reports text-rendering and layout results. Its public weight release is limited to FP8/NF4 quantized checkpoints, accompanied by inference code but not a complete pretraining recipe. Our work documents corpus construction, supervision design, and the training schedule for a 5B generator targeting bilingual long passages and dense graphic layouts. LLTB and RLA assess rendering under extended text lengths and complete-system performance, respectively."
+      },
+      {
+        "id": "A12.SS0.SSS0.Px4",
+        "heading": "Prompt enhancement and image agents.",
+        "level": 4,
+        "text": "Promptist [ 53 ] learns to adapt user inputs to model-preferred prompts, and Z-Image [ 9 ] incorporates reasoning-based prompt enhancement. Concurrent Qwen-Image-Agent [ 12 ] constructs generation context through planning, reasoning, search, memory, and feedback, including layout-aware content planning. Its training-free framework operates over existing image generators. MOSS-Image combines agent-produced layout specifications with a newly pretrained backbone that learns from text-rich data and explicit text-and-structure supervision. Our distinction concerns training the renderer and connecting it to structured layout specifications; prompt-strategy and cross-backbone comparisons examine how these components affect the outputs."
+      },
+      {
+        "id": "A12.SS0.SSS0.Px5",
+        "heading": "Evaluation of text-rich graphics.",
+        "level": 4,
+        "text": "GenEval [ 54 ] and T2I-CompBench [ 55 ] assess compositional alignment. MARIO-Eval [ 43 ] , AnyText-benchmark [ 44 ] , and LongTextBench [ 20 ] target visual text, while 7Bench [ 21 ] evaluates layout-guided generation and IA-Bench [ 12 ] tests image-agent capabilities. Our LLTB extends bilingual text rendering to longer passages, and RLA evaluates content, layout, and text quality jointly for complete systems responding to realistic graphic-design requests."
+      }
+    ]
+  },
+  "text": "MOSS-Image Technical Report Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: CC BY 4.0 arXiv:2610.23374v1 [cs.CV] 16 Oct 2026 1]MOSI Intelligence 2]SII 3]Fudan University 4]Shanghai Jiao Tong University \\checkdata [ GitHub] https://github.com/OpenMOSS/MOSS-Image \\checkdata [ Online Demo] https://huggingface.co/spaces/OpenMOSS-Team/MOSS-Image \\checkdata [ Hugging Face] https://huggingface.co/collections/OpenMOSS-Team/moss-image MOSS-Image Technical Report MOSI.AI Affiliation: [ Affiliation: [ Affiliation: [ Affiliation: [ Abstract Recent closed-source image generation systems can produce diverse visual content from simple compositions to information-dense graphics, yet open-weight text-to-image models still struggle with dense text and intricate layouts. To narrow this gap, we introduce MOSS-Image , an open generation system that combines high-fidelity visual synthesis with intent-aware composition. First, we pretrain a 5B single-stream diffusion transformer (DiT) from scratch with a carefully designed recipe, enabling bilingual long-form text rendering and precise layout control. Second, we develop an intention-aware agentic prompt enhancement (PE) module that translates diverse user requests into detailed content and layout specifications. Together, they enable MOSS-Image to generate text-rich and layout-coherent images. We further introduce LongLongTextBench ( LLTB ) for evaluating long-form English and Chinese text rendering, and RealLayoutArena ( RLA ) for end-to-end layout-rich generation. MOSS-Image achieves state-of-the-art performance among open-weight models on LLTB , with an average text coverage of 96.3%. On RLA , MOSS-Image ranks second in the end-to-end system comparison, while its backbone ranks first among generators evaluated with shared enhanced prompts. We will release the model, training recipe, and evaluation framework to support further research and promote the text-to-image community. \\authornote ∗ Full contributors can be found in the Contributors section. 1 Introduction Text-to-image (T2I) foundation models have made substantial progress in visual quality, semantic alignment, and text rendering in recent years. Proprietary systems, such as GPT Image 2 [ 1 ] , Seedream 5.0 Pro [ 2 ] , Qwen Image 3.0 Pro [ 3 ] , and Nano Banana Pro [ 4 ] have extended image generation from artistic creation to practical visual communication, such as infographics, user interfaces, and knowledge cards. Open-weight models, including Stable Diffusion [ 5 ] , SDXL [ 6 ] , FLUX [ 7 ] , Qwen-Image [ 8 ] , Z-Image [ 9 ] , ERNIE-Image [ 10 ] , and Boogu-Image [ 11 ] , have made these capabilities increasingly accessible, yet they still struggle with dense text and intricate layouts. For such graphics, a plausible overall appearance does not guarantee legible text, complete content, or coherent spatial organization (Figure 1 ). At the same time, a concise request may specify only a topic and format, leaving the actual content, information hierarchy, and spatial organization to be developed. We attribute this gap to two coupled challenges: rendering and specification . Rendering involves accurately reproducing long text and following spatial constraints. Specification involves translating a concise user request into content and layout instructions, with a level of detail appropriate to the request. Neither capability alone is sufficient: detailed specifications do not guarantee faithful rendering, while rendering ability alone does not resolve the content and design decisions left unspecified by the user. This calls for a system that connects intent-aware specification with faithful rendering, and for evaluation that assesses the resulting designs end to end. Figure 1 : Complex graphic generation from a concise user request. The examples illustrate differences in content, composition, and text rendering across generation configurations. MOSS-Image combines a pretrained diffusion transformer with prompt enhancement and optional explicit layout specifications. The proprietary output provides a visual reference; quantitative comparisons are reported in Section 5 . To address these issues, we present MOSS-Image , which pairs a text-and-layout-capable generator with an agent that enriches sparse requests and designs deliberate layouts. On the generation side, we pretrain a 5B single-stream diffusion transformer (DiT) from scratch for dense bilingual text and multi-element graphics. Its recipe combines broad data retention, multi-granularity and structure-aware textual supervision, and progressive-resolution training; crucially, natural-language descriptions and explicit layout specifications are learned through a single text-conditioning pathway, so the model can follow either form. On the composition side, we develop an intention-aware agentic prompt enhancement (PE) module that routes each request to task-specific guidance and retrieves knowledge and visual references as needed. Unlike such generator-agnostic agents [ 12 ] , which can only communicate through natural-language prompts, our enhancer turns brief requests into structured layouts that the DiT follows for precise composition control. To evaluate rendering, we introduce LongLongTextBench ( LLTB ) for long-form English and Chinese text, complementing LongTextBench and 7Bench. These benchmarks assess the execution of specified text or spatial constraints, but do not measure whether a complete system can select and organize content into a coherent design from a concise user request. We therefore introduce RealLayoutArena ( RLA ) to evaluate end-to-end generation of complex graphics from short design requests. Since a request can admit multiple valid designs, RLA uses blind pairwise human comparisons to jointly assess instruction following, content completeness, text readability, and visual organization. We further conduct prompt-strategy ablations and cross-backbone comparisons under shared enhanced prompts to disentangle the roles of specification and generator. On LLTB , MOSS-Image achieves state-of-the-art performance among open-weight models with a Mean-6 score of 96.3, surpassing Qwen Image 2512 (64.9) by 31.4 percentage points. On RLA , MOSS-Image achieves 1698.70 Elo, ranking second in the end-to-end comparison, behind GPT Image 2 and ahead of Seedream 5.0 Pro. With shared enhanced natural-language prompts, our backbone achieves the highest rating at 1807.34 Elo. Prompt comparisons further show that detailed specifications substantially improve human preference over concise requests. Our contributions are summarized as follows: • A pretrained foundation model for information-dense graphics. We develop a 5B diffusion transformer pretrained from scratch that demonstrates strong bilingual long-form text rendering and layout control through a unified text-conditioning interface. We detail its pretraining recipe, including broad data retention, multi-granularity and structure-aware textual supervision, and progressive-resolution training, providing a practical foundation for further research on complex graphic generation. • An agentic end-to-end generation system. We build MOSS-Image by pairing the foundation model with an intention-aware agentic prompt enhancer that translates diverse user requests, even those of fewer than ten words, into detailed, executable generation specifications. Through task-specific routing, knowledge and visual reference retrieval, and structured layout planning, the system produces graphics that remain faithful to user intent while adapting their information density to what each request calls for, from minimalist designs to information-rich layouts. • Benchmarks and systematic analysis. We introduce LLTB , which evaluates bilingual text rendering under extended text lengths, and RLA , which evaluates complex graphic generation under realistic user requests at the system level. MOSS-Image achieves state-of-the-art open-weight performance on LLTB (96.3 Mean-6), ranks second in the end-to-end RLA comparison, and attains the highest rating under shared enhanced prompts. Prompt comparisons further assess the effects of content and layout details. 2 System Overview MOSS-Image pairs a pretrained text-and-layout generator with an intent-aware prompt enhancer (Figure 2 ). The enhancer turns a concise request into a content and layout specification; the generator renders that specification into an image. Figure 2 : Overview of MOSS-Image. An intent-aware prompt enhancer constructs content and layout specifications from user requests, and a pretrained 5B single-stream DiT renders them into images through a shared text-conditioning interface. The right panel details the renderer’s joint self-attention and gated feed-forward components. Text and layout rendering. To render long text and follow spatial constraints, we pretrain a 5B single-stream DiT from scratch. Natural-language descriptions and structured layouts share one text-conditioning pathway. Broad data retention, multi-granularity and structure-aware supervision, and progressive training build this capability. Section 3 details the model pretraining recipe. Intent-aware prompt enhancement. To resolve the content and design choices left unspecified by a short request, an agent selects task-specific guidance, retrieves knowledge and visual references as needed, and constructs detailed generation specifications. Its layout output uses the same textual interface learned by the generator. Section 4 describes this inference-time module. 3 Pretraining Strategy We pretrain a general-purpose text-to-image foundation model and evaluate the resulting backbone on long-form text rendering and layout control. Figure 3 summarizes the recipe: corpus construction, multi-granularity and structure-aware textual supervision, and multi-stage DiT pretraining. This recipe develops the rendering module in Section 2 ; at inference, the enhancer in Section 4 supplies content and layout specifications through the same conditioning interface. Figure 3 : Pretraining recipe of MOSS-Image. (a) After deduplication and AI-image removal, we keep all images and caption their artifacts instead of filtering them out. (b) A ReLAION sample with its original caption, three recaptions, and layout JSON (excerpts); the JSON’s object and text boxes are drawn in orange and blue. Visible text, marked in blue, is transcribed verbatim, line breaks () included. (c) Maximum tokens per sample in each stage. Backbone architecture. The 5B single-stream DiT jointly processes text tokens from a frozen Qwen3.5-9B encoder and image latents from a frozen FLUX.2 VAE. Its blocks use joint self-attention, shared modulation [ 13 ] , and SiTU-GLU feed-forward layers [ 14 ] . For an input 𝐱 \\mathbf{x} , let 𝐠 = W g ​ 𝐱 \\mathbf{g}=W_{g}\\mathbf{x} and 𝐮 = W u ​ 𝐱 \\mathbf{u}=W_{u}\\mathbf{x} . With the smooth cap c β ​ ( v ) = β ​ tanh ⁡ ( v / β ) c_{\\beta}(v)=\\beta\\tanh(v/\\beta) , the SiTU-GLU layer computes FFN ⁡ ( 𝐱 ) = W o ​ [ c β g ​ ( 𝐠 ) ⊙ sigmoid ⁡ ( 𝐠 ) ⊙ c β u ​ ( 𝐮 ) ] , \\operatorname{FFN}(\\mathbf{x})=W_{o}\\!\\left[c_{\\beta_{g}}(\\mathbf{g})\\odot\\operatorname{sigmoid}(\\mathbf{g})\\odot c_{\\beta_{u}}(\\mathbf{u})\\right], (1) where W g , W u , W o W_{g},W_{u},W_{o} are learned projections, β g , β u > 0 \\beta_{g},\\beta_{u}>0 control saturation, and ⊙ \\odot denotes elementwise multiplication. For 4D RoPE, each query or key head is partitioned as 𝐳 = [ 𝐳 r ; 𝐳 t ; 𝐳 w ; 𝐳 h ] \\mathbf{z}=[\\mathbf{z}_{r};\\mathbf{z}_{t};\\mathbf{z}_{w};\\mathbf{z}_{h}] and assigned coordinates 𝐩 = ( r , t , w , h ) \\mathbf{p}=(r,t,w,h) for reference index, sequence position, width, and height. We apply independent rotations to the four subspaces: RoPE 4 ​ D ⁡ ( 𝐳 , 𝐩 ) \\displaystyle\\operatorname{RoPE}_{4D}(\\mathbf{z},\\mathbf{p}) = [ R r ​ ( r ) ​ 𝐳 r ; R t ​ ( t ) ​ 𝐳 t ; R w ​ ( w ) ​ 𝐳 w ; R h ​ ( h ) ​ 𝐳 h ] , \\displaystyle=[R_{r}(r)\\mathbf{z}_{r};R_{t}(t)\\mathbf{z}_{t};R_{w}(w)\\mathbf{z}_{w};R_{h}(h)\\mathbf{z}_{h}], (2) R a ​ ( p a ) \\displaystyle R_{a}(p_{a}) = diag j ⁡ ( cos ⁡ ( p a ​ ω a , j ) − sin ⁡ ( p a ​ ω a , j ) sin ⁡ ( p a ​ ω a , j ) cos ⁡ ( p a ​ ω a , j ) ) . \\displaystyle=\\operatorname{diag}_{j}\\!\\begin{pmatrix}\\cos(p_{a}\\omega_{a,j})&-\\sin(p_{a}\\omega_{a,j})\\\\ \\sin(p_{a}\\omega_{a,j})&\\cos(p_{a}\\omega_{a,j})\\end{pmatrix}. Here a ∈ { r , t , w , h } a\\in\\{r,t,w,h\\} , j j indexes feature pairs, ω a , j \\omega_{a,j} is the corresponding rotary frequency, and diag j \\operatorname{diag}_{j} assembles the rotation blocks. The coordinate t t is a positional index, distinct from the diffusion timestep. Without reference inputs, r = 0 r=0 gives R r ​ ( 0 ) = I R_{r}(0)=I , leaving the reference subspace unrotated and yielding partial RoPE. Appendix A.1 gives the model configuration. 3.1 Pretraining Corpus Construction We construct the corpus from ReLAION [ 15 ] , OmniCorpus [ 16 ] , DataComp [ 17 ] , and additional public image-text datasets. Following source-specific build preprocessing, corpus preparation uses SSCD-based deduplication [ 18 ] and removal of AI-generated images using an in-house detector, reducing the corpus from approximately 5 billion to 3 billion images. We mix data sources in their original proportions. No additional data filtering. At this subsequent corpus-preparation stage, we apply no further filtering beyond deduplication and AI-image removal; this does not exclude quality filters already applied during source builds, such as the ReLAION NSFW and watermark checks. This is a deliberate pretraining choice, supported by preliminary filtering experiments, to retain broad visual coverage. Residual attributes such as watermarks, blurry faces, and compression artifacts are incorporated into the textual supervision rather than used as exclusion criteria. Appendix B provides dataset details, and Appendix B.2 describes the preliminary experiments. Annotate rather than filter. We advocate preserving real-world data distributions by annotating undesirable attributes rather than filtering out images. 3.2 Multi-granularity and Structure-aware Supervision Descriptions at multiple granularities. We caption images with gemma4 [ 19 ] at different semantic granularities: a short sentence, a medium paragraph, or a detailed description of composition, subjects, scene attributes, and visible text. These variants are defined by content rather than fixed token budgets. Training samples among available descriptions using domain-specific policies. Appendix C.1 details generation recipes, length statistics, and conditional sampling. Explicit text and structure. For a subset of images, we additionally construct structured annotations containing global descriptions and localized elements with bounding boxes, categories, and, where applicable, transcribed text and typography attributes. The documented annotation recipes validate JSON structure and coordinate constraints. During training, annotations are geometrically aligned and optional fields undergo stochastic dropout before serialization through the text-conditioning interface in Section 2 . Appendix C.2 describes annotation checks, and Appendix C.3 details the schemas and preprocessing policies. Preserving line structure. We preserve line breaks in annotated text to match its arrangement in the image. This is important because accurate transcription specifies which words appear, while line breaks additionally encode how they are organized across lines. Aligning the annotation with the visible line structure provides explicit supervision for multi-line text rendering. Section 6 examines this design through a case study. Text line breaks are also a form of layout. 3.3 Pretraining Schedule and Optimization Progressive training. Training increases image resolution and text-context capacity across three stages (Table ). The final stage preserves aspect ratio, aligns image dimensions to multiples of 16, and caps target image area at 1024 2 1024^{2} pixels. We concatenate the condition fields, apply the Qwen chat template, and tokenize with a final-stage limit of 4096 text tokens. Caption sampling ratios. We mix original captions with multi-granularity recaptions. In the standard caption branch, original captions and recaptions are sampled at a 20:80 ratio when both are available, with uniform selection among valid recaption variants (1:1:1 for short/medium/long when all three are present). Missing alternatives fall back to available descriptions. We additionally annotate a selected subset of high-quality data with layout descriptions, serialized as bbox JSON, to provide explicit text and spatial supervision. These structured annotations are sampled according to domain-specific policies and annotation availability. Appendix C.1 provides the details. Detailed annotations raise the performance ceiling; diverse annotations preserve generalization. RoPE design. Preliminary ablations (Appendix D ) show similar overall image-generation performance across RoPE coordinate assignments, with trade-offs across metrics. We retain a dedicated reference-index axis r r to allow future extensions to reference-conditioned generation. In the current setting without reference inputs, all tokens use r = 0 r=0 , so its associated feature subspace remains unrotated, while the other axes encode sequence and spatial positions. This supports more references without changing the positional encoding. Muon and convergence efficiency. We choose hybrid Muon–AdamW for its sustained convergence advantage, applying Muon to eligible matrices and AdamW to the remaining parameters throughout pretraining. Our 1B ablation shows lower denoising loss in both early and late training, reaching losses of 0.41 and 0.403 with 33.2% and 28.6% fewer steps than AdamW, respectively. Appendix E reports the convergence curves and measurement protocol; final training settings are given in Appendix A.2 . 4 Agentic Prompt Enhancement A concise user request leaves much of the literal content and visual organization unspecified. Our agentic prompt enhancer resolves these choices before rendering, turning user intent into content and layout conditions that the generator can execute. Our Layout PE uses GPT-6 with modular task instructions at inference time. Intent-specific task routing. GPT-6 selects task modules according to the requested medium. A shared core defines constraints, the JSON interface, and validation, while task-specific modules supply content and design guidance. Modules can be extended or customized without changing the interface or pretrained DiT. Knowledge and visual context. The agent retrieves relevant knowledge and inspects visual references as needed to develop the requested content and composition. It adapts the specification to the target canvas. Reference images guide this planning process without directly conditioning the DiT. Executable layout planning. The enhancer specifies literal text, elements, bounding boxes, typography, and spatial relationships in JSON. It checks user constraints, completeness, layout consistency, and text fit before passing the specification to the shared text-conditioning interface in Section 2 . This connects intent-level planning to the renderer’s text and spatial control. Sections 5.4.1 and 5.4.2 compare prompts and backbones; Appendix F covers implementation and skill rules. 5 Experiments 5.1 Experimental Setup and Benchmarks We separate evaluation of the pretrained generator from evaluation of complete generation systems. LongTextBench [ 20 ] and LLTB measure bilingual text rendering, while 7Bench [ 21 ] measures layout control. These evaluations use the MOSS-Image backbone without our agentic prompt enhancer. RLA evaluates complete systems on concise design requests. Baseline scores on LongTextBench are collected from public reports, whereas all results on 7Bench, LLTB , and RLA are obtained through our own evaluation. Benchmark construction, generation settings, and evaluation protocols are specified in Appendix G . LongTextBench saturation. The collected LongTextBench results cluster between 96.05 and 98.85 overall (Appendix G.4 ). We therefore consider LongTextBench close to saturation for current strong models under its text-coverage metric. Its targets average only 120.3 characters (Table ); near-ceiling scores on these relatively short targets offer limited discrimination of sustained long-text rendering ability. We retain the detailed results in the appendix and emphasize longer text conditions in our main evaluation. LongLongTextBench . We construct 240 literary-text rendering tasks, with 120 each in English and Chinese and three body-length bins. Table compares the two benchmarks: LLTB averages 1,339.8 characters per target, approximately 11.1 × 11.1\\times LongTextBench, and contains 321,545 characters in total, approximately 8.4 × 8.4\\times as many. Its shortest target (444 characters) already approaches LongTextBench’s longest (482), shifting the evaluation toward dense, page-length text. We reuse the LongTextBench OCR and word/character multiset-recall metric. Coverage is computed within each language–length group and averaged equally across the six groups (Mean-6). Construction and scoring details are given in Appendix G.1 . RealLayoutArena. We construct 61 tasks from manually selected design references: 20 posters, 20 infographics, and 21 user interfaces. Raters compare two outputs for the same short request, with model names hidden, considering instruction following, rendering quality, and spatial organization. We fit Bradley–Terry ratings on an Elo scale with asymptotic 95% confidence intervals; ties and both bad count as half-wins. Appendix G.2 details the protocol. 5.2 Base DiT Evaluation We first evaluate capabilities acquired by the pretrained backbone independently of our prompt enhancement pipeline. These results characterize the resulting model; they do not isolate the causal contribution of individual pretraining choices. Text rendering. We emphasize LLTB to assess rendering under substantially longer text conditions (Table ); supplementary LongTextBench results are reported in Appendix G.4 . MOSS-Image obtains 96.3 Mean-6 on LLTB , the highest score among the open-weight models listed in the table. Its scores on the longest English and Chinese conditions are 97.1 and 92.4, respectively. Text recall is high overall but lower for the longest Chinese texts. Layout control. Table reports mean IoU over detected target objects ( mIoU det \\mathrm{mIoU}_{\\mathrm{det}} ) and Layout AUC. MOSS-Image achieves 0.88 and 0.70, respectively, compared with 0.44 and 0.20 for Ideogram 4, leading all evaluated models on both metrics. These results demonstrate precise object placement through the text-conditioning interface. Appendix G.4 details the evaluation protocol, filtered outputs, detection rates, and results including undetected objects. 5.3 End-to-End Evaluation on RLA We compare nine end-to-end systems on the same short design requests.Figure 4 4 reports the results. Appendix G.2 describes the evaluation protocol and configurations. Figure 4 : Human preference on RLA : (a) generators under shared enhanced natural-language prompts; (b) prompt strategies; and (c) end-to-end systems. Bars show Bradley–Terry ratings on an Elo scale with asymptotic 95% confidence intervals. Ratings are fitted separately for the three comparison groups. End-to-end results. MOSS-Image achieves 1698.70 Elo (95% CI: 1655.96–1741.43), ranking second behind GPT Image 2 (1844.35) and ahead of Seedream 5.0 Pro (1661.16), Qwen Image 3.0 Pro with PE (1614.84), and Nano Banana Pro (1590.19). These results demonstrate competitive end-to-end performance on complex graphic-design requests. Content quality and rendering fidelity. Arena judgments jointly assess instruction following, content completeness, text readability, and visual organization. This evaluation captures whether a system can turn a concise request into a coherent, usable design. Supplementary GPT-6 rubric-based evaluations are reported in Appendix H . 5.4 Ablation Studies We examine prompt configurations for MOSS-Image and compare generators under shared enhanced natural-language prompts. 5.4.1 Prompt Strategies Figure 4 4 compares five strategies. Short and Detailed use original descriptions; Direct expansion expands short requests without agentic routing or reference retrieval; Natural and JSON layout express Layout PE plans as prose and JSON. See Appendix G.3 for generation details. Detailed prompts and direct expansion obtain 1509.21 and 1541.45 Elo, respectively, compared with 1081.70 for short requests. These results demonstrate the value of supplying explicit content and design instructions. Among the five configurations, JSON layout achieves the highest rating (1622.87), while the natural-language configuration scores 1506.20. 5.4.2 Backbones under Shared Enhanced Natural Prompts Figure 4 4 compares nine generators using the same natural-language rewrite of each Layout PE specification, without additional prompt enhancement. MOSS-Image achieves the highest rating at 1807.34 Elo (95% CI: 1727.44–1887.24), followed by ERNIE Image (1748.51) and SenseNova-U1 (1689.23). These results show the backbone follows detailed text-and-layout instructions. 6 Case Study Layout-Guided Zero-Shot Modification. Modifying the layout prompt enables targeted content replacement and element rearrangement while retaining the overall design. These changes are achieved through text-to-image regeneration without conditioning on the original image or additional training. Qualitative examples are provided in Appendix I . Line-Break Alignment in Text Annotations. We observe that prompts with explicit line breaks help the model establish the character content of each line earlier and more readily during denoising, leading to better final text rendering. Appendix J provides a qualitative comparison. Bounding-Box Coordinate Representations. We observe that zero-centered absolute bounding-box coordinates generalize better to resolutions unseen during training than relative coordinates normalized to [ 0 , 1000 ] [0,1000] . Appendix K provides a qualitative comparison. 7 Related Works A detailed discussion of related work is provided in Appendix L . 8 Limitations The current MOSS-Image backbone supports text-to-image generation but does not directly condition on reference images or support image editing. Extending the model to image-conditioned generation and iterative design refinement would broaden its use in creative workflows; these capabilities remain future work under our current computational budget. The prompt enhancer relies on external language models, whose limitations in aesthetic judgment, reference interpretation, and factual errors can reduce specification quality despite faithful rendering. 9 Conclusion We present MOSS-Image , an open complex graphic generation system built around a 5B diffusion transformer pretrained from scratch. Its training recipe combines broad image-text data, multi-granularity and structure-aware supervision, and multi-stage resolution training. The resulting backbone supports strong bilingual long-form text rendering and layout control, while an agentic prompt enhancer translates concise requests into detailed generation specifications. LLTB and RLA evaluate rendering capability and complete-system performance, complemented by prompt-strategy and shared-prompt cross-backbone comparisons. MOSS-Image achieves state-of-the-art performance among open-weight models on LLTB with a Mean-6 score of 96.3. On RLA , MOSS-Image ranks second in the end-to-end comparison, while its backbone achieves the highest rating under shared enhanced natural-language prompts. The prompt comparisons show that supplying detailed content and design instructions improves human preference over concise requests. Together, these results support combining a capable renderer with explicit generation specifications for complex graphics. Contributors Project Lead Zhe Xu ∗ , Donghua Yu ∗ , Qinyuan Cheng, Zhaoye Fei \\authornote ∗ Equal Contribution. Core Contributors Zhe Xu, Donghua Yu, Tengyue Zhang, Yanbing Zhang Contributors Ying Zhu, Yinze Luo, Qianyi Wu, Zhiyu Zhang, Wenbo Zhang, Yiyang Zhang, Ruixiao Li, Yiwei Zhao, Qian Chen, Haowei Zhang, Tianyi Liang, Chenghao Liu, Qi Luo, Zhijie Cao, Xiangyu Peng, Yang Gao, Shimin Li Advisor Xie Chen, Xipeng Qiu References [1] OpenAI. GPT Image 2. https://developers.openai.com/api/docs/models/gpt-image-2 , 2026. [2] ByteDance Seed Team. Seedream 5.0 Pro. https://seed.bytedance.com/en/seedream5_0_pro , 2026. [3] Qwen Team. Qwen Image 3.0. https://qwen.ai/blog?id=qwen-image-3.0 , 2026a. [4] Google DeepMind. Nano Banana Pro. https://deepmind.google/models/gemini-image/pro/ , 2025. [5] Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Björn Ommer. High-resolution image synthesis with latent diffusion models, 2021. [6] Dustin Podell, Zion English, Kyle Lacey, Andreas Blattmann, Tim Dockhorn, Jonas Müller, Joe Penna, and Robin Rombach. Sdxl: Improving latent diffusion models for high-resolution image synthesis. In International Conference on Learning Representations , volume 2024, pages 1862–1874, 2024. [7] Black Forest Labs. FLUX.2: Frontier Visual Intelligence. https://bfl.ai/blog/flux-2 , 2025. [8] Chenfei Wu, Jiahao Li, Jingren Zhou, Junyang Lin, Kaiyuan Gao, Kun Yan, Sheng-ming Yin, Shuai Bai, Xiao Xu, Yilei Chen, et al. Qwen-Image technical report. arXiv preprint arXiv:2508.02324 , 2025. [9] Huanqia Cai, Sihan Cao, Ruoyi Du, Peng Gao, Aiming Hao, Steven Hoi, Zhaohui Hou, Shijie Huang, Dengyang Jiang, Yuming Jiang, et al. Z-Image: An efficient image generation foundation model with single-stream diffusion transformer. arXiv preprint arXiv:2511.22699 , 2025. [10] Jiaxiang Liu, Zhida Feng, Pengyu Zou, Zhenyu Qian, Tianrui Zhu, Jun Xia, Yuehu Dong, Yanzheng Lin, Honglin Xiong, Anqi Chen, et al. ERNIE-Image technical report. arXiv preprint arXiv:2605.25347 , 2026. [11] Guoxuan Chen, Chufeng Xiao, Haoran Yang, Siyue Xie, Binxiao Huang, Ming Zhang, Cheuk Him Chau, Xinyu Fu, Yingzhao Lian, Tom S. Y. Li, et al. Boogu-Image-0.1: Boosting open agentic multimodal generation via understanding under a minimal budget. arXiv preprint arXiv:2607.13125 , 2026. [12] Zekai Zhang, Jiahao Li, Jie Zhang, Kaiyuan Gao, Kun Yan, Lihan Jiang, Ningyuan Tang, Shengming Yin, Tianhe Wu, Xiaoyue Chen, et al. Qwen-Image-Agent: Bridging the context gap in real-world image generation. arXiv preprint arXiv:2606.26907 , 2026. [13] Black Forest Labs. FLUX. https://github.com/black-forest-labs/flux , 2024. [14] Kimi Team, Tongtong Bai, Yifan Bai, Yiping Bao, Jianfeng Cai, Xinyuan Cai, Peizhou Cao, Yuxuan Cao, Ziwei Chai, Y Charles, et al. Kimi K3: Open frontier intelligence. arXiv preprint arXiv:2607.24653 , 2026. [15] LAION. Releasing re-laion-5b: transparent iteration on laion-5b with additional safety fixes. https://laion.ai/blog/relaion-5b/ , 2024. Accessed: 30 aug, 2024. [16] Qingyun Li, Zhe Chen, Weiyun Wang, Wenhai Wang, Shenglong Ye, Zhenjiang Jin, et al. Omnicorpus: A unified multimodal corpus of 10 billion-level images interleaved with text. In The Thirteenth International Conference on Learning Representations , 2025. [17] Samir Yitzhak Gadre, Gabriel Ilharco, Alex Fang, Jonathan Hayase, Georgios Smyrnis, Thao Nguyen, Ryan Marten, Mitchell Wortsman, Dhruba Ghosh, Jieyu Zhang, et al. Datacomp: In search of the next generation of multimodal datasets. Advances in Neural Information Processing Systems , 36:27092–27112, 2023. [18] Ed Pizzi, Sreya Dutta Roy, Sugosh Nagavara Ravindra, Priya Goyal, and Matthijs Douze. A self-supervised descriptor for image copy detection. In 2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 14512–14522. IEEE, 2022. [19] Gemma Team, Sherif El Abd, Vaibhav Aggarwal, Robin Algayres, Alek Andreev, Olivier Bachem, Ian Ballantyne, Cormac Brick, Victor Cărbune, Michelle Casbon, et al. Gemma 4 technical report. arXiv preprint arXiv:2607.02770 , 2026. [20] Zigang Geng, Yibing Wang, Yeyao Ma, Chen Li, Yongming Rao, Shuyang Gu, Zhao Zhong, Qinglin Lu, Han Hu, Xiaosong Zhang, Linus, Di Wang, and Jie Jiang. X-Omni: Reinforcement learning makes discrete autoregressive image generative models great again. arXiv preprint arXiv:2507.22058 , 2025. URL https://arxiv.org/abs/2507.22058 . [21] Elena Izzo, Luca Parolari, Davide Vezzaro, and Lamberto Ballan. 7Bench: A comprehensive benchmark for layout-guided text-to-image models. In International Conference on Image Analysis and Processing , pages 481–493. Springer, 2025. [22] Yunfei Xie, Ce Zhou, Lang Gao, Juncheng Wu, Xianhang Li, Hong-Yu Zhou, Sheng Liu, Lei Xing, James Zou, Cihang Xie, and Yuyin Zhou. Medtrinity-25m: A large-scale multimodal dataset with multigranular annotations for medicine, 2024. URL https://arxiv.org/abs/2408.02900 . [23] Fengxiang Wang, Hongzhen Wang, Di Wang, Zonghao Guo, Zhenyu Zhong, Long Lan, Wenjing Yang, and Jing Zhang. Harnessing massive satellite imagery with efficient masked image modeling. arXiv preprint arXiv:2406.11933 , 2025a. [24] Tianyu Zhu, Myong Chol Jung, and Jesse Clark. Generalized contrastive learning for multi-modal retrieval and ranking, 2024. [25] Chenyang Liu, Keyan Chen, Rui Zhao, Zhengxia Zou, and Zhenwei Shi. Text2earth: Unlocking text-driven remote sensing image generation with a global-scale dataset and a foundation model. IEEE Geoscience and Remote Sensing Magazine , pages 2–23, 2025. 10.1109/MGRS.2025.3560455 . [26] Ollin Boer Bohan. Megalith-10M. https://huggingface.co/datasets/madebyollin/megalith-10m , 2024. [27] Aaron Gokaslan, A Feder Cooper, Jasmine Collins, Landan Seguin, Austin Jacobson, Mihir Patel, Jonathan Frankle, Cory Stephenson, and Volodymyr Kuleshov. Commoncanvas: An open diffusion model trained with creative-commons images. arXiv preprint arXiv:2310.16825 , 2023. [28] Alex Jinpeng Wang, Dongxing Mao, Jiawei Zhang, Weiming Han, Zhuobai Dong, Linjie Li, Yiqi Lin, Zhengyuan Yang, Libo Qin, Fuwei Zhang, et al. Textatlas5m: A large-scale dataset for dense text image generation. arXiv preprint arXiv:2502.07870 , 2025b. [29] Dawei Dai, Xu Long, Li Yutang, Zhang Yuanhui, and Shuyin Xia. Humanvlm: Foundation for human-scene vision-language model, 2024. URL https://arxiv.org/abs/2411.03034 . [30] chestnutlzj. t-e-x-t-re-c-a-p. https://huggingface.co/datasets/chestnutlzj/t-e-x-t-re-c-a-p , 2026. Hugging Face dataset repository. Accessed September 24, 2026. [31] Hyeonwoo Noh, Andre Araujo, Jack Sim, Tobias Weyand, and Bohyung Han. Large-scale image retrieval with attentive deep local features. In Proceedings of the IEEE International Conference on Computer Vision , 2017. [32] Babak Saleh and Ahmed Elgammal. Large-scale classification of fine-art paintings: Learning the right metric on the right feature. arXiv preprint arXiv:1505.00855 , 2015. [33] Bolei Zhou, Agata Lapedriza, Aditya Khosla, Aude Oliva, and Antonio Torralba. Places: A 10 million image database for scene recognition. IEEE Transactions on Pattern Analysis and Machine Intelligence , 2017. [34] Sixiang Chen, Jianyu Lai, Jialin Gao, Tian Ye, Haoyu Chen, Hengyu Shi, Shitong Shao, Yunlong Lin, Song Fei, Zhaohu Xing, Yeying Jin, Junfeng Luo, Xiaoming Wei, and Lei Zhu. Postercraft: Rethinking high-quality aesthetic poster generation in a unified framework. arXiv preprint arXiv:2506.10741 , 2025. [35] Jiawei Yang, Zhengyang Geng, Xuan Ju, Yonglong Tian, and Yue Wang. Representation Fréchet loss for visual generation. arXiv preprint arXiv:2604.28190 , 2026. [36] Ideogram AI. Ideogram 4. https://ideogram.ai/blog/ideogram-4.0/ , 2026. [37] William Peebles and Saining Xie. Scalable Diffusion Models with Transformers. arXiv preprint arXiv:2212.09748 , 2022. URL https://arxiv.org/abs/2212.09748 . [38] Patrick Esser, Sumith Kulal, Andreas Blattmann, Rahim Entezari, Jonas Müller, Harry Saini, Yam Levi, Dominik Lorenz, Axel Sauer, Frederic Boesel, Dustin Podell, Tim Dockhorn, Zion English, Kyle Lacey, Alex Goodwin, Yannik Marek, and Robin Rombach. Scaling rectified flow transformers for high-resolution image synthesis. arXiv preprint arXiv:2403.03206 , 2024. URL https://arxiv.org/abs/2403.03206 . [39] Qwen Team. Qwen-Image-2.1: Compact, efficient, and unified image creation, 2026b. URL https://qwen.ai/blog?id=qwen-image-2.1 . [40] Haiwen Diao, Jiahao Wang, Chenjing Ding, Hanming Deng, Jiangnan Chen, Ruixi Zhang, Ruohui Wang, Wenwen Tong, Xiangyu Fan, Yubo Wang, et al. SenseNova-U1.5: Towards native unified visual intelligence. arXiv preprint arXiv:2609.11929 , 2026. [41] Junsong Chen, Jincheng Yu, Chongjian Ge, Lewei Yao, Enze Xie, Yue Wu, Zhongdao Wang, James Kwok, Ping Luo, Huchuan Lu, and Zhenguo Li. PixArt- α \\alpha : Fast training of diffusion transformer for photorealistic text-to-image synthesis. arXiv preprint arXiv:2310.00426 , 2023a. URL https://arxiv.org/abs/2310.00426 . [42] Yukang Yang, Dongnan Gui, Yuhui Yuan, Weicong Liang, Haisong Ding, Han Hu, and Kai Chen. GlyphControl: Glyph conditional control for visual text generation. arXiv preprint arXiv:2305.18259 , 2023. URL https://arxiv.org/abs/2305.18259 . [43] Jingye Chen, Yupan Huang, Tengchao Lv, Lei Cui, Qifeng Chen, and Furu Wei. TextDiffuser: Diffusion models as text painters. arXiv preprint arXiv:2305.10855 , 2023b. URL https://arxiv.org/abs/2305.10855 . [44] Yuxiang Tuo, Wangmeng Xiang, Jun-Yan He, Yifeng Geng, and Xuansong Xie. AnyText: Multilingual visual text generation and editing. arXiv preprint arXiv:2311.03054 , 2023. URL https://arxiv.org/abs/2311.03054 . [45] Yuxiang Tuo, Yifeng Geng, and Liefeng Bo. AnyText2: Visual text generation and editing with customizable attributes. arXiv preprint arXiv:2411.15245 , 2024. URL https://arxiv.org/abs/2411.15245 . [46] Jingye Chen, Yupan Huang, Tengchao Lv, Lei Cui, Qifeng Chen, and Furu Wei. TextDiffuser-2: Unleashing the power of language models for text rendering. arXiv preprint arXiv:2311.16465 , 2023c. URL https://arxiv.org/abs/2311.16465 . [47] Lvmin Zhang, Anyi Rao, and Maneesh Agrawala. Adding conditional control to text-to-image diffusion models. arXiv preprint arXiv:2302.05543 , 2023. URL https://arxiv.org/abs/2302.05543 . [48] Chong Mou, Xintao Wang, Liangbin Xie, Yanze Wu, Jian Zhang, Zhongang Qi, Ying Shan, and Xiaohu Qie. T2I-Adapter: Learning adapters to dig out more controllable ability for text-to-image diffusion models. arXiv preprint arXiv:2302.08453 , 2023. URL https://arxiv.org/abs/2302.08453 . [49] Yuheng Li, Haotian Liu, Qingyang Wu, Fangzhou Mu, Jianwei Yang, Jianfeng Gao, Chunyuan Li, and Yong Jae Lee. GLIGEN: Open-set grounded text-to-image generation. arXiv preprint arXiv:2301.07093 , 2023. URL https://arxiv.org/abs/2301.07093 . [50] Guangcong Zheng, Xianpan Zhou, Xuewei Li, Zhongang Qi, Ying Shan, and Xi Li. LayoutDiffusion: Controllable diffusion model for layout-to-image generation. arXiv preprint arXiv:2303.17189 , 2023. URL https://arxiv.org/abs/2303.17189 . [51] Jinheng Xie, Yuexiang Li, Yawen Huang, Haozhe Liu, Wentian Zhang, Yefeng Zheng, and Mike Zheng Shou. BoxDiff: Text-to-image synthesis with training-free box-constrained diffusion. arXiv preprint arXiv:2307.10816 , 2023. URL https://arxiv.org/abs/2307.10816 . [52] Eyal Gutflaish, Eliran Kachlon, Hezi Zisman, Tal Hacham, Nimrod Sarid, Alexander Visheratin, Saar Huberman, Gal Davidi, Guy Bukchin, Kfir Goldberg, et al. Generating an image from 1,000 words: Enhancing text-to-image with structured captions. arXiv preprint arXiv:2511.06876 , 2025. [53] Yaru Hao, Zewen Chi, Li Dong, and Furu Wei. Optimizing prompts for text-to-image generation. arXiv preprint arXiv:2212.09611 , 2022. URL https://arxiv.org/abs/2212.09611 . [54] Dhruba Ghosh, Hanna Hajishirzi, and Ludwig Schmidt. GenEval: An object-focused framework for evaluating text-to-image alignment. arXiv ",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: CC BY 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "https://github.com/OpenMOSS/MOSS-Image",
+      "url": "https://github.com/OpenMOSS/MOSS-Image"
+    },
+    {
+      "text": "https://huggingface.co/spaces/OpenMOSS-Team/MOSS-Image",
+      "url": "https://huggingface.co/spaces/OpenMOSS-Team/MOSS-Image"
+    },
+    {
+      "text": "https://huggingface.co/collections/OpenMOSS-Team/moss-image",
+      "url": "https://huggingface.co/collections/OpenMOSS-Team/moss-image"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2610.23374v1#bib.bib1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2610.23374v1#bib.bib2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2610.23374v1#bib.bib3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2610.23374v1#bib.bib4"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2610.23374v1#bib.bib5"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2610.23374v1#bib.bib6"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2610.23374v1#bib.bib7"
+    },
+    {
+      "text": "8",
+      "url": "https://arxiv.org/html/2610.23374v1#bib.bib8"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2610.23374v1#bib.bib9"
+    },
+    {
+      "text": "10",
+      "url": "https://arxiv.org/html/2610.23374v1#bib.bib10"
+    },
+    {
+      "text": "11",
+      "url": "https://arxiv.org/html/2610.23374v1#bib.bib11"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2610.23374v1#S1.F1"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2610.23374v1#S5"
+    },
+    {
+      "text": "12",
+      "url": "https://arxiv.org/html/2610.23374v1#bib.bib12"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2610.23374v1#S2.F2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2610.23374v1#S3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2610.23374v1#S4"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2610.23374v1#S3.F3"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2610.23374v1#S2.SS0.SSS0.Px1"
+    },
+    {
+      "text": "13",
+      "url": "https://arxiv.org/html/2610.23374v1#bib.bib13"
+    },
+    {
+      "text": "14",
+      "url": "https://arxiv.org/html/2610.23374v1#bib.bib14"
+    },
+    {
+      "text": "A.1",
+      "url": "https://arxiv.org/html/2610.23374v1#A1.SS1"
+    },
+    {
+      "text": "15",
+      "url": "https://arxiv.org/html/2610.23374v1#bib.bib15"
+    },
+    {
+      "text": "16",
+      "url": "https://arxiv.org/html/2610.23374v1#bib.bib16"
+    },
+    {
+      "text": "17",
+      "url": "https://arxiv.org/html/2610.23374v1#bib.bib17"
+    },
+    {
+      "text": "18",
+      "url": "https://arxiv.org/html/2610.23374v1#bib.bib18"
+    },
+    {
+      "text": "B",
+      "url": "https://arxiv.org/html/2610.23374v1#A2"
+    },
+    {
+      "text": "B.2",
+      "url": "https://arxiv.org/html/2610.23374v1#A2.SS2"
+    },
+    {
+      "text": "19",
+      "url": "https://arxiv.org/html/2610.23374v1#bib.bib19"
+    },
+    {
+      "text": "C.1",
+      "url": "https://arxiv.org/html/2610.23374v1#A3.SS1"
+    },
+    {
+      "text": "C.2",
+      "url": "https://arxiv.org/html/2610.23374v1#A3.SS2"
+    },
+    {
+      "text": "C.3",
+      "url": "https://arxiv.org/html/2610.23374v1#A3.SS3"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2610.23374v1#S6.SS0.SSS0.Px2"
+    },
+    {
+      "text": "D",
+      "url": "https://arxiv.org/html/2610.23374v1#A4"
+    },
+    {
+      "text": "E",
+      "url": "https://arxiv.org/html/2610.23374v1#A5"
+    },
+    {
+      "text": "A.2",
+      "url": "https://arxiv.org/html/2610.23374v1#A1.SS2"
+    },
+    {
+      "text": "5.4.1",
+      "url": "https://arxiv.org/html/2610.23374v1#S5.SS4.SSS1"
+    },
+    {
+      "text": "5.4.2",
+      "url": "https://arxiv.org/html/2610.23374v1#S5.SS4.SSS2"
+    },
+    {
+      "text": "F",
+      "url": "https://arxiv.org/html/2610.23374v1#A6"
+    },
+    {
+      "text": "20",
+      "url": "https://arxiv.org/html/2610.23374v1#bib.bib20"
+    },
+    {
+      "text": "21",
+      "url": "https://arxiv.org/html/2610.23374v1#bib.bib21"
+    },
+    {
+      "text": "G",
+      "url": "https://arxiv.org/html/2610.23374v1#A7"
+    },
+    {
+      "text": "G.4",
+      "url": "https://arxiv.org/html/2610.23374v1#A7.SS4"
+    },
+    {
+      "text": "G.1",
+      "url": "https://arxiv.org/html/2610.23374v1#A7.SS1"
+    },
+    {
+      "text": "G.2",
+      "url": "https://arxiv.org/html/2610.23374v1#A7.SS2"
+    },
+    {
+      "text": "G.4",
+      "url": "https://arxiv.org/html/2610.23374v1#A7.SS4.SSS0.Px2"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2610.23374v1#S5.F4"
+    },
+    {
+      "text": "H",
+      "url": "https://arxiv.org/html/2610.23374v1#A8"
+    },
+    {
+      "text": "G.3",
+      "url": "https://arxiv.org/html/2610.23374v1#A7.SS3"
+    },
+    {
+      "text": "I",
+      "url": "https://arxiv.org/html/2610.23374v1#A9"
+    },
+    {
+      "text": "J",
+      "url": "https://arxiv.org/html/2610.23374v1#A10"
+    },
+    {
+      "text": "K",
+      "url": "https://arxiv.org/html/2610.23374v1#A11"
+    },
+    {
+      "text": "L",
+      "url": "https://arxiv.org/html/2610.23374v1#A12"
+    },
+    {
+      "text": "https://developers.openai.com/api/docs/models/gpt-image-2",
+      "url": "https://developers.openai.com/api/docs/models/gpt-image-2"
+    }
+  ],
+  "matching_link_count": 145,
+  "links_truncated": true,
+  "invalid_links": []
+}

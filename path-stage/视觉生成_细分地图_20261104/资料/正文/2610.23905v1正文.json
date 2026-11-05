@@ -1,0 +1,288 @@
+{
+  "url": "https://arxiv.org/html/2610.23905v1",
+  "final_url": "https://arxiv.org/html/2610.23905v1",
+  "status": 200,
+  "title": "Instance-Specific Classifier-Free Guidance for Text-to-Image Diffusion/Flow-Based Editing",
+  "metadata": {},
+  "paper": {
+    "title": "Instance-Specific Classifier-Free Guidance for Text-to-Image Diffusion/Flow-Based Editing",
+    "title_warning": null,
+    "abstract": "Abstract In recent years, a variety of prompt-based image editing methods have been developed based on text-to-image (T2I) diffusion/flow models.\nImage editing introduces an inherent trade-off between adhering to the original source image and realizing the change specified by the target prompt, which are typically measured by the LPIPS and CLIP-T metrics, respectively.\nIntuitively, this trade-off can be controlled by the classifier-free guidance (CFG) scale.\nMost existing editing methods, though, use a fixed CFG scale, ignoring that different edits require varying levels of modification.\nIn this paper, we first explore the potential benefits of using an instance-specific CFG\nby exhaustively re-running prominent editing methods with a wide range of CFG scale values on benchmark datasets.\nWe show that instance-specific setting can significantly improve LPIPS without compromising CLIP-T.\nYet, tuning based on repeatedly executing an editing pipeline is inefficient.\nTo prevent slow inference, we train a light-weight neural network that\npredicts the metrics of the underlying editing method for a given edit instance and CFG scale.\nAt inference time, these predictions enable fast selection of an instance-specific CFG scale.\nExperiments across multiple editing methods and benchmark settings show the performance advantage of our approach over the baseline methods.",
+    "authors": [
+      {
+        "name": "Wajeeh Atrash",
+        "affiliations": [],
+        "notes": []
+      },
+      {
+        "name": "Tom Tirer",
+        "affiliations": [],
+        "notes": []
+      }
+    ],
+    "author_block": "Wajeeh Atrash Tom Tirer",
+    "arxiv_version": "2610.23905v1",
+    "arxiv_version_date": "2026-09-29",
+    "sections": [
+      {
+        "id": "S1",
+        "heading": "1 Introduction",
+        "level": 1,
+        "text": "In recent years, diffusion [ 10 , 24 ] and flow-matching [ 15 , 4 ] models have emerged as the dominant generative models for images, capturing a strong image prior that can also be leveraged for editing and restoration [ 17 , 1 , 6 , 7 ] . Conditioning these models on text prompts, enables high-quality text-to-image (T2I) generation [ 19 , 21 ] . To improve generation quality and alignment with the prompt, classifier-free guidance (CFG) [ 11 ] has become a widely used technique. It uses the direction between conditional and unconditional (null-prompt) predictions for steering the sampling trajectory. Follow-up works introduce different flavors of CFG [ 5 , 16 , 25 , 20 ] , or modify its nature from extrapolation to interpolation [ 3 ] . Beyond standard CFG-guided generation, the T2I backbones have also been repurposed for image editing, either by manipulating internal attention or noise representations [ 8 , 12 ] , by instruction-tuning the model directly [ 2 ] , or, more recently, by constructing an editing ODE directly within the flow-matching framework [ 14 ] . Using the T2I backbone for image editing introduces an inherent trade-off between preserving the original source image (e.g., preserving object identity or background) and applying prompt-guided modifications. We want the model to change and edit only the parts mentioned in the prompt, while keeping the rest of the image unchanged or with minimal changes. Besides visual comparison between the source and target images, this trade-off is captured mainly by two metrics: (1) CLIP-T [ 9 ] (higher is better), the cosine similarity between the edited image and the target prompt in CLIP’s [ 18 ] joint embedding space, which stands in for how well the edit was realized, and (2) LPIPS [ 26 ] (lower is better), a learned perceptual distance between the source and edited image that stands in for fidelity, computed over the whole image. Editing methods may balance the trade-off using CFG. Usually, each method has its own default fixed CFG scale. This does not take into account that different images and edits need different levels of modification, which implies different optimal CFG scale values. Images that require large changes are expected to need a larger CFG scale, which gives a better CLIP-T score but also alters the image more, resulting in a worse LPIPS score. On the other hand, exaggerating with the CFG scale for a modest edit, may negligibly improve the CLIP-T score while unnecessarily degrade the LPIPS score. The idea that CFG need not be applied identically throughout sampling has been explored in several works. C 2 FG [ 5 ] aligns the guidance strength with the diffusion dynamics through a time-dependent decay function, β \\beta -CFG [ 16 ] shapes the guidance strength over time using a beta-distribution curve, CFG-Ctrl [ 25 ] treats the CFG update as a control problem and steers it dynamically along the trajectory, and APG [ 20 ] decomposes and rescales the guidance update at each step to curb oversaturation. What all four have in common, though, is that the CFG scale tuning strategy is fixed in advance and shared across every image and prompt a method is run on. They also require access to intermediate diffusion steps, which may not always be available for users of an editing system. In this work, we explore the potential benefits of using an instance-specific CFG scale in editing methods and propose an efficient automatic mechanism for doing so. We first confirm, by exhaustively re-running two prominent editing methods, DDPM inversion [ 12 ] and FlowEdit [ 14 ] , across a wide range of CFG scale values on benchmark datasets, that setting the scale differently for each editing instance is beneficial. For example, we show that it can significantly improve LPIPS without compromising CLIP-T. This tuning strategy, however, is time-consuming and computationally expensive. To avoid that cost at inference time, we introduce a lightweight neural network that, given a source image, a target prompt, a candidate CFG scale, and the editing method’s metrics at its default CFG scale as an anchor point, predicts the LPIPS and CLIP-T scores that would be achieved using the candidate CFG scale. At inference time, this let us scan a range of CFG scale values and apply the editing method with the selected instance-specific CFG scale using at most two editing activations, which is a fraction of the cost needed for exhaustive multi-execution tuning. Testing our approach against the default fixed CFG scale for DDPM inversion and FlowEdit shows significant improvement in terms of LPIPS (and qualitative adherence to the source image) with only small effect on the CLIP-T (adherence to the target prompt)."
+      },
+      {
+        "id": "S2.SS1",
+        "heading": "2.1 T2I models and CFG",
+        "level": 2,
+        "text": "CFG, first introduced in [ 11 ] , has become an irreplaceable mechanism in T2I synthesis and editing. CFG operates by training a denoising model to work both conditionally and unconditionally, dropping the condition during training with some probability. This allows the model to learn to predict the added noise at timestep t t both conditionally and unconditionally, ϵ θ ​ ( z t , c ) \\epsilon_{\\theta}(z_{t},c) and ϵ θ ​ ( z t , ∅ ) \\epsilon_{\\theta}(z_{t},\\emptyset) . Using this, CFG allows us to control the tradeoff between sample fidelity and conditional alignment in diffusion models, by calculating what we call the guided noise: ϵ ~ θ ​ ( z t , c ) = ϵ θ ​ ( z t , ∅ ) + s ⁡ ( ϵ θ ​ ( z t , c ) − ϵ θ ​ ( z t , ∅ ) ) \\tilde{\\epsilon}_{\\theta}(z_{t},c)=\\epsilon_{\\theta}(z_{t},\\emptyset)+s\\left(\\epsilon_{\\theta}(z_{t},c)-\\epsilon_{\\theta}(z_{t},\\emptyset)\\right) where s ≥ 1 s\\geq 1 is the CFG guidance scale hyperparameter. Different scale values result in different behavior in the final editing result, where a larger CFG scale amplifies the conditioning signal and its influence. Intuitively, a large s s is thus expected to increase the CLIP-based similarity between the target prompt and the edited image compared to weaker guided sampling, which reflects more semantically consistent results and stronger edit coherence. This is likely to come at the cost of fidelity to the source image, as reflected by a higher LPIPS score. On the other hand, applying overly large CFG scale values can steer the sampling away from the source image, beyond what is actually necessary for the requested edit, which can also result in unwanted artifacts in the final image. Therefore, the best value for each edit instance and method is expected to vary. In Section 3 we will support this intuition with experiments."
+      },
+      {
+        "id": "S2.SS2",
+        "heading": "2.2 Inversion-based editing models",
+        "level": 2,
+        "text": "Inversion-based editing models enable pretrained image generation models to edit existing images by first mapping the source image back into a latent noise representation and then regenerating it conditioned on an editing instruction. DDIM inversion [ 23 ] introduced this idea. Later methods combined it with cross-attention control for text-conditioned editing [ 8 ] . DDPM inversion [ 12 ] identified limitations of DDIM inversion and introduced a latent representation based on multiple noise maps that improves the editing results."
+      },
+      {
+        "id": "S2.SS3",
+        "heading": "2.3 Inversion-Free editing models",
+        "level": 2,
+        "text": "Inversion-free editing methods avoid mapping the source image back into a noise or latent representation. Instead, they construct a direct path from source to target distribution. This is natural for flow-matching models [ 15 ] , which learn a velocity field between noise and data. FlowEdit [ 14 ] follows this approach, at each timestep it draws a shared noise sample to construct two points at the same noise level, one from noising the source image and one obtained by noising the current edited latent, then evaluates the velocity field at each point, conditioned on the source prompt and the target prompt respectively. The difference between these two predicted velocity fields is used to update the current latent directly from the source image toward the edited image distribution."
+      },
+      {
+        "id": "S3",
+        "heading": "3 Effect of instance-\nspecific CFG on image editing",
+        "level": 1,
+        "text": "FlowEdit, SD3 DDPM-Inversion, SD1.4 Figure 1 : Average CLIP-T vs. LPIPS on PIE-Bench across 25 fixed CFG scales in [ 1 , 25 ] [1,25] (circles), with the default scale (diamond). Per-instance optimal CFG scale: max CLIP-T (up triangle), min LPIPS (down triangle), max CLIP-T within ≤ 2 % \\leq 2\\% LPIPS degradation with respect to baseline (square), min LPIPS within ≤ 2 % \\leq 2\\% CLIP-T degradation (plus). In this section, we show the effect of CFG scale on the final editing result based on the metrics CLIP-T and LPIPS. We use the PIE-Bench dataset [ 13 ] : 700 images spanning a random-editing category and nine instruction-based categories (each split into artificial/natural subsets). We run DDPM-Inversion [ 12 ] with SD1.4 [ 19 ] and FlowEdit [ 14 ] with SD3 [ 4 ] . First, for each method, we calculated the average CLIP-T and LPIPS for each CFG scale value, and plot the results in gray circles in Fig. 1 . Note that the x-axis is plotted in descending order. The performance of the method’s default CFG scale is marked with a black diamond. As the CFG scale increases, the CLIP-T score increases, which implies that the edited images are more aligned with the target prompt on average, and the LPIPS score also increases, which means the edited images are less similar to the source image on average. This trade-off behavior is expected. The question is: Can we push this Pareto frontier (and dominate some regions of it) by using instance-specific CFG scales? To answer this question, we examine four tuning strategies. Two of them are obtained by identifying for each image the CFG scale that maximizes CLIP-T and the one that minimizes LPIPS, without any constraint on the other metric. The other two are obtained by identifying the CFG scale that maximizes CLIP-T while keeping LPIPS score within 2% of the value obtained for the method’s default CFG, and the CFG scale that minimizes LPIPS while keeping the CLIP-T score within 2% of its default value. We average CLIP-T and LPIPS across all image instances for each of the four cases, and add them to Fig. 1 . It can be observed that all the instance-wise tuning strategies that account for the CLIP-T metric dominate significant regions of the Pareto frontier (i.e., outperform points in the frontier in both metrics). Since a user may be interested in gains compared to the default setup, let us focus on the strategy that caps the CLIP-T degradation to 2% of its default value, marked in a purple plus symbol. Inspecting the performance of this point, we see that the change in CLIP-T score is negligible while the LPIPS score improves by ∼ \\sim 0.1 in both methods. This significant improvement in fidelity to the source image without compromising on realizing the edit is a key finding of our work. It motivates our next step: We want to find a way to select the CFG scale per edit instance in an efficient way, without repeated activations of editing method."
+      },
+      {
+        "id": "S4",
+        "heading": "4 Efficient tuning method",
+        "level": 1,
+        "text": "We propose a lightweight 4-hidden-layer MLP with 3.8 million parameters for each metric (note that this size is a negligible compared to the scale of the diffusion/flow models). The MLP takes as input the CLIP embedding of the source image, source and target prompt, the metrics for the method’s default CFG scale, and the candidate CFG scale. Per editing method and underlying diffusion/flow model, we train this model on a large dataset made of images edited by the method with different CFG scale values, where metrics of the edited images are computed and used as labels. At inference time, given an editing instance, we use the trained metric prediction models to select the CFG scale that optimizes the estimated target metric (LPIPS) capping the other estimated metric (CLIP-T) by the performance of the method’s default setting."
+      },
+      {
+        "id": "S4.SS1",
+        "heading": "4.1 Training and evaluating the metric predictor",
+        "level": 2,
+        "text": "We use UltraEdit [ 27 ] and EmuEdit [ 22 ] for training, validation and testing of the metric predictor. UltraEdit is a large-scale, automatically generated instruction-based image editing dataset with ∼ \\sim 4M samples across nine instructions. We use the first 52k images and sample several random CFG scales per image. EmuEdit is a smaller instruction-based editing dataset, with 5,611 publicly available images, of which 4,452 have valid prompts, we use these and sample 10 CFG scale values per image. Training is done using the SGD optimizaer with L1 loss for 200 epochs, with patience for 30 epochs as early stopping criterion, a learning rate of 0.01, momentum 0.9 and weight-decay of 1 × 10 − 4 1\\times 10^{-4} . We evaluate the accuracy of the metric predictors separately per metric and editing method, on a held-out split of UltraEdit and EmuEdit (in-distribution) and on PIE-Bench (out-of-distribution). We report four complementary metrics. The mean absolute error (MAE). The coefficient of determination R 2 R^{2} between the predicted and ground-truth metrics. The Pearson correlation r r and per-image Spearman rank correlation ρ \\rho . The results are reported in Tables 2 and 2 . Table 1 : In-distribution predictor accuracy (held-out test split). Per-image ρ \\rho uses 3,548 of 8,468 test images with ≥ \\geq 3 CFG samples (5-9 each), images with a single CFG sample cannot support a ranking. Model Target MAE R 2 R^{2} Pearson ρ \\rho (per-img.) FlowEdit LPIPS 0.0160 0.971 0.985 0.985 CLIP-T 0.0140 0.825 0.909 0.622 DDPM-Inversion LPIPS 0.0184 0.941 0.970 0.972 CLIP-T 0.0146 0.793 0.891 0.610 Table 2: Out-of-distribution predictor accuracy on PIE-Bench (700 images × \\times 20 CFG scales = 14,000 pairs). Model Target MAE R 2 R^{2} Pearson ρ \\rho (per-img.) FlowEdit LPIPS 0.022 0.947 0.978 0.992 CLIP-T 0.0125 0.822 0.908 0.543 DDPM-Inversion LPIPS 0.0207 0.929 0.965 0.984 CLIP-T 0.0125 0.802 0.899 0.569 LPIPS is consistently easier to predict than CLIP-T. R 2 R^{2} is higher for LPIPS in both methods and both distributions, and per-image rank agreement ρ \\rho across CFG candidates is much stronger. The limited predictability of CLIP-T is the main barrier to matching exhaustive search. The gap between consecutive CFG scales on this axis is small, so a more accurate predictor is needed for reliable per-image ranking and CFG selection. We will analyze the core hardness of predicting the CLIP-T metric and focus on improving it in an extended version of this paper."
+      },
+      {
+        "id": "S4.SS2",
+        "heading": "4.2 Editing with predictor-based CFG-selection",
+        "level": 2,
+        "text": "For choosing the CFG scale per edit instance, using our predictor, we use a rule similar to that in Section 3 : minimize estimated LPIPS while keeping the estimated CLIP-T score within 2% of its value for the baseline’s default CFG. Table 3: Average per-image runtime, measured on 50 PIE-Bench images with NVIDIA RTX 6000 Ada GPU CUDA-13. Baseline (s) Exhaustive (s) Ours (s) FlowEdit 6.8 147.13 14.4 DDPM-Inversion 17.5 154.38 24.2 Table 4: Average CLIP-T and LPIPS on PIE-Bench: ground-truth optimal CFG scale vs. our predicted per-image CFG scale using a 2 % 2\\% CLIP-T degradation threshold. Model Selection CLIP-T LPIPS FlowEdit Baseline 0.2741 0.2577 Exhaustive 0.2746 0.1469 Ours (predicted CFG) 0.2704 0.1731 DDPM-Inversion Baseline 0.2706 0.2458 Exhaustive 0.2712 0.1580 Ours (predicted CFG) 0.2663 0.1702 The advantage of our approach over the exhaustive search is requiring at most two executions of the editing method instead of one execution per CFG scale candidate. To quantify this, we measure the average per-image runtime of both approaches on 50 images with 20 CFG scale candidates, for DDPM-Inversion and FlowEdit, and report the results in Table 4 . Our pipline’s runtime includes one execution of the editing method with the default CFG scale (i.e., the baseline setting), 20 predictor calls for LPIPS and 20 for CLIP-T ( ∼ \\sim 1ms per prediction), and one execution of the editing method with the selected CFG scale. The exhaustive search’s runtime includes 20 executions of the editing method—one for each CFG scale candidate—which is significantly slower. Table 4 compares editing with our predicted per-instance CFG selection against the exhaustive-search performance bounds and the fixed default-CFG baseline. For FlowEdit, our approach achieves a 1.35% worse CLIP-T than the default and ∼ \\sim 33% better LPIPS. For DDPM-Inversion, we achieve a 1.59% drop in CLIP-T for ∼ \\sim 31% improvement in LPIPS over the baseline. Fig. 2 shows qualitative examples of edits produced with our selected CFG scale alongside the baseline, illustrating that our approach yields edits aligned with the target prompt while better preserving the source image. DDPM-Inversion, SD1.4 (a) Source image (b) Baseline (default CFG 15) (c) Ours (predicted CFG 10) Prompt: Change the photo on the wall to a painting FlowEdit, SD3 (d) Source image (e) Baseline (default CFG 13.5) (f) Ours (predicted CFG 4) Prompt: Change the gender of the person walking their dog Figure 2 : Qualitative comparison. From left to right: source image, default-CFG edit, and our predicted-CFG edit."
+      },
+      {
+        "id": "S5",
+        "heading": "5 Conclusion",
+        "level": 1,
+        "text": "We showed that instance-specific CFG scale selection can significantly improve image fidelity with negligible effect on edit realization, compared to a fixed default scale. To reduce the cost of tuning at inference time, we trained a lightweight neural network to predicts the editing method’s metrics for a given editing instance and CFG scale in negligible time. Using it, we proposed an efficient procedure for editing with instance-specific CFG scale value that approaches the editing performance of exhaustive search."
+      },
+      {
+        "id": "bib",
+        "heading": "References",
+        "level": 1,
+        "text": "[1] S. Abu-Hussein, T. Tirer, and R. Giryes (2022) Adir: adaptive diffusion for image reconstruction . arXiv preprint arXiv:2212.03221 . Cited by: §1 . [2] T. Brooks, A. Holynski, and A. A. Efros (2023) InstructPix2Pix: learning to follow image editing instructions . In Conference on Computer Vision and Pattern Recognition (CVPR) , Cited by: §1 . [3] H. Chung, J. Kim, G. Y. Park, H. Nam, and J. C. Ye (2024) CFG++: manifold-constrained classifier free guidance for diffusion models . arXiv preprint arXiv:2406.08070 . Cited by: §1 . [4] P. Esser, S. Kulal, A. Blattmann, R. Entezari, J. Müller, H. Saini, Y. Levi, D. Lorenz, A. Sauer, F. Boesel, D. Podell, T. Dockhorn, Z. English, K. Lacey, A. Goodwin, Y. Marek, and R. Rombach (2024) Scaling rectified flow transformers for high-resolution image synthesis . In International Conference on Machine Learning (ICML) , Cited by: §1 , §3 . [5] J. Gao, T. Zheng, J. Zou, F. Yang, S. Liu, L. Fan, Z. Zhang, H. Zhang, J. Chen, P. Jiang, B. Li, and J. Wang (2026) C 2 fg: control classifier-free guidance via score discrepancy analysis . arXiv preprint arXiv:2603.08155 . Cited by: §1 , §1 . [6] T. Garber and T. Tirer (2024) Image restoration by denoising diffusion models with iteratively preconditioned guidance . In 2024 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pp. 25245–25254 . Cited by: §1 . [7] T. Garber and T. Tirer (2025) Zero-shot image restoration using few-step guidance of consistency models (and beyond) . In 2025 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pp. 2398–2407 . Cited by: §1 . [8] A. Hertz, R. Mokady, J. Tenenbaum, K. Aberman, Y. Pritch, and D. Cohen-Or (2023) Prompt-to-prompt image editing with cross-attention control . In International Conference on Learning Representations (ICLR) , Cited by: §1 , §2.2 . [9] J. Hessel, A. Holtzman, M. Forbes, R. Le Bras, and Y. Choi (2021) CLIPScore: a reference-free evaluation metric for image captioning . arXiv preprint arXiv:2104.08718 . Cited by: §1 . [10] J. Ho, A. Jain, and P. Abbeel (2020) Denoising diffusion probabilistic models . Advances in Neural Information Processing Systems 33 , pp. 6840–6851 . Cited by: §1 . [11] J. Ho and T. Salimans (2022) Classifier-free diffusion guidance . arXiv preprint arXiv:2207.12598 . Cited by: §1 , §2.1 . [12] I. Huberman-Spiegelglas, V. Kulikov, and T. Michaeli (2024) An edit friendly ddpm noise space: inversion and manipulations . In Conference on Computer Vision and Pattern Recognition (CVPR) , pp. 12469–12478 . Cited by: §1 , §1 , §2.2 , §3 . [13] X. Ju, A. Zeng, Y. Bian, S. Liu, and Q. Xu (2023) Direct inversion: boosting diffusion-based editing with 3 lines of code . arXiv preprint arXiv:2310.01506 . Cited by: §3 . [14] V. Kulikov, M. Kleiner, I. Huberman-Spiegelglas, and T. Michaeli (2025) FlowEdit: inversion-free text-based editing using pre-trained flow models . In International Conference on Computer Vision (ICCV) , pp. 19721–19730 . Cited by: §1 , §1 , §2.3 , §3 . [15] Y. Lipman, R. T. Q. Chen, H. Ben-Hamu, M. Nickel, and M. Le (2023) Flow matching for generative modeling . In International Conference on Learning Representations (ICLR) , Cited by: §1 , §2.3 . [16] D. Malarz, A. Kasymov, M. Zięba, J. Tabor, and P. Spurek (2025) Classifier-free guidance with adaptive scaling . arXiv preprint arXiv:2502.10574 . Cited by: §1 , §1 . [17] C. Meng, Y. Song, J. Song, J. Wu, J. Zhu, and S. Ermon (2021) SDEdit: image synthesis and editing with stochastic differential equations . arXiv preprint arXiv:2108.01073 . Cited by: §1 . [18] A. Radford, J. W. Kim, C. Hallacy, A. Ramesh, G. Goh, S. Agarwal, G. Sastry, A. Askell, P. Mishkin, J. Clark, G. Krueger, and I. Sutskever (2021) Learning transferable visual models from natural language supervision . arXiv preprint arXiv:2103.00020 . Cited by: §1 . [19] R. Rombach, A. Blattmann, D. Lorenz, P. Esser, and B. Ommer (2022) High-resolution image synthesis with latent diffusion models . In 2022 IEEE/CVF conference on computer vision and pattern recognition (CVPR) , pp. 10674–10685 . Cited by: §1 , §3 . [20] S. Sadat, O. Hilliges, and R. M. Weber (2024) Eliminating oversaturation and artifacts of high guidance scales in diffusion models . arXiv preprint arXiv:2410.02416 . Cited by: §1 , §1 . [21] C. Saharia, W. Chan, S. Saxena, L. Li, J. Whang, E. Denton, S. K. S. Ghasemipour, B. K. Ayan, S. Sara Mahdavi, R. G. Lopes, T. Salimans, J. Ho, D. J. Fleet, and M. Norouzi (2022) Photorealistic text-to-image diffusion models with deep language understanding . arXiv [cs.CV] . Cited by: §1 . [22] S. Sheynin, A. Polyak, U. Singer, Y. Kirstain, A. Zohar, O. Ashual, D. Parikh, and Y. Taigman (2023) Emu edit: precise image editing via recognition and generation tasks . arXiv preprint arXiv:2311.10089 . Cited by: §4.1 . [23] J. Song, C. Meng, and S. Ermon (2020) Denoising diffusion implicit models . arXiv [cs.LG] . Cited by: §2.2 . [24] Y. Song, J. Sohl-Dickstein, D. P. Kingma, A. Kumar, S. Ermon, and B. Poole (2021) Score-based generative modeling through stochastic differential equations . In International Conference on Learning Representations , Cited by: §1 . [25] H. Wang, Y. Liu, J. Chi, F. Liu, R. Xue, and Y. Duan (2026) CFG-ctrl: control-based classifier-free diffusion guidance . arXiv preprint arXiv:2603.03281 . Cited by: §1 , §1 . [26] R. Zhang, P. Isola, A. A. Efros, E. Shechtman, and O. Wang (2018) The unreasonable effectiveness of deep features as a perceptual metric . arXiv preprint arXiv:1801.03924 . Cited by: §1 . [27] H. Zhao, X. Ma, L. Chen, S. Si, R. Wu, K. An, P. Yu, M. Zhang, Q. Li, and B. Chang (2024) UltraEdit: instruction-based fine-grained image editing at scale . arXiv preprint arXiv:2407.05282 . Cited by: §4.1 ."
+      }
+    ]
+  },
+  "text": "Instance-Specific Classifier-Free Guidance for Text-to-Image Diffusion/Flow-Based Editing Skip to main content Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: Why HTML? Report Issue Back to Abstract Download PDF Contents Reading mode Colour theme License: CC BY 4.0 arXiv:2610.23905v1 [cs.CV] 29 Sep 2026 Instance-Specific Classifier-Free Guidance for Text-to-Image Diffusion/Flow-Based Editing Wajeeh Atrash Tom Tirer Abstract In recent years, a variety of prompt-based image editing methods have been developed based on text-to-image (T2I) diffusion/flow models. Image editing introduces an inherent trade-off between adhering to the original source image and realizing the change specified by the target prompt, which are typically measured by the LPIPS and CLIP-T metrics, respectively. Intuitively, this trade-off can be controlled by the classifier-free guidance (CFG) scale. Most existing editing methods, though, use a fixed CFG scale, ignoring that different edits require varying levels of modification. In this paper, we first explore the potential benefits of using an instance-specific CFG by exhaustively re-running prominent editing methods with a wide range of CFG scale values on benchmark datasets. We show that instance-specific setting can significantly improve LPIPS without compromising CLIP-T. Yet, tuning based on repeatedly executing an editing pipeline is inefficient. To prevent slow inference, we train a light-weight neural network that predicts the metrics of the underlying editing method for a given edit instance and CFG scale. At inference time, these predictions enable fast selection of an instance-specific CFG scale. Experiments across multiple editing methods and benchmark settings show the performance advantage of our approach over the baseline methods. Index Terms: Image editing, diffusion models, flow matching, classifier-free guidance † † address: 1 Tel Aviv University, 2 Bar-Ilan University 1 Introduction In recent years, diffusion [ 10 , 24 ] and flow-matching [ 15 , 4 ] models have emerged as the dominant generative models for images, capturing a strong image prior that can also be leveraged for editing and restoration [ 17 , 1 , 6 , 7 ] . Conditioning these models on text prompts, enables high-quality text-to-image (T2I) generation [ 19 , 21 ] . To improve generation quality and alignment with the prompt, classifier-free guidance (CFG) [ 11 ] has become a widely used technique. It uses the direction between conditional and unconditional (null-prompt) predictions for steering the sampling trajectory. Follow-up works introduce different flavors of CFG [ 5 , 16 , 25 , 20 ] , or modify its nature from extrapolation to interpolation [ 3 ] . Beyond standard CFG-guided generation, the T2I backbones have also been repurposed for image editing, either by manipulating internal attention or noise representations [ 8 , 12 ] , by instruction-tuning the model directly [ 2 ] , or, more recently, by constructing an editing ODE directly within the flow-matching framework [ 14 ] . Using the T2I backbone for image editing introduces an inherent trade-off between preserving the original source image (e.g., preserving object identity or background) and applying prompt-guided modifications. We want the model to change and edit only the parts mentioned in the prompt, while keeping the rest of the image unchanged or with minimal changes. Besides visual comparison between the source and target images, this trade-off is captured mainly by two metrics: (1) CLIP-T [ 9 ] (higher is better), the cosine similarity between the edited image and the target prompt in CLIP’s [ 18 ] joint embedding space, which stands in for how well the edit was realized, and (2) LPIPS [ 26 ] (lower is better), a learned perceptual distance between the source and edited image that stands in for fidelity, computed over the whole image. Editing methods may balance the trade-off using CFG. Usually, each method has its own default fixed CFG scale. This does not take into account that different images and edits need different levels of modification, which implies different optimal CFG scale values. Images that require large changes are expected to need a larger CFG scale, which gives a better CLIP-T score but also alters the image more, resulting in a worse LPIPS score. On the other hand, exaggerating with the CFG scale for a modest edit, may negligibly improve the CLIP-T score while unnecessarily degrade the LPIPS score. The idea that CFG need not be applied identically throughout sampling has been explored in several works. C 2 FG [ 5 ] aligns the guidance strength with the diffusion dynamics through a time-dependent decay function, β \\beta -CFG [ 16 ] shapes the guidance strength over time using a beta-distribution curve, CFG-Ctrl [ 25 ] treats the CFG update as a control problem and steers it dynamically along the trajectory, and APG [ 20 ] decomposes and rescales the guidance update at each step to curb oversaturation. What all four have in common, though, is that the CFG scale tuning strategy is fixed in advance and shared across every image and prompt a method is run on. They also require access to intermediate diffusion steps, which may not always be available for users of an editing system. In this work, we explore the potential benefits of using an instance-specific CFG scale in editing methods and propose an efficient automatic mechanism for doing so. We first confirm, by exhaustively re-running two prominent editing methods, DDPM inversion [ 12 ] and FlowEdit [ 14 ] , across a wide range of CFG scale values on benchmark datasets, that setting the scale differently for each editing instance is beneficial. For example, we show that it can significantly improve LPIPS without compromising CLIP-T. This tuning strategy, however, is time-consuming and computationally expensive. To avoid that cost at inference time, we introduce a lightweight neural network that, given a source image, a target prompt, a candidate CFG scale, and the editing method’s metrics at its default CFG scale as an anchor point, predicts the LPIPS and CLIP-T scores that would be achieved using the candidate CFG scale. At inference time, this let us scan a range of CFG scale values and apply the editing method with the selected instance-specific CFG scale using at most two editing activations, which is a fraction of the cost needed for exhaustive multi-execution tuning. Testing our approach against the default fixed CFG scale for DDPM inversion and FlowEdit shows significant improvement in terms of LPIPS (and qualitative adherence to the source image) with only small effect on the CLIP-T (adherence to the target prompt). 2 Background 2.1 T2I models and CFG CFG, first introduced in [ 11 ] , has become an irreplaceable mechanism in T2I synthesis and editing. CFG operates by training a denoising model to work both conditionally and unconditionally, dropping the condition during training with some probability. This allows the model to learn to predict the added noise at timestep t t both conditionally and unconditionally, ϵ θ ​ ( z t , c ) \\epsilon_{\\theta}(z_{t},c) and ϵ θ ​ ( z t , ∅ ) \\epsilon_{\\theta}(z_{t},\\emptyset) . Using this, CFG allows us to control the tradeoff between sample fidelity and conditional alignment in diffusion models, by calculating what we call the guided noise: ϵ ~ θ ​ ( z t , c ) = ϵ θ ​ ( z t , ∅ ) + s ⁡ ( ϵ θ ​ ( z t , c ) − ϵ θ ​ ( z t , ∅ ) ) \\tilde{\\epsilon}_{\\theta}(z_{t},c)=\\epsilon_{\\theta}(z_{t},\\emptyset)+s\\left(\\epsilon_{\\theta}(z_{t},c)-\\epsilon_{\\theta}(z_{t},\\emptyset)\\right) where s ≥ 1 s\\geq 1 is the CFG guidance scale hyperparameter. Different scale values result in different behavior in the final editing result, where a larger CFG scale amplifies the conditioning signal and its influence. Intuitively, a large s s is thus expected to increase the CLIP-based similarity between the target prompt and the edited image compared to weaker guided sampling, which reflects more semantically consistent results and stronger edit coherence. This is likely to come at the cost of fidelity to the source image, as reflected by a higher LPIPS score. On the other hand, applying overly large CFG scale values can steer the sampling away from the source image, beyond what is actually necessary for the requested edit, which can also result in unwanted artifacts in the final image. Therefore, the best value for each edit instance and method is expected to vary. In Section 3 we will support this intuition with experiments. 2.2 Inversion-based editing models Inversion-based editing models enable pretrained image generation models to edit existing images by first mapping the source image back into a latent noise representation and then regenerating it conditioned on an editing instruction. DDIM inversion [ 23 ] introduced this idea. Later methods combined it with cross-attention control for text-conditioned editing [ 8 ] . DDPM inversion [ 12 ] identified limitations of DDIM inversion and introduced a latent representation based on multiple noise maps that improves the editing results. 2.3 Inversion-Free editing models Inversion-free editing methods avoid mapping the source image back into a noise or latent representation. Instead, they construct a direct path from source to target distribution. This is natural for flow-matching models [ 15 ] , which learn a velocity field between noise and data. FlowEdit [ 14 ] follows this approach, at each timestep it draws a shared noise sample to construct two points at the same noise level, one from noising the source image and one obtained by noising the current edited latent, then evaluates the velocity field at each point, conditioned on the source prompt and the target prompt respectively. The difference between these two predicted velocity fields is used to update the current latent directly from the source image toward the edited image distribution. 3 Effect of instance- specific CFG on image editing FlowEdit, SD3 DDPM-Inversion, SD1.4 Figure 1 : Average CLIP-T vs. LPIPS on PIE-Bench across 25 fixed CFG scales in [ 1 , 25 ] [1,25] (circles), with the default scale (diamond). Per-instance optimal CFG scale: max CLIP-T (up triangle), min LPIPS (down triangle), max CLIP-T within ≤ 2 % \\leq 2\\% LPIPS degradation with respect to baseline (square), min LPIPS within ≤ 2 % \\leq 2\\% CLIP-T degradation (plus). In this section, we show the effect of CFG scale on the final editing result based on the metrics CLIP-T and LPIPS. We use the PIE-Bench dataset [ 13 ] : 700 images spanning a random-editing category and nine instruction-based categories (each split into artificial/natural subsets). We run DDPM-Inversion [ 12 ] with SD1.4 [ 19 ] and FlowEdit [ 14 ] with SD3 [ 4 ] . First, for each method, we calculated the average CLIP-T and LPIPS for each CFG scale value, and plot the results in gray circles in Fig. 1 . Note that the x-axis is plotted in descending order. The performance of the method’s default CFG scale is marked with a black diamond. As the CFG scale increases, the CLIP-T score increases, which implies that the edited images are more aligned with the target prompt on average, and the LPIPS score also increases, which means the edited images are less similar to the source image on average. This trade-off behavior is expected. The question is: Can we push this Pareto frontier (and dominate some regions of it) by using instance-specific CFG scales? To answer this question, we examine four tuning strategies. Two of them are obtained by identifying for each image the CFG scale that maximizes CLIP-T and the one that minimizes LPIPS, without any constraint on the other metric. The other two are obtained by identifying the CFG scale that maximizes CLIP-T while keeping LPIPS score within 2% of the value obtained for the method’s default CFG, and the CFG scale that minimizes LPIPS while keeping the CLIP-T score within 2% of its default value. We average CLIP-T and LPIPS across all image instances for each of the four cases, and add them to Fig. 1 . It can be observed that all the instance-wise tuning strategies that account for the CLIP-T metric dominate significant regions of the Pareto frontier (i.e., outperform points in the frontier in both metrics). Since a user may be interested in gains compared to the default setup, let us focus on the strategy that caps the CLIP-T degradation to 2% of its default value, marked in a purple plus symbol. Inspecting the performance of this point, we see that the change in CLIP-T score is negligible while the LPIPS score improves by ∼ \\sim 0.1 in both methods. This significant improvement in fidelity to the source image without compromising on realizing the edit is a key finding of our work. It motivates our next step: We want to find a way to select the CFG scale per edit instance in an efficient way, without repeated activations of editing method. 4 Efficient tuning method We propose a lightweight 4-hidden-layer MLP with 3.8 million parameters for each metric (note that this size is a negligible compared to the scale of the diffusion/flow models). The MLP takes as input the CLIP embedding of the source image, source and target prompt, the metrics for the method’s default CFG scale, and the candidate CFG scale. Per editing method and underlying diffusion/flow model, we train this model on a large dataset made of images edited by the method with different CFG scale values, where metrics of the edited images are computed and used as labels. At inference time, given an editing instance, we use the trained metric prediction models to select the CFG scale that optimizes the estimated target metric (LPIPS) capping the other estimated metric (CLIP-T) by the performance of the method’s default setting. 4.1 Training and evaluating the metric predictor We use UltraEdit [ 27 ] and EmuEdit [ 22 ] for training, validation and testing of the metric predictor. UltraEdit is a large-scale, automatically generated instruction-based image editing dataset with ∼ \\sim 4M samples across nine instructions. We use the first 52k images and sample several random CFG scales per image. EmuEdit is a smaller instruction-based editing dataset, with 5,611 publicly available images, of which 4,452 have valid prompts, we use these and sample 10 CFG scale values per image. Training is done using the SGD optimizaer with L1 loss for 200 epochs, with patience for 30 epochs as early stopping criterion, a learning rate of 0.01, momentum 0.9 and weight-decay of 1 × 10 − 4 1\\times 10^{-4} . We evaluate the accuracy of the metric predictors separately per metric and editing method, on a held-out split of UltraEdit and EmuEdit (in-distribution) and on PIE-Bench (out-of-distribution). We report four complementary metrics. The mean absolute error (MAE). The coefficient of determination R 2 R^{2} between the predicted and ground-truth metrics. The Pearson correlation r r and per-image Spearman rank correlation ρ \\rho . The results are reported in Tables 2 and 2 . Table 1 : In-distribution predictor accuracy (held-out test split). Per-image ρ \\rho uses 3,548 of 8,468 test images with ≥ \\geq 3 CFG samples (5-9 each), images with a single CFG sample cannot support a ranking. Model Target MAE R 2 R^{2} Pearson ρ \\rho (per-img.) FlowEdit LPIPS 0.0160 0.971 0.985 0.985 CLIP-T 0.0140 0.825 0.909 0.622 DDPM-Inversion LPIPS 0.0184 0.941 0.970 0.972 CLIP-T 0.0146 0.793 0.891 0.610 Table 2: Out-of-distribution predictor accuracy on PIE-Bench (700 images × \\times 20 CFG scales = 14,000 pairs). Model Target MAE R 2 R^{2} Pearson ρ \\rho (per-img.) FlowEdit LPIPS 0.022 0.947 0.978 0.992 CLIP-T 0.0125 0.822 0.908 0.543 DDPM-Inversion LPIPS 0.0207 0.929 0.965 0.984 CLIP-T 0.0125 0.802 0.899 0.569 LPIPS is consistently easier to predict than CLIP-T. R 2 R^{2} is higher for LPIPS in both methods and both distributions, and per-image rank agreement ρ \\rho across CFG candidates is much stronger. The limited predictability of CLIP-T is the main barrier to matching exhaustive search. The gap between consecutive CFG scales on this axis is small, so a more accurate predictor is needed for reliable per-image ranking and CFG selection. We will analyze the core hardness of predicting the CLIP-T metric and focus on improving it in an extended version of this paper. 4.2 Editing with predictor-based CFG-selection For choosing the CFG scale per edit instance, using our predictor, we use a rule similar to that in Section 3 : minimize estimated LPIPS while keeping the estimated CLIP-T score within 2% of its value for the baseline’s default CFG. Table 3: Average per-image runtime, measured on 50 PIE-Bench images with NVIDIA RTX 6000 Ada GPU CUDA-13. Baseline (s) Exhaustive (s) Ours (s) FlowEdit 6.8 147.13 14.4 DDPM-Inversion 17.5 154.38 24.2 Table 4: Average CLIP-T and LPIPS on PIE-Bench: ground-truth optimal CFG scale vs. our predicted per-image CFG scale using a 2 % 2\\% CLIP-T degradation threshold. Model Selection CLIP-T LPIPS FlowEdit Baseline 0.2741 0.2577 Exhaustive 0.2746 0.1469 Ours (predicted CFG) 0.2704 0.1731 DDPM-Inversion Baseline 0.2706 0.2458 Exhaustive 0.2712 0.1580 Ours (predicted CFG) 0.2663 0.1702 The advantage of our approach over the exhaustive search is requiring at most two executions of the editing method instead of one execution per CFG scale candidate. To quantify this, we measure the average per-image runtime of both approaches on 50 images with 20 CFG scale candidates, for DDPM-Inversion and FlowEdit, and report the results in Table 4 . Our pipline’s runtime includes one execution of the editing method with the default CFG scale (i.e., the baseline setting), 20 predictor calls for LPIPS and 20 for CLIP-T ( ∼ \\sim 1ms per prediction), and one execution of the editing method with the selected CFG scale. The exhaustive search’s runtime includes 20 executions of the editing method—one for each CFG scale candidate—which is significantly slower. Table 4 compares editing with our predicted per-instance CFG selection against the exhaustive-search performance bounds and the fixed default-CFG baseline. For FlowEdit, our approach achieves a 1.35% worse CLIP-T than the default and ∼ \\sim 33% better LPIPS. For DDPM-Inversion, we achieve a 1.59% drop in CLIP-T for ∼ \\sim 31% improvement in LPIPS over the baseline. Fig. 2 shows qualitative examples of edits produced with our selected CFG scale alongside the baseline, illustrating that our approach yields edits aligned with the target prompt while better preserving the source image. DDPM-Inversion, SD1.4 (a) Source image (b) Baseline (default CFG 15) (c) Ours (predicted CFG 10) Prompt: Change the photo on the wall to a painting FlowEdit, SD3 (d) Source image (e) Baseline (default CFG 13.5) (f) Ours (predicted CFG 4) Prompt: Change the gender of the person walking their dog Figure 2 : Qualitative comparison. From left to right: source image, default-CFG edit, and our predicted-CFG edit. 5 Conclusion We showed that instance-specific CFG scale selection can significantly improve image fidelity with negligible effect on edit realization, compared to a fixed default scale. To reduce the cost of tuning at inference time, we trained a lightweight neural network to predicts the editing method’s metrics for a given editing instance and CFG scale in negligible time. Using it, we proposed an efficient procedure for editing with instance-specific CFG scale value that approaches the editing performance of exhaustive search. References [1] S. Abu-Hussein, T. Tirer, and R. Giryes (2022) Adir: adaptive diffusion for image reconstruction . arXiv preprint arXiv:2212.03221 . Cited by: §1 . [2] T. Brooks, A. Holynski, and A. A. Efros (2023) InstructPix2Pix: learning to follow image editing instructions . In Conference on Computer Vision and Pattern Recognition (CVPR) , Cited by: §1 . [3] H. Chung, J. Kim, G. Y. Park, H. Nam, and J. C. Ye (2024) CFG++: manifold-constrained classifier free guidance for diffusion models . arXiv preprint arXiv:2406.08070 . Cited by: §1 . [4] P. Esser, S. Kulal, A. Blattmann, R. Entezari, J. Müller, H. Saini, Y. Levi, D. Lorenz, A. Sauer, F. Boesel, D. Podell, T. Dockhorn, Z. English, K. Lacey, A. Goodwin, Y. Marek, and R. Rombach (2024) Scaling rectified flow transformers for high-resolution image synthesis . In International Conference on Machine Learning (ICML) , Cited by: §1 , §3 . [5] J. Gao, T. Zheng, J. Zou, F. Yang, S. Liu, L. Fan, Z. Zhang, H. Zhang, J. Chen, P. Jiang, B. Li, and J. Wang (2026) C 2 fg: control classifier-free guidance via score discrepancy analysis . arXiv preprint arXiv:2603.08155 . Cited by: §1 , §1 . [6] T. Garber and T. Tirer (2024) Image restoration by denoising diffusion models with iteratively preconditioned guidance . In 2024 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pp. 25245–25254 . Cited by: §1 . [7] T. Garber and T. Tirer (2025) Zero-shot image restoration using few-step guidance of consistency models (and beyond) . In 2025 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pp. 2398–2407 . Cited by: §1 . [8] A. Hertz, R. Mokady, J. Tenenbaum, K. Aberman, Y. Pritch, and D. Cohen-Or (2023) Prompt-to-prompt image editing with cross-attention control . In International Conference on Learning Representations (ICLR) , Cited by: §1 , §2.2 . [9] J. Hessel, A. Holtzman, M. Forbes, R. Le Bras, and Y. Choi (2021) CLIPScore: a reference-free evaluation metric for image captioning . arXiv preprint arXiv:2104.08718 . Cited by: §1 . [10] J. Ho, A. Jain, and P. Abbeel (2020) Denoising diffusion probabilistic models . Advances in Neural Information Processing Systems 33 , pp. 6840–6851 . Cited by: §1 . [11] J. Ho and T. Salimans (2022) Classifier-free diffusion guidance . arXiv preprint arXiv:2207.12598 . Cited by: §1 , §2.1 . [12] I. Huberman-Spiegelglas, V. Kulikov, and T. Michaeli (2024) An edit friendly ddpm noise space: inversion and manipulations . In Conference on Computer Vision and Pattern Recognition (CVPR) , pp. 12469–12478 . Cited by: §1 , §1 , §2.2 , §3 . [13] X. Ju, A. Zeng, Y. Bian, S. Liu, and Q. Xu (2023) Direct inversion: boosting diffusion-based editing with 3 lines of code . arXiv preprint arXiv:2310.01506 . Cited by: §3 . [14] V. Kulikov, M. Kleiner, I. Huberman-Spiegelglas, and T. Michaeli (2025) FlowEdit: inversion-free text-based editing using pre-trained flow models . In International Conference on Computer Vision (ICCV) , pp. 19721–19730 . Cited by: §1 , §1 , §2.3 , §3 . [15] Y. Lipman, R. T. Q. Chen, H. Ben-Hamu, M. Nickel, and M. Le (2023) Flow matching for generative modeling . In International Conference on Learning Representations (ICLR) , Cited by: §1 , §2.3 . [16] D. Malarz, A. Kasymov, M. Zięba, J. Tabor, and P. Spurek (2025) Classifier-free guidance with adaptive scaling . arXiv preprint arXiv:2502.10574 . Cited by: §1 , §1 . [17] C. Meng, Y. Song, J. Song, J. Wu, J. Zhu, and S. Ermon (2021) SDEdit: image synthesis and editing with stochastic differential equations . arXiv preprint arXiv:2108.01073 . Cited by: §1 . [18] A. Radford, J. W. Kim, C. Hallacy, A. Ramesh, G. Goh, S. Agarwal, G. Sastry, A. Askell, P. Mishkin, J. Clark, G. Krueger, and I. Sutskever (2021) Learning transferable visual models from natural language supervision . arXiv preprint arXiv:2103.00020 . Cited by: §1 . [19] R. Rombach, A. Blattmann, D. Lorenz, P. Esser, and B. Ommer (2022) High-resolution image synthesis with latent diffusion models . In 2022 IEEE/CVF conference on computer vision and pattern recognition (CVPR) , pp. 10674–10685 . Cited by: §1 , §3 . [20] S. Sadat, O. Hilliges, and R. M. Weber (2024) Eliminating oversaturation and artifacts of high guidance scales in diffusion models . arXiv preprint arXiv:2410.02416 . Cited by: §1 , §1 . [21] C. Saharia, W. Chan, S. Saxena, L. Li, J. Whang, E. Denton, S. K. S. Ghasemipour, B. K. Ayan, S. Sara Mahdavi, R. G. Lopes, T. Salimans, J. Ho, D. J. Fleet, and M. Norouzi (2022) Photorealistic text-to-image diffusion models with deep language understanding . arXiv [cs.CV] . Cited by: §1 . [22] S. Sheynin, A. Polyak, U. Singer, Y. Kirstain, A. Zohar, O. Ashual, D. Parikh, and Y. Taigman (2023) Emu edit: precise image editing via recognition and generation tasks . arXiv preprint arXiv:2311.10089 . Cited by: §4.1 . [23] J. Song, C. Meng, and S. Ermon (2020) Denoising diffusion implicit models . arXiv [cs.LG] . Cited by: §2.2 . [24] Y. Song, J. Sohl-Dickstein, D. P. Kingma, A. Kumar, S. Ermon, and B. Poole (2021) Score-based generative modeling through stochastic differential equations . In International Conference on Learning Representations , Cited by: §1 . [25] H. Wang, Y. Liu, J. Chi, F. Liu, R. Xue, and Y. Duan (2026) CFG-ctrl: control-based classifier-free diffusion guidance . arXiv preprint arXiv:2603.03281 . Cited by: §1 , §1 . [26] R. Zhang, P. Isola, A. A. Efros, E. Shechtman, and O. Wang (2018) The unreasonable effectiveness of deep features as a perceptual metric . arXiv preprint arXiv:1801.03924 . Cited by: §1 . [27] H. Zhao, X. Ma, L. Chen, S. Si, R. Wu, K. An, P. Yu, M. Zhang, Q. Li, and B. Chang (2024) UltraEdit: instruction-based fine-grained image editing at scale . arXiv preprint arXiv:2407.05282 . Cited by: §4.1 .",
+  "text_truncated": false,
+  "links": [
+    {
+      "text": "Skip to main content",
+      "url": "https://arxiv.org/html/2610.23905v1#infobox"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/IgnoreMe"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "Why HTML?",
+      "url": "https://info.arxiv.org/about/accessible_HTML.html"
+    },
+    {
+      "text": "Back to Abstract",
+      "url": "https://arxiv.org/abs/2610.23905v1"
+    },
+    {
+      "text": "Download PDF",
+      "url": "https://arxiv.org/pdf/2610.23905v1"
+    },
+    {
+      "text": "License: CC BY 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "10",
+      "url": "https://arxiv.org/html/2610.23905v1#bib.bib10"
+    },
+    {
+      "text": "24",
+      "url": "https://arxiv.org/html/2610.23905v1#bib.bib25"
+    },
+    {
+      "text": "15",
+      "url": "https://arxiv.org/html/2610.23905v1#bib.bib11"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2610.23905v1#bib.bib12"
+    },
+    {
+      "text": "17",
+      "url": "https://arxiv.org/html/2610.23905v1#bib.bib14"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2610.23905v1#bib.bib22"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2610.23905v1#bib.bib23"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2610.23905v1#bib.bib24"
+    },
+    {
+      "text": "19",
+      "url": "https://arxiv.org/html/2610.23905v1#bib.bib27"
+    },
+    {
+      "text": "21",
+      "url": "https://arxiv.org/html/2610.23905v1#bib.bib26"
+    },
+    {
+      "text": "11",
+      "url": "https://arxiv.org/html/2610.23905v1#bib.bib1"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2610.23905v1#bib.bib2"
+    },
+    {
+      "text": "16",
+      "url": "https://arxiv.org/html/2610.23905v1#bib.bib3"
+    },
+    {
+      "text": "25",
+      "url": "https://arxiv.org/html/2610.23905v1#bib.bib4"
+    },
+    {
+      "text": "20",
+      "url": "https://arxiv.org/html/2610.23905v1#bib.bib9"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2610.23905v1#bib.bib5"
+    },
+    {
+      "text": "8",
+      "url": "https://arxiv.org/html/2610.23905v1#bib.bib13"
+    },
+    {
+      "text": "12",
+      "url": "https://arxiv.org/html/2610.23905v1#bib.bib17"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2610.23905v1#bib.bib15"
+    },
+    {
+      "text": "14",
+      "url": "https://arxiv.org/html/2610.23905v1#bib.bib16"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2610.23905v1#bib.bib6"
+    },
+    {
+      "text": "18",
+      "url": "https://arxiv.org/html/2610.23905v1#bib.bib7"
+    },
+    {
+      "text": "26",
+      "url": "https://arxiv.org/html/2610.23905v1#bib.bib8"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2610.23905v1#S3"
+    },
+    {
+      "text": "23",
+      "url": "https://arxiv.org/html/2610.23905v1#bib.bib18"
+    },
+    {
+      "text": "13",
+      "url": "https://arxiv.org/html/2610.23905v1#bib.bib21"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2610.23905v1#S3.F1"
+    },
+    {
+      "text": "27",
+      "url": "https://arxiv.org/html/2610.23905v1#bib.bib19"
+    },
+    {
+      "text": "22",
+      "url": "https://arxiv.org/html/2610.23905v1#bib.bib20"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2610.23905v1#S4.T2"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2610.23905v1#S4.T4"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2610.23905v1#S4.F2"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2610.23905v1#S1.p1.1"
+    },
+    {
+      "text": "§3",
+      "url": "https://arxiv.org/html/2610.23905v1#S3.p1.1"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2610.23905v1#S1.p4.1"
+    },
+    {
+      "text": "§2.2",
+      "url": "https://arxiv.org/html/2610.23905v1#S2.SS2.p1.1"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2610.23905v1#S1.p2.1"
+    },
+    {
+      "text": "§2.1",
+      "url": "https://arxiv.org/html/2610.23905v1#S2.SS1.p1.1"
+    },
+    {
+      "text": "§1",
+      "url": "https://arxiv.org/html/2610.23905v1#S1.p5.1"
+    },
+    {
+      "text": "§2.3",
+      "url": "https://arxiv.org/html/2610.23905v1#S2.SS3.p1.1"
+    },
+    {
+      "text": "§4.1",
+      "url": "https://arxiv.org/html/2610.23905v1#S4.SS1.p1.1"
+    }
+  ],
+  "matching_link_count": 48,
+  "links_truncated": false,
+  "invalid_links": []
+}

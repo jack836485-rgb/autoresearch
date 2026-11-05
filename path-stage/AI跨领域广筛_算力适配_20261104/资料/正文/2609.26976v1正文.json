@@ -1,0 +1,212 @@
+{
+  "url": "https://arxiv.org/html/2609.26976v1",
+  "final_url": "https://arxiv.org/html/2609.26976v1",
+  "status": 200,
+  "title": "When Learned Context Planning Fails to Beat Strong Retrieval:A Controlled Study of Planning, Routing, and Reranking for Long-Context QA",
+  "metadata": {},
+  "paper": {
+    "title": "When Learned Context Planning Fails to Beat Strong Retrieval: A Controlled Study of Planning, Routing, and Reranking for Long-Context QA",
+    "title_warning": null,
+    "abstract": "Abstract Learned context planning selects evidence atoms before an answer model reasons over them. We test whether this learned selection improves long-context multiple-choice QA after strong retrieval, routing, budgeted-selector, and reranking controls. Our primary diagnostic uses all 503 LongBench-v2 MCQ questions with Qwen2.5-7B-Instruct. The planner is SFT-trained on outcome-selected traces from 140 training and 28 development questions; because the 503-question analysis includes those questions, it is partly transductive. At an 18k-character budget, anchored hybrid retrieval reaches 36.18% accuracy and BM25 reaches 35.98%, while the best direct planner-guided method reaches 34.19%. On the untouched 152-question test split, anchored hybrid remains higher (42.11% versus 36.84%). Leakage-safe routers cannot convert a large oracle gap. Under tight budgets, the best planner is ahead by only 0.40 points at 6k and loses at 9k; planner-guided reranking has a +1.79-point estimate at 6k with a paired interval crossing zero and ties the control at 9k. Packing-order and score-flatness analyses did not identify a stable mechanism. Under this setup, learned planning is a weak relevance signal rather than a replacement for strong retrieval.",
+    "authors": [
+      {
+        "name": "Yingrui Li",
+        "affiliations": [
+          "Affiliation: Independent Researcher, United States"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Han Chen",
+        "affiliations": [
+          "Affiliation: Independent Researcher, United States"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Yingrui Li Affiliation: Independent Researcher, United States Email: emmalyr0404@gmail.com Han Chen Affiliation: Independent Researcher, United States Email: hc414t@gmail.com",
+    "arxiv_version": "2609.26976v1",
+    "arxiv_version_date": "2026-09-22",
+    "sections": [
+      {
+        "id": "S1",
+        "heading": "1 Introduction",
+        "level": 1,
+        "text": "Long-context question answering systems must decide which parts of a large input to show to an answer model. Retrieval-augmented generation (RAG) usually ranks chunks with lexical, dense, or hybrid retrieval, then packs the top results into context ( Robertson and Zaragoza, 2009 ; Lewis et al., 2020 ; Reimers and Gurevych, 2019 ) . A learned context planner offers a different interface: retrieve a candidate set, ask a trained model to select evidence atoms, and answer from the selected or planner-prioritized context. Here, planning means evidence selection; the planner outputs atom IDs rather than multi-step reasoning traces. This idea is plausible, but a weak comparison can make it look stronger than it is. A planner may beat prompted planning or a direct baseline while still losing to BM25, and a large oracle routing bound may not imply a deployable inference-time router. We ask: when does learned evidence planning survive strong retrieval and reranking controls? We answer this question on LongBench-v2 multiple-choice QA ( Bai et al., 2024 ) . Learned planning changes the evidence set, helps some examples, and produces a small 6k-character rerank signal. However, in this setting it does not robustly beat strong retrieval, routing, budgeted selection, or reranking controls. We show that (i) direct planner-guided construction loses to BM25 and anchored hybrid retrieval, (ii) oracle complementarity does not become a leakage-safe router, (iii) low-budget planner gains shrink under stronger selectors, and (iv) the remaining planner-rerank signal is statistically unsupported. We additionally audit train–evaluation separation, held-out behavior, domain variation, packing order, and retrieval-score mechanisms. The practical takeaway is that planner gains should be checked against strong retrieval, routing, budgeted selection, and reranking controls before being attributed to planning."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px1",
+        "heading": "Task, split, and executor.",
+        "level": 3,
+        "text": "We deterministically split the 503 LongBench-v2 MCQ questions into 301 training, 50 development, and 152 test questions (split seed 20260225). Each example has a long context, question, choices, and a gold letter; a run is correct when the parsed output letter matches the gold. The answer model is Qwen2.5-7B-Instruct ( Yang et al., 2024 ) . Our primary diagnostic reports all 503 questions and therefore includes the 168 questions used to construct planner SFT train/development records. It is partly transductive and is not a conventional held-out planner-generalization estimate. We separately report the untouched 152-question test partition."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px2",
+        "heading": "Atoms and retrieval controls.",
+        "level": 3,
+        "text": "An evidence atom is a deterministic character-bounded chunk. Multi-document contexts are split on document separators or headers, then chunked into 2,000-character atoms with 200-character overlap; other contexts use 8,000-character atoms with 1,000-character overlap. A method ranks or selects atoms and packs their full text under an 18k, 9k, or 6k character budget. BM25 uses an alphanumeric tokenizer. Dense retrieval uses sentence-transformers/all-MiniLM-L6-v2 ; hybrid retrieval applies reciprocal-rank fusion. Anchored hybrid places top BM25 atoms before hybrid fill. Budgeted controls include no-anchor and weighted hybrid packing and MMR. Non-planner rerankers score the same BM25+dense candidate pool with cross-encoder/ms-marco-MiniLM-L-6-v2 ( Wang et al., 2020 ) ."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px3",
+        "heading": "Trace mining and planner SFT.",
+        "level": 3,
+        "text": "For each training or development question, the base Qwen model samples six plans from a 30-atom retrieval candidate pool (temperature 0.7, top- p p 0.9, at most eight selected atoms, and an 18k-character execution budget). We deduplicate plans by selected atom set, execute each unique plan with the same base answer model, and assign binary reward from answer correctness. For SFT, we retain one reward-one plan per question, preferring fewer atoms, shorter context, and earlier sample order. This yields 140 SFT training rows and 28 development rows, with zero test-ID overlap. 1 1 1 The submission version reported 262 retained traces in a merged SFT archive. A release audit could not reproduce that count from the audited artifacts of the final adapter; the verified counts are the 140 training and 28 development rows (168 unique questions) reported here. We train a Qwen2.5-7B-Instruct LoRA adapter ( Hu et al., 2022 ) for three epochs with rank 16, alpha 32, dropout 0.05, learning rate 5 × 10 − 5 5\\times 10^{-5} , per-device batch size 2, gradient accumulation 8, bfloat16 precision, and seed 111, using Transformers and PEFT ( Wolf et al., 2020 ; Mangrulkar et al., 2022 ) . The final adapter is the global-step-24 state; no development checkpoint selection occurs because training ends before the configured evaluation interval. At inference, the planner receives only the question, choices, and retrieved candidate atoms. Plan-guided hybrid packs planner-selected atoms before BM25 anchors and hybrid fill; planner-rerank packs planner-selected atoms before cross-encoder reranked fill; Planner+BM25 uses BM25 fill. We also report an earlier-adapter sensitivity check."
+      },
+      {
+        "id": "S2.SS0.SSS0.Px4",
+        "heading": "Routers, statistics, and artifacts.",
+        "level": 3,
+        "text": "An oracle router chooses post hoc using gold correctness and measures complementarity rather than deployable performance. Leakage-safe routers choose among context-construction policies using only inference-available features under stratified 5-fold and leave-domain-out validation. We report accuracy, paired wins/losses, exact two-sided sign-test p p -values, and 95% intervals. The public repository provides evaluation and analysis code, portable configurations, split IDs, environment records, checksums, text-free per-example predictions, atom IDs, retrieval/reranker ranks and scores, planner-selected and packed IDs, and paired-test outputs. 2 2 2 https://github.com/aapplepku/context-planning-vs-retrieval Released scripts regenerate the main, split, domain, packing-order, paired-sign, and compact mechanism analyses; router and selector results and some intervals are provided as audited summaries. Raw LongBench-v2 contexts, base-model weights, and adapter weights are not redistributed. We do not claim bitwise reproduction of historical GPU inference, and latency is descriptive only."
+      },
+      {
+        "id": "S3.SS1",
+        "heading": "3.1 Direct Planning Loses to Retrieval",
+        "level": 2,
+        "text": "Table 1 gives the full-budget result. Anchored hybrid retrieval is best at 36.18%, and BM25 is nearly tied at 35.98%. The best direct planner-guided method reaches 34.19%. Planner+BM25 is lower than BM25 by 3.78 points (56 BM25-only wins versus 37 planner-only wins; p = 0.061 p=0.061 ). Thus, direct planner-guided methods do not beat strong retrieval in this setup. Method Acc. 95% CI Pair p p Hybrid anchor 36.18 [32.10, 40.47] – BM25 35.98 [31.91, 40.27] 1.000 a Planner+hybrid anchor 34.19 [30.18, 38.45] 0.399 b Planner+BM25 32.21 [28.27, 36.41] 0.061 c Dense 30.22 [26.37, 34.37] – Table 1: Full 18k-context results on 503 questions. CIs are Wilson intervals. a BM25 vs. hybrid anchor. b Planner+hybrid anchor vs. hybrid anchor. c Planner+BM25 vs. BM25."
+      },
+      {
+        "id": "S3.SS1.SSS0.Px1",
+        "heading": "Held-out robustness.",
+        "level": 3,
+        "text": "On the 152 questions with no SFT train/development overlap, anchored hybrid reaches 42.11% and planner-guided anchored hybrid reaches 36.84% (difference − 5.26 -5.26 points; 12 planner wins, 20 losses, 120 ties; p = 0.215 p=0.215 ; paired-bootstrap 95% CI [ − 12.50 , 1.97 ] [-12.50,1.97] points). This lower-powered subset does not provide evidence that planning robustly exceeds the retrieval control. Domain ( n n ) BM25 Anchor P+anchor Δ \\Delta Code repo. (50) 40.00 40.00 34.00 -6.00 Long ICL (81) 34.57 34.57 35.80 +1.23 Structured (33) 39.39 39.39 36.36 -3.03 Dialogue hist. (39) 25.64 25.64 25.64 0.00 Multi-doc QA (125) 30.40 31.20 30.40 -0.80 Single-doc QA (175) 41.14 41.14 37.71 -3.43 Table 2: Full-budget accuracy (%) by LongBench-v2 domain. Δ \\Delta is planner-guided anchored hybrid minus anchored hybrid. These subgroup results are descriptive. At full budget, planner-guided anchored hybrid exceeds its non-planner counterpart in one of six domains, ties in one, and trails in four (Table 2 ). Several domain subsets are small, so we do not treat these differences as confirmatory."
+      },
+      {
+        "id": "S3.SS2",
+        "heading": "3.2 Oracle Routing Does Not Become a Router",
+        "level": 2,
+        "text": "Oracle routing shows complementary errors: an oracle over hybrid anchor and planner+hybrid reaches 46.52%, and an all-method oracle reaches 56.26%. These are post-hoc upper bounds, not deployable policies. Table 3 separates them from leakage-safe routers using task/domain metadata, context-length statistics, retrieval-score summaries, planner parse/selection metadata, and choice-confidence features. Across stratified 5-fold and leave-domain-out validation, logistic regression, shallow random forests, histogram gradient boosting, domain-only rules, and default-train baselines fail to improve over the best single method. Policy Acc. Gain Prot. Best single: hybrid anchor 36.18 0.00 fixed Oracle: hybrid/planner 46.52 +10.34 post hoc Oracle: all methods 56.26 +20.08 post hoc Pair routers 36.18 0.00 5-fold/LDO BM25-vs-planner routers 35.98 -0.20 5-fold/LDO Five-way routers 35.98 -0.20 5-fold/LDO Domain router 36.38 +0.20 same-data Table 3: Oracle bounds and routers. Fixed = best single method; post hoc = oracle using gold correctness; 5-fold/LDO = stratified 5-fold and leave-domain-out validation; same-data = optimistic in-sample rule. The domain router selects, per domain, the better of hybrid anchor and planner-guided anchored hybrid using in-sample accuracy; its +0.20-point gain corresponds to one additional question."
+      },
+      {
+        "id": "S3.SS3",
+        "heading": "3.3 Budget and Rerank Controls Erase Most Gains",
+        "level": 2,
+        "text": "A weaker 6k comparison initially favored plan-guided hybrid over anchored hybrid by 1.99 points. We therefore add stronger budgeted selectors and reranker controls. Table 4 reports the decisive comparisons. Against the best same-budget non-learned selector, the 6k planner gain is only +0.40 points with a wide interval and p = 0.930 p=0.930 ; at 9k the planner loses by 1.19 points. Against strong non-planner rerank controls, planner-rerank has a +1.79-point estimate at 6k, but the paired interval crosses zero and p = 0.478 p=0.478 . At 9k, it ties the best non-planner reranker. Set Bgt Ctrl Plan Δ \\Delta [95% CI] Sel. 6k 32.80 33.20 +0.40 [-4.01,+4.81] Sel. 9k 35.59 34.39 -1.19 [-5.43,+3.04] Rerank 6k 31.41 33.20 +1.79 [-2.58,+6.16] Rerank 9k 34.19 34.19 0.00 [-4.37,+4.17] Table 4: Best planner method versus best non-planner control at each budget. Paired p p -values are 0.930, 0.645, 0.478, and 1.000 in row order. Values are percentage points. The earlier sensitivity adapter raises the 6k planner-rerank score to 34.79%, but still lacks paired support ( p = 0.146 p=0.146 ; CI [ − 0.99 , + 7.75 ] [-0.99,+7.75] points) and does not beat the 9k control. Its selected-atom Jaccard with the final adapter is 0.881, indicating similar selections but not a robust accuracy gain."
+      },
+      {
+        "id": "S3.SS4",
+        "heading": "3.4 Selection, Order, and Score Mechanisms",
+        "level": 2,
+        "text": "Holding the planner-selected set fixed, hybrid-retrieval order changes accuracy relative to planner order by − 1.19 -1.19 points at 6k ( p = 0.461 p=0.461 ) and + 0.99 +0.99 points at 9k ( p = 0.511 p=0.511 ). The reversal does not support a systematic packing-order advantage. We also compare planner-selected IDs with BM25 and cross-encoder rankings, measure high-ranked-atom displacement, and test four predeclared score-flatness statistics. Planner–reranker Jaccard@10 is 0.084 for planner wins versus 0.097 for losses at 6k, and 0.082 versus 0.111 at 9k; planner contexts exclude an average 8.5–9.3 of the reranker’s top-10 atoms. None of 92 win–loss tests remains significant after Benjamini–Hochberg correction. Thus, the outputs do not support a stable claim that planner wins occur specifically when retrieval scores are flatter. These are rank and context-membership analyses, not evidence-recall measurements, because LongBench-v2 provides no gold atom-level evidence labels for this study."
+      },
+      {
+        "id": "S4",
+        "heading": "4 Discussion and Conclusion",
+        "level": 1,
+        "text": "When compared only with prompted or heuristic planning and direct context baselines, a learned planner can look useful. After adding BM25, anchored hybrid packing, and reranking controls, most apparent gains disappear, even though the planner remains trainable and sometimes changes the evidence set helpfully. Paired analysis is essential: the +1.79-point 6k estimate comes from 68 planner wins and 59 losses among 503 questions. Under the observed discordance, confirming a +1.5-point paired effect would require roughly 8,800 examples and a +2.0-point effect roughly 4,900 examples. In this bounded LongBench-v2 MCQ study, learned context planning is better viewed as a weak relevance feature than as a replacement for retrieval. Future studies should compare against anchored hybrid retrieval, budgeted selectors, leakage-safe routing, and strong rerankers before interpreting gains as evidence of planning ability."
+      },
+      {
+        "id": "Sx1",
+        "heading": "Limitations",
+        "level": 1,
+        "text": "Our conclusions are restricted to LongBench-v2 MCQ, Qwen2.5-7B-Instruct, one outcome-supervised planner recipe, one overlapping character-window atomization scheme, the evaluated lexical/dense retrievers, and the MiniLM cross-encoder. The all-503 diagnostic is partly transductive for the 168 questions represented in SFT train/development data; the disjoint test analysis has only 152 questions and limited power for small paired effects. We do not evaluate open-ended QA, other model scales, alternative supervision sources, or real-world deployment, and we have no external replication. A larger or differently mined trace set could change the outcome. The historical run predates strict locked-run enforcement and immutable model-revision pinning, and latency is descriptive rather than a portable efficiency claim. LongBench-v2 supplies no gold atom-level evidence labels for this analysis, so mechanism results use atom IDs, ranks, scores, and displacement rather than evidence recall. These results do not imply that planners are generally ineffective; they show that this planner did not robustly beat strong retrieval controls under the studied conditions."
+      },
+      {
+        "id": "Sx2",
+        "heading": "Acknowledgments",
+        "level": 1,
+        "text": "We thank the Insights 2026 reviewers for their careful comments and suggestions. Generative AI assistants were used to help draft and revise portions of this manuscript and to help prepare the analysis and artifact-release scripts. All experimental results, statistics, and claims were verified by the authors against the released artifacts, and the authors take full responsibility for the content."
+      },
+      {
+        "id": "bib",
+        "heading": "References",
+        "level": 1,
+        "text": "Bai et al. (2024) Yushi Bai, Shangqing Tu, Jiajie Zhang, Hao Peng, Xiaozhi Wang, Xin Lv, Shulin Cao, Jiazheng Xu, Lei Hou, Yuxiao Dong, Jie Tang, and Juanzi Li. 2024. LongBench v2: Towards deeper understanding and reasoning on realistic long-context multitasks. arXiv preprint arXiv:2412.15204 . Hu et al. (2022) Edward J. Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and Weizhu Chen. 2022. LoRA: Low-rank adaptation of large language models. In International Conference on Learning Representations . Lewis et al. (2020) Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio Petroni, Vladimir Karpukhin, Naman Goyal, Heinrich Küttler, Mike Lewis, Wen-tau Yih, Tim Rocktäschel, Sebastian Riedel, and Douwe Kiela. 2020. Retrieval-augmented generation for knowledge-intensive NLP tasks. In Advances in Neural Information Processing Systems . Mangrulkar et al. (2022) Sourab Mangrulkar, Sylvain Gugger, Lysandre Debut, Younes Belkada, and Sayak Paul. 2022. PEFT: State-of-the-art parameter-efficient fine-tuning methods. https://github.com/huggingface/peft . Reimers and Gurevych (2019) Nils Reimers and Iryna Gurevych. 2019. Sentence-BERT: Sentence embeddings using Siamese BERT-networks. In Proceedings of EMNLP-IJCNLP , pages 3982–3992. Association for Computational Linguistics. Robertson and Zaragoza (2009) Stephen Robertson and Hugo Zaragoza. 2009. The probabilistic relevance framework: BM25 and beyond. Foundations and Trends in Information Retrieval , 3(4):333–389. Wang et al. (2020) Wenhui Wang, Furu Wei, Li Dong, Hangbo Bao, Nan Yang, and Ming Zhou. 2020. MiniLM: Deep self-attention distillation for task-agnostic compression of pre-trained transformers. In Advances in Neural Information Processing Systems . Wolf et al. (2020) Thomas Wolf, Lysandre Debut, Victor Sanh, Julien Chaumond, Clement Delangue, Anthony Moi, Pierric Cistac, and others. 2020. Transformers: State-of-the-art natural language processing. In Proceedings of EMNLP: System Demonstrations , pages 38–45. Yang et al. (2024) An Yang, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chengyuan Li, Dayiheng Liu, Fei Huang, Haoran Wei, and others. 2024. Qwen2.5 technical report. arXiv preprint arXiv:2412.15115 ."
+      }
+    ]
+  },
+  "text": "When Learned Context Planning Fails to Beat Strong Retrieval:A Controlled Study of Planning, Routing, and Reranking for Long-Context QA Skip to main content Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: Why HTML? Report Issue Back to Abstract Download PDF Contents Reading mode Colour theme License: CC BY 4.0 arXiv:2609.26976v1 [cs.CL] 22 Sep 2026 When Learned Context Planning Fails to Beat Strong Retrieval: A Controlled Study of Planning, Routing, and Reranking for Long-Context QA Yingrui Li Affiliation: Independent Researcher, United States Email: emmalyr0404@gmail.com Han Chen Affiliation: Independent Researcher, United States Email: hc414t@gmail.com Abstract Learned context planning selects evidence atoms before an answer model reasons over them. We test whether this learned selection improves long-context multiple-choice QA after strong retrieval, routing, budgeted-selector, and reranking controls. Our primary diagnostic uses all 503 LongBench-v2 MCQ questions with Qwen2.5-7B-Instruct. The planner is SFT-trained on outcome-selected traces from 140 training and 28 development questions; because the 503-question analysis includes those questions, it is partly transductive. At an 18k-character budget, anchored hybrid retrieval reaches 36.18% accuracy and BM25 reaches 35.98%, while the best direct planner-guided method reaches 34.19%. On the untouched 152-question test split, anchored hybrid remains higher (42.11% versus 36.84%). Leakage-safe routers cannot convert a large oracle gap. Under tight budgets, the best planner is ahead by only 0.40 points at 6k and loses at 9k; planner-guided reranking has a +1.79-point estimate at 6k with a paired interval crossing zero and ties the control at 9k. Packing-order and score-flatness analyses did not identify a stable mechanism. Under this setup, learned planning is a weak relevance signal rather than a replacement for strong retrieval. 1 Introduction Long-context question answering systems must decide which parts of a large input to show to an answer model. Retrieval-augmented generation (RAG) usually ranks chunks with lexical, dense, or hybrid retrieval, then packs the top results into context ( Robertson and Zaragoza, 2009 ; Lewis et al., 2020 ; Reimers and Gurevych, 2019 ) . A learned context planner offers a different interface: retrieve a candidate set, ask a trained model to select evidence atoms, and answer from the selected or planner-prioritized context. Here, planning means evidence selection; the planner outputs atom IDs rather than multi-step reasoning traces. This idea is plausible, but a weak comparison can make it look stronger than it is. A planner may beat prompted planning or a direct baseline while still losing to BM25, and a large oracle routing bound may not imply a deployable inference-time router. We ask: when does learned evidence planning survive strong retrieval and reranking controls? We answer this question on LongBench-v2 multiple-choice QA ( Bai et al., 2024 ) . Learned planning changes the evidence set, helps some examples, and produces a small 6k-character rerank signal. However, in this setting it does not robustly beat strong retrieval, routing, budgeted selection, or reranking controls. We show that (i) direct planner-guided construction loses to BM25 and anchored hybrid retrieval, (ii) oracle complementarity does not become a leakage-safe router, (iii) low-budget planner gains shrink under stronger selectors, and (iv) the remaining planner-rerank signal is statistically unsupported. We additionally audit train–evaluation separation, held-out behavior, domain variation, packing order, and retrieval-score mechanisms. The practical takeaway is that planner gains should be checked against strong retrieval, routing, budgeted selection, and reranking controls before being attributed to planning. 2 Experimental Setup Task, split, and executor. We deterministically split the 503 LongBench-v2 MCQ questions into 301 training, 50 development, and 152 test questions (split seed 20260225). Each example has a long context, question, choices, and a gold letter; a run is correct when the parsed output letter matches the gold. The answer model is Qwen2.5-7B-Instruct ( Yang et al., 2024 ) . Our primary diagnostic reports all 503 questions and therefore includes the 168 questions used to construct planner SFT train/development records. It is partly transductive and is not a conventional held-out planner-generalization estimate. We separately report the untouched 152-question test partition. Atoms and retrieval controls. An evidence atom is a deterministic character-bounded chunk. Multi-document contexts are split on document separators or headers, then chunked into 2,000-character atoms with 200-character overlap; other contexts use 8,000-character atoms with 1,000-character overlap. A method ranks or selects atoms and packs their full text under an 18k, 9k, or 6k character budget. BM25 uses an alphanumeric tokenizer. Dense retrieval uses sentence-transformers/all-MiniLM-L6-v2 ; hybrid retrieval applies reciprocal-rank fusion. Anchored hybrid places top BM25 atoms before hybrid fill. Budgeted controls include no-anchor and weighted hybrid packing and MMR. Non-planner rerankers score the same BM25+dense candidate pool with cross-encoder/ms-marco-MiniLM-L-6-v2 ( Wang et al., 2020 ) . Trace mining and planner SFT. For each training or development question, the base Qwen model samples six plans from a 30-atom retrieval candidate pool (temperature 0.7, top- p p 0.9, at most eight selected atoms, and an 18k-character execution budget). We deduplicate plans by selected atom set, execute each unique plan with the same base answer model, and assign binary reward from answer correctness. For SFT, we retain one reward-one plan per question, preferring fewer atoms, shorter context, and earlier sample order. This yields 140 SFT training rows and 28 development rows, with zero test-ID overlap. 1 1 1 The submission version reported 262 retained traces in a merged SFT archive. A release audit could not reproduce that count from the audited artifacts of the final adapter; the verified counts are the 140 training and 28 development rows (168 unique questions) reported here. We train a Qwen2.5-7B-Instruct LoRA adapter ( Hu et al., 2022 ) for three epochs with rank 16, alpha 32, dropout 0.05, learning rate 5 × 10 − 5 5\\times 10^{-5} , per-device batch size 2, gradient accumulation 8, bfloat16 precision, and seed 111, using Transformers and PEFT ( Wolf et al., 2020 ; Mangrulkar et al., 2022 ) . The final adapter is the global-step-24 state; no development checkpoint selection occurs because training ends before the configured evaluation interval. At inference, the planner receives only the question, choices, and retrieved candidate atoms. Plan-guided hybrid packs planner-selected atoms before BM25 anchors and hybrid fill; planner-rerank packs planner-selected atoms before cross-encoder reranked fill; Planner+BM25 uses BM25 fill. We also report an earlier-adapter sensitivity check. Routers, statistics, and artifacts. An oracle router chooses post hoc using gold correctness and measures complementarity rather than deployable performance. Leakage-safe routers choose among context-construction policies using only inference-available features under stratified 5-fold and leave-domain-out validation. We report accuracy, paired wins/losses, exact two-sided sign-test p p -values, and 95% intervals. The public repository provides evaluation and analysis code, portable configurations, split IDs, environment records, checksums, text-free per-example predictions, atom IDs, retrieval/reranker ranks and scores, planner-selected and packed IDs, and paired-test outputs. 2 2 2 https://github.com/aapplepku/context-planning-vs-retrieval Released scripts regenerate the main, split, domain, packing-order, paired-sign, and compact mechanism analyses; router and selector results and some intervals are provided as audited summaries. Raw LongBench-v2 contexts, base-model weights, and adapter weights are not redistributed. We do not claim bitwise reproduction of historical GPU inference, and latency is descriptive only. 3 Results 3.1 Direct Planning Loses to Retrieval Table 1 gives the full-budget result. Anchored hybrid retrieval is best at 36.18%, and BM25 is nearly tied at 35.98%. The best direct planner-guided method reaches 34.19%. Planner+BM25 is lower than BM25 by 3.78 points (56 BM25-only wins versus 37 planner-only wins; p = 0.061 p=0.061 ). Thus, direct planner-guided methods do not beat strong retrieval in this setup. Method Acc. 95% CI Pair p p Hybrid anchor 36.18 [32.10, 40.47] – BM25 35.98 [31.91, 40.27] 1.000 a Planner+hybrid anchor 34.19 [30.18, 38.45] 0.399 b Planner+BM25 32.21 [28.27, 36.41] 0.061 c Dense 30.22 [26.37, 34.37] – Table 1: Full 18k-context results on 503 questions. CIs are Wilson intervals. a BM25 vs. hybrid anchor. b Planner+hybrid anchor vs. hybrid anchor. c Planner+BM25 vs. BM25. Held-out robustness. On the 152 questions with no SFT train/development overlap, anchored hybrid reaches 42.11% and planner-guided anchored hybrid reaches 36.84% (difference − 5.26 -5.26 points; 12 planner wins, 20 losses, 120 ties; p = 0.215 p=0.215 ; paired-bootstrap 95% CI [ − 12.50 , 1.97 ] [-12.50,1.97] points). This lower-powered subset does not provide evidence that planning robustly exceeds the retrieval control. Domain ( n n ) BM25 Anchor P+anchor Δ \\Delta Code repo. (50) 40.00 40.00 34.00 -6.00 Long ICL (81) 34.57 34.57 35.80 +1.23 Structured (33) 39.39 39.39 36.36 -3.03 Dialogue hist. (39) 25.64 25.64 25.64 0.00 Multi-doc QA (125) 30.40 31.20 30.40 -0.80 Single-doc QA (175) 41.14 41.14 37.71 -3.43 Table 2: Full-budget accuracy (%) by LongBench-v2 domain. Δ \\Delta is planner-guided anchored hybrid minus anchored hybrid. These subgroup results are descriptive. At full budget, planner-guided anchored hybrid exceeds its non-planner counterpart in one of six domains, ties in one, and trails in four (Table 2 ). Several domain subsets are small, so we do not treat these differences as confirmatory. 3.2 Oracle Routing Does Not Become a Router Oracle routing shows complementary errors: an oracle over hybrid anchor and planner+hybrid reaches 46.52%, and an all-method oracle reaches 56.26%. These are post-hoc upper bounds, not deployable policies. Table 3 separates them from leakage-safe routers using task/domain metadata, context-length statistics, retrieval-score summaries, planner parse/selection metadata, and choice-confidence features. Across stratified 5-fold and leave-domain-out validation, logistic regression, shallow random forests, histogram gradient boosting, domain-only rules, and default-train baselines fail to improve over the best single method. Policy Acc. Gain Prot. Best single: hybrid anchor 36.18 0.00 fixed Oracle: hybrid/planner 46.52 +10.34 post hoc Oracle: all methods 56.26 +20.08 post hoc Pair routers 36.18 0.00 5-fold/LDO BM25-vs-planner routers 35.98 -0.20 5-fold/LDO Five-way routers 35.98 -0.20 5-fold/LDO Domain router 36.38 +0.20 same-data Table 3: Oracle bounds and routers. Fixed = best single method; post hoc = oracle using gold correctness; 5-fold/LDO = stratified 5-fold and leave-domain-out validation; same-data = optimistic in-sample rule. The domain router selects, per domain, the better of hybrid anchor and planner-guided anchored hybrid using in-sample accuracy; its +0.20-point gain corresponds to one additional question. 3.3 Budget and Rerank Controls Erase Most Gains A weaker 6k comparison initially favored plan-guided hybrid over anchored hybrid by 1.99 points. We therefore add stronger budgeted selectors and reranker controls. Table 4 reports the decisive comparisons. Against the best same-budget non-learned selector, the 6k planner gain is only +0.40 points with a wide interval and p = 0.930 p=0.930 ; at 9k the planner loses by 1.19 points. Against strong non-planner rerank controls, planner-rerank has a +1.79-point estimate at 6k, but the paired interval crosses zero and p = 0.478 p=0.478 . At 9k, it ties the best non-planner reranker. Set Bgt Ctrl Plan Δ \\Delta [95% CI] Sel. 6k 32.80 33.20 +0.40 [-4.01,+4.81] Sel. 9k 35.59 34.39 -1.19 [-5.43,+3.04] Rerank 6k 31.41 33.20 +1.79 [-2.58,+6.16] Rerank 9k 34.19 34.19 0.00 [-4.37,+4.17] Table 4: Best planner method versus best non-planner control at each budget. Paired p p -values are 0.930, 0.645, 0.478, and 1.000 in row order. Values are percentage points. The earlier sensitivity adapter raises the 6k planner-rerank score to 34.79%, but still lacks paired support ( p = 0.146 p=0.146 ; CI [ − 0.99 , + 7.75 ] [-0.99,+7.75] points) and does not beat the 9k control. Its selected-atom Jaccard with the final adapter is 0.881, indicating similar selections but not a robust accuracy gain. 3.4 Selection, Order, and Score Mechanisms Holding the planner-selected set fixed, hybrid-retrieval order changes accuracy relative to planner order by − 1.19 -1.19 points at 6k ( p = 0.461 p=0.461 ) and + 0.99 +0.99 points at 9k ( p = 0.511 p=0.511 ). The reversal does not support a systematic packing-order advantage. We also compare planner-selected IDs with BM25 and cross-encoder rankings, measure high-ranked-atom displacement, and test four predeclared score-flatness statistics. Planner–reranker Jaccard@10 is 0.084 for planner wins versus 0.097 for losses at 6k, and 0.082 versus 0.111 at 9k; planner contexts exclude an average 8.5–9.3 of the reranker’s top-10 atoms. None of 92 win–loss tests remains significant after Benjamini–Hochberg correction. Thus, the outputs do not support a stable claim that planner wins occur specifically when retrieval scores are flatter. These are rank and context-membership analyses, not evidence-recall measurements, because LongBench-v2 provides no gold atom-level evidence labels for this study. 4 Discussion and Conclusion When compared only with prompted or heuristic planning and direct context baselines, a learned planner can look useful. After adding BM25, anchored hybrid packing, and reranking controls, most apparent gains disappear, even though the planner remains trainable and sometimes changes the evidence set helpfully. Paired analysis is essential: the +1.79-point 6k estimate comes from 68 planner wins and 59 losses among 503 questions. Under the observed discordance, confirming a +1.5-point paired effect would require roughly 8,800 examples and a +2.0-point effect roughly 4,900 examples. In this bounded LongBench-v2 MCQ study, learned context planning is better viewed as a weak relevance feature than as a replacement for retrieval. Future studies should compare against anchored hybrid retrieval, budgeted selectors, leakage-safe routing, and strong rerankers before interpreting gains as evidence of planning ability. Limitations Our conclusions are restricted to LongBench-v2 MCQ, Qwen2.5-7B-Instruct, one outcome-supervised planner recipe, one overlapping character-window atomization scheme, the evaluated lexical/dense retrievers, and the MiniLM cross-encoder. The all-503 diagnostic is partly transductive for the 168 questions represented in SFT train/development data; the disjoint test analysis has only 152 questions and limited power for small paired effects. We do not evaluate open-ended QA, other model scales, alternative supervision sources, or real-world deployment, and we have no external replication. A larger or differently mined trace set could change the outcome. The historical run predates strict locked-run enforcement and immutable model-revision pinning, and latency is descriptive rather than a portable efficiency claim. LongBench-v2 supplies no gold atom-level evidence labels for this analysis, so mechanism results use atom IDs, ranks, scores, and displacement rather than evidence recall. These results do not imply that planners are generally ineffective; they show that this planner did not robustly beat strong retrieval controls under the studied conditions. Acknowledgments We thank the Insights 2026 reviewers for their careful comments and suggestions. Generative AI assistants were used to help draft and revise portions of this manuscript and to help prepare the analysis and artifact-release scripts. All experimental results, statistics, and claims were verified by the authors against the released artifacts, and the authors take full responsibility for the content. References Bai et al. (2024) Yushi Bai, Shangqing Tu, Jiajie Zhang, Hao Peng, Xiaozhi Wang, Xin Lv, Shulin Cao, Jiazheng Xu, Lei Hou, Yuxiao Dong, Jie Tang, and Juanzi Li. 2024. LongBench v2: Towards deeper understanding and reasoning on realistic long-context multitasks. arXiv preprint arXiv:2412.15204 . Hu et al. (2022) Edward J. Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and Weizhu Chen. 2022. LoRA: Low-rank adaptation of large language models. In International Conference on Learning Representations . Lewis et al. (2020) Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio Petroni, Vladimir Karpukhin, Naman Goyal, Heinrich Küttler, Mike Lewis, Wen-tau Yih, Tim Rocktäschel, Sebastian Riedel, and Douwe Kiela. 2020. Retrieval-augmented generation for knowledge-intensive NLP tasks. In Advances in Neural Information Processing Systems . Mangrulkar et al. (2022) Sourab Mangrulkar, Sylvain Gugger, Lysandre Debut, Younes Belkada, and Sayak Paul. 2022. PEFT: State-of-the-art parameter-efficient fine-tuning methods. https://github.com/huggingface/peft . Reimers and Gurevych (2019) Nils Reimers and Iryna Gurevych. 2019. Sentence-BERT: Sentence embeddings using Siamese BERT-networks. In Proceedings of EMNLP-IJCNLP , pages 3982–3992. Association for Computational Linguistics. Robertson and Zaragoza (2009) Stephen Robertson and Hugo Zaragoza. 2009. The probabilistic relevance framework: BM25 and beyond. Foundations and Trends in Information Retrieval , 3(4):333–389. Wang et al. (2020) Wenhui Wang, Furu Wei, Li Dong, Hangbo Bao, Nan Yang, and Ming Zhou. 2020. MiniLM: Deep self-attention distillation for task-agnostic compression of pre-trained transformers. In Advances in Neural Information Processing Systems . Wolf et al. (2020) Thomas Wolf, Lysandre Debut, Victor Sanh, Julien Chaumond, Clement Delangue, Anthony Moi, Pierric Cistac, and others. 2020. Transformers: State-of-the-art natural language processing. In Proceedings of EMNLP: System Demonstrations , pages 38–45. Yang et al. (2024) An Yang, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chengyuan Li, Dayiheng Liu, Fei Huang, Haoran Wei, and others. 2024. Qwen2.5 technical report. arXiv preprint arXiv:2412.15115 .",
+  "text_truncated": false,
+  "links": [
+    {
+      "text": "Skip to main content",
+      "url": "https://arxiv.org/html/2609.26976v1#infobox"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/IgnoreMe"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "Why HTML?",
+      "url": "https://info.arxiv.org/about/accessible_HTML.html"
+    },
+    {
+      "text": "Back to Abstract",
+      "url": "https://arxiv.org/abs/2609.26976v1"
+    },
+    {
+      "text": "Download PDF",
+      "url": "https://arxiv.org/pdf/2609.26976v1"
+    },
+    {
+      "text": "License: CC BY 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "Robertson and Zaragoza, 2009",
+      "url": "https://arxiv.org/html/2609.26976v1#bib.bib6"
+    },
+    {
+      "text": "Lewis et al., 2020",
+      "url": "https://arxiv.org/html/2609.26976v1#bib.bib3"
+    },
+    {
+      "text": "Reimers and Gurevych, 2019",
+      "url": "https://arxiv.org/html/2609.26976v1#bib.bib5"
+    },
+    {
+      "text": "Bai et al., 2024",
+      "url": "https://arxiv.org/html/2609.26976v1#bib.bib1"
+    },
+    {
+      "text": "Yang et al., 2024",
+      "url": "https://arxiv.org/html/2609.26976v1#bib.bib9"
+    },
+    {
+      "text": "Wang et al., 2020",
+      "url": "https://arxiv.org/html/2609.26976v1#bib.bib7"
+    },
+    {
+      "text": "Hu et al., 2022",
+      "url": "https://arxiv.org/html/2609.26976v1#bib.bib2"
+    },
+    {
+      "text": "Wolf et al., 2020",
+      "url": "https://arxiv.org/html/2609.26976v1#bib.bib8"
+    },
+    {
+      "text": "Mangrulkar et al., 2022",
+      "url": "https://arxiv.org/html/2609.26976v1#bib.bib4"
+    },
+    {
+      "text": "https://github.com/aapplepku/context-planning-vs-retrieval",
+      "url": "https://github.com/aapplepku/context-planning-vs-retrieval"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2609.26976v1#S3.T1"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2609.26976v1#S3.T2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2609.26976v1#S3.T3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2609.26976v1#S3.T4"
+    },
+    {
+      "text": "https://github.com/huggingface/peft",
+      "url": "https://github.com/huggingface/peft"
+    }
+  ],
+  "matching_link_count": 22,
+  "links_truncated": false,
+  "invalid_links": []
+}

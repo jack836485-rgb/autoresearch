@@ -1,0 +1,702 @@
+{
+  "url": "https://arxiv.org/html/2605.28227v1",
+  "final_url": "https://arxiv.org/html/2605.28227v1",
+  "status": 200,
+  "title": "Why We Need Speech to Evaluate Speech Translation",
+  "metadata": {},
+  "paper": {
+    "title": "Why We Need Speech to Evaluate Speech Translation",
+    "title_warning": null,
+    "abstract": "Abstract Speech translation models are increasingly capable of preserving speech-specific information (e.g., speaker gender, prosody, and emphasis), yet evaluation metrics remain blind to such phenomena.\nWe meta-evaluate both text- and speech-based quality estimation metrics on two contrastive datasets targeting gender agreement and prosody, and find that both fall short, even when given direct access to the speech signal.\nWe then train SpeechCOMET, a family of quality estimation models with speech encoders, and evaluate a state-of-the-art SpeechLLM as a judge.\nBoth match or exceed text-based COMET on standard quality estimation, but neither consistently assesses speech-specific phenomena.\nWe identify three causes:\n(1) speech-specific features are not reliably preserved in current encoders,\n(2) models tend to ignore the speech source signal,\nand (3) quality estimation training data contains too few relevant examples.\nWe release all models and code, and argue that progress requires dedicated speech-specific training data and models that genuinely condition on speech.",
+    "authors": [
+      {
+        "name": "Maike Züfle",
+        "affiliations": [
+          "Affiliation: Karlsruhe Institute of Technology"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Danni Liu",
+        "affiliations": [
+          "Affiliation: Karlsruhe Institute of Technology"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Vilém Zouhar",
+        "affiliations": [
+          "Affiliation: ETH Zurich {maike.zuefle, danni.liu}@kit.edu, vzouhar.ethz.ch"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Jan Niehues",
+        "affiliations": [
+          "Affiliation: Karlsruhe Institute of Technology"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Maike Züfle Affiliation: Karlsruhe Institute of Technology Danni Liu Affiliation: Karlsruhe Institute of Technology Vilém Zouhar Affiliation: ETH Zurich {maike.zuefle, danni.liu}@kit.edu, vzouhar.ethz.ch Jan Niehues Affiliation: Karlsruhe Institute of Technology",
+    "arxiv_version": "2605.28227v1",
+    "arxiv_version_date": "2026-05-27",
+    "sections": [
+      {
+        "id": "S1",
+        "heading": "1 Introduction",
+        "level": 1,
+        "text": "Speech translation is evolving from cascaded pipelines, which first transcribe speech before translating the text, to end-to-end models ( Papi et al., 2026 ) that process speech directly and can, in principle, preserve speech-specific information such as speaker gender, prosody, and emphasis. The correct translation of an utterance can depend on such cues: the same words carry different meanings depending on the speech, as shown in Figure 1 . Although cases where the speech signal is decisive may represent only a small fraction of all translations, the quality of speech translation has improved substantially recently ( Abdulmumin et al., 2025 ) to the point where such phenomena can no longer be neglected. With the rise of Speech Large Language Models (SpeechLLMs) ( Xu et al., 2025 ; Microsoft et al., 2025 ) and end-to-end ST models ( Communication et al., 2023 ; Radford et al., 2023 ; Ambilduke et al., 2025 ) , recent work started to evaluate speech translation models on speaker gender agreement ( Züfle and Niehues, 2025 ; Conti et al., 2026 ) , emotion ( Papi et al., 2026 ) and prosodic phenomena ( Li et al., 2026 ) , using dedicated contrastive benchmarks such as MuST-SHE ( Bentivogli et al., 2020 ) , EmotionTalk ( Sun et al., 2025 ) and ContraProST ( Tsiamas et al., 2024 ) . Figure 1: Speech is necessary to correctly evaluate speech translation quality: the prosodic break in the source speech disambiguates two translations. Yet dedicated quality estimation (QE) metrics for assessing these phenomena are missing. Current evaluations rely on text-based QE models such as COMETKiwi ( Rei et al., 2022 ) , which are blind to speech-specific phenomena by construction ( Figure 1 ). While speech-aware metrics such as BLASER ( Dale and Costa-jussà, 2024 ) and SpeechQE ( Han et al., 2024 ) have been proposed, they have only been evaluated on standard correlation with human scores, leaving open whether they can actually capture speech-specific phenomena. We investigate whether existing and new metrics can close this gap. We show that existing speech-aware metrics, including BLASER and SpeechQE, are not sensitive to speech-specific phenomena despite receiving speech as input. We then introduce and train SpeechCOMET, a family of QE models with SONAR ( Duquenne et al., 2023 ) and Whisper ( Radford et al., 2023 ) encoders, and additionally evaluate a state-of-the-art SpeechLLM as a judge. SpeechCOMET matches text-based COMETKiwi on general QE performance, and SpeechLLM exceeds it. However, neither SpeechCOMET nor SpeechLLM reliably assess speech-specific phenomena. We find three complementary explanations: (1) speech-specific features may not be preserved in the encoder representations at all; (2) models tend to ignore the speech source and focus on the translation; and (3) even when features are present in the encoder, the QE training signal, which contains very few speech-specific examples, is insufficient to teach the model to use them. Our contributions are threefold: (i) we benchmark state-of-the-art metrics on speech-specific evaluation; (ii) we train and evaluate new speech-aware QE models; and (iii) we provide hypotheses and evidence of why current models fail. We release the trained QE models and code 1 1 1 https://github.com/MaikeZuefle/speechCOMET , and argue that progress in speech translation evaluation requires moving beyond text-based proxies and investing in speech-specific benchmarks and data."
+      },
+      {
+        "id": "S2",
+        "heading": "2 Current Evaluation of Speech Translation",
+        "level": 1,
+        "text": "We review existing approaches to speech translation quality estimation (QE)."
+      },
+      {
+        "id": "S2.SS1.SSS0.Px1",
+        "heading": "Text-Based Metrics.",
+        "level": 4,
+        "text": "The dominant approach to evaluating speech translation quality relies on text-based QE models. For shared tasks and in recent research, WMT22 COMETKiwi DA ( Rei et al., 2022 ) and its reference-based variant have been the standard metrics to date ( Abdulmumin et al., 2025 ; Papi et al., 2026 ) , applied to human reference transcripts as source input. Two practical challenges arise in this setting. First, human transcripts are rarely available. Alternatives such as automatic speech recognition (ASR) transcripts and back-translations have been explored by Cettolo et al. (2025) , showing that ASR transcripts are more effective than back-translations when word error rate is low. Second, beyond source representation, standard QE models assume perfectly segmented inputs, whereas speech translation usually relies on automatic segmentation ( Amrhein and Haddow, 2022 ; Abdulmumin et al., 2025 ) . COMET Partial ( Zouhar et al., 2025 ) addresses this by training on segmentation-noisy data. Yet none of these adaptations have speech access. IWSLT dev MuST-SHE ContraProST Segment τ b \\tau_{b} (%) System SPA (%) PA (%) PA (%) de zh avg ASR src de zh avg ASR src es fr it de es ja Text COMET-Partial 11.2 12.7 11.9 -0.3 43.1 67.0 55.0 +4.7 52.4 55.7 51.8 50.0 50.0 50.0 COMETKiwi 32.8 36.4 34.6 -6.0 86.3 89.1 87.7 -0.7 61.5 60.6 55.2 50.0 50.0 50.0 Speech SpeechQE 26.9 32.7 29.8 – 79.2 71.3 75.2 – 37.0 36.0 31.0 26.1 20.0 38.2 BLASER 22.0 26.8 24.4 – 85.5 67.4 76.5 – 52.0 51.6 51.7 51.0 51.5 51.1 Table 1: Results for transcript- and speech-based baseline metrics. Transcript-based metrics cannot evaluate speech-specific phenomena by design; speech-based metrics can access the signal but still fail on gender and prosody."
+      },
+      {
+        "id": "S2.SS1.SSS0.Px2",
+        "heading": "Speech-Based Metrics.",
+        "level": 4,
+        "text": "A complementary line of work proposes metrics that operate directly on speech, avoiding ASR dependence altogether. BLASER ( Chen et al., 2023 ) and its successor Blaser 2.0 Qe ( Dale and Costa-jussà, 2024 ) encode the source and translation directly into a shared multimodal embedding space using SONAR encoders ( Duquenne et al., 2023 ) , originally targeted at speech-to-speech translation but extended to speech-to-text. SpeechQE TowerInstruct 7B En2de ( Han et al., 2024 ) takes a dedicated approach, combining Whisper ( Radford et al., 2023 ) with an LLM to estimate speech-to-text translation quality. However, BLASER and SpeechQE are evaluated only on correlation with human scores or reference-based metrics, with no evaluation on benchmarks targeting speech-specific phenomena. We now benchmark existing metrics on both standard correlation with human judgements and on datasets targeting speech-specific phenomena. We describe the datasets, metrics, and results in turn."
+      },
+      {
+        "id": "S2.SS2.SSS0.Px1",
+        "heading": "IWSLT 2026 Metrics dev set.",
+        "level": 4,
+        "text": "We evaluate on the development set of the IWSLT 2026 Metrics Shared Task IWSLT2026 Metrics Shared Train Dev ( Adelani et al., 2026 ) , which is, to the best of our knowledge, the only speech translation dataset with human-annotated scores 2 2 2 The human annotations from IWSLT 2023 are also public, we use them as part of the train set in later experiments. , newly released after the existing metrics were developed. It comprises ACL talks from IWSLT 2025 submissions for en-de and en-zh. The dev set contains 5.56K segments annotated with human direct assessment scores across four speech translation systems. The source texts in this dataset are human-annotated transcripts, which are rarely available in practice. We therefore transcribe the source speech with Whisper Large V3 ( Radford et al., 2023 ) at a WER of 24.4%, and evaluate text-based models with both human- or ASR source texts, to evaluate potential degradations ( Cettolo et al., 2025 ) . Beyond correlation with human scores, we evaluate whether QE metrics are sensitive to speech-specific phenomena. We use two contrastive datasets that test linguistically-motivated distinctions only accessible from the speech signal:"
+      },
+      {
+        "id": "S2.SS2.SSS0.Px2",
+        "heading": "MuST-SHE.",
+        "level": 4,
+        "text": "With MuST-SHE ( Bentivogli et al., 2020 ) , we evaluate whether metrics are sensitive to speaker gender agreement in speech translation. The dataset contains English speech translated to French, Spanish, and Italian, which inflect grammatical forms according to the speaker’s gender. Each of the 1612 evaluation pairs consists of a gender-correct translation and a gender-incorrect alternative. A metric that uses speech should prefer translations that match the speaker’s gender."
+      },
+      {
+        "id": "S2.SS2.SSS0.Px3",
+        "heading": "ContraProST.",
+        "level": 4,
+        "text": "ContraProST ( Tsiamas et al., 2024 ) tests sensitivity to prosodic and paralinguistic features: correct translations are paired with prosodically incorrect alternatives across en → \\to {de, es, ja} (15,972 pairs), covering five phenomena: sentence stress, intonation, prosodic breaks, emotional prosody, and politeness. These distinctions are not recoverable from transcripts alone, making this a direct test of whether speech-based metrics capture information beyond text."
+      },
+      {
+        "id": "S2.SS3",
+        "heading": "2.3 Meta-Evaluation Metrics",
+        "level": 2,
+        "text": "We adopt the meta-evaluation metrics from the IWSLT 2026 Metrics Shared Task 3 3 3 iwslt.org/2026/metrics , assessing our QE systems at both the segment and system level. For text-based models, we additionally evaluate the effect of using automatic transcripts as source inputs, which may contain ASR errors."
+      },
+      {
+        "id": "S2.SS3.SSS0.Px1",
+        "heading": "Segment-level correlation.",
+        "level": 4,
+        "text": "For each source segment, we compute Kendall’s τ b \\tau_{b} ( Kendall, 1945 ) between metric predictions and human direct assessment scores across the available system translations, and then average this across source segments. A higher τ b \\tau_{b} indicates better agreement between the metric and human ranking of translations."
+      },
+      {
+        "id": "S2.SS3.SSS0.Px2",
+        "heading": "System-level correlation.",
+        "level": 4,
+        "text": "At the system level, we evaluate the metric’s ability to rank speech translation systems over a full dataset. We use Soft Pairwise Accuracy ( Thompson et al., 2024 , SPA,) , which measures agreement between human and automatic pairwise system rankings. SPA is 1 when the metric assigns identical pairwise confidence to every system comparison as human judgements."
+      },
+      {
+        "id": "S2.SS3.SSS0.Px3",
+        "heading": "Contrastive pairwise accuracy.",
+        "level": 4,
+        "text": "For contrastive evaluation datasets such as MuST-SHE and ContraProST, no human scores are available. Instead, each source is paired with one correct and one incorrect translation. We measure whether the metric assigns a higher score to the correct translation: PA = ∑ k = 1 N 𝟏 [ y ^ k + > y ^ k − ] N \\displaystyle\\text{PA}=\\frac{\\sum_{k=1}^{N}\\mathbf{1}[\\hat{y}_{k}^{+}>\\hat{y}_{k}^{-}]}{N} (1) where N N is the number of contrastive pairs, y ^ k + \\hat{y}_{k}^{+} is the metric score for the correct translation, and y ^ k − \\hat{y}_{k}^{-} is the score for the incorrect one. PA equals 1 when the metric always prefers the correct translation, and ties are counted as incorrect."
+      },
+      {
+        "id": "S2.SS4",
+        "heading": "2.4 Evaluating Existing Metrics",
+        "level": 2,
+        "text": "We benchmark existing approaches on the datasets described above; results are shown in Table 1 . Transcript-based metrics outperform speech-based ones when given human reference transcripts, but degrade noticeably under ASR input: COMET drops from 32.8% to 27.8% at the segment level for en-de and from 36.4% to 29.4% for en-zh. With ASR transcripts, transcript-based and speech-based metrics perform comparably. For evaluations targeting speech-specific phenomena, neither family performs well. Transcript-based metrics score at chance on MuST-SHE and ContraProST by design, as they have no access to the speech signal. More surprisingly, speech-based metrics also do not perform well: despite receiving speech as input, SpeechQE and BLASER score at or below chance on both datasets."
+      },
+      {
+        "id": "S3",
+        "heading": "3 New Approaches to Speech Translation Evaluation",
+        "level": 1,
+        "text": "Having established that existing metrics are not sensitive to speech-specific phenomena, we investigate whether this limitation is architectural. We train SpeechCOMET, an adaptation of COMETKiwi with a speech encoder, and evaluate a state-of-the-art SpeechLLM as a judge to test whether either approach can capture speech-specific phenomena."
+      },
+      {
+        "id": "S3.SS1.SSS0.Px1",
+        "heading": "Architecture.",
+        "level": 4,
+        "text": "Reference-free text-based QE models ( Rei et al., 2022 ) encode the source sentence and the hypothesis separately using a shared multilingual encoder, and feed their representations into an MLP estimator. Concretely, let 𝐬 t ∈ ℝ d \\mathbf{s}_{t}\\in\\mathbb{R}^{d} and 𝐡 t ∈ ℝ d \\mathbf{h}_{t}\\in\\mathbb{R}^{d} denote the pooled source and hypothesis embeddings, respectively. The estimator receives the concatenation of four interaction features: 𝐞 = [ 𝐡 t ; 𝐬 t ; | 𝐡 t − 𝐬 t | ; 𝐡 t ⊙ 𝐬 t ] ∈ ℝ 4 ​ d , \\mathbf{e}=\\bigl[\\mathbf{h}_{t};\\,\\mathbf{s}_{t};\\,|\\mathbf{h}_{t}-\\mathbf{s}_{t}|;\\,\\mathbf{h}_{t}\\odot\\mathbf{s}_{t}\\bigr]\\in\\mathbb{R}^{4d}, (2) and produces a scalar quality score y ^ = MLP ​ ( 𝐞 ) \\hat{y}=\\text{MLP}(\\mathbf{e}) , where the MLP is a two-layer feed-forward network with Tanh activations. In SpeechCOMET, we replace the text source encoder with a speech representation 𝐬 a ∈ ℝ d \\mathbf{s}_{a}\\in\\mathbb{R}^{d} that is projected to match the text encoder dimension d d via a learned linear layer. The hypothesis is still encoded by a text encoder, and the same four-way interaction is applied. Two alternative fusion strategies are described and evaluated in Section B.1 . They perform worse than the four-way interaction. We further extend SpeechCOMET to take both the source speech and source text as input. The two source representations are fused into a single embedding 𝐬 = f ⁡ ( 𝐬 t , 𝐬 a ) \\mathbf{s}=f(\\mathbf{s}_{t},\\mathbf{s}_{a}) , where f f is one of three strategies: element-wise average, element-wise sum, or a learned linear projection applied to their concatenation [ 𝐬 t ; 𝐬 a ] ∈ ℝ 2 ​ d [\\mathbf{s}_{t};\\,\\mathbf{s}_{a}]\\in\\mathbb{R}^{2d} . The fused embedding 𝐬 \\mathbf{s} then replaces 𝐬 t \\mathbf{s}_{t} in Eq. 2 ."
+      },
+      {
+        "id": "S3.SS1.SSS0.Px2",
+        "heading": "Speech and Text Embedding Models.",
+        "level": 4,
+        "text": "We encode the hypothesis text using XLM RoBERTa Base ( Conneau et al., 2019 ) , a multilingual transformer model, choosing the base model over the larger InfoXLM-large ( Chi et al., 2021 ) used by COMETKiwi ( Rei et al., 2022 ) for efficiency. To enable a direct comparison at equal encoder capacity, we additionally train our best model with InfoXLM-large (SpeechCOMET XL {}^{\\text{XL}} ). We also train a text-only baseline using the smaller encoder to isolate the contribution of speech input. For source speech, we investigate two encoders. SONAR ( Duquenne et al., 2023 ) is a multilingual speech encoder that produces fixed-size sentence-level embeddings. Whisper Large V3 ( Radford et al., 2023 ) outputs a variable-length sequence of frame-level representations. For the latter, we use only the encoder component and evaluate two aggregation strategies: average pooling and attention-based pooling over the encoder output."
+      },
+      {
+        "id": "S3.SS1.SSS0.Px3",
+        "heading": "Training Details.",
+        "level": 4,
+        "text": "For both speech encoders, we experiment with frozen and fine-tuned variants. For SONAR, we partially fine-tune by freezing the bottom four transformer layers and updating the remainder, motivated by probing studies showing that phonetic information is concentrated in the middle to upper-middle layers ( Gubian et al., 2025 ; Choi et al., 2026 ) . For Whisper, full fine-tuning is memory-prohibitive, so we instead use LoRA ( Hu et al., 2021 ) while keeping the base weights frozen. We train on a single NVIDIA A100-SXM4-40GB GPU. Hyperparameters are listed in Table 4 ."
+      },
+      {
+        "id": "S3.SS1.SSS0.Px4",
+        "heading": "Data.",
+        "level": 4,
+        "text": "All models are trained on source-hypothesis pairs annotated with human direct assessment scores, where the source is either text or speech depending on the model variant. The IWSLT2026 Metrics Shared Train Dev dataset ( Adelani et al., 2026 ) provides paired source speech and source text alongside human quality scores, comprising 229 hours of audio across 33,721 samples. As the IWSLT training set is relatively small, we investigate whether augmenting with text-quality-score pairs from Wmt Human All dataset ( Kocmi et al., 2025 ) improves performance. The two sets differ in domain, as WMT covers text translation with gold segmentation, while IWSLT covers speech translation with automatic segmentation. WMT provides only the source text, so we synthesise speech for the 490,943 WMT samples using Kokoro 82M TTS to obtain 1,114 hours of paired audio-quality-score examples. Language pairs and further dataset details are provided in Section A.3 . We continue to evaluate all models on the test sets described in Section 2.2 . IWSLT dev MuST-SHE ContraProST Segment τ b \\tau_{b} (%) System SPA (%) PA (%) PA (%) de zh avg ASR src de zh avg ASR src es fr it de es ja Text COMETKiwi 32.8 36.4 34.6 -6.0 86.3 89.1 87.7 -0.7 61.5 60.6 55.2 50.0 50.0 50.0 SpeechCOMET Text COMETKiwi WMT RoBERTa {}_{\\text{RoBERTa}}^{\\text{WMT}} 20.3 25.9 23.1 -1.5 44.7 67.4 56.0 +1.5 51.2 52.8 50.1 50.0 50.0 50.0 COMETKiwi IWSLT RoBERTa {}_{\\text{RoBERTa}}^{\\text{IWSLT}} 20.2 25.3 22.8 -0.5 69.9 67.4 68.7 -1.8 52.8 49.1 52.0 50.0 50.0 50.0 Speech SpeechCOMET SONAR 17.3 22.9 20.1 – 51.0 70.9 61.0 – 53.1 50.9 50.9 50.0 50.0 50.0 SpeechCOMET Whisper 16.8 18.7 17.8 – 44.9 68.5 56.7 – 51.4 50.7 52.8 50.0 50.0 50.1 Sp.+Txt SpeechCOMET 24.5 27.1 25.8 -3.8 79.7 67.4 73.5 -1.4 55.6 52.6 52.4 50.0 49.9 50.0 Sp.+Txt SpeechCOMET XL {}^{\\text{XL}} 32.7 36.0 34.4 -6.0 85.2 67.8 76.5 +6.5 54.6 58.0 51.1 50.0 50.0 50.0 SpeechLLM Text SpeechLLM 33.2 47.5 40.4 -5.5 95.6 32.6 64.1 +2.1 23.7 17.3 16.2 23.8 18.1 31.1 +FT 39.3 55.0 47.1 -3.8 93.4 83.7 88.5 -3.4 14.0 13.8 15.4 14.0 14.0 26.1 Speech SpeechLLM 26.5 37.5 32.0 – 87.5 32.7 60.1 – 38.0 32.3 32.4 32.2 28.4 33.1 +FT 33.8 46.5 40.1 – 90.2 50.1 70.1 – 35.9 15.0 20.7 21.1 21.9 15.7 Sp.+Txt SpeechLLM 32.2 44.1 38.1 -4.5 90.7 32.6 61.6 -0.6 43.1 37.1 37.8 31.0 26.1 32.6 +FT 39.7 60.1 49.9 -4.6 89.1 72.1 80.6 -7.2 8.2 6.3 6.8 17.8 8.8 20.4 Table 2: Results for SpeechCOMET and SpeechLLM models. ASR src shows the change in average τ b \\tau_{b} /SPA when using ASR transcripts instead of human transcripts; speech-only models have no text input (–)."
+      },
+      {
+        "id": "S3.SS1.SSS0.Px5",
+        "heading": "Model Variants.",
+        "level": 4,
+        "text": "We train the following model variants. Text models are trained on two datasets: WMT direct assessment data, which provides a large amount of training signal, and the IWSLT dataset using source texts. The latter enables a fair comparison with speech models, which are trained on IWSLT only. Speech models use source speech encoded by SONAR or Whisper and are trained in frozen and fine-tuned encoder variants. Speech+text models take both modalities as input and are trained with three fusion strategies (average, sum, projection). We additionally train speech+text models initialised from a text checkpoint, to investigate whether a strong text initialisation benefits multimodal models. Finally, we train TTS-augmented models on WMT data with synthesised speech, as well as combined IWSLT+WMT-TTS variants, to study the effect of training data size and domain on speech model quality."
+      },
+      {
+        "id": "S3.SS2",
+        "heading": "3.2 SpeechLLM as Judge",
+        "level": 2,
+        "text": "As a second approach we evaluate Qwen2.5 Omni 7B ( Xu et al., 2025 ) , a multimodal large language model capable of processing text, audio, and both modalities simultaneously, as a zero-shot and fine-tuned quality estimator. Unlike SpeechCOMET, which is trained specifically for QE, the LLM is prompted to produce a scalar quality score directly, without task-specific architectural adaptations. We evaluate three input modalities, text only, speech only, and speech+text, mirroring the SpeechCOMET setup. In the zero-shot setting, the model is prompted with each modality using a standard QE prompt as well as two task-specific prompt variants for MuST-SHE and ContraProST (see Figure 4 ). In the fine-tuned setting, we train one model per modality using LoRA adapters on the IWSLT dataset described earlier. Fine-tuning and inference are performed on a single NVIDIA A100-SXM4-40GB GPU. Hyperparameters and prompts are listed in Section A.2 ."
+      },
+      {
+        "id": "S4",
+        "heading": "4 Results",
+        "level": 1,
+        "text": "Results for all model families are given in Table 2 ."
+      },
+      {
+        "id": "S4.SS1.SSS0.Px1",
+        "heading": "Text-only: in-domain training data outweighs scale.",
+        "level": 4,
+        "text": "We train two text-only SpeechCOMET variants: one on large-scale WMT text translation data (COMETKiwi WMT RoBERTa {}_{\\text{RoBERTa}}^{\\text{WMT}} ) and one on IWSLT speech translation system outputs (COMETKiwi IWSLT RoBERTa {}_{\\text{RoBERTa}}^{\\text{IWSLT}} ). Despite WMT being substantially larger, COMETKiwi IWSLT RoBERTa {}_{\\text{RoBERTa}}^{\\text{IWSLT}} achieves much higher system-level correlation (68.7 vs. 56.0 SPA avg), while segment-level performance is comparable (22.8 vs. 23.1 τ b \\tau_{b} avg). As expected for text-only models, neither variant shows sensitivity to gender (MuST-SHE) or prosody (ContraProST). Figure 2: Probing accuracy for linguistic features on the IWSLT 2026 Metrics dataset. Scores averaged over 3 runs (std. ≤ \\leq 0.02). Text-aware systems consistently outperform speech-only systems. Fine-tuned variants (hatched) closely track their frozen counterparts (solid). SONAR-based SpeechCOMET outperforms Whisper-based variants."
+      },
+      {
+        "id": "S4.SS1.SSS0.Px2",
+        "heading": "Speech-only: limited sensitivity to speech-specific phenomena.",
+        "level": 4,
+        "text": "Next, we replace the text encoder with a speech encoder, using either SONAR or Whisper, to encode the source speech directly. For each encoder, we experiment with freezing vs. unfreezing the encoder during fine-tuning and with augmenting training data with a TTS-synthesized variant of WMT data (see Section 3 ). The best-performing variant of each is reported in Table 2 , with the full ablation in Table 7 in Section B.2 . Both encoders benefit from unfreezing, but only Whisper benefits from TTS pretraining. Unlike SONAR, Whisper is an ASR model with no native sentence-level representation and requires additional speech exposure to adapt. The two speech models slightly underperform COMETKiwi IWSLT RoBERTa {}_{\\text{RoBERTa}}^{\\text{IWSLT}} , which is trained on the same IWSLT data but with text as source, indicating that text remains a stronger signal than speech. In general, SpeechCOMET SONAR outperforms SpeechCOMET Whisper (20.1 vs. 17.8 τ b \\tau_{b} avg) on the IWSLT test set. Neither model shows sensitivity to gender or prosody."
+      },
+      {
+        "id": "S4.SS1.SSS0.Px3",
+        "heading": "Speech+text: multimodal fusion improves correlation.",
+        "level": 4,
+        "text": "We then combine both modalities by fusing the individual source embeddings. We ablate different fusion strategies and two initialization schemes: training from scratch and initializing from an existing text SpeechCOMET checkpoint. We report the best model, sum fusion initialized from COMETKiwi WMT RoBERTa {}_{\\text{RoBERTa}}^{\\text{WMT}} , in Table 2 ; the full ablation is in Table 8 in Section B.3 . SpeechCOMET achieves 25.8 τ b \\tau_{b} and 73.5 SPA avg, outperforming both unimodal variants. MuST-SHE and ContraProST performance remains at chance. Scaling the text encoder to InfoXLM-large (SpeechCOMET XL {}^{\\text{XL}} ), the same encoder as the off-the-shelf COMETKiwi uses, closes the gap to the COMETKiwi text baseline (34.4 vs. 34.6 τ b \\tau_{b} ), suggesting that the performance gap of the smaller models relative to COMETKiwi is due to encoder capacity rather than training procedure. However, this gain is driven entirely by the stronger text encoder, as speech sensitivity remains unchanged."
+      },
+      {
+        "id": "S4.SS2",
+        "heading": "4.2 SpeechLLM as a Judge Results",
+        "level": 2,
+        "text": "We now discuss the performance of the SpeechLLM. Generally, SpeechLLM outperforms all SpeechCOMET variants and the COMETKiwi text baseline on IWSLT, with the best model reaching 49.9 τ b \\tau_{b} avg compared to 34.4 for SpeechCOMET XL {}^{\\text{XL}} and 34.6 for COMETKiwi ( Table 2 )."
+      },
+      {
+        "id": "S4.SS2.SSS0.Px1",
+        "heading": "Text-only: performance improves with FT.",
+        "level": 4,
+        "text": "The SpeechLLM with only text input achieves 40.4 τ b \\tau_{b} avg without fine-tuning, and 47.1 with IWSLT fine-tuning, with similarly large gains at system level (64.1 to 88.5 SPA avg), outperforming the SpeechCOMET models. The below-chance PA scores on MuST-SHE and ContraProST are driven by ties: the model assigns identical scores to most pairs, and PA is exactly 50% once ties are excluded."
+      },
+      {
+        "id": "S4.SS2.SSS0.Px2",
+        "heading": "Speech-only: speech input underperforms text.",
+        "level": 4,
+        "text": "With speech input, SpeechLLM performs below its text-only counterpart (32.0 vs. 40.4 τ b \\tau_{b} avg, 60.1 vs. 64.1 SPA avg), with the gap persisting after fine-tuning (40.1 vs. 47.1 τ b \\tau_{b} ). Despite having access to the speech signal, MuST-SHE and ContraProST show the same tie-driven pattern as the text-only model, with no gender or prosody detection."
+      },
+      {
+        "id": "S4.SS2.SSS0.Px3",
+        "heading": "Speech+text: combining modalities yields best correlation but no speech sensitivity.",
+        "level": 4,
+        "text": "Combining both modalities yields the strongest results: 49.9 τ b \\tau_{b} avg with FT and 80.6 SPA avg with FT, surpassing all other models. Still, the model does not show sensitivity to speech-specific phenomena."
+      },
+      {
+        "id": "S4.SS2.SSS0.Px4",
+        "heading": "Specific prompts do not enhance speech sensitivity.",
+        "level": 4,
+        "text": "Since speech sensitivity does not emerge from architecture or fine-tuning, we additionally test whether it can be elicited through task-specific prompting. However, instructing the model to attend to paralinguistic cues yields no consistent improvement on MuST-SHE or ContraProST. We report these results in Table 9 in Appendix B ."
+      },
+      {
+        "id": "S5",
+        "heading": "5 Analyses",
+        "level": 1,
+        "text": "Having shown that no current metric is sensitive to speech-specific phenomena, we test three complementary explanations: the features are 1) missing from encoder representations, 2) not induced during training, or 3) disregarded during QE scoring."
+      },
+      {
+        "id": "S5.SS1",
+        "heading": "5.1 Are features present in the encoders?",
+        "level": 2,
+        "text": "We probe for source linguistic and acoustic features in Figure 2 and 3 . For each system, we extract the source representations and train an MLP probe Adi et al. (2017) to predict the target feature. For COMET and SpeechCOMET, we use either the encoder’s fixed-size sentence embedding (SONAR, RoBERTa for text) or the utterance representation from the pooling layer learned during QE training (Whisper). For SpeechLLMs, we use the hidden state immediately following the prompt. Details about the probing experiments are in Section C.1 ."
+      },
+      {
+        "id": "S5.SS1.SSS1",
+        "heading": "5.1.1 Probing Linguistic Features",
+        "level": 3,
+        "text": "We probe five linguistic features: subject number, object number (singular, plural, none in both cases), tense (present, past, none), verb form (finite, infinite, participle, none), and the presence of named entities (binary). Figure 2 shows three patterns across these probed linguistic features."
+      },
+      {
+        "id": "S5.SS1.SSS1.Px1",
+        "heading": "Modality gap separates text-aware from speech-only systems.",
+        "level": 4,
+        "text": "There is a clear gap between input modalities: systems that have access to text at the source, whether text-only (COMETKiwi variants) or speech-and-text combined (SpeechCOMET), achieve substantially higher probing accuracy than their speech-only counterparts. This pattern holds consistently across all five features and suggests that a considerable amount of linguistically structured information present in the text signal is not recoverable from the audio signal alone, at least as encoded by the models studied here."
+      },
+      {
+        "id": "S5.SS1.SSS1.Px2",
+        "heading": "QE fine-tuning does not close the speech-text modality gap.",
+        "level": 4,
+        "text": "Pairwise comparison of fine-tuned and frozen variants of the same architecture reveals nearly identical probing accuracies. The absence of improvement from fine-tuning indicates that the quality estimation training signal alone is insufficient to drive the encoder towards more linguistically informative representations of source speech, likely because standard QE training provides no examples that would enforce such features."
+      },
+      {
+        "id": "S5.SS1.SSS1.Px3",
+        "heading": "SONAR representations dominate Whisper in preserving linguistic features.",
+        "level": 4,
+        "text": "SONAR provides a fixed-size utterance-level embedding pre-trained to capture semantic content, whereas Whisper’s utterance representation is obtained via a pooling mechanism learned from scratch during quality estimation training. The fact that the off-the-shelf SONAR embedding outperforms the jointly trained Whisper pooling reinforces the conclusion that the quality estimation objective, in its current form, does not provide sufficient signal for creating high-quality audio source representations."
+      },
+      {
+        "id": "S5.SS1.SSS2",
+        "heading": "5.1.2 Probing Acoustic Features",
+        "level": 3,
+        "text": "Having probed for linguistic features, we now test whether acoustic and speaker-level features can be recovered from the source representations ( Figure 3 ). We probe three features: speaker gender, intonation, and emotion. We focus on speech-only models, and defer the full set of text-only and speech-text models ( Table 2 ) to Section C.2 . These features are not recoverable from text alone, so the probe must rely on acoustic information. Figure 3: Probing accuracy for speaker gender on MuST-SHE and for intonation (question vs. statement) and emotion (angry, happy, neutral, surprised) on ContraProST. Scores averaged over three runs (std. ≤ \\leq 0.02). SpeechCOMET Whisper and SpeechLLMs enable accurate recovery of acoustic features while SpeechCOMET SONAR does not. Overall, the trend is consistent across the three probed features: Whisper representations and the SpeechLLM hidden states support accurate recovery, while SONAR representations do not. The results have the following implications."
+      },
+      {
+        "id": "S5.SS1.SSS2.Px1",
+        "heading": "SONAR’s semantic alignment may erase acoustic information.",
+        "level": 4,
+        "text": "SpeechCOMET with the SONAR backbone, despite outperforming the Whisper variant on the earlier linguistic probes ( Figure 2 ), now performs at or just above the majority baseline on acoustic features. A plausible reason is that SONAR’s training objective, which aligns sentences with the same meaning across languages, pulls together utterances that share meaning but differ acoustically. Features like speaker gender and intonation, which are largely uncorrelated with a sentence’s overall meaning, would then be suppressed as a side effect."
+      },
+      {
+        "id": "S5.SS1.SSS2.Px2",
+        "heading": "Whisper and SpeechLLMs encode speaker gender but do not use it.",
+        "level": 4,
+        "text": "For both Whisper and the SpeechLLMs, the probe recovers speaker gender with high accuracy, confirming that this information is present in the source representation. Yet neither is sensitive to acoustic inputs in its QE outputs ( Table 2 ). Therefore, the feature is available but unused. Unlike SONAR, where the acoustic information appears to be erased from the audio representation, here the bottleneck lies not in the encoder but in the training signal, which does not reward attending to acoustic information."
+      },
+      {
+        "id": "S5.SS2",
+        "heading": "5.2 Source Reliance of the QE Models",
+        "level": 2,
+        "text": "Automated metrics are notorious for focusing primarily on the translation only and disregarding the sources ( Sun et al., 2020 ; Zouhar et al., 2023 ) . To quantify how much the models rely on their source input when assigning QE scores, we replace every source with a randomly mismatched one and measure the drop in segment τ b \\tau_{b} in Table 3 . COMETKiwi and the speech baseline SpeechQE show strong source sensitivity, dropping by − 24.9 -24.9 and − 22.5 -22.5 pp respectively, yet the latter is still not able to use speech-specific features (discussion in Section 6 ). Segment τ b \\tau_{b} (%) real src Δ \\Delta random Baselines Text COMETKiwi-Part. 11.9 -4.3 COMETKiwi 34.6 -24.9 Speech SpeechQE 29.8 -22.5 BLASER 24.4 -15.4 SpeechCOMET Text COMETKiwi WMT RoBERTa {}_{\\text{RoBERTa}}^{\\text{WMT}} 23.1 -11.1 COMETKiwi IWSLT RoBERTa {}_{\\text{RoBERTa}}^{\\text{IWSLT}} 22.8 -12.0 Speech SpeechCOMET SONAR 20.1 -3.1 SpeechCOMET Whisper 17.8 -2.4 Sp.+Txt SpeechCOMET 25.8 -17.8 Sp.+Txt SpeechCOMET XL {}^{\\text{XL}} 34.4 -30.2 SpeechLLM Text SpeechLLM 40.4 -29.2 +FT 47.1 -38.6 Speech SpeechLLM 32.0 -28.1 +FT 40.1 -25.5 Sp.+Txt SpeechLLM 38.1 -37.4 +FT 49.9 -39.2 Table 3: Effect of replacing the source input with a randomly mismatched one. Scores are averaged over de and zh. Δ \\Delta = random − - real: large negative values indicate the model uses the source signal. In contrast, SpeechCOMET SONAR and SpeechCOMET Whisper drop by only − 3.1 -3.1 and − 2.4 -2.4 pp respectively, indicating that these models largely ignore the speech input. On the other hand, for the speech+text SpeechCOMET models, the drop with random source ( − 17.8 -17.8 and − 30.2 -30.2 pp) is substantial, but shuffling only the text reproduces it almost entirely while shuffling only the speech has a negligible effect ( Table 11 in Section C.3 ), confirming these models condition on text. Manual inspection of 50 examples where speech shuffling causes a drop reveals segmentation errors where the speech segment boundaries do not align with the translation (e.g., audio “Right.” paired with MT “Ansätze symmetrisch, richtig? EN: The approaches are symmetric, right?”), suggesting that the small residual speech sensitivity reflects misalignments rather than genuine speech conditioning. Finally, SpeechLLM shows large drops across all modalities ( − 25 -25 to − 39 -39 pp), including speech-only, confirming that these models do condition on the source speech, yet the probing results show that speech-specific features go unused."
+      },
+      {
+        "id": "S6.SS0.SSS0.Px1",
+        "heading": "Three barriers to speech-specific evaluation.",
+        "level": 4,
+        "text": "Our results point to three interacting barriers to speech-specific QE. First , source encoders discard relevant information: SONAR suppresses acoustic attributes by design, while Whisper representations are weak on linguistic features. Second , even when features are present, models do not use them, suggesting QE training fails to ground predictions in the source. Third , QE fine-tuning does not help, likely due to standard QE corpora lacking examples where speech-specific variation impacts quality."
+      },
+      {
+        "id": "S6.SS0.SSS0.Px2",
+        "heading": "Practical guidance for practitioners.",
+        "level": 4,
+        "text": "For practitioners evaluating speech translation quality, we recommend SpeechLLM (+FT) when computational cost is not a constraint, as it achieves the strongest segment-level correlation across all modalities. When a lighter model is needed the off-the-shelf COMETKiwi remains the strongest text-based option. However, none of the evaluated models should be used to assess speech-specific translation quality, such as gender agreement or prosodic appropriateness: all models score at chance on this."
+      },
+      {
+        "id": "S7",
+        "heading": "7 Conclusion",
+        "level": 1,
+        "text": "In this work, we evaluate speech translation quality estimation across regression-based and LLM-based approaches and find that, despite strong overall correlation with human judgements, no current metric is sensitive to speech-specific phenomena such as gender agreement and prosody. Addressing this requires dedicated training data that explicitly targets such phenomena and encoders that capture richer acoustic representations than those induced by the quality estimation objective alone. We hope that our work can serve as a stepping stone for future research on speech-aware quality estimation and encourage the development of benchmarks and models that treat speech translation evaluation as a genuinely multimodal problem."
+      },
+      {
+        "id": "S8",
+        "heading": "8 Limitations",
+        "level": 1,
+        "text": "Correlation results are based on a single test set (IWSLT 2026 Metrics dev set), as no other human-annotated speech translation evaluation datasets are currently available. Similarly, our evaluation of speech-specific phenomena is limited to gender agreement and prosody, and all datasets use English as the source language, as no comparable resources exist for other phenomena or languages. This highlights the need for broader evaluation resources to ensure that findings generalise across languages and domains."
+      },
+      {
+        "id": "S9",
+        "heading": "9 Ethical Considerations",
+        "level": 1,
+        "text": "This work uses only existing publicly available datasets and pre-trained models. We foresee no direct ethical concerns arising from this research."
+      },
+      {
+        "id": "Sx1",
+        "heading": "Acknowledgments",
+        "level": 1,
+        "text": "This work has received funding from the European Union’s Horizon research and innovation programme under grant agreement No 101135798, project Meetween (My Personal AI Mediator for Virtual MEETtings BetWEEN People). The authors gratefully acknowledge the computing time provided on the high-performance computer HoreKa by the National High-Performance Computing Center at KIT (NHR@KIT). This center is jointly supported by the Federal Ministry of Education and Research and the Ministry of Science, Research and the Arts of Baden-Württemberg, as part of the National High-Performance Computing (NHR) joint funding program (https://www.nhr-verein.de/en/our-partners). HoreKa is partly funded by the German Research Foundation (DFG)."
+      },
+      {
+        "id": "bib",
+        "heading": "References",
+        "level": 1,
+        "text": "Abdulmumin et al. (2025) I. Abdulmumin, V. Agostinelli, T. Alumäe, A. Anastasopoulos, L. Bentivogli, O. Bojar, C. Borg, F. Bougares, R. Cattoni, M. Cettolo, L. Chen, W. Chen, R. Dabre, Y. Estève, M. Federico, M. Fishel, M. Gaido, D. Javorský, M. Kasztelnik, F. Kponou, M. Krubiński, T. Kin Lam, D. Liu, E. Matusov, C. Kumar Maurya, J. P. McCrae, S. Mdhaffar, Y. Moslem, K. Murray, S. Nakamura, M. Negri, J. Niehues, A. Kr. Ojha, J. E. Ortega, S. Papi, P. Pecina, P. Polák, P. Połeć, A. Sankar, B. Savoldi, N. Sethiya, C. Sikasote, M. Sperber, S. Stüker, K. Sudoh, B. Thompson, M. Turchi, A. Waibel, P. Wilken, R. Zevallos, V. Zouhar, and M. Züfle Findings of the IWSLT 2025 evaluation campaign . In Proceedings of the 22nd International Conference on Spoken Language Translation (IWSLT 2025) , E. Salesky, M. Federico, and A. Anastasopoulos (Eds.) , Vienna, Austria (in-person and online) , pp. 412–481 . External Links: Link , Document , ISBN 979-8-89176-272-5 Cited by: §1 , §2.1 . Adelani et al. (2026) D. I. Adelani, A. Anastasopoulos, V. Agostinelli, L. Bentivogli, O. Bojar, S. Bratières, M. Carpuat, R. Cattoni, M. Cettolo, L. Chen, M. Federico, M. Gaido, M. Gupta, H. Han, A. Hatami, D. Javorský, Y. Jeon, M. Kasztelnik, D. Liu, N. Luu, M. Ma, D. Macháček, M. Maltais, E. Matusov, C. K. Maurya, J. P. McCrae, Y. Moslem, S. Nakamura, M. Negri, J. Niehues, A. Kr. Ojha, S. Ouyang, S. Papi, P. Polák, F. Retkowski, B. Savoldi, C. Sikasote, M. Sperber, S. Stüker, K. Sudoh, M. Turchi, A. Waibel, P. Wilken, V. Zouhar, and M. Züfle Speech translation and metrics in 2026: findings of the iwslt campaign . In Proceedings of the 23rd International Conference on Spoken Language Translation (IWSLT 2026) , San Diego, California, US . Cited by: §2.2 , §3.1 . Adi et al. (2017) Y. Adi, E. Kermany, Y. Belinkov, O. Lavi, and Y. Goldberg Fine-grained analysis of sentence embeddings using auxiliary prediction tasks . In 5th International Conference on Learning Representations, ICLR 2017, Toulon, France, April 24-26, 2017, Conference Track Proceedings , External Links: Link Cited by: §5.1 . Agarwal et al. (2023) M. Agarwal, S. Agrawal, A. Anastasopoulos, L. Bentivogli, O. Bojar, C. Borg, M. Carpuat, R. Cattoni, M. Cettolo, M. Chen, W. Chen, K. Choukri, A. Chronopoulou, A. Currey, T. Declerck, Q. Dong, K. Duh, Y. Estève, M. Federico, S. Gahbiche, B. Haddow, B. Hsu, P. Mon Htut, H. Inaguma, D. Javorský, J. Judge, Y. Kano, T. Ko, R. Kumar, P. Li, X. Ma, P. Mathur, E. Matusov, P. McNamee, J. P. McCrae, K. Murray, M. Nadejde, S. Nakamura, M. Negri, H. Nguyen, J. Niehues, X. Niu, A. Kr. Ojha, J. E. Ortega, P. Pal, J. Pino, L. van der Plas, P. Polák, E. Rippeth, E. Salesky, J. Shi, M. Sperber, S. Stüker, K. Sudoh, Y. Tang, B. Thompson, K. Tran, M. Turchi, A. Waibel, M. Wang, S. Watanabe, and R. Zevallos FINDINGS OF THE IWSLT 2023 EVALUATION CAMPAIGN . In Proceedings of the 20th International Conference on Spoken Language Translation (IWSLT 2023) , E. Salesky, M. Federico, and M. Carpuat (Eds.) , Toronto, Canada (in-person and online) , pp. 1–61 . External Links: Link , Document Cited by: §A.3 . Ambilduke et al. (2025) K. Ambilduke, B. Peters, S. Sannigrahi, A. Keshwani, T. K. Lam, B. Martins, A. Martins, and M. Zanon Boito From tower to spire: adding the speech modality to a translation-specialist LLM . In Findings of the Association for Computational Linguistics: EMNLP 2025 , C. Christodoulopoulos, T. Chakraborty, C. Rose, and V. Peng (Eds.) , Suzhou, China , pp. 19658–19673 . External Links: Link , Document , ISBN 979-8-89176-335-7 Cited by: §1 . Amrhein and Haddow (2022) C. Amrhein and B. Haddow Don’t discard fixed-window audio segmentation in speech-to-text translation . In Proceedings of the Seventh Conference on Machine Translation (WMT) , P. Koehn, L. Barrault, O. Bojar, F. Bougares, R. Chatterjee, M. R. Costa-jussà, C. Federmann, M. Fishel, A. Fraser, M. Freitag, Y. Graham, R. Grundkiewicz, P. Guzman, B. Haddow, M. Huck, A. Jimeno Yepes, T. Kocmi, A. Martins, M. Morishita, C. Monz, M. Nagata, T. Nakazawa, M. Negri, A. Névéol, M. Neves, M. Popel, M. Turchi, and M. Zampieri (Eds.) , Abu Dhabi, United Arab Emirates (Hybrid) , pp. 203–219 . External Links: Link , Document Cited by: §2.1 . Bentivogli et al. (2020) L. Bentivogli, B. Savoldi, M. Negri, M. A. Di Gangi, R. Cattoni, and M. Turchi Gender in danger? evaluating speech translation technology on the MuST-SHE corpus . In Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics , D. Jurafsky, J. Chai, N. Schluter, and J. Tetreault (Eds.) , Online , pp. 6923–6933 . External Links: Link , Document Cited by: §1 , §2.2 . Cettolo et al. (2025) M. Cettolo, M. Gaido, M. Negri, S. Papi, and L. Bentivogli How to evaluate speech translation with source-aware neural MT metrics . CoRR abs/2511.03295 . External Links: Link , Document , 2511.03295 Cited by: §2.1 , §2.2 . Chen et al. (2023) M. Chen, P. Duquenne, P. Andrews, J. Kao, A. Mourachko, H. Schwenk, and M. R. Costa-jussà BLASER: a text-free speech-to-speech translation evaluation metric . In Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , A. Rogers, J. Boyd-Graber, and N. Okazaki (Eds.) , Toronto, Canada , pp. 9064–9079 . External Links: Link , Document Cited by: §2.1 . Chi et al. (2021) Z. Chi, L. Dong, F. Wei, N. Yang, S. Singhal, W. Wang, X. Song, X. Mao, H. Huang, and M. Zhou InfoXLM: an information-theoretic framework for cross-lingual language model pre-training . In Proceedings of the 2021 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies , Online , pp. 3576–3588 . External Links: Link , Document Cited by: §3.1 . Choi et al. (2026) K. Choi, E. Yeo, C. J. Cho, D. Harwath, and D. R. Mortensen [B]=[d]-[t]+[p]: self-supervised speech models discover phonological vector arithmetic . External Links: 2602.18899 , Link Cited by: §3.1 . Communication et al. (2023) S. Communication, L. Barrault, Y. Chung, M. C. Meglioli, D. Dale, N. Dong, M. Duppenthaler, P. Duquenne, B. Ellis, H. Elsahar, J. Haaheim, J. Hoffman, M. Hwang, H. Inaguma, C. Klaiber, I. Kulikov, P. Li, D. Licht, J. Maillard, R. Mavlyutov, A. Rakotoarison, K. R. Sadagopan, A. Ramakrishnan, T. Tran, G. Wenzek, Y. Yang, E. Ye, I. Evtimov, P. Fernandez, C. Gao, P. Hansanti, E. Kalbassi, A. Kallet, A. Kozhevnikov, G. M. Gonzalez, R. S. Roman, C. Touret, C. Wong, C. Wood, B. Yu, P. Andrews, C. Balioglu, P. Chen, M. R. Costa-jussà, M. Elbayad, H. Gong, F. Guzmán, K. Heffernan, S. Jain, J. Kao, A. Lee, X. Ma, A. Mourachko, B. Peloquin, J. Pino, S. Popuri, C. Ropers, S. Saleem, H. Schwenk, A. Sun, P. Tomasello, C. Wang, J. Wang, S. Wang, and M. Williamson Seamless: multilingual expressive and streaming speech translation . External Links: 2312.05187 , Link Cited by: §1 . Conneau et al. (2019) A. Conneau, K. Khandelwal, N. Goyal, V. Chaudhary, G. Wenzek, F. Guzmán, E. Grave, M. Ott, L. Zettlemoyer, and V. Stoyanov Unsupervised cross-lingual representation learning at scale . CoRR abs/1911.02116 . External Links: Link , 1911.02116 Cited by: §3.1 . Conti et al. (2026) L. Conti, D. Fucci, M. Gaido, M. Negri, G. Wisniewski, and L. Bentivogli Voice, bias, and coreference: an interpretability study of gender in speech translation . External Links: 2511.21517 , Link Cited by: §1 . Dale and Costa-jussà (2024) D. Dale and M. R. Costa-jussà BLASER 2.0: a metric for evaluation and quality estimation of massively multilingual speech and text translation . In Findings of the Association for Computational Linguistics: EMNLP 2024 , Y. Al-Onaizan, M. Bansal, and Y. Chen (Eds.) , Miami, Florida, USA , pp. 16075–16085 . External Links: Link , Document Cited by: §1 , §2.1 . Duquenne et al. (2023) P. Duquenne, H. Schwenk, and B. Sagot SONAR: sentence-level multimodal and language-agnostic representations . External Links: Link Cited by: §1 , §2.1 , §3.1 . Gubian et al. (2025) M. Gubian, I. Krehan, O. D. Liu, J. Kirby, and S. Goldwater Analyzing the relationships between pretraining language, phonetic, tonal, and speaker information in self-supervised speech models . CoRR abs/2506.10855 . External Links: Link , Document , 2506.10855 Cited by: §3.1 . Han et al. (2024) H. Han, K. Duh, and M. Carpuat SpeechQE: estimating the quality of direct speech translation . In Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing , Y. Al-Onaizan, M. Bansal, and Y. Chen (Eds.) , Miami, Florida, USA , pp. 21852–21867 . External Links: Link , Document Cited by: §1 , §2.1 . Hu et al. (2021) E. J. Hu, Y. Shen, P. Wallis, Z. Allen-Zhu, Y. Li, S. Wang, and W. Chen LoRA: low-rank adaptation of large language models . CoRR abs/2106.09685 . External Links: Link , 2106.09685 Cited by: §A.2 , §3.1 . Kendall (1945) M. G. Kendall The treatment of ties in ranking problems . Biometrika 33 ( 3 ), pp. 239–251 . External Links: ISSN 0006-3444 , Document , Link , https://academic.oup.com/biomet/article-pdf/33/3/239/573257/33-3-239.pdf Cited by: §2.3 . Kocmi et al. (2025) T. Kocmi, E. Artemova, E. Avramidis, R. Bawden, O. Bojar, K. Dranch, A. Dvorkovich, S. Dukanov, M. Fishel, M. Freitag, T. Gowda, R. Grundkiewicz, B. Haddow, M. Karpinska, P. Koehn, H. Lakougna, J. Lundin, C. Monz, K. Murray, M. Nagata, S. Perrella, L. Proietti, M. Popel, M. Popović, P. Riley, M. Shmatova, S. Steingrímsson, L. Yankovskaya, and V. Zouhar Findings of the WMT25 general machine translation shared task: time to stop evaluating on easy test sets . In Proceedings of the Tenth Conference on Machine Translation , B. Haddow, T. Kocmi, P. Koehn, and C. Monz (Eds.) , Suzhou, China , pp. 355–413 . External Links: Link , Document , ISBN 979-8-89176-341-8 Cited by: §A.3 , §3.1 . Kocmi et al. (2024) T. Kocmi, E. Avramidis, R. Bawden, O. Bojar, A. Dvorkovich, C. Federmann, M. Fishel, M. Freitag, T. Gowda, R. Grundkiewicz, B. Haddow, M. Karpinska, P. Koehn, B. Marie, C. Monz, K. Murray, M. Nagata, M. Popel, M. Popović, M. Shmatova, S. Steingrímsson, and V. Zouhar Findings of the WMT24 general machine translation shared task: the LLM era is here but MT is not solved yet . In Proceedings of the Ninth Conference on Machine Translation , B. Haddow, T. Kocmi, P. Koehn, and C. Monz (Eds.) , Miami, Florida, USA , pp. 1–46 . External Links: Link , Document Cited by: §A.3 . Li et al. (2026) Y. Li, R. Zhao, R. Zhang, J. Su, D. Wei, M. Zhang, and Y. Chen PLaST: towards paralinguistic-aware speech translation . Proceedings of the AAAI Conference on Artificial Intelligence 40 ( 38 ), pp. 31805–31813 . External Links: Link , Document Cited by: §1 . Microsoft et al. (2025) Microsoft, :, A. Abouelenin, A. Ashfaq, A. Atkinson, H. Awadalla, N. Bach, J. Bao, A. Benhaim, M. Cai, V. Chaudhary, C. Chen, D. Chen, D. Chen, J. Chen, W. Chen, Y. Chen, Y. Chen, Q. Dai, X. Dai, R. Fan, M. Gao, M. Gao, A. Garg, A. Goswami, J. Hao, A. Hendy, Y. Hu, X. Jin, M. Khademi, D. Kim, Y. J. Kim, G. Lee, J. Li, Y. Li, C. Liang, X. Lin, Z. Lin, M. Liu, Y. Liu, G. Lopez, C. Luo, P. Madan, V. Mazalov, A. Mitra, A. Mousavi, A. Nguyen, J. Pan, D. Perez-Becker, J. Platin, T. Portet, K. Qiu, B. Ren, L. Ren, S. Roy, N. Shang, Y. Shen, S. Singhal, S. Som, X. Song, T. Sych, P. Vaddamanu, S. Wang, Y. Wang, Z. Wang, H. Wu, H. Xu, W. Xu, Y. Yang, Z. Yang, D. Yu, I. Zabir, J. Zhang, L. L. Zhang, Y. Zhang, and X. Zhou Phi-4-mini technical report: compact yet powerful multimodal language models via mixture-of-loras . External Links: 2503.01743 , Link Cited by: §1 . Papi et al. (2026) S. Papi, J. G. Gilabert, Z. Hopton, V. Zouhar, C. Escolano, G. I. Gállego, J. Iranzo-Sánchez, A. Kim, D. Macháček, P. Schmidtova, and M. Züfle Hearing to translate: the effectiveness of speech modality integration into llms . External Links: 2512.16378 , Link Cited by: §1 , §1 , §2.1 . Radford et al. (2023) A. Radford, J. W. Kim, T. Xu, G. Brockman, C. Mcleavey, and I. Sutskever Robust speech recognition via large-scale weak supervision . In Proceedings of the 40th International Conference on Machine Learning , A. Krause, E. Brunskill, K. Cho, B. Engelhardt, S. Sabato, and J. Scarlett (Eds.) , Proceedings of Machine Learning Research , Vol. 202 , pp. 28492–28518 . External Links: Link Cited by: §1 , §1 , §2.1 , §2.2 , §3.1 . Rei et al. (2022) R. Rei, J. G. C. de Souza, D. Alves, C. Zerva, A. C. Farinha, T. Glushkova, A. Lavie, L. Coheur, and A. F. T. Martins COMET-22: unbabel-IST 2022 submission for the metrics shared task . In Proceedings of the Seventh Conference on Machine Translation (WMT) , P. Koehn, L. Barrault, O. Bojar, F. Bougares, R. Chatterjee, M. R. Costa-jussà, C. Federmann, M. Fishel, A. Fraser, M. Freitag, Y. Graham, R. Grundkiewicz, P. Guzman, B. Haddow, M. Huck, A. Jimeno Yepes, T. Kocmi, A. Martins, M. Morishita, C. Monz, M. Nagata, T. Nakazawa, M. Negri, A. Névéol, M. Neves, M. Popel, M. Turchi, and M. Zampieri (Eds.) , Abu Dhabi, United Arab Emirates (Hybrid) , pp. 578–585 . External Links: Link , Document Cited by: §1 , §2.1 , §3.1 , §3.1 . Sun et al. (2025) H. Sun, X. Wang, J. Zhao, S. Zhao, J. Zhou, H. Wang, J. He, A. Kong, X. Yang, Y. Wang, Y. Lin, and Y. Qin EmotionTalk: an interactive chinese multimodal emotion dataset with rich annotations . External Links: 2505.23018 , Link Cited by: §1 . Sun et al. (2020) S. Sun, F. Guzmán, and L. Specia Are we estimating or guesstimating translation quality? . In Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics , D. Jurafsky, J. Chai, N. Schluter, and J. Tetreault (Eds.) , Online , pp. 6262–6267 . External Links: Link , Document Cited by: §5.2 . Thompson et al. (2024) B. Thompson, N. Mathur, D. Deutsch, and H. Khayrallah Improving statistical significance in human evaluation of automatic metrics via soft pairwise accuracy . In Proceedings of the Ninth Conference on Machine Translation , B. Haddow, T. Kocmi, P. Koehn, and C. Monz (Eds.) , Miami, Florida, USA , pp. 1222–1234 . External Links: Link , Document Cited by: §2.3 . Tsiamas et al. (2024) I. Tsiamas, M. Sperber, A. Finch, and S. Garg Speech is more than words: do speech-to-text translation systems leverage prosody? . In Proceedings of the Ninth Conference on Machine Translation , B. Haddow, T. Kocmi, P. Koehn, and C. Monz (Eds.) , Miami, Florida, USA , pp. 1235–1257 . External Links: Link , Document Cited by: §1 , §2.2 . Xu et al. (2025) J. Xu, Z. Guo, J. He, H. Hu, T. He, S. Bai, K. Chen, J. Wang, Y. Fan, K. Dang, B. Zhang, X. Wang, Y. Chu, and J. Lin Qwen2.5-omni technical report . External Links: 2503.20215 , Link Cited by: §A.2 , §1 , §3.2 . Zheng et al. (2024) Y. Zheng, R. Zhang, J. Zhang, Y. Ye, Z. Luo, Z. Feng, and Y. Ma LlamaFactory: unified efficient fine-tuning of 100+ language models . In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 3: System Demonstrations) , Bangkok, Thailand . External Links: Link Cited by: §A.2 . Zouhar et al. (2023) V. Zouhar, S. Dhuliawala, W. Zhou, N. Daheim, T. Kocmi, Y. E. Jiang, and M. Sachan Poor man’s quality estimation: predicting reference-based MT metrics without the reference . In Proceedings of the 17th Conference of the European Chapter of the Association for Computational Linguistics , A. Vlachos and I. Augenstein (Eds.) , Dubrovnik, Croatia , pp. 1311–1325 . External Links: Link , Document Cited by: §5.2 . Zouhar et al. (2025) V. Zouhar, M. Züfle, B. Egressy, J. Cheng, and J. Niehues Early-exit and instant confidence translation quality estimation . External Links: 2502.14429 , Link Cited by: §2.1 . Züfle and Niehues (2025) M. Züfle and J. Niehues Contrastive learning for task-independent SpeechLLM-pretraining . In Findings of the Association for Computational Linguistics: ACL 2025 , W. Che, J. Nabende, E. Shutova, and M. T. Pilehvar (Eds.) , Vienna, Austria , pp. 8469–8490 . External Links: Link , Document , ISBN 979-8-89176-256-5 Cited by: §1 ."
+      },
+      {
+        "id": "A1.SS1",
+        "heading": "A.1 SpeechCOMET",
+        "level": 2,
+        "text": "Table 4 lists the hyperparameters used for all SpeechCOMET models. All models share the same optimizer and estimator architecture; the Whisper LoRA and SONAR fine-tuning settings apply only to the respective encoder variants. All models are trained on a single NVIDIA A100-SXM4-40GB GPU; speech models take approximately 30 hours to train, while text-only models require around 20 hours. Training Optimizer AdamW Learning rate (estimator) 1.5 × 10 − 5 1.5\\times 10^{-5} Learning rate (encoder) 1 × 10 − 6 1\\times 10^{-6} Layerwise LR decay 0.95 Batch size 2 Gradient accumulation 8 Max epochs 20 Gradient clipping 1.0 Encoder warm-up 30% of epoch 0 frozen Dropout 0.1 Early stopping patience 2 (val Kendall τ \\tau ) Architecture Text encoder pooling layerwise attention (sparsemax) Aggregation average pooling Estimator hidden sizes [2048, 1024] Estimator activation Tanh Whisper LoRA LoRA rank r r 8 LoRA α \\alpha 16 LoRA dropout 0.0 SONAR Fine-tuning Frozen layers (bottom) 4 of 24 Table 4: Hyperparameters for SpeechCOMET models. The effective batch size is 16. All models are trained on a single NVIDIA A100-SXM4-40GB GPU."
+      },
+      {
+        "id": "A1.SS2",
+        "heading": "A.2 SpeechLLM Details",
+        "level": 2,
+        "text": "We evaluate Qwen2.5 Omni 7B ( Xu et al., 2025 ) in both zero-shot and fine-tuned settings across three input modalities for the QE task: text, audio, and audio+text. For zero-shot evaluation we assess all three modalities of the unmodified base model. In addition to the standard QE prompt, we evaluate two task-specific prompt variants: a gender-aware prompt for MuST-SHE and a prosody-aware prompt for ContraProST. All prompts are shown in Figure 4 . For fine-tuning, we train one model per input modality using LlamaFactory ( Zheng et al., 2024 ) with LoRA adapters ( Hu et al., 2021 ) . Fine-tuning and inference are performed on a single NVIDIA A100-SXM4-40GB GPU. Fine-tuning takes around 13 hours. Detailed hyperparameters are listed in Table 5 . Fine-tuning LoRA rank r r 16 LoRA α \\alpha 32 LoRA target all (attention + MLP) Epochs 2 Learning rate 1 × 10 − 4 1\\times 10^{-4} LR scheduler cosine Warmup ratio 0.1 Batch size 1 Gradient accumulation 8 Precision bf16 Max input length 2048 Early stopping patience 3 Eval interval 500 steps Inference Decoding greedy Max new tokens 16 Precision bf16 Table 5: Fine-tuning and inference hyperparameters for Qwen2.5-Omni-7B. Standard QE System: You are an evaluator. Given the source and/or audio and a translation, respond with only a single float score between 0 and 1 indicating translation quality. Output nothing else. User (text): Source: { src } Translation: { mt } User (audio): [audio waveform] Translation: { mt } User (audio+text): [audio waveform] Source: { src } Translation: { mt } Gender-aware QE (MuST-SHE) System: You are a translation quality evaluator specialising in gender accuracy. Listen carefully to the speaker’s voice in the audio to determine their gender. The speaker’s gender must be correctly reflected in the translation through gendered forms such as adjectives, pronouns, and verb agreement. Score the translation from 0 to 1: give a high score if the gender is correctly reflected, a low score if it is wrong or ambiguous. Output only a single float score, nothing else. User (text): Source: { src } Translation: { mt } User (audio): [audio waveform] Translation: { mt } User (audio+text): [audio waveform] Source: { src } Translation: { mt } Prosody-aware QE (ContraProST) System: You are a translation quality evaluator specialising in prosodic meaning. The speaker’s prosody in the audio --- including intonation, stress, rhythm, pauses, and emotional tone --- conveys meaning that must be accurately reflected in the translation (e.g. whether an utterance is a question or statement, which word is emphasised, the level of politeness or emotion). Score the translation from 0 to 1 based on how well it captures the prosodic meaning of the source speech. Output only a single float score, nothing else. User (text): Source: { src } Translation: { mt } User (audio): [audio waveform] Translation: { mt } User (audio+text): [audio waveform] Source: { src } Translation: { mt } Figure 4: System and user prompts used for Qwen2.5-Omni-7B QE. The system prompt varies across the three settings: standard translation quality, gender accuracy, and prosodic meaning. The user prompt is identical across all three settings and varies only by input modality."
+      },
+      {
+        "id": "A1.SS3.SSS0.Px1",
+        "heading": "IWSLT training set.",
+        "level": 4,
+        "text": "The Iwslt2026 Metrics Shared Train Dev dataset combines three sources of human direct assessment annotations, all paired with source speech: IWSLT 2023 ( Agarwal et al., 2023 ) , where evaluators had access to one preceding and one following segment for context; and WMT 2024 ( Kocmi et al., 2024 ) and WMT 2025 ( Kocmi et al., 2025 ) , both evaluated on human-segmented audio. It covers 17 language pairs: en-ar, en-bho, en-cs, en-de, en-es, en-et, en-hi, en-is, en-it, en-ja, en-mas, en-ru, en-sr, en-uk, en-zh, cs-de, and cs-uk."
+      },
+      {
+        "id": "A1.SS3.SSS0.Px2",
+        "heading": "WMT augmentation.",
+        "level": 4,
+        "text": "The Wmt Human All dataset aggregates human assessments from multiple WMT editions. We exclude the WMT 2024 and WMT 2025 subsets that overlap with the IWSLT training set. The remaining data covers text translation systems with gold sentence segmentation and 49 language pairs: bn-hi, cs-de, cs-en, cs-uk, de-cs, de-en, de-fr, en-ar, en-bho, en-cs, en-de, en-es, en-et, en-ha, en-hi, en-hr, en-is, en-it, en-iu, en-ja, en-kk, en-ko, en-liv, en-mas, en-pl, en-ru, en-sr, en-uk, en-zh, fi-en, fr-de, gu-en, ha-en, he-en, hi-bn, is-en, ja-en, ja-zh, kk-en, liv-en, lt-en, pl-en, ps-en, ru-en, sah-ru, uk-en, xh-zu, zh-en, and zu-xh."
+      },
+      {
+        "id": "A1.SS3.SSS0.Px3",
+        "heading": "TTS synthesis.",
+        "level": 4,
+        "text": "Since WMT provides only source text, we synthesise speech using Kokoro 82M for eight languages (English, Japanese, Chinese, Spanish, French, Hindi, Italian, Portuguese) and Mms Tts as a fallback for the remaining languages. Voice selection is deterministic per source segment. Identical source texts receive the same audio. The resulting dataset contains 1,114 hours."
+      },
+      {
+        "id": "A2.SS1",
+        "heading": "B.1 SpeechCOMET Fusion Strategies",
+        "level": 2,
+        "text": "IWSLT dev MuST-SHE ContraProST Segment τ b \\tau_{b} (%) System SPA (%) PA (%) PA (%) Architecture de zh avg de zh avg es fr it de es ja four-way 14.6 22.5 18.6 37.2 80.4 58.8 56.0 51.9 51.3 50.0 50.0 50.0 additive 13.5 22.3 17.9 35.3 67.4 51.4 54.6 49.7 52.2 50.0 50.0 50.0 joint encoding 3.9 6.9 5.4 19.9 88.6 54.2 51.6 50.3 52.8 50.6 49.2 50.0 Table 6: Ablation of audio–text integration strategies for speech QE. Four-way : standard COMET estimator input [ 𝐡 t ; 𝐬 a ; 𝐡 t ⊙ 𝐬 a ; | 𝐡 t − 𝐬 a | ] [\\mathbf{h}_{t};\\mathbf{s}_{a};\\mathbf{h}_{t}\\odot\\mathbf{s}_{a};|\\mathbf{h}_{t}-\\mathbf{s}_{a}|] , with SONAR audio replacing the source text embedding (used in the main model). Additive : SONAR audio embedding summed with the unified CLS MT embedding, following the COMETKiwi unified-metric architecture. Joint encoding : SONAR audio embedding injected as a virtual token into XLM-R self-attention. All models are speech-only (SONAR audio input) fine-tuned on IWSLT. Table 6 compares three strategies for fusing the SONAR audio embedding 𝐬 a \\mathbf{s}_{a} with the translation representation 𝐡 t \\mathbf{h}_{t} before the regression head. All variants use XLM-RoBERTa-base with SONAR audio input, fine-tuned on IWSLT."
+      },
+      {
+        "id": "A2.SS1.SSS0.Px1",
+        "heading": "Four-way interaction.",
+        "level": 4,
+        "text": "Following the original COMET estimator design, the two representations are combined as [ 𝐡 t ; 𝐬 a ; 𝐡 t ⊙ 𝐬 a ; | 𝐡 t − 𝐬 a | ] [\\mathbf{h}_{t};\\,\\mathbf{s}_{a};\\,\\mathbf{h}_{t}\\odot\\mathbf{s}_{a};\\,|\\mathbf{h}_{t}-\\mathbf{s}_{a}|] , with SONAR audio replacing the text source embedding. This is the architecture used for SpeechCOMET in the main experiments and achieves the best segment-level correlation among the three variants. IWSLT dev MuST-SHE ContraProST Segment τ b \\tau_{b} (%) System SPA (%) PA (%) PA (%) Model Variant de zh avg de zh avg es fr it de es ja SONAR encoder IWSLT FT frozen 14.6 22.5 18.5 37.2 80.4 58.8 56.0 51.9 51.3 50.0 50.0 50.0 unfrozen 17.3 22.9 20.1 51.0 70.9 61.0 53.1 50.9 50.9 50.0 50.0 50.0 WMT text pretrain → \\to IWSLT FT frozen 15.6 19.3 17.4 41.1 68.3 54.7 53.1 53.0 50.1 50.1 50.0 50.0 unfrozen 16.7 21.2 18.9 46.2 73.6 59.9 53.5 52.3 50.5 50.0 50.0 50.0 WMT TTS pretrain (frozen) pretrain only 10.7 16.6 13.7 23.6 71.5 47.6 53.7 52.1 54.6 49.9 50.0 50.0 → \\to IWSLT FT (frozen) 13.8 18.8 16.3 32.7 67.7 50.2 53.7 52.3 54.4 50.0 49.9 50.0 WMT TTS pretrain (unfrozen) pretrain only 11.6 15.4 13.5 26.3 72.1 49.2 50.9 50.9 53.4 50.0 50.2 49.7 → \\to IWSLT FT (frozen) 15.1 20.0 17.6 32.7 67.9 50.3 56.4 51.7 53.0 50.0 50.0 50.1 → \\to IWSLT FT (unfrozen) 15.7 21.8 18.7 37.7 68.6 53.1 54.1 54.0 53.2 49.9 50.0 50.3 Whisper encoder IWSLT FT (avg pool) frozen 10.6 18.6 14.6 39.6 67.6 53.6 50.5 46.9 49.1 50.0 49.9 50.0 LoRA 7.7 16.5 12.1 35.2 67.4 51.3 54.1 51.6 49.1 50.1 50.0 49.9 IWSLT FT (attn pool) frozen 6.6 16.7 11.6 44.4 67.4 55.9 55.8 50.9 51.9 50.1 49.9 50.0 LoRA 7.9 19.4 13.7 42.5 67.4 54.9 55.6 51.9 53.4 50.0 50.1 50.0 WMT TTS pretrain (LoRA) pretrain only 11.9 13.1 12.5 46.1 59.9 53.0 49.5 53.3 48.1 49.9 50.2 49.9 → \\to IWSLT FT (frozen) 16.8 18.7 17.8 44.9 68.5 56.7 51.4 50.7 52.8 50.0 50.0 50.1 → \\to IWSLT FT (LoRA) 16.1 19.4 17.7 41.6 68.5 55.1 50.3 50.5 52.4 49.9 49.9 50.0 Table 7: Ablation of pretraining strategies for SpeechCOMET. → \\to denotes sequential training stages. TTS pretraining uses WMT data with text-to-speech synthesis."
+      },
+      {
+        "id": "A2.SS1.SSS0.Px2",
+        "heading": "Additive.",
+        "level": 4,
+        "text": "Following the COMETKiwi unified-metric design, the audio embedding is added to the MT CLS representation before the regression head, collapsing both modalities into a single vector without explicit interaction terms."
+      },
+      {
+        "id": "A2.SS1.SSS0.Px3",
+        "heading": "Joint encoding.",
+        "level": 4,
+        "text": "The SONAR audio embedding is appended as a virtual token to the MT token embeddings before the XLM-R transformer layers, enabling full cross-attention between the audio representation and every MT subword. The resulting CLS representation is fed directly to the regression head. Despite the richer interaction, this variant yields substantially lower segment-level correlation, suggesting that injecting a fixed-size audio embedding as a single token is difficult for the transformer to exploit effectively."
+      },
+      {
+        "id": "A2.SS2",
+        "heading": "B.2 Training Strategies for SpeechCOMET",
+        "level": 2,
+        "text": "Table 7 reports the full ablation over encoder fine-tuning and TTS pretraining strategies for Sonar and Whisper speech encoders. IWSLT dev MuST-SHE ContraProST Segment τ b \\tau_{b} (%) System SPA (%) PA (%) PA (%) Fusion SONAR de zh avg de zh avg es fr it de es ja avg frozen 17.0 24.5 20.8 64.5 67.7 66.1 52.8 53.0 50.7 50.1 50.1 50.0 concat frozen 12.2 21.1 16.6 49.0 75.7 62.3 52.4 48.6 51.3 50.0 50.0 50.0 sum frozen 20.9 24.7 22.8 70.2 67.4 68.8 54.8 55.4 53.0 50.0 50.0 50.0 WMT text pretrain → \\to FT (frozen) 24.5 27.1 25.8 79.7 67.4 73.5 55.6 52.6 52.4 50.0 49.9 50.0 WMT text pretrain → \\to FT (unfrozen) 23.4 27.1 25.2 80.2 67.4 73.8 56.0 54.4 53.0 50.0 50.0 50.0 Table 8: Ablation of embedding fusion strategies for Text + Speech SpeechCOMET with SONAR encoder. Fusion controls how speech and text embeddings are combined; SONAR indicates whether the encoder is frozen or unfrozen during fine-tuning. Text init initialises from the WMT-pretrained text SpeechCOMET checkpoint. MuST-SHE PA (%) ContraProST PA (%) Type Model es fr it de es ja Speech SpeechLLM 31.9 28.3 32.2 31.6 28.4 31.6 speech prompt 38.0 32.3 32.4 15.3 19.4 16.8 +FT 35.9 15.0 20.7 20.8 22.1 15.3 Text SpeechLLM 29.4 25.9 23.6 23.8 18.6 29.6 speech prompt 23.7 17.3 16.2 18.9 18.5 15.7 +FT 14.0 13.8 15.4 14.1 14.1 25.0 Sp.+Txt SpeechLLM 38.0 30.9 34.5 30.5 26.4 31.3 speech prompt 43.1 37.1 37.8 22.8 26.8 21.4 +FT 8.2 6.3 6.8 18.0 9.3 19.7 Table 9: Effect of speech-aware prompting on SpeechLLM across input modalities. The speech prompt instructs the model to consider paralinguistic cues; +FT denotes fine-tuning on IWSLT."
+      },
+      {
+        "id": "A2.SS2.SSS0.Px1",
+        "heading": "SONAR.",
+        "level": 4,
+        "text": "Unfreezing the SONAR encoder consistently improves segment-level correlation over the frozen variant (20.1 vs. 18.5 τ b \\tau_{b} avg for direct IWSLT fine-tuning). Neither WMT text pretraining nor TTS-synthesised WMT pretraining improves over direct IWSLT fine-tuning, with most pretraining variants performing below the unfrozen IWSLT baseline. This suggests that SONAR’s fixed-size sentence-level representations already provide a good initialisation for quality estimation, and additional pretraining on out-of-domain data adds little."
+      },
+      {
+        "id": "A2.SS2.SSS0.Px2",
+        "heading": "Whisper.",
+        "level": 4,
+        "text": "Without pretraining, Whisper performs substantially below SONAR regardless of pooling strategy or adapter configuration (best: 14.6 τ b \\tau_{b} avg). TTS pretraining on WMT data followed by frozen IWSLT fine-tuning is the strongest configuration (17.8 τ b \\tau_{b} , 56.7 SPA avg), confirming that Whisper benefits from exposure to additional speech data before task-specific training. MuST-SHE and ContraProST scores remain near chance across all variants for both encoders."
+      },
+      {
+        "id": "A2.SS3",
+        "heading": "B.3 Fusion Strategies for SpeechCOMET (Speech+Text)",
+        "level": 2,
+        "text": "Table 8 ablates embedding fusion strategy and SONAR encoder state for SpeechCOMET models combining speech and text source representations."
+      },
+      {
+        "id": "A2.SS3.SSS0.Px1",
+        "heading": "Fusion strategy.",
+        "level": 4,
+        "text": "Sum fusion outperforms both average and concatenation on segment-level correlation. Concatenation performs worst (16.6 τ b \\tau_{b} avg). Average fusion (20.8 τ b \\tau_{b} ) falls below sum (22.8 τ b \\tau_{b} )."
+      },
+      {
+        "id": "A2.SS3.SSS0.Px2",
+        "heading": "Initialisation from text checkpoint.",
+        "level": 4,
+        "text": "Initialising the multimodal model from the WMT-pretrained text SpeechCOMET checkpoint before IWSLT fine-tuning yields a substantial gain over training from scratch (25.8 vs. 22.8 τ b \\tau_{b} avg). Freezing vs. unfreezing SONAR during this stage makes little difference. MuST-SHE scores remain near chance across all variants and ContraProST shows no sensitivity."
+      },
+      {
+        "id": "A2.SS4",
+        "heading": "B.4 SpeechLLM Prompt Sensitivity",
+        "level": 2,
+        "text": "Table 9 reports MuST-SHE and ContraProST PA for SpeechLLM with and without a speech-aware prompt across all input modalities. All values fall below 50%, reflecting the tie-heavy prediction pattern described in Section 4 : the model assigns identical scores to most pairs, and PA equals 50% once ties are excluded."
+      },
+      {
+        "id": "A3.SS1",
+        "heading": "C.1 Probing Setup",
+        "level": 2,
+        "text": "Hyperparameter Value Architecture Classifier MLP Input dimension 768 for (speech)COMET 3584 for Qwen2.5-Omni Hidden dimension 256 Activation ReLU Output layer Linear ( → \\to #classes) Dropout 0.1 Optimisation Optimizer Adam Learning rate 10 − 3 10^{-3} by default 3 × 10 − 4 3\\times 10^{-4} (Qwen2.5-Omni) Batch size 256 Data Linguistic feat. IWSLT 2026 Metric (English source) training data sampled with 10% Speaker gender MuST-SHE v1.2 (category-1 only) 50/50 stratified split for train/test Intonation ContraProST “prosodic breaks” subset 80/20 stratified split for train/test Emotion ContraProST “emotional prosody” subset 80/20 stratified split for train/test Table 10: Probing classifier configuration. Training details of the probing classifiers are presented in Table 10 . Figure 5: Probing accuracy for linguistic features on the IWSLT 2026 Metrics dataset, grouped by input modality (text-only, speech+text, speech-only). Figure 6: Probing accuracy for acoustic features on MuST-SHE (speaker gender) and ContraProST (intonation, emotion). Text models are unable to recover speaker gender accurately, so the speech-only systems must rely on acoustic cues. For intonation and emotion , the dataset’s source transcripts expose the feature (trailing punctuation and typographic prosody markers respectively), which explains the high text-only accuracy on these two."
+      },
+      {
+        "id": "A3.SS1.SSS1",
+        "heading": "C.1.1 Linguistic Feature Probing Data",
+        "level": 3,
+        "text": "The linguistic probing dataset is derived from the IWSLT 2026 Metrics Shared Task dataset, which pairs English and Czech source speech and text with MT hypotheses and human quality scores across several language pairs. As the morphological tagger is English-only, we restrict probing to English sources, yielding 31,965 training and 5,556 development examples. We annotate the source side with spaCy’s en_core_web_trf model and extract five sentence-level features. “Verb Form” and “Tense” are read from the ROOT token of the dependency parse. “Subject Number” and “Object Number” give the grammatical number (singular/plural) of the first nsubj and obj dependents. “Has Named Entity” indicates whether spaCy recognises any entity span, covering both proper entities (e.g., PERSON, ORG, GPE) and numeric or temporal expressions (e.g. DATE, CARDINAL, MONEY). Sentences for which a label is undefined (e.g., no object for Object Number) are excluded from that feature only."
+      },
+      {
+        "id": "A3.SS1.SSS2.Px1",
+        "heading": "Speaker Gender.",
+        "level": 4,
+        "text": "Derived from MuST-SHE v1.2, which provides the English source, a reference translation, a gender label (He/She), and a category label for three directions (En→Es/Fr/It). We keep only category-1 segments, where gender is lexically recoverable from the utterance, and deduplicate by (talk ID, source text, speaker). Stratified splitting yields two 526-segment halves (He: 265, She: 261)."
+      },
+      {
+        "id": "A3.SS1.SSS2.Px2",
+        "heading": "Intonation.",
+        "level": 4,
+        "text": "Constructed from the ContraProST Intonation subset: 173 English sentences each recorded as a declarative (“.”) and a yes/no question (“?”), for 346 files. We deduplicate by audio path across the three target-language files (En→De/Es/Ja). Splitting at the sentence level (both recordings in the same partition), an 80/20 split gives 276 training (138/138) and 70 development (35/35) examples. Note that the statement/question distinction surfaces in the source text as trailing punctuation , which is why text-based models reach near-perfect accuracy."
+      },
+      {
+        "id": "A3.SS1.SSS2.Px3",
+        "heading": "Emotion.",
+        "level": 4,
+        "text": "Also from ContraProST, using the Emotional Prosody subset, where each sentence is recorded under multiple emotions. Of the six original classes we keep the four most frequent (Neutral, Angry, Happy, Surprised), as the other two classes contain too few samples. Splitting at the sentence level, an 80/20 split gives 964 training (Neutral: 301, Angry: 292, Happy: 251, Surprised: 120) and 247 development (76/75/64/32) examples. As with intonation, the transcripts carry class-discriminative typography: neutral utterances are plain text, while angry, happy, and surprised ones use asterisks ( *word* ), underscores ( _word_ ), capitalisation, and repeated punctuation (e.g. ?!?!), again allowing high text-based accuracy."
+      },
+      {
+        "id": "A3.SS2",
+        "heading": "C.2 Additional Probing Results",
+        "level": 2,
+        "text": "The probing results for the full set of models are presented in Figure 5 and Figure 6 , corresponding to linguistic and acoustic features respectively."
+      },
+      {
+        "id": "A3.SS3",
+        "heading": "C.3 Source Modality Ablation for SpeechCOMET (Speech+Text)",
+        "level": 2,
+        "text": "Table 11 disentangles the contribution of each input modality for the two speech+text SpeechCOMET models by separately replacing audio or text with a randomly mismatched source. For both models, replacing only the text source reproduces nearly the full drop observed when both modalities are shuffled ( − 17.2 -17.2 pp for SpeechCOMET, − 30.6 -30.6 pp for SpeechCOMET XL {}^{\\text{XL}} ), while replacing only the audio has a negligible effect ( − 1.4 -1.4 and − 0.3 -0.3 pp respectively). The pattern is consistent across both encoder sizes, confirming that the multimodal models condition almost exclusively on the text source. Model real src Δ \\Delta both Δ \\Delta audio Δ \\Delta text Segment τ b \\tau_{b} avg (%) over de & zh SpeechCOMET 25.8 -17.8 -1.4 -17.2 SpeechCOMET XL {}^{\\text{XL}} 34.4 -30.2 -0.3 -30.6 Table 11: Source-modality ablation for speech+text SpeechCOMET models. Δ \\Delta audio only: audio replaced with mismatched audio, text kept real. Δ \\Delta text only: text replaced with mismatched text, audio kept real. Δ \\Delta both: both modalities replaced. Scores are segment τ b \\tau_{b} averaged over de and zh."
+      }
+    ]
+  },
+  "text": "Why We Need Speech to Evaluate Speech Translation Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: arXiv is now an independent nonprofit! Learn more × Back to arXiv License: arXiv.org perpetual non-exclusive license arXiv:2605.28227v1 [cs.CL] 27 May 2026 Why We Need Speech to Evaluate Speech Translation Maike Züfle Affiliation: Karlsruhe Institute of Technology Danni Liu Affiliation: Karlsruhe Institute of Technology Vilém Zouhar Affiliation: ETH Zurich {maike.zuefle, danni.liu}@kit.edu, vzouhar.ethz.ch Jan Niehues Affiliation: Karlsruhe Institute of Technology Abstract Speech translation models are increasingly capable of preserving speech-specific information (e.g., speaker gender, prosody, and emphasis), yet evaluation metrics remain blind to such phenomena. We meta-evaluate both text- and speech-based quality estimation metrics on two contrastive datasets targeting gender agreement and prosody, and find that both fall short, even when given direct access to the speech signal. We then train SpeechCOMET, a family of quality estimation models with speech encoders, and evaluate a state-of-the-art SpeechLLM as a judge. Both match or exceed text-based COMET on standard quality estimation, but neither consistently assesses speech-specific phenomena. We identify three causes: (1) speech-specific features are not reliably preserved in current encoders, (2) models tend to ignore the speech source signal, and (3) quality estimation training data contains too few relevant examples. We release all models and code, and argue that progress requires dedicated speech-specific training data and models that genuinely condition on speech. 1 Introduction Speech translation is evolving from cascaded pipelines, which first transcribe speech before translating the text, to end-to-end models ( Papi et al., 2026 ) that process speech directly and can, in principle, preserve speech-specific information such as speaker gender, prosody, and emphasis. The correct translation of an utterance can depend on such cues: the same words carry different meanings depending on the speech, as shown in Figure 1 . Although cases where the speech signal is decisive may represent only a small fraction of all translations, the quality of speech translation has improved substantially recently ( Abdulmumin et al., 2025 ) to the point where such phenomena can no longer be neglected. With the rise of Speech Large Language Models (SpeechLLMs) ( Xu et al., 2025 ; Microsoft et al., 2025 ) and end-to-end ST models ( Communication et al., 2023 ; Radford et al., 2023 ; Ambilduke et al., 2025 ) , recent work started to evaluate speech translation models on speaker gender agreement ( Züfle and Niehues, 2025 ; Conti et al., 2026 ) , emotion ( Papi et al., 2026 ) and prosodic phenomena ( Li et al., 2026 ) , using dedicated contrastive benchmarks such as MuST-SHE ( Bentivogli et al., 2020 ) , EmotionTalk ( Sun et al., 2025 ) and ContraProST ( Tsiamas et al., 2024 ) . Figure 1: Speech is necessary to correctly evaluate speech translation quality: the prosodic break in the source speech disambiguates two translations. Yet dedicated quality estimation (QE) metrics for assessing these phenomena are missing. Current evaluations rely on text-based QE models such as COMETKiwi ( Rei et al., 2022 ) , which are blind to speech-specific phenomena by construction ( Figure 1 ). While speech-aware metrics such as BLASER ( Dale and Costa-jussà, 2024 ) and SpeechQE ( Han et al., 2024 ) have been proposed, they have only been evaluated on standard correlation with human scores, leaving open whether they can actually capture speech-specific phenomena. We investigate whether existing and new metrics can close this gap. We show that existing speech-aware metrics, including BLASER and SpeechQE, are not sensitive to speech-specific phenomena despite receiving speech as input. We then introduce and train SpeechCOMET, a family of QE models with SONAR ( Duquenne et al., 2023 ) and Whisper ( Radford et al., 2023 ) encoders, and additionally evaluate a state-of-the-art SpeechLLM as a judge. SpeechCOMET matches text-based COMETKiwi on general QE performance, and SpeechLLM exceeds it. However, neither SpeechCOMET nor SpeechLLM reliably assess speech-specific phenomena. We find three complementary explanations: (1) speech-specific features may not be preserved in the encoder representations at all; (2) models tend to ignore the speech source and focus on the translation; and (3) even when features are present in the encoder, the QE training signal, which contains very few speech-specific examples, is insufficient to teach the model to use them. Our contributions are threefold: (i) we benchmark state-of-the-art metrics on speech-specific evaluation; (ii) we train and evaluate new speech-aware QE models; and (iii) we provide hypotheses and evidence of why current models fail. We release the trained QE models and code 1 1 1 https://github.com/MaikeZuefle/speechCOMET , and argue that progress in speech translation evaluation requires moving beyond text-based proxies and investing in speech-specific benchmarks and data. 2 Current Evaluation of Speech Translation We review existing approaches to speech translation quality estimation (QE). 2.1 Current Approaches Text-Based Metrics. The dominant approach to evaluating speech translation quality relies on text-based QE models. For shared tasks and in recent research, WMT22 COMETKiwi DA ( Rei et al., 2022 ) and its reference-based variant have been the standard metrics to date ( Abdulmumin et al., 2025 ; Papi et al., 2026 ) , applied to human reference transcripts as source input. Two practical challenges arise in this setting. First, human transcripts are rarely available. Alternatives such as automatic speech recognition (ASR) transcripts and back-translations have been explored by Cettolo et al. (2025) , showing that ASR transcripts are more effective than back-translations when word error rate is low. Second, beyond source representation, standard QE models assume perfectly segmented inputs, whereas speech translation usually relies on automatic segmentation ( Amrhein and Haddow, 2022 ; Abdulmumin et al., 2025 ) . COMET Partial ( Zouhar et al., 2025 ) addresses this by training on segmentation-noisy data. Yet none of these adaptations have speech access. IWSLT dev MuST-SHE ContraProST Segment τ b \\tau_{b} (%) System SPA (%) PA (%) PA (%) de zh avg ASR src de zh avg ASR src es fr it de es ja Text COMET-Partial 11.2 12.7 11.9 -0.3 43.1 67.0 55.0 +4.7 52.4 55.7 51.8 50.0 50.0 50.0 COMETKiwi 32.8 36.4 34.6 -6.0 86.3 89.1 87.7 -0.7 61.5 60.6 55.2 50.0 50.0 50.0 Speech SpeechQE 26.9 32.7 29.8 – 79.2 71.3 75.2 – 37.0 36.0 31.0 26.1 20.0 38.2 BLASER 22.0 26.8 24.4 – 85.5 67.4 76.5 – 52.0 51.6 51.7 51.0 51.5 51.1 Table 1: Results for transcript- and speech-based baseline metrics. Transcript-based metrics cannot evaluate speech-specific phenomena by design; speech-based metrics can access the signal but still fail on gender and prosody. Speech-Based Metrics. A complementary line of work proposes metrics that operate directly on speech, avoiding ASR dependence altogether. BLASER ( Chen et al., 2023 ) and its successor Blaser 2.0 Qe ( Dale and Costa-jussà, 2024 ) encode the source and translation directly into a shared multimodal embedding space using SONAR encoders ( Duquenne et al., 2023 ) , originally targeted at speech-to-speech translation but extended to speech-to-text. SpeechQE TowerInstruct 7B En2de ( Han et al., 2024 ) takes a dedicated approach, combining Whisper ( Radford et al., 2023 ) with an LLM to estimate speech-to-text translation quality. However, BLASER and SpeechQE are evaluated only on correlation with human scores or reference-based metrics, with no evaluation on benchmarks targeting speech-specific phenomena. We now benchmark existing metrics on both standard correlation with human judgements and on datasets targeting speech-specific phenomena. We describe the datasets, metrics, and results in turn. 2.2 Data IWSLT 2026 Metrics dev set. We evaluate on the development set of the IWSLT 2026 Metrics Shared Task IWSLT2026 Metrics Shared Train Dev ( Adelani et al., 2026 ) , which is, to the best of our knowledge, the only speech translation dataset with human-annotated scores 2 2 2 The human annotations from IWSLT 2023 are also public, we use them as part of the train set in later experiments. , newly released after the existing metrics were developed. It comprises ACL talks from IWSLT 2025 submissions for en-de and en-zh. The dev set contains 5.56K segments annotated with human direct assessment scores across four speech translation systems. The source texts in this dataset are human-annotated transcripts, which are rarely available in practice. We therefore transcribe the source speech with Whisper Large V3 ( Radford et al., 2023 ) at a WER of 24.4%, and evaluate text-based models with both human- or ASR source texts, to evaluate potential degradations ( Cettolo et al., 2025 ) . Beyond correlation with human scores, we evaluate whether QE metrics are sensitive to speech-specific phenomena. We use two contrastive datasets that test linguistically-motivated distinctions only accessible from the speech signal: MuST-SHE. With MuST-SHE ( Bentivogli et al., 2020 ) , we evaluate whether metrics are sensitive to speaker gender agreement in speech translation. The dataset contains English speech translated to French, Spanish, and Italian, which inflect grammatical forms according to the speaker’s gender. Each of the 1612 evaluation pairs consists of a gender-correct translation and a gender-incorrect alternative. A metric that uses speech should prefer translations that match the speaker’s gender. ContraProST. ContraProST ( Tsiamas et al., 2024 ) tests sensitivity to prosodic and paralinguistic features: correct translations are paired with prosodically incorrect alternatives across en → \\to {de, es, ja} (15,972 pairs), covering five phenomena: sentence stress, intonation, prosodic breaks, emotional prosody, and politeness. These distinctions are not recoverable from transcripts alone, making this a direct test of whether speech-based metrics capture information beyond text. 2.3 Meta-Evaluation Metrics We adopt the meta-evaluation metrics from the IWSLT 2026 Metrics Shared Task 3 3 3 iwslt.org/2026/metrics , assessing our QE systems at both the segment and system level. For text-based models, we additionally evaluate the effect of using automatic transcripts as source inputs, which may contain ASR errors. Segment-level correlation. For each source segment, we compute Kendall’s τ b \\tau_{b} ( Kendall, 1945 ) between metric predictions and human direct assessment scores across the available system translations, and then average this across source segments. A higher τ b \\tau_{b} indicates better agreement between the metric and human ranking of translations. System-level correlation. At the system level, we evaluate the metric’s ability to rank speech translation systems over a full dataset. We use Soft Pairwise Accuracy ( Thompson et al., 2024 , SPA,) , which measures agreement between human and automatic pairwise system rankings. SPA is 1 when the metric assigns identical pairwise confidence to every system comparison as human judgements. Contrastive pairwise accuracy. For contrastive evaluation datasets such as MuST-SHE and ContraProST, no human scores are available. Instead, each source is paired with one correct and one incorrect translation. We measure whether the metric assigns a higher score to the correct translation: PA = ∑ k = 1 N 𝟏 [ y ^ k + > y ^ k − ] N \\displaystyle\\text{PA}=\\frac{\\sum_{k=1}^{N}\\mathbf{1}[\\hat{y}_{k}^{+}>\\hat{y}_{k}^{-}]}{N} (1) where N N is the number of contrastive pairs, y ^ k + \\hat{y}_{k}^{+} is the metric score for the correct translation, and y ^ k − \\hat{y}_{k}^{-} is the score for the incorrect one. PA equals 1 when the metric always prefers the correct translation, and ties are counted as incorrect. 2.4 Evaluating Existing Metrics We benchmark existing approaches on the datasets described above; results are shown in Table 1 . Transcript-based metrics outperform speech-based ones when given human reference transcripts, but degrade noticeably under ASR input: COMET drops from 32.8% to 27.8% at the segment level for en-de and from 36.4% to 29.4% for en-zh. With ASR transcripts, transcript-based and speech-based metrics perform comparably. For evaluations targeting speech-specific phenomena, neither family performs well. Transcript-based metrics score at chance on MuST-SHE and ContraProST by design, as they have no access to the speech signal. More surprisingly, speech-based metrics also do not perform well: despite receiving speech as input, SpeechQE and BLASER score at or below chance on both datasets. 3 New Approaches to Speech Translation Evaluation Having established that existing metrics are not sensitive to speech-specific phenomena, we investigate whether this limitation is architectural. We train SpeechCOMET, an adaptation of COMETKiwi with a speech encoder, and evaluate a state-of-the-art SpeechLLM as a judge to test whether either approach can capture speech-specific phenomena. 3.1 SpeechCOMET Architecture. Reference-free text-based QE models ( Rei et al., 2022 ) encode the source sentence and the hypothesis separately using a shared multilingual encoder, and feed their representations into an MLP estimator. Concretely, let 𝐬 t ∈ ℝ d \\mathbf{s}_{t}\\in\\mathbb{R}^{d} and 𝐡 t ∈ ℝ d \\mathbf{h}_{t}\\in\\mathbb{R}^{d} denote the pooled source and hypothesis embeddings, respectively. The estimator receives the concatenation of four interaction features: 𝐞 = [ 𝐡 t ; 𝐬 t ; | 𝐡 t − 𝐬 t | ; 𝐡 t ⊙ 𝐬 t ] ∈ ℝ 4 ​ d , \\mathbf{e}=\\bigl[\\mathbf{h}_{t};\\,\\mathbf{s}_{t};\\,|\\mathbf{h}_{t}-\\mathbf{s}_{t}|;\\,\\mathbf{h}_{t}\\odot\\mathbf{s}_{t}\\bigr]\\in\\mathbb{R}^{4d}, (2) and produces a scalar quality score y ^ = MLP ​ ( 𝐞 ) \\hat{y}=\\text{MLP}(\\mathbf{e}) , where the MLP is a two-layer feed-forward network with Tanh activations. In SpeechCOMET, we replace the text source encoder with a speech representation 𝐬 a ∈ ℝ d \\mathbf{s}_{a}\\in\\mathbb{R}^{d} that is projected to match the text encoder dimension d d via a learned linear layer. The hypothesis is still encoded by a text encoder, and the same four-way interaction is applied. Two alternative fusion strategies are described and evaluated in Section B.1 . They perform worse than the four-way interaction. We further extend SpeechCOMET to take both the source speech and source text as input. The two source representations are fused into a single embedding 𝐬 = f ⁡ ( 𝐬 t , 𝐬 a ) \\mathbf{s}=f(\\mathbf{s}_{t},\\mathbf{s}_{a}) , where f f is one of three strategies: element-wise average, element-wise sum, or a learned linear projection applied to their concatenation [ 𝐬 t ; 𝐬 a ] ∈ ℝ 2 ​ d [\\mathbf{s}_{t};\\,\\mathbf{s}_{a}]\\in\\mathbb{R}^{2d} . The fused embedding 𝐬 \\mathbf{s} then replaces 𝐬 t \\mathbf{s}_{t} in Eq. 2 . Speech and Text Embedding Models. We encode the hypothesis text using XLM RoBERTa Base ( Conneau et al., 2019 ) , a multilingual transformer model, choosing the base model over the larger InfoXLM-large ( Chi et al., 2021 ) used by COMETKiwi ( Rei et al., 2022 ) for efficiency. To enable a direct comparison at equal encoder capacity, we additionally train our best model with InfoXLM-large (SpeechCOMET XL {}^{\\text{XL}} ). We also train a text-only baseline using the smaller encoder to isolate the contribution of speech input. For source speech, we investigate two encoders. SONAR ( Duquenne et al., 2023 ) is a multilingual speech encoder that produces fixed-size sentence-level embeddings. Whisper Large V3 ( Radford et al., 2023 ) outputs a variable-length sequence of frame-level representations. For the latter, we use only the encoder component and evaluate two aggregation strategies: average pooling and attention-based pooling over the encoder output. Training Details. For both speech encoders, we experiment with frozen and fine-tuned variants. For SONAR, we partially fine-tune by freezing the bottom four transformer layers and updating the remainder, motivated by probing studies showing that phonetic information is concentrated in the middle to upper-middle layers ( Gubian et al., 2025 ; Choi et al., 2026 ) . For Whisper, full fine-tuning is memory-prohibitive, so we instead use LoRA ( Hu et al., 2021 ) while keeping the base weights frozen. We train on a single NVIDIA A100-SXM4-40GB GPU. Hyperparameters are listed in Table 4 . Data. All models are trained on source-hypothesis pairs annotated with human direct assessment scores, where the source is either text or speech depending on the model variant. The IWSLT2026 Metrics Shared Train Dev dataset ( Adelani et al., 2026 ) provides paired source speech and source text alongside human quality scores, comprising 229 hours of audio across 33,721 samples. As the IWSLT training set is relatively small, we investigate whether augmenting with text-quality-score pairs from Wmt Human All dataset ( Kocmi et al., 2025 ) improves performance. The two sets differ in domain, as WMT covers text translation with gold segmentation, while IWSLT covers speech translation with automatic segmentation. WMT provides only the source text, so we synthesise speech for the 490,943 WMT samples using Kokoro 82M TTS to obtain 1,114 hours of paired audio-quality-score examples. Language pairs and further dataset details are provided in Section A.3 . We continue to evaluate all models on the test sets described in Section 2.2 . IWSLT dev MuST-SHE ContraProST Segment τ b \\tau_{b} (%) System SPA (%) PA (%) PA (%) de zh avg ASR src de zh avg ASR src es fr it de es ja Text COMETKiwi 32.8 36.4 34.6 -6.0 86.3 89.1 87.7 -0.7 61.5 60.6 55.2 50.0 50.0 50.0 SpeechCOMET Text COMETKiwi WMT RoBERTa {}_{\\text{RoBERTa}}^{\\text{WMT}} 20.3 25.9 23.1 -1.5 44.7 67.4 56.0 +1.5 51.2 52.8 50.1 50.0 50.0 50.0 COMETKiwi IWSLT RoBERTa {}_{\\text{RoBERTa}}^{\\text{IWSLT}} 20.2 25.3 22.8 -0.5 69.9 67.4 68.7 -1.8 52.8 49.1 52.0 50.0 50.0 50.0 Speech SpeechCOMET SONAR 17.3 22.9 20.1 – 51.0 70.9 61.0 – 53.1 50.9 50.9 50.0 50.0 50.0 SpeechCOMET Whisper 16.8 18.7 17.8 – 44.9 68.5 56.7 – 51.4 50.7 52.8 50.0 50.0 50.1 Sp.+Txt SpeechCOMET 24.5 27.1 25.8 -3.8 79.7 67.4 73.5 -1.4 55.6 52.6 52.4 50.0 49.9 50.0 Sp.+Txt SpeechCOMET XL {}^{\\text{XL}} 32.7 36.0 34.4 -6.0 85.2 67.8 76.5 +6.5 54.6 58.0 51.1 50.0 50.0 50.0 SpeechLLM Text SpeechLLM 33.2 47.5 40.4 -5.5 95.6 32.6 64.1 +2.1 23.7 17.3 16.2 23.8 18.1 31.1 +FT 39.3 55.0 47.1 -3.8 93.4 83.7 88.5 -3.4 14.0 13.8 15.4 14.0 14.0 26.1 Speech SpeechLLM 26.5 37.5 32.0 – 87.5 32.7 60.1 – 38.0 32.3 32.4 32.2 28.4 33.1 +FT 33.8 46.5 40.1 – 90.2 50.1 70.1 – 35.9 15.0 20.7 21.1 21.9 15.7 Sp.+Txt SpeechLLM 32.2 44.1 38.1 -4.5 90.7 32.6 61.6 -0.6 43.1 37.1 37.8 31.0 26.1 32.6 +FT 39.7 60.1 49.9 -4.6 89.1 72.1 80.6 -7.2 8.2 6.3 6.8 17.8 8.8 20.4 Table 2: Results for SpeechCOMET and SpeechLLM models. ASR src shows the change in average τ b \\tau_{b} /SPA when using ASR transcripts instead of human transcripts; speech-only models have no text input (–). Model Variants. We train the following model variants. Text models are trained on two datasets: WMT direct assessment data, which provides a large amount of training signal, and the IWSLT dataset using source texts. The latter enables a fair comparison with speech models, which are trained on IWSLT only. Speech models use source speech encoded by SONAR or Whisper and are trained in frozen and fine-tuned encoder variants. Speech+text models take both modalities as input and are trained with three fusion strategies (average, sum, projection). We additionally train speech+text models initialised from a text checkpoint, to investigate whether a strong text initialisation benefits multimodal models. Finally, we train TTS-augmented models on WMT data with synthesised speech, as well as combined IWSLT+WMT-TTS variants, to study the effect of training data size and domain on speech model quality. 3.2 SpeechLLM as Judge As a second approach we evaluate Qwen2.5 Omni 7B ( Xu et al., 2025 ) , a multimodal large language model capable of processing text, audio, and both modalities simultaneously, as a zero-shot and fine-tuned quality estimator. Unlike SpeechCOMET, which is trained specifically for QE, the LLM is prompted to produce a scalar quality score directly, without task-specific architectural adaptations. We evaluate three input modalities, text only, speech only, and speech+text, mirroring the SpeechCOMET setup. In the zero-shot setting, the model is prompted with each modality using a standard QE prompt as well as two task-specific prompt variants for MuST-SHE and ContraProST (see Figure 4 ). In the fine-tuned setting, we train one model per modality using LoRA adapters on the IWSLT dataset described earlier. Fine-tuning and inference are performed on a single NVIDIA A100-SXM4-40GB GPU. Hyperparameters and prompts are listed in Section A.2 . 4 Results Results for all model families are given in Table 2 . 4.1 SpeechCOMET Results Text-only: in-domain training data outweighs scale. We train two text-only SpeechCOMET variants: one on large-scale WMT text translation data (COMETKiwi WMT RoBERTa {}_{\\text{RoBERTa}}^{\\text{WMT}} ) and one on IWSLT speech translation system outputs (COMETKiwi IWSLT RoBERTa {}_{\\text{RoBERTa}}^{\\text{IWSLT}} ). Despite WMT being substantially larger, COMETKiwi IWSLT RoBERTa {}_{\\text{RoBERTa}}^{\\text{IWSLT}} achieves much higher system-level correlation (68.7 vs. 56.0 SPA avg), while segment-level performance is comparable (22.8 vs. 23.1 τ b \\tau_{b} avg). As expected for text-only models, neither variant shows sensitivity to gender (MuST-SHE) or prosody (ContraProST). Figure 2: Probing accuracy for linguistic features on the IWSLT 2026 Metrics dataset. Scores averaged over 3 runs (std. ≤ \\leq 0.02). Text-aware systems consistently outperform speech-only systems. Fine-tuned variants (hatched) closely track their frozen counterparts (solid). SONAR-based SpeechCOMET outperforms Whisper-based variants. Speech-only: limited sensitivity to speech-specific phenomena. Next, we replace the text encoder with a speech encoder, using either SONAR or Whisper, to encode the source speech directly. For each encoder, we experiment with freezing vs. unfreezing the encoder during fine-tuning and with augmenting training data with a TTS-synthesized variant of WMT data (see Section 3 ). The best-performing variant of each is reported in Table 2 , with the full ablation in Table 7 in Section B.2 . Both encoders benefit from unfreezing, but only Whisper benefits from TTS pretraining. Unlike SONAR, Whisper is an ASR model with no native sentence-level representation and requires additional speech exposure to adapt. The two speech models slightly underperform COMETKiwi IWSLT RoBERTa {}_{\\text{RoBERTa}}^{\\text{IWSLT}} , which is trained on the same IWSLT data but with text as source, indicating that text remains a stronger signal than speech. In general, SpeechCOMET SONAR outperforms SpeechCOMET Whisper (20.1 vs. 17.8 τ b \\tau_{b} avg) on the IWSLT test set. Neither model shows sensitivity to gender or prosody. Speech+text: multimodal fusion improves correlation. We then combine both modalities by fusing the individual source embeddings. We ablate different fusion strategies and two initialization schemes: training from scratch and initializing from an existing text SpeechCOMET checkpoint. We report the best model, sum fusion initialized from COMETKiwi WMT RoBERTa {}_{\\text{RoBERTa}}^{\\text{WMT}} , in Table 2 ; the full ablation is in Table 8 in Section B.3 . SpeechCOMET achieves 25.8 τ b \\tau_{b} and 73.5 SPA avg, outperforming both unimodal variants. MuST-SHE and ContraProST performance remains at chance. Scaling the text encoder to InfoXLM-large (SpeechCOMET XL {}^{\\text{XL}} ), the same encoder as the off-the-shelf COMETKiwi uses, closes the gap to the COMETKiwi text baseline (34.4 vs. 34.6 τ b \\tau_{b} ), suggesting that the performance gap of the smaller models relative to COMETKiwi is due to encoder capacity rather than training procedure. However, this gain is driven entirely by the stronger text encoder, as speech sensitivity remains unchanged. 4.2 SpeechLLM as a Judge Results We now discuss the performance of the SpeechLLM. Generally, SpeechLLM outperforms all SpeechCOMET variants and the COMETKiwi text baseline on IWSLT, with the best model reaching 49.9 τ b \\tau_{b} avg compared to 34.4 for SpeechCOMET XL {}^{\\text{XL}} and 34.6 for COMETKiwi ( Table 2 ). Text-only: performance improves with FT. The SpeechLLM with only text input achieves 40.4 τ b \\tau_{b} avg without fine-tuning, and 47.1 with IWSLT fine-tuning, with similarly large gains at system level (64.1 to 88.5 SPA avg), outperforming the SpeechCOMET models. The below-chance PA scores on MuST-SHE and ContraProST are driven by ties: the model assigns identical scores to most pairs, and PA is exactly 50% once ties are excluded. Speech-only: speech input underperforms text. With speech input, SpeechLLM performs below its text-only counterpart (32.0 vs. 40.4 τ b \\tau_{b} avg, 60.1 vs. 64.1 SPA avg), with the gap persisting after fine-tuning (40.1 vs. 47.1 τ b \\tau_{b} ). Despite having access to the speech signal, MuST-SHE and ContraProST show the same tie-driven pattern as the text-only model, with no gender or prosody detection. Speech+text: combining modalities yields best correlation but no speech sensitivity. Combining both modalities yields the strongest results: 49.9 τ b \\tau_{b} avg with FT and 80.6 SPA avg with FT, surpassing all other models. Still, the model does not show sensitivity to speech-specific phenomena. Specific prompts do not enhance speech sensitivity. Since speech sensitivity does not emerge from architecture or fine-tuning, we additionally test whether it can be elicited through task-specific prompting. However, instructing the model to attend to paralinguistic cues yields no consistent improvement on MuST-SHE or ContraProST. We report these results in Table 9 in Appendix B . 5 Analyses Having shown that no current metric is sensitive to speech-specific phenomena, we test three complementary explanations: the features are 1) missing from encoder representations, 2) not induced during training, or 3) disregarded during QE scoring. 5.1 Are features present in the encoders? We probe for source linguistic and acoustic features in Figure 2 and 3 . For each system, we extract the source representations and train an MLP probe Adi et al. (2017) to predict the target feature. For COMET and SpeechCOMET, we use either the encoder’s fixed-size sentence embedding (SONAR, RoBERTa for text) or the utterance representation from the pooling layer learned during QE training (Whisper). For SpeechLLMs, we use the hidden state immediately following the prompt. Details about the probing experiments are in Section C.1 . 5.1.1 Probing Linguistic Features We probe five linguistic features: subject number, object number (singular, plural, none in both cases), tense (present, past, none), verb form (finite, infinite, participle, none), and the presence of named entities (binary). Figure 2 shows three patterns across these probed linguistic features. Modality gap separates text-aware from speech-only systems. There is a clear gap between input modalities: systems that have access to text at the source, whether text-only (COMETKiwi variants) or speech-and-text combined (SpeechCOMET), achieve substantially higher probing accuracy than their speech-only counterparts. This pattern holds consistently across all five features and suggests that a considerable amount of linguistically structured information present in the text signal is not recoverable from the audio signal alone, at least as encoded by the models studied here. QE fine-tuning does not close the speech-text modality gap. Pairwise comparison of fine-tuned and frozen variants of the same architecture reveals nearly identical probing accuracies. The absence of improvement from fine-tuning indicates that the quality estimation training signal alone is insufficient to drive the encoder towards more linguistically informative representations of source speech, likely because standard QE training provides no examples that would enforce such features. SONAR representations dominate Whisper in preserving linguistic features. SONAR provides a fixed-size utterance-level embedding pre-trained to capture semantic content, whereas Whisper’s utterance representation is obtained via a pooling mechanism learned from scratch during quality estimation training. The fact that the off-the-shelf SONAR embedding outperforms the jointly trained Whisper pooling reinforces the conclusion that the quality estimation objective, in its current form, does not provide sufficient signal for creating high-quality audio source representations. 5.1.2 Probing Acoustic Features Having probed for linguistic features, we now test whether acoustic and speaker-level features can be recovered from the source representations ( Figure 3 ). We probe three features: speaker gender, intonation, and emotion. We focus on speech-only models, and defer the full set of text-only and speech-text models ( Table 2 ) to Section C.2 . These features are not recoverable from text alone, so the probe must rely on acoustic information. Figure 3: Probing accuracy for speaker gender on MuST-SHE and for intonation (question vs. statement) and emotion (angry, happy, neutral, surprised) on ContraProST. Scores averaged over three runs (std. ≤ \\leq 0.02). SpeechCOMET Whisper and SpeechLLMs enable accurate recovery of acoustic features while SpeechCOMET SONAR does not. Overall, the trend is consistent across the three probed features: Whisper representations and the SpeechLLM hidden states support accurate recovery, while SONAR representations do not. The results have the following implications. SONAR’s semantic alignment may erase acoustic information. SpeechCOMET with the SONAR backbone, despite outperforming the Whisper variant on the earlier linguistic probes ( Figure 2 ), now performs at or just above the majority baseline on acoustic features. A plausible reason is that SONAR’s training objective, which aligns sentences with the same meaning across languages, pulls together utterances that share meaning but differ acoustically. Features like speaker gender and intonation, which are largely uncorrelated with a sentence’s overall meaning, would then be suppressed as a side effect. Whisper and SpeechLLMs encode speaker gender but do not use it. For both Whisper and the SpeechLLMs, the probe recovers speaker gender with high accuracy, confirming that this information is present in the source representation. Yet neither is sensitive to acoustic inputs in its QE outputs ( Table 2 ). Therefore, the feature is available but unused. Unlike SONAR, where the acoustic information appears to be erased from the audio representation, here the bottleneck lies not in the encoder but in the training signal, which does not reward attending to acoustic information. 5.2 Source Reliance of the QE Models Automated metrics are notorious for focusing primarily on the translation only and disregarding the sources ( Sun et al., 2020 ; Zouhar et al., 2023 ) . To quantify how much the models rely on their source input when assigning QE scores, we replace every source with a randomly mismatched one and measure the drop in segment τ b \\tau_{b} in Table 3 . COMETKiwi and the speech baseline SpeechQE show strong source sensitivity, dropping by − 24.9 -24.9 and − 22.5 -22.5 pp respectively, yet the latter is still not able to use speech-specific features (discussion in Section 6 ). Segment τ b \\tau_{b} (%) real src Δ \\Delta random Baselines Text COMETKiwi-Part. 11.9 -4.3 COMETKiwi 34.6 -24.9 Speech SpeechQE 29.8 -22.5 BLASER 24.4 -15.4 SpeechCOMET Text COMETKiwi WMT RoBERTa {}_{\\text{RoBERTa}}^{\\text{WMT}} 23.1 -11.1 COMETKiwi IWSLT RoBERTa {}_{\\text{RoBERTa}}^{\\text{IWSLT}} 22.8 -12.0 Speech SpeechCOMET SONAR 20.1 -3.1 SpeechCOMET Whisper 17.8 -2.4 Sp.+Txt SpeechCOMET 25.8 -17.8 Sp.+Txt SpeechCOMET XL {}^{\\text{XL}} 34.4 -30.2 SpeechLLM Text SpeechLLM 40.4 -29.2 +FT 47.1 -38.6 Speech SpeechLLM 32.0 -28.1 +FT 40.1 -25.5 Sp.+Txt SpeechLLM 38.1 -37.4 +FT 49.9 -39.2 Table 3: Effect of replacing the source input with a randomly mismatched one. Scores are averaged over de and zh. Δ \\Delta = random − - real: large negative values indicate the model uses the source signal. In contrast, SpeechCOMET SONAR and SpeechCOMET Whisper drop by only − 3.1 -3.1 and − 2.4 -2.4 pp respectively, indicating that these models largely ignore the speech input. On the other hand, for the speech+text SpeechCOMET models, the drop with random source ( − 17.8 -17.8 and − 30.2 -30.2 pp) is substantial, but shuffling only the text reproduces it almost entirely while shuffling only the speech has a negligible effect ( Table 11 in Section C.3 ), confirming these models condition on text. Manual inspection of 50 examples where speech shuffling causes a drop reveals segmentation errors where the speech segment boundaries do not align with the translation (e.g., audio “Right.” paired with MT “Ansätze symmetrisch, richtig? EN: The approaches are symmetric, right?”), suggesting that the small residual speech sensitivity reflects misalignments rather than genuine speech conditioning. Finally, SpeechLLM shows large drops across all modalities ( − 25 -25 to − 39 -39 pp), including speech-only, confirming that these models do condition on the source speech, yet the probing results show that speech-specific features go unused. 6 Discussion and Recommendations Three barriers to speech-specific evaluation. Our results point to three interacting barriers to speech-specific QE. First , source encoders discard relevant information: SONAR suppresses acoustic attributes by design, while Whisper representations are weak on linguistic features. Second , even when features are present, models do not use them, suggesting QE training fails to ground predictions in the source. Third , QE fine-tuning does not help, likely due to standard QE corpora lacking examples where speech-specific variation impacts quality. Practical guidance for practitioners. For practitioners evaluating speech translation quality, we recommend SpeechLLM (+FT) when computational cost is not a constraint, as it achieves the strongest segment-level correlation across all modalities. When a lighter model is needed the off-the-shelf COMETKiwi remains the strongest text-based option. However, none of the evaluated models should be used to assess speech-specific translation quality, such as gender agreement or prosodic appropriateness: all models score at chance on this. 7 Conclusion In this work, we evaluate speech translation quality estimation across regression-based and LLM-based approaches and find that, despite strong overall correlation with human judgements, no current metric is sensitive to speech-specific phenomena such as gender agreement and prosody. Addressing this requires dedicated training data that explicitly targets such phenomena and encoders that capture richer acoustic representations than those induced by the quality estimation objective alone. We hope that our work can serve as a stepping stone for future research on speech-aware quality estimation and encourage the development of benchmarks and models that treat speech translation evaluation as a genuinely multimodal problem. 8 Limitations Correlation results are based on a single test set (IWSLT 2026 Metrics dev set), as no other human-annotated speech translation evaluation datasets are currently available. Similarly, our evaluation of speech-specific phenomena is limited to gender agreement and prosody, and all datasets use English as the source language, as no comparable resources exist for other phenomena or languages. This highlights the need for broader evaluation resources to ensure that findings generalise across languages and domains. 9 Ethical Considerations This work uses only existing publicly available datasets and pre-trained models. We foresee no direct ethical concerns arising from this research. Acknowledgments This work has received funding from the European Union’s Horizon research and innovation programme under grant agreement No 101135798, project Meetween (My Personal AI Mediator for Virtual MEETtings BetWEEN People). The authors gratefully acknowledge the computing time provided on the high-performance computer HoreKa by the National High-Performance Computing Center at KIT (NHR@KIT). This center is jointly supported by the Federal Ministry of Education and Research and the Ministry of Science, Research and the Arts of Baden-Württemberg, as part of the National High-Performance Computing (NHR) joint funding program (https://www.nhr-verein.de/en/our-partners). HoreKa is partly funded by the German Research Foundation (DFG). References Abdulmumin et al. (2025) I. Abdulmumin, V. Agostinelli, T. Alumäe, A. Anastasopoulos, L. Bentivogli, O. Bojar, C. Borg, F. Bougares, R. Cattoni, M. Cettolo, L. Chen, W. Chen, R. Dabre, Y. Estève, M. Federico, M. Fishel, M. Gaido, D. Javorský, M. Kasztelnik, F. Kponou, M. Krubiński, T. Kin Lam, D. Liu, E. Matusov, C. Kumar Maurya, J. P. McCrae, S. Mdhaffar, Y. Moslem, K. Murray, S. Nakamura, M. Negri, J. Niehues, A. Kr. Ojha, J. E. Ortega, S. Papi, P. Pecina, P. Polák, P. Połeć, A. Sankar, B. Savoldi, N. Sethiya, C. Sikasote, M. Sperber, S. Stüker, K. Sudoh, B. Thompson, M. Turchi, A. Waibel, P. Wilken, R. Zevallos, V. Zouhar, and M. Züfle Findings of the IWSLT 2025 evaluation campaign . In Proceedings of the 22nd International Conference on Spoken Language Translation (IWSLT 2025) , E. Salesky, M. Federico, and A. Anastasopoulos (Eds.) , Vienna, Austria (in-person and online) , pp. 412–481 . External Links: Link , Document , ISBN 979-8-89176-272-5 Cited by: §1 , §2.1 . Adelani et al. (2026) D. I. Adelani, A. Anastasopoulos, V. Agostinelli, L. Bentivogli, O. Bojar, S. Bratières, M. Carpuat, R. Cattoni, M. Cettolo, L. Chen, M. Federico, M. Gaido, M. Gupta, H. Han, A. Hatami, D. Javorský, Y. Jeon, M. Kasztelnik, D. Liu, N. Luu, M. Ma, D. Macháček, M. Maltais, E. Matusov, C. K. Maurya, J. P. McCrae, Y. Moslem, S. Nakamura, M. Negri, J. Niehues, A. Kr. Ojha, S. Ouyang, S. Papi, P. Polák, F. Retkowski, B. Savoldi, C. Sikasote, M. Sperber, S. Stüker, K. Sudoh, M. Turchi, A. Waibel, P. Wilken, V. Zouhar, and M. Züfle Speech translation and metrics in 2026: findings of the iwslt campaign . In Proceedings of the 23rd International Conference on Spoken Language Translation (IWSLT 2026) , San Diego, California, US . Cited by: §2.2 , §3.1 . Adi et al. (2017) Y. Adi, E. Kermany, Y. Belinkov, O. Lavi, and Y. Goldberg Fine-grained analysis of sentence embeddings using auxiliary prediction tasks . In 5th International Conference on Learning Representations, ICLR 2017, Toulon, France, April 24-26, 2017, Conference Track Proceedings , External Links: Link Cited by: §5.1 . Agarwal et al. (2023) M. Agarwal, S. Agrawal, A. Anastasopoulos, L. Bentivogli, O. Bojar, C. Borg, M. Carpuat, R. Cattoni, M. Cettolo, M. Chen, W. Chen, K. Choukri, A. Chronopoulou, A. Currey, T. Declerck, Q. Dong, K. Duh, Y. Estève, M. Federico, S. Gahbiche, B. Haddow, B. Hsu, P. Mon Htut, H. Inaguma, D. Javorský, J. Judge, Y. Kano, T. Ko, R. Kumar, P. Li, X. Ma, P. Mathur, E. Matusov, P. McNamee, J. P. McCrae, K. Murray, M. Nadejde, S. Nakamura, M. Negri, H. Nguyen, J. Niehues, X. Niu, A. Kr. Ojha, J. E. Ortega, P. Pal, J. Pino, L. van der Plas, P. Polák, E. Rippeth, E. Salesky, J. Shi, M. Sperber, S. Stüker, K. Sudoh, Y. Tang, B. Thompson, K. Tran, M. Turchi, A. Waibel, M. Wang, S. Watanabe, and R. Zevallos FINDINGS OF THE IWSLT 2023 EVALUATION CAMPAIGN . In Proceedings o",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Learn more",
+      "url": "https://info.arxiv.org/about"
+    },
+    {
+      "text": "Back to arXiv",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "License: arXiv.org perpetual non-exclusive license",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "Papi et al., 2026",
+      "url": "https://arxiv.org/html/2605.28227v1#bib.bib12"
+    },
+    {
+      "text": "Figure 1",
+      "url": "https://arxiv.org/html/2605.28227v1#S1.F1"
+    },
+    {
+      "text": "Abdulmumin et al., 2025",
+      "url": "https://arxiv.org/html/2605.28227v1#bib.bib13"
+    },
+    {
+      "text": "Xu et al., 2025",
+      "url": "https://arxiv.org/html/2605.28227v1#bib.bib29"
+    },
+    {
+      "text": "Microsoft et al., 2025",
+      "url": "https://arxiv.org/html/2605.28227v1#bib.bib8"
+    },
+    {
+      "text": "Communication et al., 2023",
+      "url": "https://arxiv.org/html/2605.28227v1#bib.bib9"
+    },
+    {
+      "text": "Radford et al., 2023",
+      "url": "https://arxiv.org/html/2605.28227v1#bib.bib26"
+    },
+    {
+      "text": "Ambilduke et al., 2025",
+      "url": "https://arxiv.org/html/2605.28227v1#bib.bib7"
+    },
+    {
+      "text": "Züfle and Niehues, 2025",
+      "url": "https://arxiv.org/html/2605.28227v1#bib.bib15"
+    },
+    {
+      "text": "Conti et al., 2026",
+      "url": "https://arxiv.org/html/2605.28227v1#bib.bib16"
+    },
+    {
+      "text": "Li et al., 2026",
+      "url": "https://arxiv.org/html/2605.28227v1#bib.bib11"
+    },
+    {
+      "text": "Bentivogli et al., 2020",
+      "url": "https://arxiv.org/html/2605.28227v1#bib.bib32"
+    },
+    {
+      "text": "Sun et al., 2025",
+      "url": "https://arxiv.org/html/2605.28227v1#bib.bib10"
+    },
+    {
+      "text": "Tsiamas et al., 2024",
+      "url": "https://arxiv.org/html/2605.28227v1#bib.bib31"
+    },
+    {
+      "text": "Rei et al., 2022",
+      "url": "https://arxiv.org/html/2605.28227v1#bib.bib24"
+    },
+    {
+      "text": "Dale and Costa-jussà, 2024",
+      "url": "https://arxiv.org/html/2605.28227v1#bib.bib35"
+    },
+    {
+      "text": "Han et al., 2024",
+      "url": "https://arxiv.org/html/2605.28227v1#bib.bib33"
+    },
+    {
+      "text": "Duquenne et al., 2023",
+      "url": "https://arxiv.org/html/2605.28227v1#bib.bib27"
+    },
+    {
+      "text": "https://github.com/MaikeZuefle/speechCOMET",
+      "url": "https://github.com/MaikeZuefle/speechCOMET"
+    },
+    {
+      "text": "WMT22 COMETKiwi DA",
+      "url": "https://huggingface.co/Unbabel/WMT22-COMETKiwi-DA"
+    },
+    {
+      "text": "Cettolo et al. (2025)",
+      "url": "https://arxiv.org/html/2605.28227v1#bib.bib14"
+    },
+    {
+      "text": "Amrhein and Haddow, 2022",
+      "url": "https://arxiv.org/html/2605.28227v1#bib.bib4"
+    },
+    {
+      "text": "COMET Partial",
+      "url": "https://huggingface.co/zouharvi/COMET-partial"
+    },
+    {
+      "text": "Zouhar et al., 2025",
+      "url": "https://arxiv.org/html/2605.28227v1#bib.bib17"
+    },
+    {
+      "text": "Chen et al., 2023",
+      "url": "https://arxiv.org/html/2605.28227v1#bib.bib34"
+    },
+    {
+      "text": "Blaser 2.0 Qe",
+      "url": "https://huggingface.co/facebook/blaser-2.0-qe"
+    },
+    {
+      "text": "SpeechQE TowerInstruct 7B En2de",
+      "url": "https://huggingface.co/h-j-han/SpeechQE-TowerInstruct-7B-en2de"
+    },
+    {
+      "text": "IWSLT2026 Metrics Shared Train Dev",
+      "url": "https://huggingface.co/datasets/maikezu/IWSLT2026-metrics-shared-train-dev"
+    },
+    {
+      "text": "Adelani et al., 2026",
+      "url": "https://arxiv.org/html/2605.28227v1#bib.bib1"
+    },
+    {
+      "text": "Whisper Large V3",
+      "url": "https://huggingface.co/openai/whisper-large-v3"
+    },
+    {
+      "text": "iwslt.org/2026/metrics",
+      "url": "https://iwslt.org/2026/metrics"
+    },
+    {
+      "text": "Kendall, 1945",
+      "url": "https://arxiv.org/html/2605.28227v1#bib.bib19"
+    },
+    {
+      "text": "Thompson et al., 2024",
+      "url": "https://arxiv.org/html/2605.28227v1#bib.bib18"
+    },
+    {
+      "text": "Table 1",
+      "url": "https://arxiv.org/html/2605.28227v1#S2.T1"
+    },
+    {
+      "text": "Section B.1",
+      "url": "https://arxiv.org/html/2605.28227v1#A2.SS1"
+    },
+    {
+      "text": "Eq. 2",
+      "url": "https://arxiv.org/html/2605.28227v1#S3.E2"
+    },
+    {
+      "text": "XLM RoBERTa Base",
+      "url": "https://huggingface.co/FacebookAI/XLM-RoBERTa-base"
+    },
+    {
+      "text": "Conneau et al., 2019",
+      "url": "https://arxiv.org/html/2605.28227v1#bib.bib25"
+    },
+    {
+      "text": "Chi et al., 2021",
+      "url": "https://arxiv.org/html/2605.28227v1#bib.bib23"
+    },
+    {
+      "text": "Gubian et al., 2025",
+      "url": "https://arxiv.org/html/2605.28227v1#bib.bib22"
+    },
+    {
+      "text": "Choi et al., 2026",
+      "url": "https://arxiv.org/html/2605.28227v1#bib.bib21"
+    },
+    {
+      "text": "Hu et al., 2021",
+      "url": "https://arxiv.org/html/2605.28227v1#bib.bib28"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2605.28227v1#A1.T4"
+    },
+    {
+      "text": "Wmt Human All",
+      "url": "https://huggingface.co/datasets/zouharvi/wmt-human-all"
+    },
+    {
+      "text": "Kocmi et al., 2025",
+      "url": "https://arxiv.org/html/2605.28227v1#bib.bib20"
+    },
+    {
+      "text": "Kokoro 82M",
+      "url": "https://huggingface.co/hexgrad/Kokoro-82M"
+    },
+    {
+      "text": "Section A.3",
+      "url": "https://arxiv.org/html/2605.28227v1#A1.SS3"
+    },
+    {
+      "text": "Section 2.2",
+      "url": "https://arxiv.org/html/2605.28227v1#S2.SS2"
+    },
+    {
+      "text": "Qwen2.5 Omni 7B",
+      "url": "https://huggingface.co/Qwen/Qwen2.5-Omni-7B"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2605.28227v1#A1.F4"
+    },
+    {
+      "text": "Section A.2",
+      "url": "https://arxiv.org/html/2605.28227v1#A1.SS2"
+    },
+    {
+      "text": "Table 2",
+      "url": "https://arxiv.org/html/2605.28227v1#S3.T2"
+    },
+    {
+      "text": "Section 3",
+      "url": "https://arxiv.org/html/2605.28227v1#S3"
+    },
+    {
+      "text": "Table 7",
+      "url": "https://arxiv.org/html/2605.28227v1#A2.T7"
+    },
+    {
+      "text": "Section B.2",
+      "url": "https://arxiv.org/html/2605.28227v1#A2.SS2"
+    },
+    {
+      "text": "Table 8",
+      "url": "https://arxiv.org/html/2605.28227v1#A2.T8"
+    },
+    {
+      "text": "Section B.3",
+      "url": "https://arxiv.org/html/2605.28227v1#A2.SS3"
+    }
+  ],
+  "matching_link_count": 164,
+  "links_truncated": true,
+  "invalid_links": []
+}

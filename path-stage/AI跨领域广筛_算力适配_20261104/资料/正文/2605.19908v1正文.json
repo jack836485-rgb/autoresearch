@@ -1,0 +1,584 @@
+{
+  "url": "https://arxiv.org/html/2605.19908v1",
+  "final_url": "https://arxiv.org/html/2605.19908v1",
+  "status": 200,
+  "title": "Where Does Authorship Signal Emergein Encoder-Based Language Models?",
+  "metadata": {},
+  "paper": {
+    "title": "Where Does Authorship Signal Emerge in Encoder-Based Language Models?",
+    "title_warning": null,
+    "abstract": "Abstract Authorship attribution models fine-tuned with the same pretrained encoder, data, and loss can differ four-fold in performance depending only on their scoring mechanism. We use mechanistic interpretability tools to explain this gap. Stylistic features such as word length, punctuation density, and function-word frequency are equally available at every layer in every model, including in an off-the-shelf control encoder, hence the gap not coming from representation quality. Instead, causal intervention shows that the scorer determines where the encoder consolidates authorship signal. Mean pooling forces consolidation by early to mid layers, while late interaction defers it to later layers. We further derive this difference from the gradient structure of each scorer, and training dynamics reveal distinct learning trajectories that follow from that difference.",
+    "authors": [
+      {
+        "name": "Francis Kulumba",
+        "affiliations": [
+          "Affiliation: Inria Paris",
+          "Affiliation: Sorbonne Université"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Guillaume Vimont",
+        "affiliations": [
+          "Affiliation: IRIF"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Laurent Romary",
+        "affiliations": [
+          "Affiliation: Inria Paris"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Florian Cafiero",
+        "affiliations": [
+          "Affiliation: LRE, EPITA",
+          "Affiliation: Ecole nationale des chartes – PSL"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Francis Kulumba Affiliation: Inria Paris Affiliation: Sorbonne Université Email: francis.kulumba@inria.fr Guillaume Vimont Affiliation: IRIF Laurent Romary Affiliation: Inria Paris Florian Cafiero Affiliation: LRE, EPITA Affiliation: Ecole nationale des chartes – PSL",
+    "arxiv_version": "2605.19908v1",
+    "arxiv_version_date": "2026-05-19",
+    "sections": [
+      {
+        "id": "S1",
+        "heading": "1 Introduction",
+        "level": 1,
+        "text": "Figure 1: Conceptual overview. Left : The pretrained language model encodes stylistic features at every layer, regardless of fine-tuning. Center : Two scoring mechanisms read out these features differently. Mean pooling averages all tokens into a single vector. Late interaction (LI) ( Khattab and Zaharia, 2020 ) compares tokens directly. Right : Causal intervention reveals that the scoring mechanism determines where the encoder consolidates authorship signal. Mean pooling forces early consolidation while MaxSim \\mathrm{MaxSim} allows for late consolidation. Every author leaves traces in their writing. Sentence length, punctuation habits, function-word preferences, and word-length distributions all carry information about who wrote a text, even when two authors write about the same topic ( Mosteller and Wallace, 1963 ; Burrows, 2002 ; Kešelj et al., 2003 ) . Authorship attribution (AA) is the task of deciding, given two passages, whether they were written by the same person or group. A useful task for forensic linguistics ( Dauber et al., 2019 ) or historical document analysis ( Cafiero and Camps, 2019 ) among other applications. Modern AA systems follow a contrastive learning paradigm: a pretrained text encoder produces a representation for each passage ( Vaswani et al., 2017 ; Devlin et al., 2019 ) , and a scoring function compares the representations to produce a similarity score ( Wegmann et al., 2022 ; Ai et al., 2022 ; Huertas-Tato et al., 2024 ; Kantharuban et al., 2026 ) . The encoder is fine-tuned so that same-author passages score high and different-author passages score low. This setup works well, but recent work has revealed a striking puzzle about the scoring function. Kulumba et al. (2025) trained multiple models on a scholarly corpus in which topic is decorrelated from authorship, and found that the choice of scoring mechanism alone explains much of the observed four-fold performance gap. All the models share the same pretrained backbone, the same training data, and the same contrastive loss. The only difference is the pooling/scoring mechanism: one family of models averages all token representations into a single vector before scoring (mean pooling), while another compares token representations directly via late interaction (LI) ( Khattab and Zaharia, 2020 ) . Why does such a large gap emerge from what is, in principle, only a difference in the final comparison step? There are at least two plausible explanations. The first is that different scoring mechanisms cause the encoder to learn different internal representations during fine-tuning: mean pooling forces the encoder to discard fine-grained stylistic information that LI preserves. The second is that the encoder learns similar representations regardless of the scorer, and the gap arises purely from how those representations are read out at inference time. This paper uses the interpretability toolkit ( Alain and Bengio, 2017 ; Vig et al., 2020 ; Belinkov, 2022 ; Goldowsky-Dill et al., 2023 ; Zhang and Nanda, 2023 ) on the fine-tuned encoders from Kulumba et al. (2025) to distinguish between these two explanations. This allows us to test a dissociation between feature availability and feature use (Figure 1 ): • Availability is invariant , the same stylistic features (word length, capitalization, punctuation density, etc.) are linearly readable from the hidden states of all models at all layers, including a control encoder picked off the shelf. The pretrained backbone already encodes these features. Contrastive fine-tuning does not create them. • Use depends on the scoring mechanism , as it determines where in the encoder authorship signal becomes causally necessary. Mean pooling consolidates authorship signal by mid layers, while LI defers consolidation to late ones. This gap can be explained by the gradient structure of the scoring functions. Our results show that the choice of scoring function determines the effective depth of the encoder, the information the model can exploit, and the trajectory it follows during training. Understanding this mechanism clarifies why LI-based systems consistently outperform pooled representations in AA, despite relying on the same pretrained backbone."
+      },
+      {
+        "id": "S2",
+        "heading": "2 Background",
+        "level": 1,
+        "text": "This section defines the building blocks of the contrastive AA pipeline and the analysis tools we use to study it."
+      },
+      {
+        "id": "S2.SS1",
+        "heading": "2.1 Contrastive authorship attribution",
+        "level": 2,
+        "text": "In the contrastive formulation, training data consists of triplets ( a , p , n ) (a,p,n) : an anchor passage a a , a same-author positive p p , and a different-author negative n n . The encoder f θ f_{\\theta} maps each passage to a sequence of token-level representations. A scoring function s s then compares the anchor’s representation to the positive’s and to the negative’s, producing scalar similarity scores. Training minimizes the InfoNCE loss ( van den Oord et al., 2019 ) : ℒ = − log ⁡ exp ⁡ ( s ⁡ ( a , p ) / τ ) exp ⁡ ( s ⁡ ( a , p ) / τ ) + ∑ n ′ ∈ 𝒩 exp ⁡ ( s ⁡ ( a , n ′ ) / τ ) \\mathcal{L}=-\\log\\frac{\\exp\\bigl(s(a,p)/\\tau\\bigr)}{\\exp\\bigl(s(a,p)/\\tau\\bigr)+\\displaystyle\\sum_{n^{\\prime}\\in\\mathcal{N}}\\exp\\bigl(s(a,n^{\\prime})/\\tau\\bigr)} (1) where τ \\tau is a temperature parameter and 𝒩 \\mathcal{N} is the set of in-batch negatives: every non-positive passage in the batch serves as a negative. This loss pushes the anchor closer to the positive and farther from all negatives in the scoring space."
+      },
+      {
+        "id": "S2.SS2",
+        "heading": "2.2 Scoring mechanisms",
+        "level": 2,
+        "text": "The encoder produces a sequence of token representations 𝐇 a = [ 𝐡 1 a , … , 𝐡 m a ] ∈ ℝ m × d \\mathbf{H}^{a}=[\\mathbf{h}_{1}^{a},\\ldots,\\mathbf{h}_{m}^{a}]\\in\\mathbb{R}^{m\\times d} for a passage of m m tokens with hidden dimension d d . The scoring function determines how this matrix is turned into a scalar similarity. We study three families."
+      },
+      {
+        "id": "S2.SS2.SSS0.Px1",
+        "heading": "Mean pooling with cosine similarity.",
+        "level": 3,
+        "text": "The passage representation is the mean of its token embeddings and the score is the cosine similarity between mean vectors. Mean pooling is the standard AA baseline ( Rivera-Soto et al., 2021 ; Wegmann et al., 2022 ; Kantharuban et al., 2026 ) . It compresses the entire token sequence into a single d d -dimensional vector before scoring."
+      },
+      {
+        "id": "S2.SS2.SSS0.Px2",
+        "heading": "Late interaction ( MaxSim \\mathrm{MaxSim} ).",
+        "level": 3,
+        "text": "The passage is represented by its full sequence of token embeddings, and the score is the sum over anchor tokens of the maximum cosine similarity to any candidate token ( Khattab and Zaharia, 2020 ) : s LI ​ ( a , p ) = ∑ i = 1 m a max j ∈ [ m p ] ⁡ cos ⁡ ( 𝐡 i a , 𝐡 j p ) s_{\\text{LI}}(a,p)=\\sum_{i=1}^{m_{a}}\\max_{j\\in[m_{p}]}\\cos(\\mathbf{h}_{i}^{a},\\mathbf{h}_{j}^{p}) (2) Unlike mean pooling, LI preserves per-token structure through the scoring function: the encoder does not need to compress all the information."
+      },
+      {
+        "id": "S2.SS2.SSS0.Px3",
+        "heading": "Patch-level late interaction (PLI).",
+        "level": 3,
+        "text": "A middle ground. The token sequence is partitioned into contiguous patches of size n n . Each patch is mean-pooled, and MaxSim \\mathrm{MaxSim} is applied at the patch level: s PLI ​ ( a , p ) = ∑ i = 1 P a max j ∈ [ P p ] ⁡ cos ⁡ ( 𝐩 i a , 𝐩 j p ) s_{\\text{PLI}}(a,p)=\\sum_{i=1}^{P_{a}}\\max_{j\\in[P_{p}]}\\cos(\\mathbf{p}_{i}^{a},\\mathbf{p}_{j}^{p}) (3) where 𝐩 i = 1 n ​ ∑ t ∈ patch i 𝐡 t \\mathbf{p}_{i}=\\frac{1}{n}\\sum_{t\\in\\text{patch}_{i}}\\mathbf{h}_{t} is the mean of the tokens within patch i i . We use n = 2 n{=}2 (bigram patches) in this study."
+      },
+      {
+        "id": "S2.SS3",
+        "heading": "2.3 Alignment and uniformity",
+        "level": 2,
+        "text": "We use the alignment–uniformity framework of Wang and Isola (2020) , where alignment α \\alpha measures closeness of same-author pairs and uniformity u u measures how evenly representations spread on the hypersphere (lower is better for both)."
+      },
+      {
+        "id": "S2.SS4",
+        "heading": "2.4 Residual stream patching",
+        "level": 2,
+        "text": "Residual stream patching ( Vig et al., 2020 ; Meng et al., 2022 ) is a causal intervention that measures the contribution of each encoder layer to the model’s output. If we corrupt the input of the encoder and then restore one layer’s activations to their clean values, how much of the model’s correct behavior is recovered? Concretely, given a triplet ( a , p , n ) (a,p,n) , we define three forward passes. A clean pass encodes the positive p p normally, producing hidden states 𝐡 clean ( ℓ ) \\mathbf{h}^{(\\ell)}_{\\text{clean}} at each layer ℓ ∈ { 0 , 1 , … , L } \\ell\\in\\{0,1,\\ldots,L\\} . A corrupt pass encodes the negative n n normally, producing 𝐡 corrupt ( ℓ ) \\mathbf{h}^{(\\ell)}_{\\text{corrupt}} . A patched pass at layer ℓ \\ell encodes the negative, but at layer ℓ \\ell replaces the negative’s hidden states with those from the positive. The patched hidden state then propagates through the remaining encoder layers to produce a patched score s patched ( ℓ ) s_{\\text{patched}}^{(\\ell)} . The clean score is s clean = s ⁡ ( a , p ) s_{\\text{clean}}=s(a,p) and the corrupt score is s corrupt = s ⁡ ( a , n ) s_{\\text{corrupt}}=s(a,n) . If patching at layer ℓ \\ell recovers the clean score, it means layer ℓ \\ell carries the information needed for correct authorship scoring. If patching makes no difference, the information was not yet consolidated at that layer."
+      },
+      {
+        "id": "S2.SS5",
+        "heading": "2.5 Recovery metrics",
+        "level": 2,
+        "text": "We quantify recovery with two metrics."
+      },
+      {
+        "id": "S2.SS5.SSS0.Px1",
+        "heading": "Percentage recovery",
+        "level": 3,
+        "text": "is a standard metric introduced by Meng et al. (2022) : Recovery ( ℓ ) ( % ) = s patched ( ℓ ) − s corrupt s clean − s corrupt × 100 \\text{Recovery}^{(\\ell)}(\\%)=\\frac{s_{\\text{patched}}^{(\\ell)}-s_{\\text{corrupt}}}{s_{\\text{clean}}-s_{\\text{corrupt}}}\\times 100 (4) A value of 0% means no recovery while 100% means full recovery. Values can go outside [ 0,100 ] [0,100] in some particular cases. The problem with this metric is that the denominator s clean − s corrupt s_{\\text{clean}}-s_{\\text{corrupt}} can be very small, especially for scoring functions like PLI whose scores are more compressed. When the denominator is near zero, even tiny score changes produce enormous percentage values."
+      },
+      {
+        "id": "S2.SS5.SSS0.Px2",
+        "heading": "Rank recovery",
+        "level": 3,
+        "text": "avoids this problem by asking a binary question: after patching at layer ℓ \\ell , does the model still rank the positive above the negative? r rank ( ℓ ) = 1 | 𝒯 + | ∑ t ∈ 𝒯 + [ s patched ( ℓ ) ( a t , p t ) > s patched ( ℓ ) ( a t , n t ) ] r_{\\text{rank}}^{(\\ell)}=\\frac{1}{|\\mathcal{T}_{+}|}\\sum_{t\\in\\mathcal{T}_{+}}\\mathbf{1}\\!\\bigl[s_{\\text{patched}}^{(\\ell)}(a_{t},p_{t})>s_{\\text{patched}}^{(\\ell)}(a_{t},n_{t})\\bigr] (5) where 𝒯 + \\mathcal{T}_{+} is the set of triplets the clean model ranks correctly. This gives a value in [ 0 , 1 ] [0,1] with 0.5 being chance. We use rank recovery for all main-text figures and report percentage recovery in the appendix."
+      },
+      {
+        "id": "S2.SS6",
+        "heading": "2.6 LISA probes",
+        "level": 2,
+        "text": "To separate feature availability from feature use, we train linear probes ( Alain and Bengio, 2017 ; Belinkov, 2022 ) at each encoder layer. The probes are regression models mapping the mean-pooled hidden state at layer ℓ \\ell to scalar stylistic features. We report the coefficient of determination R 2 R^{2} on a held-out set. The feature targets are inspired by the LISA framework from Kantharuban et al. (2026) and include nine categories: word length, capitalization rate, type–token ratio, punctuation density, function-word frequency, sentence length, hedging markers, citation density, and discourse connectives. A high R 2 R^{2} at layer ℓ \\ell means the feature is linearly separable from the representation. This is a necessary but not sufficient condition for the model to actually use that feature for scoring"
+      },
+      {
+        "id": "S3",
+        "heading": "3 Gradient Structure and the Consolidation Bottleneck",
+        "level": 1,
+        "text": "This section develops a theory of what we expect to find, before any experiment is run. The theory starts from the gradient of the scoring function and derives a prediction about where in the encoder authorship signal should be consolidated."
+      },
+      {
+        "id": "S3.SS1",
+        "heading": "3.1 How the gradient distributes across tokens",
+        "level": 2,
+        "text": "The end-to-end gradient of the InfoNCE loss with respect to a single token representation 𝐡 j a \\mathbf{h}_{j}^{a} factors into two parts: ∂ ℒ ∂ 𝐡 j a = ∂ ℒ ∂ s ⏟ InfoNCE term ⋅ ∂ s ∂ 𝐡 j a ⏟ Scorer term \\frac{\\partial\\mathcal{L}}{\\partial\\mathbf{h}_{j}^{a}}=\\underbrace{\\frac{\\partial\\mathcal{L}}{\\partial s}}_{\\text{InfoNCE term}}\\cdot\\underbrace{\\frac{\\partial s}{\\partial\\mathbf{h}_{j}^{a}}}_{\\text{Scorer term}} (6) The InfoNCE term concentrates gradient on hard negatives. This term is identical across scoring mechanisms: it depends on the values, not on how the scores were computed. The scorer term determines how that gradient distributes across individual tokens, and this is where the three mechanisms diverge."
+      },
+      {
+        "id": "S3.SS1.SSS0.Px1",
+        "heading": "Mean pooling: dense, uniform gradient.",
+        "level": 3,
+        "text": "Under mean pooling, the score depends on each token only through the mean. The partial derivative is: ∂ s mean ∂ 𝐡 j a = 1 m ⋅ ∂ cos ⁡ ( 𝐡 ¯ a , 𝐡 ¯ p ) ∂ 𝐡 ¯ a \\frac{\\partial s_{\\text{mean}}}{\\partial\\mathbf{h}_{j}^{a}}=\\frac{1}{m}\\cdot\\frac{\\partial\\cos(\\bar{\\mathbf{h}}^{a},\\bar{\\mathbf{h}}^{p})}{\\partial\\bar{\\mathbf{h}}^{a}} (7) The 1 / m 1/m factor means every token receives the same gradient magnitude. The gradient is dense and uniform (no token is preferentially updated). The model has no mechanism to selectively strengthen discriminative tokens: a function word, a punctuation mark, and a content word all receive the same gradient signal."
+      },
+      {
+        "id": "S3.SS1.SSS0.Px2",
+        "heading": "MaxSim \\mathrm{MaxSim} : sparse, selective gradient.",
+        "level": 3,
+        "text": "Under late interaction (Equation 2 ), the gradient with respect to anchor token j j is: ∂ s LI ∂ 𝐡 j a = ∑ i = 1 m p [ j = argmax j ′ cos ( 𝐡 j ′ a , 𝐡 i p ) ] ⋅ ∂ cos ∂ 𝐡 j a \\frac{\\partial s_{\\text{LI}}}{\\partial\\mathbf{h}_{j}^{a}}=\\sum_{i=1}^{m_{p}}\\mathbf{1}\\!\\bigl[j=\\operatorname*{argmax}_{j^{\\prime}}\\cos(\\mathbf{h}_{j^{\\prime}}^{a},\\mathbf{h}_{i}^{p})\\bigr]\\cdot\\frac{\\partial\\cos}{\\partial\\mathbf{h}_{j}^{a}} (8) Only the tokens selected via argmax \\operatorname*{argmax} receive a gradient. Most tokens are not updated at all. The encoder learns which tokens carry discriminative signal because only those tokens participate in the backward pass."
+      },
+      {
+        "id": "S3.SS1.SSS0.Px3",
+        "heading": "PLI: intermediate density.",
+        "level": 3,
+        "text": "Under PLI with patch size p p (Equation 3 ), the gradient combines both regimes: ∂ s PLI ∂ 𝐡 j a = 1 p ⋅ [ patch ( j ) ∈ argmax ] ⋅ ∂ cos ∂ 𝐡 j a \\frac{\\partial s_{\\text{PLI}}}{\\partial\\mathbf{h}_{j}^{a}}=\\frac{1}{p}\\cdot\\mathbf{1}\\!\\bigl[\\text{patch}(j)\\in\\operatorname{argmax}\\bigr]\\cdot\\frac{\\partial\\cos}{\\partial\\mathbf{h}_{j}^{a}} (9) Sparse between patches (only selected patches get gradient), dense within patches (each of the p p tokens in a selected patch gets 1 / p 1/p )."
+      },
+      {
+        "id": "S3.SS2",
+        "heading": "3.2 The consolidation bottleneck",
+        "level": 2,
+        "text": "Mean pooling’s dense gradient creates what we call a consolidation bottleneck. The scoring function only accesses the mean of all tokens. For the encoder to produce a score that distinguishes same-author from different-author passages, it must arrange the hidden states so that their mean already points in a direction that encodes authorship. The encoder must coordinate information across the entire sequence, compressing authorship-relevant features into a form that survives averaging. This compression must happen at some intermediate layer, which we call the consolidation layer . MaxSim \\mathrm{MaxSim} has no such bottleneck. The scoring function accesses individual token representations directly, so the encoder can keep refining per-token features through the upper layers without needing to consolidate them into a single direction. The upper layers of a transformer encode more abstract, context-dependent features ( Tenney et al., 2019 ) , so the ability to defer consolidation gives MaxSim \\mathrm{MaxSim} access to richer representations. If our analysis is correct, mean pooling should show a recovery inflection at an earlier layer than MaxSim \\mathrm{MaxSim} when we perform causal patching. Patching below the consolidation layer should destroys the signal (the representation has not yet been compressed). Patching above it should preserve the signal (consolidation is complete). MaxSim \\mathrm{MaxSim} should show a later inflection because there is no pressure to consolidate early."
+      },
+      {
+        "id": "S3.SS3",
+        "heading": "3.3 Why mean pooling loses information",
+        "level": 2,
+        "text": "We can observe mean pooling through an information theory lens and explain why it has less capacity to encode authorship. Mean pooling maps the m × d m\\times d token matrix 𝐇 \\mathbf{H} to a d d -dimensional vector 𝐡 ¯ \\bar{\\mathbf{h}} . By the data processing inequality, any function of the mean has at most as much mutual information with the author identity Y Y as a function of the full token matrix: I ⁡ ( Y , 𝐡 ¯ ) ≤ I ⁡ ( Y , 𝐇 ) I(Y;\\bar{\\mathbf{h}})\\leq I(Y;\\mathbf{H}) (10) The information loss is strictly positive whenever 𝐡 ¯ \\bar{\\mathbf{h}} is not a sufficient statistic for Y Y . For instance, two passages with identical function-word frequencies but different function-word orderings are indistinguishable under mean pooling (which is permutation-invariant) but distinguishable under MaxSim \\mathrm{MaxSim} (which preserves positional structure). The information loss is therefore not only theoretical. Model α \\alpha ( ↓ \\downarrow ) u u ( ↓ \\downarrow ) Pretrained (no fine-tuning) 0.069 − 0.171 -0.171 Mean pooling 0.154 − 2.000 -2.000 LI 0.091 − 0.331 -0.331 PLI n n -gram 2 0.201 − 0.717 -0.717 Table 1: Alignment α \\alpha and uniformity u u per model, from Kulumba et al. (2025) . Lower is better for both. This capacity gap is reflected in the alignment–uniformity tradeoff (Table 1 ). Mean pooling achieves the best uniformity because averaging naturally spreads representations. But it achieves the weakest alignment because it destroys the fine-grained signal needed to cluster same-author passages tightly. LI achieves the tightest alignment because token-level comparison preserves discriminative detail, but the weakest uniformity because the sparse gradient does not prevent representation collapse as aggressively."
+      },
+      {
+        "id": "S4",
+        "heading": "4 Experimental Setup",
+        "level": 1,
+        "text": "We design a controlled analysis that isolates the scoring mechanism: every model shares one backbone, one corpus, and one loss, differing only in how they turn token representations into a scalar similarity."
+      },
+      {
+        "id": "S4.SS1",
+        "heading": "4.1 Models",
+        "level": 2,
+        "text": "Every model shares a ModernBERT-base backbone ( Warner et al., 2025 ) with 23 transformer layers, 149M parameters, and a hidden size of 768. Unless stated otherwise, we use the base-4 split of HALvest-Contrastive ( Kulumba et al., 2025 ) , a scholarly corpus in which the anchor and positive are drawn from different papers by the same author-set, and the negative is mined from within the same disciplinary field. This design ensures that topical similarity does not confound authorship signal: the model cannot rely on vocabulary overlap to distinguish positives from negatives. Layerwise uses layerwise attention pooling followed by mean pooling and cosine scoring. We use layerwise attention in addition to mean pooling to match the state of the art ( Kantharuban et al., 2026 ) . In prior work, layerwise attention adds only a marginal performance gain over raw mean pooling, indicating that the learned layer weights do not overcome the single-vector bottleneck analyzed in § 3.2 . The gradient with respect to each token still passes through the mean, so the 1 / m 1/m uniform-gradient analysis applies up to a layer-dependent reweighting factor. LI uses token-level MaxSim \\mathrm{MaxSim} with punctuation and padding masked. PLI n = 2 n{=}2 uses bigram patch-level MaxSim \\mathrm{MaxSim} . E5 zero-shot ( Wang et al., 2024 ) is included as a control model picked off the shelf. E5 was trained for retrieval, and to a greater extent semantic matching, yielding decorrelated similarity scores from models trained for AA ( Kulumba et al., 2025 ; Kantharuban et al., 2026 ) . Model R@20 R@100 nDCG@20 nDCG@100 Mean pooling 0.121 0.294 0.063 0.101 LI 0.485 0.678 0.364 0.408 PLI n = 2 n{=}2 0.497 0.700 0.365 0.411 E5 (zero-shot) 0.167 0.269 0.124 0.146 Table 2: HALvest-Contrastive base-4 retrieval performance from Kulumba et al. (2025) . E5 was tested using mean pooling. Table 2 summarizes retrieval performance. The four-fold Recall@20 gap between mean pooling and LI is the empirical observation we aim to study."
+      },
+      {
+        "id": "S4.SS2",
+        "heading": "4.2 Probe set construction",
+        "level": 2,
+        "text": "Figure 2: Token length distributions for positive (blue) and negative (orange) passages across the three tiers. All passages cluster around the 130-token target. We use a small, controlled set of 148 triplets, not on the full retrieval benchmark to conduct our analysis. Using a curated probe set rather than the full test set allows us to control for confounds (passage length, domain overlap). Triplets are drawn from HALvest-Contrastive base-4 validation, from the ten most frequent author-sets that have at least four distinct documents. Passages target a fixed token length of 130 tokens (Figure 2 ), the positive and negative within each triplet are constrained to differ by at most five tokens after tokenization. Triplets are stratified into three tiers that vary the relationship between the anchor and the negative: • Tier A ( n = 50 n{=}50 ): the anchor and positive share the same author-set. The negative is written by a completely disjoint author-set from the same scholarly domain. This is the baseline: the model must rely on stylistic signal to distinguish the positive from a topically similar negative written by entirely different authors. • Tier B ( n = 50 n{=}50 ): the anchor and positive share the same author-set. The negative is written by a partially overlapping author-set that shares at least one author with the anchor’s team but is not identical to it. The shared author contributes stylistic signal to both passages, creating a confound. This tier tests whether the model can distinguish full author-set matches from partial ones. • Tier C ( n = 48 n{=}48 ): the anchor and positive share the same author-set but come from different scholarly domains (anchor in domain D 1 D_{1} , positive in domain D 2 D_{2} ). The negative is written by a disjoint author-set from the anchor’s domain D 1 D_{1} . This tests cross-domain authorship recognition: can the model identify the same authors when the vocabulary and conventions shift between disciplines? Tier A Tier B Tier C Model Fail n + n_{+} Fail n + n_{+} Fail n + n_{+} Layerwise 10% 45 44% 28 12.5% 42 LI 2% 49 36% 32 4.2% 46 PLI n = 2 n{=}2 2% 49 34% 33 4.2% 46 Table 3: Failure rates and effective sample sizes ( n + n_{+} = correctly-ranked triplets used for patching) per tier. Tier B is the hardest due to the shared-author confound. Interaction models are more robust than mean pooling across all tiers. Residual patching is only applied to triplets that are correctly ranked (those where the clean model scores the positive above the negative). The effective sample sizes therefore vary by tier and model (Table 3 )."
+      },
+      {
+        "id": "S4.SS3",
+        "heading": "4.3 Analyses",
+        "level": 2,
+        "text": "We apply four analyses to all three fine-tuned models. 1. LISA probes train linear classifiers on a separate 10,000-passage corpus evaluated on a 2,000-passage held-out set, measuring feature availability at each of the 23 layers. 2. Residual stream patching measures the causal contribution of each layer via rank recovery (Equation 5 ) across the 148 probe-set triplets. 3. Score sensitivity computes the average absolute score change | s patched ( ℓ ) − s corrupt | ¯ \\overline{|s_{\\text{patched}}^{(\\ell)}-s_{\\text{corrupt}}|} per layer, a raw measure of how much the scoring function’s output responds to restoring a single layer. 4. Training dynamics apply patching to eight checkpoints per model (steps 0, 500, 1500, 3000, 5000, 10000, 20000, and final) to track how the depth profile develops during training. It isolates what contrastive fine-tuning adds."
+      },
+      {
+        "id": "S5",
+        "heading": "5 Results",
+        "level": 1,
+        "text": "Probing, causal patching, score sensitivity, and training dynamics point to the same conclusion: the performance gap does not arise from what the encoder learns, but from where and how the scorer reads it out."
+      },
+      {
+        "id": "S5.SS1",
+        "heading": "5.1 Feature availability is invariant across models",
+        "level": 2,
+        "text": "(a) Layerwise (mean pooling) (b) Late Interaction (c) PLI n = 2 n{=}2 Figure 3: LISA probe R 2 R^{2} heatmaps at the final checkpoint. Rows are stylistic feature categories. Columns are encoder layers. The three fine-tuned models produce nearly identical heatmaps. Word length is the most readable feature ( R 2 ≈ 0.57 R^{2}\\approx 0.57 ), followed by capitalization rate, type–token ratio, and punctuation density. We begin with the question of availability. If the four-fold performance gap between mean pooling and LI arises because LI causes the encoder to learn better stylistic representations, then the LISA probes should show higher R 2 R^{2} for LI than for mean pooling, at least at some layers. It is, however, not the case. Figure 3 shows the probe heatmaps for all three fine-tuned models. The heatmaps are visually indistinguishable. The top features, word length, capitalization, type–token ratio, punctuation density, and function-word frequency, achieve the same R 2 R^{2} at the same layers across all models. The E5 control produces a visually indistinguishable pattern. Stylistic readability is a property of the pretrained backbone. This rules out the first hypothesis from the introduction. The encoder does not learn different stylistic representations under different scorers. The pretrained ModernBERT backbone already encodes these features and contrastive fine-tuning does not create them, regardless of the scoring function. The four-fold performance gap is therefore more plausibly explained by differences in how these features are used than by differences in what the encoder learned."
+      },
+      {
+        "id": "S5.SS2",
+        "heading": "5.2 Causal patching reveals a scoring-dependent depth profile",
+        "level": 2,
+        "text": "(a) Tier A (same domain) (b) Tier B (shared-author confound) (c) Tier C (cross-domain) Figure 4: Rank recovery across the three models. Each panel shows one tier. Purple: layerwise (mean pooling), orange: LI, green: PLI n = 2 n{=}2 . Dashed line: chance (0.5). Mean pooling crosses chance at layer 9, while both interaction models cross at layers 14–16. The six-layer gap is consistent across all three tiers."
+      },
+      {
+        "id": "S5.SS2.SSS0.Px1",
+        "heading": "Layerwise (mean pooling)",
+        "level": 3,
+        "text": "follows an S-shape. The curve crosses random guess at approximately layer 9 and reaches near-perfect recovery by layer 13. This pattern is consistent across all three tiers. On Tier C, all models show slightly above-chance performance at the very first layers (0–-2). This is consistent with early layers encoding shallow syntactic statistics ( Jawahar et al., 2019 ) that carry distributional authorship signal even when domain-specific vocabulary shifts. In Tiers A and B, topical overlap between anchor and negative may mask this early signal."
+      },
+      {
+        "id": "S5.SS2.SSS0.Px2",
+        "heading": "Late interaction",
+        "level": 3,
+        "text": "shows a qualitatively similar S-curve but with a later inflection. Rank recovery stays below random guess until approximately layer 15, then steeply rises to ≥ 0.90 \\geq 0.90 by layer 20. The below-chance dip at layers 3–12 is deeper than for layerwise (recovery ≈ 0.3 \\approx 0.3 – 0.4 0.4 ): corrupting these layers actively misleads the token-level MaxSim \\mathrm{MaxSim} scoring."
+      },
+      {
+        "id": "S5.SS2.SSS0.Px3",
+        "heading": "PLI n = 2 n{=}2",
+        "level": 3,
+        "text": "tracks LI closely. The inflection falls at layers 14–16, effectively indistinguishable from LI given the sample size."
+      },
+      {
+        "id": "S5.SS2.SSS0.Px4",
+        "heading": "We define the consolidation point",
+        "level": 3,
+        "text": "as the earliest layer at which rank recovery exceeds 0.75. By this criterion, mean pooling consolidates at layer 10, while LI and PLI consolidate at layers 16 and 15 respectively. This matches the prediction from § 3.2 : dense, uniform gradients force early consolidation while sparse, selective gradients allows for late consolidation. PLI n = 2 n{=}2 does not interpolate between the two, it falls squarely in the interaction regime, consistent with the patch argmax \\operatorname{argmax} ’s selection dominating the intra-patch averaging (Equation 9 )."
+      },
+      {
+        "id": "S5.SS3",
+        "heading": "5.3 Score sensitivity confirms two regimes",
+        "level": 2,
+        "text": "(a) Tier A (b) Tier B (c) Tier C Figure 5: Score sensitivity per layer. Mean | s patched ( ℓ ) − s corrupt | |s_{\\text{patched}}^{(\\ell)}-s_{\\text{corrupt}}| when restoring clean activations at layer ℓ \\ell . LI (orange) is most sensitive, PLI (green) is intermediate, layerwise (purple) is an order of magnitude lower. Score sensitivity provides a complementary view: rather than asking whether patching recovers the correct ranking, it asks how much the score changes in absolute terms (Figure 5 ). The ordering is consistent across all tiers: LI is most sensitive, PLI is intermediate and layerwise is an order of magnitude lower.Mean pooling compresses representations so heavily that restoring a single layer barely moves the mean. MaxSim \\mathrm{MaxSim} reads individual tokens, so a layer-level perturbation can change which tokens are selected by the argmax \\operatorname{argmax} , producing a large score shift. PLI sits 10–-20% below LI, consistent with intra-patch averaging partially smoothing perturbations before the patch-level argmax \\operatorname{argmax} ."
+      },
+      {
+        "id": "S5.SS4",
+        "heading": "5.4 Training dynamics reveal three learning trajectories",
+        "level": 2,
+        "text": "(a) Layerwise (mean pooling): top-down monotonic. Upper layers learn first, the inflection migrates downward during training. (b) Late Interaction: transient early-layer spike at step 1500, then signal migration to upper layers. The model initially exploits shallow lexical matches, then suppresses them. (c) PLI n = 2 n{=}2 : gradual emergence, no transient spike. The final checkpoint shows a distinctive mid-layer hump (layers 10–15) absent in both other models. Figure 6: Training dynamics. Mean percentage recovery across Tier A triplets at eight checkpoints. Each subplot is one checkpoint. x-axis: layer index; y-axis: mean recovery. Percentage recovery is used here because rank recovery is binary and too coarse to track gradual signal emergence at early checkpoints. The y-axis extremes reflect the known instability of percentage recovery (§ 2.5 ). The patching analysis so far shows the final-checkpoint depth profile. To understand how that profile develops, we apply the same analysis to intermediate checkpoints (Figure 6 )."
+      },
+      {
+        "id": "S5.SS4.SSS0.Px1",
+        "heading": "Mean pooling (Figure 6(a) )",
+        "level": 3,
+        "text": "learns top-down. At step 500, recovery is concentrated at the uppermost layers. As training progresses, the inflection migrates downward: layer 15 by step 3000, layer 13 by step 10,000, layer 9 at the final checkpoint. The model progressively recruits deeper layers to consolidate earlier, consistent with the consolidation bottleneck. The dense gradient initially refines the layers closest to the scoring function, then gradually shapes earlier layers."
+      },
+      {
+        "id": "S5.SS4.SSS0.Px2",
+        "heading": "Late interaction (Figure 6(b) )",
+        "level": 3,
+        "text": "shows a distinctive behavior. At step 1500, recovery spikes at layers 5–10. This suggests the model initially exploits shallow lexical matches: MaxSim \\mathrm{MaxSim} can propagate gradient through exact token matches at negligible cost, providing a cheap authorship signal from lower layers. As hard negatives increase in difficulty during training, this shortcut becomes insufficient, and the model shifts to deeper, more contextualized representations. By step 5000, this transient behavior is suppressed and recovery concentrates at layers 19+. The model learns to defer to deeper, more abstract representations, abandoning the shallow shortcut."
+      },
+      {
+        "id": "S5.SS4.SSS0.Px3",
+        "heading": "PLI n = 2 n{=}2 (Figure 6(c) ).",
+        "level": 3,
+        "text": "Bigram-patch MaxSim \\mathrm{MaxSim} shows a third pattern with no early spike: the intra-patch averaging smooths out the shallow matches that LI exploits. Recovery emerges gradually at the upper layers. The final checkpoint shows a mid-layer hump (layers 10–15) unique to PLI, possibly reflecting the two-level structure of its gradient (Equation 9 ). Mid-layer patch representations carry authorship signal that neither the token-level first moment (mean pooling) nor the individual tokens ( MaxSim \\mathrm{MaxSim} ) would use."
+      },
+      {
+        "id": "S6.SS0.SSS0.Px1",
+        "heading": "Authorship attribution.",
+        "level": 3,
+        "text": "Neural AA has evolved from classification ( Burrows, 2002 ; Schler et al., 2006 ) to contrastive learning ( Wegmann et al., 2022 ; Kantharuban et al., 2026 ; Huertas-Tato et al., 2024 ) , with increasing focus on topic confounding ( Wegmann and Nguyen, 2021 ; Rivera-Soto et al., 2021 ) . Our work is not the first attempt of the AA community at interpretability ( Alshomary et al., 2025b ; Alshomary et al., 2025a ) , but is, to the best of our knowledge the first one to use mechanistic interpretability tools and gradient analysis to derive performance and training behavior from encoder models."
+      },
+      {
+        "id": "S6.SS0.SSS0.Px2",
+        "heading": "Probing versus causal analysis.",
+        "level": 3,
+        "text": "Linear probes ( Belinkov, 2022 ) are widely used to study what information neural representations encode, but the link between probe accuracy and actual model behavior is contested ( Hewitt and Liang, 2019 ; Ravichander et al., 2021 ) . Activation patching ( Vig et al., 2020 ; Meng et al., 2022 ; Wang et al., 2023 ) provides a causal alternative: it asks whether information is necessary, not merely decodable. Our availability against use dissociation contributes to this debate by showing that all probed features are equally available across models with very different task performance."
+      },
+      {
+        "id": "S7",
+        "heading": "7 Discussion",
+        "level": 1,
+        "text": "The availability–use dissociation reframes AA as an information readout problem. In this setup, the pretrained encoder already encodes the stylistic features we probe. What differs is whether the scoring function can access them at the right depth and with enough capacity."
+      },
+      {
+        "id": "S7.SS0.SSS0.Px1",
+        "heading": "Availability against use.",
+        "level": 3,
+        "text": "Probing accuracy is a poor proxy for task performance when models differ in their scoring mechanism. All four models, three fine-tuned and one off-the-shelf control, produce nearly identical probe heatmaps (Figure 3 ) while differing dramatically in retrieval performance (Table 2 ). The main question is not, therefore, which model encodes more stylistic information, but which scoring mechanism can effectively read it out. Path patching at the attention-head level ( Goldowsky-Dill et al., 2023 ) could further localize how stylistic signal flows through the encoder, though this addresses a finer-grained question than the one considered here."
+      },
+      {
+        "id": "S7.SS0.SSS0.Px2",
+        "heading": "Why interaction beats pooling.",
+        "level": 3,
+        "text": "The gradient analysis (§ 3.1 ) and the information-theoretic argument (§ 3.3 ) converge: mean pooling discards higher-order structure by compressing to a single vector, while MaxSim \\mathrm{MaxSim} preserves token-level granularity. The causal depth profiles confirm this: consolidation at layer 9 versus layers 15–16. The probe results (Figure 3 ), patching curves (Figure 4 ), score sensitivity analysis (Figure 5 ), and training dynamics (Figure 6 ),all converge on the same explanation."
+      },
+      {
+        "id": "S7.SS0.SSS0.Px3",
+        "heading": "PLI in the interaction regime.",
+        "level": 3,
+        "text": "PLI n = 2 n=2 falls in the same causal regime as LI, with nearly identical recovery inflections. This suggests that the patch-level argmax \\operatorname{argmax} dominates the effect of local averaging inside each patch. The alignment and uniformity results (Table 1 ) are also consistent with this interpretation, since PLI remains much closer to LI than to mean pooling in embedding-space geometry. Whether larger patches shift consolidation earlier remains open, though the theory predicts that they should gradually approach the pooling regime. Overall, the results suggest that the main bottleneck in contrastive authorship attribution is not whether stylistic information exists in the encoder, but whether the scoring mechanism can preserve and exploit it. The pretrained backbone already contains strong stylistic structure before fine-tuning. The scoring mechanism determines where that structure becomes causally necessary for the task."
+      },
+      {
+        "id": "Sx1.SS0.SSS0.Px1",
+        "heading": "Backbone choice.",
+        "level": 3,
+        "text": "We fix the backbone to ModernBERT to control for architecture, since our goal is to isolate how the scoring mechanism shapes signal consolidation. The specific inflection layers we observe, such as layer 9 for pooling and layers 15 to 16 for interaction, may shift in other architectures. The qualitative gap between early consolidation under mean pooling and later consolidation under interaction should however, transfer. Testing a second backbone, such as RoBERTa ( Liu et al., 2019 ) , would be useful for architectural generality, but it is orthogonal to the main question of this paper."
+      },
+      {
+        "id": "Sx1.SS0.SSS0.Px2",
+        "heading": "Patch-level interaction.",
+        "level": 3,
+        "text": "We study only n = 2 n=2 for PLI. This keeps the analysis focused on the contrast between pooling and interaction while still giving us a middle regime to compare against LI and mean pooling. The theory suggests that larger patches should move the inflection earlier, closer to the pooling regime. Exploring n = 3 , 4 , 5 n=3,4,5 would be a natural extension, but it is not necessary for the main result reported here."
+      },
+      {
+        "id": "Sx1.SS0.SSS0.Px3",
+        "heading": "Probe set size.",
+        "level": 3,
+        "text": "The 148 triplets are enough to resolve the six-layer gap, but they are too small for fine-grained LI versus PLI comparisons. Bootstrap confidence intervals may not separate a one to two layer difference cleanly. The high failure rate on Tier B also leaves only 28 to 33 correctly ranked triplets, which makes those curves noisier than Tiers A and C. The main qualitative result is stable across all three tiers, but finer distinctions between LI and PLI remain below our statistical resolution."
+      },
+      {
+        "id": "Sx2",
+        "heading": "Acknowledgments",
+        "level": 1,
+        "text": "The authors are grateful to Djamé Seddah who indirectly inspired this work. We also thank Wissam Antoun, Rian Touchent and Théo Lasnier for the productive discussions. This work was partially realized on computing HPC and storage resources provided by IDRIS thanks to the grant GCDA1016807 on the DALIA supercomputer."
+      },
+      {
+        "id": "bib",
+        "heading": "References",
+        "level": 1,
+        "text": "Ai et al. (2022) B. Ai, Y. Wang, Y. Tan, and S. Tan Whodunit? learning to contrast for authorship attribution . In Proceedings of the 2nd Conference of the Asia-Pacific Chapter of the Association for Computational Linguistics and the 12th International Joint Conference on Natural Language Processing, Volume 1: Long Papers , Y. He, H. Ji, S. Li, Y. Liu, and C. Chang (Eds.) , Online only , pp. 1142–1157 . External Links: Link , Document Cited by: §1 . Alain and Bengio (2017) G. Alain and Y. Bengio Understanding intermediate layers using linear classifier probes . In 5th International Conference on Learning Representations, ICLR 2017, Toulon, France, April 24-26, 2017, Workshop Track Proceedings , External Links: Link Cited by: §1 , §2.6 . Alshomary et al. (2025a) M. Alshomary, N. Ri, M. Apidianaki, A. Patel, S. Muresan, and K. McKeown Latent space interpretation for stylistic analysis and explainable authorship attribution . In Proceedings of the 31st International Conference on Computational Linguistics , O. Rambow, L. Wanner, M. Apidianaki, H. Al-Khalifa, B. D. Eugenio, and S. Schockaert (Eds.) , Abu Dhabi, UAE , pp. 1124–1135 . External Links: Link Cited by: §6 . Alshomary et al. (2025b) M. Alshomary, N. R. Varimalla, V. Anand, S. Muresan, and K. McKeown Layered insights: generalizable analysis of human authorial style by leveraging all transformer layers . In Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing , C. Christodoulopoulos, T. Chakraborty, C. Rose, and V. Peng (Eds.) , Suzhou, China , pp. 10279–10292 . External Links: Link , Document , ISBN 979-8-89176-332-6 Cited by: §6 . Belinkov (2022) Y. Belinkov Probing Classifiers: Promises, Shortcomings, and Advances . Computational Linguistics 48 ( 1 ), pp. 207–219 . External Links: Link , Document Cited by: §1 , §2.6 , §6 . Burrows (2002) J. Burrows Delta: a measure of stylistic difference and a guide to likely authorship . Literary and Linguistic Computing 17 ( 3 ), pp. 267–287 . External Links: ISSN 0268-1145 , Link , Document Cited by: §1 , §6 . Cafiero and Camps (2019) F. Cafiero and J. Camps Why molière most likely did write his plays . Science Advances 5 ( 11 ), pp. eaax5489 . External Links: Document Cited by: §1 . Dauber et al. (2019) E. Dauber, A. Caliskan, R. Harang, G. Shearer, M. Weisman, F. Nelson, and R. Greenstadt Git blame who? stylistic authorship attribution of small, incomplete source code fragments . Proceedings on Privacy Enhancing Technologies 2019 ( 3 ), pp. 389–408 . External Links: ISSN 2299-0984 , Link , Document Cited by: §1 . Devlin et al. (2019) J. Devlin, M. Chang, K. Lee, and K. Toutanova BERT: pre-training of deep bidirectional transformers for language understanding . In Proceedings of the 2019 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies, Volume 1: Long and Short Papers , J. Burstein, C. Doran, and T. Solorio (Eds.) , Minneapolis, Minnesota , pp. 4171–4186 . External Links: Link , Document Cited by: §1 . Goldowsky-Dill et al. (2023) N. Goldowsky-Dill, C. MacLeod, L. Sato, and A. Arora Localizing Model Behavior with Path Patching . arXiv . Note: arXiv:2304.05969 [cs] External Links: Link , Document Cited by: §1 , §7 . Hewitt and Liang (2019) J. Hewitt and P. Liang Designing and interpreting probes with control tasks . In Proceedings of the 2019 Conference on Empirical Methods in Natural Language Processing and the 9th International Joint Conference on Natural Language Processing (EMNLP-IJCNLP) , K. Inui, J. Jiang, V. Ng, and X. Wan (Eds.) , Hong Kong, China , pp. 2733–2743 . External Links: Link , Document Cited by: §6 . Huertas-Tato et al. (2024) J. Huertas-Tato, A. Girón-Jiménez, A. Martín, and D. Camacho Isolating authorship from content with semantic embeddings and contrastive learning . arXiv . Note: arXiv:2411.18472 [cs] External Links: Link , Document Cited by: §1 , §6 . Jawahar et al. (2019) G. Jawahar, B. Sagot, and D. Seddah What does BERT learn about the structure of language? . In Proceedings of the 57th Annual Meeting of the Association for Computational Linguistics , A. Korhonen, D. Traum, and L. Màrquez (Eds.) , Florence, Italy , pp. 3651–3657 . External Links: Link , Document Cited by: §5.2 . Kantharuban et al. (2026) A. Kantharuban, A. Srivastava, F. Faisal, O. Ahia, A. Anastasopoulos, D. Chiang, Y. Tsvetkov, and G. Neubig IDIOLEX: unified and continuous representations for idiolectal and stylistic variation . arXiv . Note: arXiv:2604.04704 [cs] External Links: Link , Document Cited by: §1 , §2.2 , §2.6 , §4.1 , §6 . Kešelj et al. (2003) V. Kešelj, F. Peng, N. Cercone, and C. Thomas N-gram-based author profiles for authorship attribution . In Proceedings of the Conference of the Pacific Association for Computational Linguistics , pp. 255–264 . Cited by: §1 . Khattab and Zaharia (2020) O. Khattab and M. Zaharia ColBERT: efficient and effective passage search via contextualized late interaction over BERT . In Proceedings of the 43rd International ACM SIGIR Conference on Research and Development in Information Retrieval , SIGIR ’20 , New York, NY, USA , pp. 39–48 . External Links: ISBN 978-1-4503-8016-4 , Link , Document Cited by: Figure 1 , §1 , §2.2 . Kulumba et al. (2025) F. Kulumba, W. Antoun, G. Vimont, L. Romary, and F. Cafiero HALvest-contrastive: retrieval-like authorship attribution with patch-level late interaction . External Links: 2407.20595 , Link Cited by: §1 , §1 , Table 1 , §4.1 , §4.1 , Table 2 . Liu et al. (2019) Y. Liu, M. Ott, N. Goyal, J. Du, M. Joshi, D. Chen, O. Levy, M. Lewis, L. Zettlemoyer, and V. Stoyanov RoBERTa: a robustly optimized BERT pretraining approach . External Links: 1907.11692 , Link Cited by: Backbone choice. . Meng et al. (2022) K. Meng, D. Bau, A. Andonian, and Y. Belinkov Locating and editing factual associations in GPT . In Proceedings of the 36th International Conference on Neural Information Processing Systems , NIPS ’22 , Red Hook, NY, USA , pp. 17359–17372 . External Links: ISBN 978-1-7138-7108-8 Cited by: §2.4 , §2.5 , §6 . Mosteller and Wallace (1963) F. Mosteller and D. L. Wallace Inference in an authorship problem: a comparative study of discrimination methods applied to the authorship of the disputed federalist papers . Journal of the American Statistical Association 58 ( 302 ), pp. 275–309 . Cited by: §1 . Ravichander et al. (2021) A. Ravichander, Y. Belinkov, and E. Hovy Probing the probing paradigm: does probing accuracy entail task relevance? . In Proceedings of the 16th Conference of the European Chapter of the Association for Computational Linguistics: Main Volume , P. Merlo, J. Tiedemann, and R. Tsarfaty (Eds.) , Online , pp. 3363–3377 . External Links: Link , Document Cited by: §6 . Rivera-Soto et al. (2021) R. A. Rivera-Soto, O. E. Miano, J. Ordonez, B. Y. Chen, A. Khan, M. Bishop, and N. Andrews Learning universal authorship representations . In Proceedings of the 2021 Conference on Empirical Methods in Natural Language Processing , M. Moens, X. Huang, L. Specia, and S. W. Yih (Eds.) , Online and Punta Cana, Dominican Republic , pp. 913–919 . External Links: Link , Document Cited by: §2.2 , §6 . Schler et al. (2006) J. Schler, M. Koppel, S. Argamon, and J. W. Pennebaker Effects of age and gender on blogging . In AAAI Spring Symposium: Computational Approaches to Analyzing Weblogs , Vol. 6 , pp. 199–205 . Cited by: §6 . Tenney et al. (2019) I. Tenney, D. Das, and E. Pavlick BERT rediscovers the classical NLP pipeline . In Proceedings of the 57th Annual Meeting of the Association for Computational Linguistics , A. Korhonen, D. Traum, and L. Màrquez (Eds.) , Florence, Italy , pp. 4593–4601 . External Links: Link , Document Cited by: §3.2 . van den Oord et al. (2019) A. van den Oord, Y. Li, and O. Vinyals Representation learning with contrastive predictive coding . External Links: 1807.03748 , Link Cited by: §2.1 . Vaswani et al. (2017) A. Vaswani, N. Shazeer, N. Parmar, J. Uszkoreit, L. Jones, A. N. Gomez, Ł. Kaiser, and I. Polosukhin Attention is all you need . In Proceedings of the 31st International Conference on Neural Information Processing Systems , NIPS’17 , Red Hook, NY, USA , pp. 6000–6010 . External Links: ISBN 9781510860964 Cited by: §1 . Vig et al. (2020) J. Vig, S. Gehrmann, Y. Belinkov, S. Qian, D. Nevo, Y. Singer, and S. Shieber Investigating gender bias in language models using causal mediation analysis . In Advances in Neural Information Processing Systems , H. Larochelle, M. Ranzato, R. Hadsell, M.F. Balcan, and H. Lin (Eds.) , Vol. 33 , pp. 12388–12401 . External Links: Link Cited by: §1 , §2.4 , §6 . Wang et al. (2023) K. R. Wang, A. Variengien, A. Conmy, B. Shlegeris, and J. Steinhardt Interpretability in the wild: a circuit for indirect object identification in GPT-2 small . In The Eleventh International Conference on Learning Representations , External Links: Link Cited by: §6 . Wang et al. (2024) L. Wang, N. Yang, X. Huang, B. Jiao, L. Yang, D. Jiang, R. Majumder, and F. Wei Text embeddings by weakly-supervised contrastive pre-training . External Links: 2212.03533 , Link Cited by: §4.1 . Wang and Isola (2020) T. Wang and P. Isola Understanding contrastive representation learning through alignment and uniformity on the hypersphere . In Proceedings of the 37th International Conference on Machine Learning , ICML ’20 . Cited by: §2.3 . Warner et al. (2025) B. Warner, A. Chaffin, B. Clavié, O. Weller, O. Hallström, S. Taghadouini, A. Gallagher, R. Biswas, F. Ladhak, T. Aarsen, G. T. Adams, J. Howard, and I. Poli Smarter, better, faster, longer: a modern bidirectional encoder for fast, memory efficient, and long context finetuning and inference . In Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics, Volume 1: Long Papers , W. Che, J. Nabende, E. Shutova, and M. T. Pilehvar (Eds.) , Vienna, Austria , pp. 2526–2547 . External Links: Link , Document , ISBN 979-8-89176-251-0 Cited by: §4.1 . Wegmann and Nguyen (2021) A. Wegmann and D. Nguyen Does it capture S tel ? a modular, similarity-based linguistic style evaluation framework . In Proceedings of the 2021 Conference on Empirical Methods in Natural Language Processing , M. Moens, X. Huang, L. Specia, and S. W. Yih (Eds.) , Online and Punta Cana, Dominican Republic , pp. 7109–7130 . External Links: Link , Document Cited by: §6 . Wegmann et al. (2022) A. Wegmann, M. Schraagen, and D. Nguyen Same author or just same topic? towards content-independent style representations . In Proceedings of the 7th Workshop on Representation Learning for NLP , S. Gella, H. He, B. P. Majumder, B. Can, E. Giunchiglia, S. Cahyawijaya, S. Min, M. Mozes, X. L. Li, I. Augenstein, A. Rogers, K. Cho, E. Grefenstette, L. Rimell, and C. Dyer (Eds.) , Dublin, Ireland , pp. 249–268 . External Links: Link , Document Cited by: §1 , §2.2 , §6 . Zhang and Nanda (2023) F. Zhang and N. Nanda Towards Best Practices of Activation Patching in Language Models: Metrics and Methods . In The Twelfth International Conference on Learning Representations , ( en ). External Links: Link Cited by: §1 ."
+      },
+      {
+        "id": "A1",
+        "heading": "Appendix A Top LISA features across models",
+        "level": 1,
+        "text": "Rank Feature Peak R 2 R^{2} by model 1 wl_mean Layerwise: .575 LI: .580 PLI n = 2 n{=}2 : .579 E5: .576 2 fw_we Layerwise: .499 LI: .500 PLI n = 2 n{=}2 : .505 E5: .493 3 fw_the Layerwise: .496 LI: .496 PLI n = 2 n{=}2 : .496 E5: .496 4 punct_period Layerwise: .493 LI: .468 PLI n = 2 n{=}2 : .502 E5: .479 5 punct_colon Layerwise: .473 LI: .473 PLI n = 2 n{=}2 : .473 E5: .463 Table 4: Top-5 LISA features by peak R 2 R^{2} across layers. All four models surface the same feature family with highly similar probe performance. Table 4 reports the top-5 LISA features by peak R 2 R^{2} for each model. The rankings are nearly identical: mean word length dominates in all four models ( R 2 ≈ 0.576 R^{2}\\approx 0.576 – 0.580 0.580 ), followed by function-word frequencies and punctuation density. The control E5 encoder, which has never been trained on authorship data, achieves the same R 2 R^{2} values as the three fine-tuned models, confirming that these stylistic features are linearly readable from the pretrained backbone and are not created via fine-tuning."
+      }
+    ]
+  },
+  "text": "Where Does Authorship Signal Emergein Encoder-Based Language Models? Skip to main content Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: Why HTML? Report Issue Back to Abstract Download PDF Contents Reading mode Colour theme License: CC BY 4.0 arXiv:2605.19908v1 [cs.CL] 19 May 2026 Where Does Authorship Signal Emerge in Encoder-Based Language Models? Francis Kulumba Affiliation: Inria Paris Affiliation: Sorbonne Université Email: francis.kulumba@inria.fr Guillaume Vimont Affiliation: IRIF Laurent Romary Affiliation: Inria Paris Florian Cafiero Affiliation: LRE, EPITA Affiliation: Ecole nationale des chartes – PSL Abstract Authorship attribution models fine-tuned with the same pretrained encoder, data, and loss can differ four-fold in performance depending only on their scoring mechanism. We use mechanistic interpretability tools to explain this gap. Stylistic features such as word length, punctuation density, and function-word frequency are equally available at every layer in every model, including in an off-the-shelf control encoder, hence the gap not coming from representation quality. Instead, causal intervention shows that the scorer determines where the encoder consolidates authorship signal. Mean pooling forces consolidation by early to mid layers, while late interaction defers it to later layers. We further derive this difference from the gradient structure of each scorer, and training dynamics reveal distinct learning trajectories that follow from that difference. 1 Introduction Figure 1: Conceptual overview. Left : The pretrained language model encodes stylistic features at every layer, regardless of fine-tuning. Center : Two scoring mechanisms read out these features differently. Mean pooling averages all tokens into a single vector. Late interaction (LI) ( Khattab and Zaharia, 2020 ) compares tokens directly. Right : Causal intervention reveals that the scoring mechanism determines where the encoder consolidates authorship signal. Mean pooling forces early consolidation while MaxSim \\mathrm{MaxSim} allows for late consolidation. Every author leaves traces in their writing. Sentence length, punctuation habits, function-word preferences, and word-length distributions all carry information about who wrote a text, even when two authors write about the same topic ( Mosteller and Wallace, 1963 ; Burrows, 2002 ; Kešelj et al., 2003 ) . Authorship attribution (AA) is the task of deciding, given two passages, whether they were written by the same person or group. A useful task for forensic linguistics ( Dauber et al., 2019 ) or historical document analysis ( Cafiero and Camps, 2019 ) among other applications. Modern AA systems follow a contrastive learning paradigm: a pretrained text encoder produces a representation for each passage ( Vaswani et al., 2017 ; Devlin et al., 2019 ) , and a scoring function compares the representations to produce a similarity score ( Wegmann et al., 2022 ; Ai et al., 2022 ; Huertas-Tato et al., 2024 ; Kantharuban et al., 2026 ) . The encoder is fine-tuned so that same-author passages score high and different-author passages score low. This setup works well, but recent work has revealed a striking puzzle about the scoring function. Kulumba et al. (2025) trained multiple models on a scholarly corpus in which topic is decorrelated from authorship, and found that the choice of scoring mechanism alone explains much of the observed four-fold performance gap. All the models share the same pretrained backbone, the same training data, and the same contrastive loss. The only difference is the pooling/scoring mechanism: one family of models averages all token representations into a single vector before scoring (mean pooling), while another compares token representations directly via late interaction (LI) ( Khattab and Zaharia, 2020 ) . Why does such a large gap emerge from what is, in principle, only a difference in the final comparison step? There are at least two plausible explanations. The first is that different scoring mechanisms cause the encoder to learn different internal representations during fine-tuning: mean pooling forces the encoder to discard fine-grained stylistic information that LI preserves. The second is that the encoder learns similar representations regardless of the scorer, and the gap arises purely from how those representations are read out at inference time. This paper uses the interpretability toolkit ( Alain and Bengio, 2017 ; Vig et al., 2020 ; Belinkov, 2022 ; Goldowsky-Dill et al., 2023 ; Zhang and Nanda, 2023 ) on the fine-tuned encoders from Kulumba et al. (2025) to distinguish between these two explanations. This allows us to test a dissociation between feature availability and feature use (Figure 1 ): • Availability is invariant , the same stylistic features (word length, capitalization, punctuation density, etc.) are linearly readable from the hidden states of all models at all layers, including a control encoder picked off the shelf. The pretrained backbone already encodes these features. Contrastive fine-tuning does not create them. • Use depends on the scoring mechanism , as it determines where in the encoder authorship signal becomes causally necessary. Mean pooling consolidates authorship signal by mid layers, while LI defers consolidation to late ones. This gap can be explained by the gradient structure of the scoring functions. Our results show that the choice of scoring function determines the effective depth of the encoder, the information the model can exploit, and the trajectory it follows during training. Understanding this mechanism clarifies why LI-based systems consistently outperform pooled representations in AA, despite relying on the same pretrained backbone. 2 Background This section defines the building blocks of the contrastive AA pipeline and the analysis tools we use to study it. 2.1 Contrastive authorship attribution In the contrastive formulation, training data consists of triplets ( a , p , n ) (a,p,n) : an anchor passage a a , a same-author positive p p , and a different-author negative n n . The encoder f θ f_{\\theta} maps each passage to a sequence of token-level representations. A scoring function s s then compares the anchor’s representation to the positive’s and to the negative’s, producing scalar similarity scores. Training minimizes the InfoNCE loss ( van den Oord et al., 2019 ) : ℒ = − log ⁡ exp ⁡ ( s ⁡ ( a , p ) / τ ) exp ⁡ ( s ⁡ ( a , p ) / τ ) + ∑ n ′ ∈ 𝒩 exp ⁡ ( s ⁡ ( a , n ′ ) / τ ) \\mathcal{L}=-\\log\\frac{\\exp\\bigl(s(a,p)/\\tau\\bigr)}{\\exp\\bigl(s(a,p)/\\tau\\bigr)+\\displaystyle\\sum_{n^{\\prime}\\in\\mathcal{N}}\\exp\\bigl(s(a,n^{\\prime})/\\tau\\bigr)} (1) where τ \\tau is a temperature parameter and 𝒩 \\mathcal{N} is the set of in-batch negatives: every non-positive passage in the batch serves as a negative. This loss pushes the anchor closer to the positive and farther from all negatives in the scoring space. 2.2 Scoring mechanisms The encoder produces a sequence of token representations 𝐇 a = [ 𝐡 1 a , … , 𝐡 m a ] ∈ ℝ m × d \\mathbf{H}^{a}=[\\mathbf{h}_{1}^{a},\\ldots,\\mathbf{h}_{m}^{a}]\\in\\mathbb{R}^{m\\times d} for a passage of m m tokens with hidden dimension d d . The scoring function determines how this matrix is turned into a scalar similarity. We study three families. Mean pooling with cosine similarity. The passage representation is the mean of its token embeddings and the score is the cosine similarity between mean vectors. Mean pooling is the standard AA baseline ( Rivera-Soto et al., 2021 ; Wegmann et al., 2022 ; Kantharuban et al., 2026 ) . It compresses the entire token sequence into a single d d -dimensional vector before scoring. Late interaction ( MaxSim \\mathrm{MaxSim} ). The passage is represented by its full sequence of token embeddings, and the score is the sum over anchor tokens of the maximum cosine similarity to any candidate token ( Khattab and Zaharia, 2020 ) : s LI ​ ( a , p ) = ∑ i = 1 m a max j ∈ [ m p ] ⁡ cos ⁡ ( 𝐡 i a , 𝐡 j p ) s_{\\text{LI}}(a,p)=\\sum_{i=1}^{m_{a}}\\max_{j\\in[m_{p}]}\\cos(\\mathbf{h}_{i}^{a},\\mathbf{h}_{j}^{p}) (2) Unlike mean pooling, LI preserves per-token structure through the scoring function: the encoder does not need to compress all the information. Patch-level late interaction (PLI). A middle ground. The token sequence is partitioned into contiguous patches of size n n . Each patch is mean-pooled, and MaxSim \\mathrm{MaxSim} is applied at the patch level: s PLI ​ ( a , p ) = ∑ i = 1 P a max j ∈ [ P p ] ⁡ cos ⁡ ( 𝐩 i a , 𝐩 j p ) s_{\\text{PLI}}(a,p)=\\sum_{i=1}^{P_{a}}\\max_{j\\in[P_{p}]}\\cos(\\mathbf{p}_{i}^{a},\\mathbf{p}_{j}^{p}) (3) where 𝐩 i = 1 n ​ ∑ t ∈ patch i 𝐡 t \\mathbf{p}_{i}=\\frac{1}{n}\\sum_{t\\in\\text{patch}_{i}}\\mathbf{h}_{t} is the mean of the tokens within patch i i . We use n = 2 n{=}2 (bigram patches) in this study. 2.3 Alignment and uniformity We use the alignment–uniformity framework of Wang and Isola (2020) , where alignment α \\alpha measures closeness of same-author pairs and uniformity u u measures how evenly representations spread on the hypersphere (lower is better for both). 2.4 Residual stream patching Residual stream patching ( Vig et al., 2020 ; Meng et al., 2022 ) is a causal intervention that measures the contribution of each encoder layer to the model’s output. If we corrupt the input of the encoder and then restore one layer’s activations to their clean values, how much of the model’s correct behavior is recovered? Concretely, given a triplet ( a , p , n ) (a,p,n) , we define three forward passes. A clean pass encodes the positive p p normally, producing hidden states 𝐡 clean ( ℓ ) \\mathbf{h}^{(\\ell)}_{\\text{clean}} at each layer ℓ ∈ { 0 , 1 , … , L } \\ell\\in\\{0,1,\\ldots,L\\} . A corrupt pass encodes the negative n n normally, producing 𝐡 corrupt ( ℓ ) \\mathbf{h}^{(\\ell)}_{\\text{corrupt}} . A patched pass at layer ℓ \\ell encodes the negative, but at layer ℓ \\ell replaces the negative’s hidden states with those from the positive. The patched hidden state then propagates through the remaining encoder layers to produce a patched score s patched ( ℓ ) s_{\\text{patched}}^{(\\ell)} . The clean score is s clean = s ⁡ ( a , p ) s_{\\text{clean}}=s(a,p) and the corrupt score is s corrupt = s ⁡ ( a , n ) s_{\\text{corrupt}}=s(a,n) . If patching at layer ℓ \\ell recovers the clean score, it means layer ℓ \\ell carries the information needed for correct authorship scoring. If patching makes no difference, the information was not yet consolidated at that layer. 2.5 Recovery metrics We quantify recovery with two metrics. Percentage recovery is a standard metric introduced by Meng et al. (2022) : Recovery ( ℓ ) ( % ) = s patched ( ℓ ) − s corrupt s clean − s corrupt × 100 \\text{Recovery}^{(\\ell)}(\\%)=\\frac{s_{\\text{patched}}^{(\\ell)}-s_{\\text{corrupt}}}{s_{\\text{clean}}-s_{\\text{corrupt}}}\\times 100 (4) A value of 0% means no recovery while 100% means full recovery. Values can go outside [ 0,100 ] [0,100] in some particular cases. The problem with this metric is that the denominator s clean − s corrupt s_{\\text{clean}}-s_{\\text{corrupt}} can be very small, especially for scoring functions like PLI whose scores are more compressed. When the denominator is near zero, even tiny score changes produce enormous percentage values. Rank recovery avoids this problem by asking a binary question: after patching at layer ℓ \\ell , does the model still rank the positive above the negative? r rank ( ℓ ) = 1 | 𝒯 + | ∑ t ∈ 𝒯 + [ s patched ( ℓ ) ( a t , p t ) > s patched ( ℓ ) ( a t , n t ) ] r_{\\text{rank}}^{(\\ell)}=\\frac{1}{|\\mathcal{T}_{+}|}\\sum_{t\\in\\mathcal{T}_{+}}\\mathbf{1}\\!\\bigl[s_{\\text{patched}}^{(\\ell)}(a_{t},p_{t})>s_{\\text{patched}}^{(\\ell)}(a_{t},n_{t})\\bigr] (5) where 𝒯 + \\mathcal{T}_{+} is the set of triplets the clean model ranks correctly. This gives a value in [ 0 , 1 ] [0,1] with 0.5 being chance. We use rank recovery for all main-text figures and report percentage recovery in the appendix. 2.6 LISA probes To separate feature availability from feature use, we train linear probes ( Alain and Bengio, 2017 ; Belinkov, 2022 ) at each encoder layer. The probes are regression models mapping the mean-pooled hidden state at layer ℓ \\ell to scalar stylistic features. We report the coefficient of determination R 2 R^{2} on a held-out set. The feature targets are inspired by the LISA framework from Kantharuban et al. (2026) and include nine categories: word length, capitalization rate, type–token ratio, punctuation density, function-word frequency, sentence length, hedging markers, citation density, and discourse connectives. A high R 2 R^{2} at layer ℓ \\ell means the feature is linearly separable from the representation. This is a necessary but not sufficient condition for the model to actually use that feature for scoring 3 Gradient Structure and the Consolidation Bottleneck This section develops a theory of what we expect to find, before any experiment is run. The theory starts from the gradient of the scoring function and derives a prediction about where in the encoder authorship signal should be consolidated. 3.1 How the gradient distributes across tokens The end-to-end gradient of the InfoNCE loss with respect to a single token representation 𝐡 j a \\mathbf{h}_{j}^{a} factors into two parts: ∂ ℒ ∂ 𝐡 j a = ∂ ℒ ∂ s ⏟ InfoNCE term ⋅ ∂ s ∂ 𝐡 j a ⏟ Scorer term \\frac{\\partial\\mathcal{L}}{\\partial\\mathbf{h}_{j}^{a}}=\\underbrace{\\frac{\\partial\\mathcal{L}}{\\partial s}}_{\\text{InfoNCE term}}\\cdot\\underbrace{\\frac{\\partial s}{\\partial\\mathbf{h}_{j}^{a}}}_{\\text{Scorer term}} (6) The InfoNCE term concentrates gradient on hard negatives. This term is identical across scoring mechanisms: it depends on the values, not on how the scores were computed. The scorer term determines how that gradient distributes across individual tokens, and this is where the three mechanisms diverge. Mean pooling: dense, uniform gradient. Under mean pooling, the score depends on each token only through the mean. The partial derivative is: ∂ s mean ∂ 𝐡 j a = 1 m ⋅ ∂ cos ⁡ ( 𝐡 ¯ a , 𝐡 ¯ p ) ∂ 𝐡 ¯ a \\frac{\\partial s_{\\text{mean}}}{\\partial\\mathbf{h}_{j}^{a}}=\\frac{1}{m}\\cdot\\frac{\\partial\\cos(\\bar{\\mathbf{h}}^{a},\\bar{\\mathbf{h}}^{p})}{\\partial\\bar{\\mathbf{h}}^{a}} (7) The 1 / m 1/m factor means every token receives the same gradient magnitude. The gradient is dense and uniform (no token is preferentially updated). The model has no mechanism to selectively strengthen discriminative tokens: a function word, a punctuation mark, and a content word all receive the same gradient signal. MaxSim \\mathrm{MaxSim} : sparse, selective gradient. Under late interaction (Equation 2 ), the gradient with respect to anchor token j j is: ∂ s LI ∂ 𝐡 j a = ∑ i = 1 m p [ j = argmax j ′ cos ( 𝐡 j ′ a , 𝐡 i p ) ] ⋅ ∂ cos ∂ 𝐡 j a \\frac{\\partial s_{\\text{LI}}}{\\partial\\mathbf{h}_{j}^{a}}=\\sum_{i=1}^{m_{p}}\\mathbf{1}\\!\\bigl[j=\\operatorname*{argmax}_{j^{\\prime}}\\cos(\\mathbf{h}_{j^{\\prime}}^{a},\\mathbf{h}_{i}^{p})\\bigr]\\cdot\\frac{\\partial\\cos}{\\partial\\mathbf{h}_{j}^{a}} (8) Only the tokens selected via argmax \\operatorname*{argmax} receive a gradient. Most tokens are not updated at all. The encoder learns which tokens carry discriminative signal because only those tokens participate in the backward pass. PLI: intermediate density. Under PLI with patch size p p (Equation 3 ), the gradient combines both regimes: ∂ s PLI ∂ 𝐡 j a = 1 p ⋅ [ patch ( j ) ∈ argmax ] ⋅ ∂ cos ∂ 𝐡 j a \\frac{\\partial s_{\\text{PLI}}}{\\partial\\mathbf{h}_{j}^{a}}=\\frac{1}{p}\\cdot\\mathbf{1}\\!\\bigl[\\text{patch}(j)\\in\\operatorname{argmax}\\bigr]\\cdot\\frac{\\partial\\cos}{\\partial\\mathbf{h}_{j}^{a}} (9) Sparse between patches (only selected patches get gradient), dense within patches (each of the p p tokens in a selected patch gets 1 / p 1/p ). 3.2 The consolidation bottleneck Mean pooling’s dense gradient creates what we call a consolidation bottleneck. The scoring function only accesses the mean of all tokens. For the encoder to produce a score that distinguishes same-author from different-author passages, it must arrange the hidden states so that their mean already points in a direction that encodes authorship. The encoder must coordinate information across the entire sequence, compressing authorship-relevant features into a form that survives averaging. This compression must happen at some intermediate layer, which we call the consolidation layer . MaxSim \\mathrm{MaxSim} has no such bottleneck. The scoring function accesses individual token representations directly, so the encoder can keep refining per-token features through the upper layers without needing to consolidate them into a single direction. The upper layers of a transformer encode more abstract, context-dependent features ( Tenney et al., 2019 ) , so the ability to defer consolidation gives MaxSim \\mathrm{MaxSim} access to richer representations. If our analysis is correct, mean pooling should show a recovery inflection at an earlier layer than MaxSim \\mathrm{MaxSim} when we perform causal patching. Patching below the consolidation layer should destroys the signal (the representation has not yet been compressed). Patching above it should preserve the signal (consolidation is complete). MaxSim \\mathrm{MaxSim} should show a later inflection because there is no pressure to consolidate early. 3.3 Why mean pooling loses information We can observe mean pooling through an information theory lens and explain why it has less capacity to encode authorship. Mean pooling maps the m × d m\\times d token matrix 𝐇 \\mathbf{H} to a d d -dimensional vector 𝐡 ¯ \\bar{\\mathbf{h}} . By the data processing inequality, any function of the mean has at most as much mutual information with the author identity Y Y as a function of the full token matrix: I ⁡ ( Y , 𝐡 ¯ ) ≤ I ⁡ ( Y , 𝐇 ) I(Y;\\bar{\\mathbf{h}})\\leq I(Y;\\mathbf{H}) (10) The information loss is strictly positive whenever 𝐡 ¯ \\bar{\\mathbf{h}} is not a sufficient statistic for Y Y . For instance, two passages with identical function-word frequencies but different function-word orderings are indistinguishable under mean pooling (which is permutation-invariant) but distinguishable under MaxSim \\mathrm{MaxSim} (which preserves positional structure). The information loss is therefore not only theoretical. Model α \\alpha ( ↓ \\downarrow ) u u ( ↓ \\downarrow ) Pretrained (no fine-tuning) 0.069 − 0.171 -0.171 Mean pooling 0.154 − 2.000 -2.000 LI 0.091 − 0.331 -0.331 PLI n n -gram 2 0.201 − 0.717 -0.717 Table 1: Alignment α \\alpha and uniformity u u per model, from Kulumba et al. (2025) . Lower is better for both. This capacity gap is reflected in the alignment–uniformity tradeoff (Table 1 ). Mean pooling achieves the best uniformity because averaging naturally spreads representations. But it achieves the weakest alignment because it destroys the fine-grained signal needed to cluster same-author passages tightly. LI achieves the tightest alignment because token-level comparison preserves discriminative detail, but the weakest uniformity because the sparse gradient does not prevent representation collapse as aggressively. 4 Experimental Setup We design a controlled analysis that isolates the scoring mechanism: every model shares one backbone, one corpus, and one loss, differing only in how they turn token representations into a scalar similarity. 4.1 Models Every model shares a ModernBERT-base backbone ( Warner et al., 2025 ) with 23 transformer layers, 149M parameters, and a hidden size of 768. Unless stated otherwise, we use the base-4 split of HALvest-Contrastive ( Kulumba et al., 2025 ) , a scholarly corpus in which the anchor and positive are drawn from different papers by the same author-set, and the negative is mined from within the same disciplinary field. This design ensures that topical similarity does not confound authorship signal: the model cannot rely on vocabulary overlap to distinguish positives from negatives. Layerwise uses layerwise attention pooling followed by mean pooling and cosine scoring. We use layerwise attention in addition to mean pooling to match the state of the art ( Kantharuban et al., 2026 ) . In prior work, layerwise attention adds only a marginal performance gain over raw mean pooling, indicating that the learned layer weights do not overcome the single-vector bottleneck analyzed in § 3.2 . The gradient with respect to each token still passes through the mean, so the 1 / m 1/m uniform-gradient analysis applies up to a layer-dependent reweighting factor. LI uses token-level MaxSim \\mathrm{MaxSim} with punctuation and padding masked. PLI n = 2 n{=}2 uses bigram patch-level MaxSim \\mathrm{MaxSim} . E5 zero-shot ( Wang et al., 2024 ) is included as a control model picked off the shelf. E5 was trained for retrieval, and to a greater extent semantic matching, yielding decorrelated similarity scores from models trained for AA ( Kulumba et al., 2025 ; Kantharuban et al., 2026 ) . Model R@20 R@100 nDCG@20 nDCG@100 Mean pooling 0.121 0.294 0.063 0.101 LI 0.485 0.678 0.364 0.408 PLI n = 2 n{=}2 0.497 0.700 0.365 0.411 E5 (zero-shot) 0.167 0.269 0.124 0.146 Table 2: HALvest-Contrastive base-4 retrieval performance from Kulumba et al. (2025) . E5 was tested using mean pooling. Table 2 summarizes retrieval performance. The four-fold Recall@20 gap between mean pooling and LI is the empirical observation we aim to study. 4.2 Probe set construction Figure 2: Token length distributions for positive (blue) and negative (orange) passages across the three tiers. All passages cluster around the 130-token target. We use a small, controlled set of 148 triplets, not on the full retrieval benchmark to conduct our analysis. Using a curated probe set rather than the full test set allows us to control for confounds (passage length, domain overlap). Triplets are drawn from HALvest-Contrastive base-4 validation, from the ten most frequent author-sets that have at least four distinct documents. Passages target a fixed token length of 130 tokens (Figure 2 ), the positive and negative within each triplet are constrained to differ by at most five tokens after tokenization. Triplets are stratified into three tiers that vary the relationship between the anchor and the negative: • Tier A ( n = 50 n{=}50 ): the anchor and positive share the same author-set. The negative is written by a completely disjoint author-set from the same scholarly domain. This is the baseline: the model must rely on stylistic signal to distinguish the positive from a topically similar negative written by entirely different authors. • Tier B ( n = 50 n{=}50 ): the anchor and positive share the same author-set. The negative is written by a partially overlapping author-set that shares at least one author with the anchor’s team but is not identical to it. The shared author contributes stylistic signal to both passages, creating a confound. This tier tests whether the model can distinguish full author-set matches from partial ones. • Tier C ( n = 48 n{=}48 ): the anchor and positive share the same author-set but come from different scholarly domains (anchor in domain D 1 D_{1} , positive in domain D 2 D_{2} ). The negative is written by a disjoint author-set from the anchor’s domain D 1 D_{1} . This tests cross-domain authorship recognition: can the model identify the same authors when the vocabulary and conventions shift between disciplines? Tier A Tier B Tier C Model Fail n + n_{+} Fail n + n_{+} Fail n + n_{+} Layerwise 10% 45 44% 28 12.5% 42 LI 2% 49 36% 32 4.2% 46 PLI n = 2 n{=}2 2% 49 34% 33 4.2% 46 Table 3: Failure rates and effective sample sizes ( n + n_{+} = correctly-ranked triplets used for patching) per tier. Tier B is the hardest due to the shared-author confound. Interaction models are more robust than mean pooling across all tiers. Residual patching is only applied to triplets that are correctly ranked (those where the clean model scores the positive above the negative). The effective sample sizes therefore vary by tier and model (Table 3 ). 4.3 Analyses We apply four analyses to all three fine-tuned models. 1. LISA probes train linear classifiers on a separate 10,000-passage corpus evaluated on a 2,000-passage held-out set, measuring feature availability at each of the 23 layers. 2. Residual stream patching measures the causal contribution of each layer via rank recovery (Equation 5 ) across the 148 probe-set triplets. 3. Score sensitivity computes the average absolute score change | s patched ( ℓ ) − s corrupt | ¯ \\overline{|s_{\\text{patched}}^{(\\ell)}-s_{\\text{corrupt}}|} per layer, a raw measure of how much the scoring function’s output responds to restoring a single layer. 4. Training dynamics apply patching to eight checkpoints per model (steps 0, 500, 1500, 3000, 5000, 10000, 20000, and final) to track how the depth profile develops during training. It isolates what contrastive fine-tuning adds. 5 Results Probing, causal patching, score sensitivity, and training dynamics point to the same conclusion: the performance gap does not arise from what the encoder learns, but from where and how the scorer reads it out. 5.1 Feature availability is invariant across models (a) Layerwise (mean pooling) (b) Late Interaction (c) PLI n = 2 n{=}2 Figure 3: LISA probe R 2 R^{2} heatmaps at the final checkpoint. Rows are stylistic feature categories. Columns are encoder layers. The three fine-tuned models produce nearly identical heatmaps. Word length is the most readable feature ( R 2 ≈ 0.57 R^{2}\\approx 0.57 ), followed by capitalization rate, type–token ratio, and punctuation density. We begin with the question of availability. If the four-fold performance gap between mean pooling and LI arises because LI causes the encoder to learn better stylistic representations, then the LISA probes should show higher R 2 R^{2} for LI than for mean pooling, at least at some layers. It is, however, not the case. Figure 3 shows the probe heatmaps for all three fine-tuned models. The heatmaps are visually indistinguishable. The top features, word length, capitalization, type–token ratio, punctuation density, and function-word frequency, achieve the same R 2 R^{2} at the same layers across all models. The E5 control produces a visually indistinguishable pattern. Stylistic readability is a property of the pretrained backbone. This rules out the first hypothesis from the introduction. The encoder does not learn different stylistic representations under different scorers. The pretrained ModernBERT backbone already encodes these features and contrastive fine-tuning does not create them, regardless of the scoring function. The four-fold performance gap is therefore more plausibly explained by differences in how these features are used than by differences in what the encoder learned. 5.2 Causal patching reveals a scoring-dependent depth profile (a) Tier A (same domain) (b) Tier B (shared-author confound) (c) Tier C (cross-domain) Figure 4: Rank recovery across the three models. Each panel shows one tier. Purple: layerwise (mean pooling), orange: LI, green: PLI n = 2 n{=}2 . Dashed line: chance (0.5). Mean pooling crosses chance at layer 9, while both interaction models cross at layers 14–16. The six-layer gap is consistent across all three tiers. Layerwise (mean pooling) follows an S-shape. The curve crosses random guess at approximately layer 9 and reaches near-perfect recovery by layer 13. This pattern is consistent across all three tiers. On Tier C, all models show slightly above-chance performance at the very first layers (0–-2). This is consistent with early layers encoding shallow syntactic statistics ( Jawahar et al., 2019 ) that carry distributional authorship signal even when domain-specific vocabulary shifts. In Tiers A and B, topical overlap between anchor and negative may mask this early signal. Late interaction shows a qualitatively similar S-curve but with a later inflection. Rank recovery stays below random guess until approximately layer 15, then steeply rises to ≥ 0.90 \\geq 0.90 by layer 20. The below-chance dip at layers 3–12 is deeper than for layerwise (recovery ≈ 0.3 \\approx 0.3 – 0.4 0.4 ): corrupting these layers actively misleads the token-level MaxSim \\mathrm{MaxSim} scoring. PLI n = 2 n{=}2 tracks LI closely. The inflection falls at layers 14–16, effectively indistinguishable from LI given the sample size. We define the consolidation point as the earliest layer at which rank recovery exceeds 0.75. By this criterion, mean pooling consolidates at layer 10, while LI and PLI consolidate at layers 16 and 15 respectively. This matches the prediction from § 3.2 : dense, uniform gradients force early consolidation while sparse, selective gradients allows for late consolidation. PLI n = 2 n{=}2 does not interpolate between the two, it falls squarely in the interaction regime, consistent with the patch argmax \\operatorname{argmax} ’s selection dominating the intra-patch averaging (Equation 9 ). 5.3 Score sensitivity confirms two regimes (a) Tier A (b) Tier B (c) Tier C Figure 5: Score sensitivity per layer. Mean | s patched ( ℓ ) − s corrupt | |s_{\\text{patched}}^{(\\ell)}-s_{\\text{corrupt}}| when restoring clean activations at layer ℓ \\ell . LI (orange) is most sensitive, PLI (green) is intermediate, layerwise (purple) is an order of magnitude lower. Score sensitivity provides a complementary view: rather than asking whether patching recovers the correct ranking, it asks how much the score changes in absolute terms (Figure 5 ). The ordering is consistent across all tiers: LI is most sensitive, PLI is intermediate and layerwise is an order of magnitude lower.Mean pooling compresses representations so heavily that restoring a single layer barely moves the mean. MaxSim \\mathrm{MaxSim} reads individual tokens, so a layer-level perturbation can change which tokens are selected by the argmax \\operatorname{argmax} , producing a large score shift. PLI sits 10–-20% below LI, consistent with intra-patch averaging partially smoothing perturbations before the patch-level argmax \\operatorname{argmax} . 5.4 Training dynamics reveal three learning trajectories (a) Layerwise (mean pooling): top-down monotonic. Upper layers learn first, the inflection migrates downward during training. (b) Late Interaction: transient early-layer spike at step 1500, then signal migration to upper layers. The model initially exploits shallow lexical matches, then suppresses them. (c) PLI n = 2 n{=}2 : gradual emergence, no transient spike. The final checkpoint shows a distinctive mid-layer hump (layers 10–15) absent in both other models. Figure 6: Training dynamics. Mean percentage recovery across Tier A triplets at eight checkpoints. Each subplot is one checkpoint. x-axis: layer index; y-axis: mean recovery. Percentage recovery is used here because rank recovery is binary and too coarse to track gradual signal emergence at early checkpoints. The y-axis extremes reflect the known instability of percentage recovery (§ 2.5 ). The patching analysis so far shows the final-checkpoint depth profile. To understand how that profile develops, we apply the same analysis to intermediate checkpoints (Figure 6 ). Mean pooling (Figure 6(a) ) learns top-down. At step 500, recovery is concentrated at the uppermost layers. As training progresses, the inflection migrates downward: layer 15 by step 3000, layer 13 by step 10,000, layer 9 at the final checkpoint. The model progressively recruits deeper layers to consolidate earlier, consistent with the consolidation bottleneck. The dense gradient initially refines the layers closest to the scoring function, then gradually shapes earlier layers. Late interaction (Figure 6(b) ) shows a distinctive behavior. At step 1500, recovery spikes at layers 5–10. This suggests the model initially exploits shallow lexical matches: MaxSim \\mathrm{MaxSim} can propagate gradient through exact token matches at negligible cost, providing a cheap authorship signal from lower layers. As hard negatives increase in difficulty during training, this shortcut becomes insufficient, and the model shifts to deeper, more contextualized representations. By step 5000, this transient behavior is suppressed and recovery concentrates at layers 19+. The model learns to defer to deeper, more abstract representations, abandoning the shallow shortcut. PLI n = 2 n{=}2 (Figure 6(c) ). Bigram-patch MaxSim \\mathrm{MaxSim} shows a third pattern with no early spike: the intra-patch averaging smooths out the shallow matches that LI exploits. Recovery emerges gradually at the upper layers. The final checkpoint shows a mid-layer hump (layers 10–15) unique to PLI, possibly reflecting the two-level structure of its gradient (Equation 9 ). Mid-layer patch representations carry authorship signal that neither the token-level first moment (mean pooling) nor the individual tokens ( MaxSim \\mathrm{MaxSim} ) would use. 6 Related Work Authorship attribution. Neural AA has evolved from classification ( Burrows, 2002 ; Schler et al., 2006 ) to contrastive learning ( Wegmann et al., 2022 ; Kantharuban et al., 2026 ; Huertas-Tato et al., 2024 ) , with increasing focus on topic confounding ( Wegmann and Nguyen, 2021 ; Rivera-Soto et al., 2021 ) . Our work is not the first attempt of the AA community at interpretability ( Alshomary et al., 2025b ; Alshomary et al., 2025a ) , but is, to the best of our knowledge the first one to use mechanistic interpretability tools and gradient analysis to derive performance and training behavior from encoder models. Probing versus causal analysis. Linear probes ( Belinkov, 2022 ) are widely used to study what information neural representations encode, but the link between probe accuracy and actual model behavior is contested ( Hewitt and Liang, 2019 ; Ravichander et al., 2021 ) . Activation patching ( Vig et al., 2020 ; Meng et al., 2022 ; Wang et al., 2023 ) provides a causal alternative: it asks whether information is necessary, not merely decodable. Our availability against use dissociation contributes to this debate by showing that all probed features are equally available across models with very different task performance. 7 Discussion The availability–use dissociation reframes AA as an information readout problem. In this setup, the pretrained encoder already encodes the stylistic features we probe. What differs is whether the scoring function can access them at the right depth and with enough capacity. Availability against use. Probing accuracy is a poor proxy for task performance when models differ in their scoring mechanism. All four models, three fine-tuned and one off-the-shelf control, produce nearly identical probe heatmaps (Figure 3 ) while differing dramatically in retrieval performance (Table 2 ). The main question is not, therefore, which model encodes more stylistic information, but which scoring mechanism can effectively read it out. Path patching at the attention-head level ( Goldowsky-Dill et al., 2023 ) could further localize how stylistic signal flows through the encoder, though this addresses a finer-grained question than the one considered here. Why interaction beats pooling. The gradient analysis (§ 3.1 ) and the information-theoretic argument (§ 3.3 ) converge: mean pooling discards higher-order structure by compressing to a single vector, while MaxSim \\mathrm{MaxSim} preserves token-level granularity. The causal depth profiles confirm this: consolidation at layer 9 versus layers 15–16. The probe results (Figure 3 ), patching curves (Figure 4 ), score sensitivity analysis (Figure 5 ), and training dynamics (Figure 6 ),all converge on the same explanation. PLI in the interaction regime. PLI n = 2 n=2 falls in the same causal regime as LI, with nearly identical recovery inflections. This suggests that the patch-level argmax \\operatorname{argmax} dominates the effect of local averaging inside each patch. The alignment and uniformity results (Table 1 ) are also consistent with this interpretation, since PLI remains much closer to LI than to mean pooling in embedding-space geometry. Whether larger patches shift consolidation earlier remains open, though the theory predicts that they should gradually approach the pooling regime. Overall, the results suggest that the main bottleneck in contrastive authorship attribution is not whether stylistic information exists in the encoder, but whether the scoring mechanism can preserve and exploit it. The pretrained backbone already contains strong stylistic structure before fine-tuning. The scoring mechanism determines where that structure becomes causally necessary for the task. Limitations Backbone choice. We fix the backbone to ModernBERT to control for architecture, since our goal is to isolate how the scoring mechanism shapes signal consolidation. The specific inflection layers we observe, such as layer 9 for pooling and layers 15 to 16 for interaction, may shift in other architectures. The qualitative gap between early consolidation under mean pooling and later consolidation under interaction should however, transfer. Testing a second backbone, such as RoBERTa ( Liu et al., 2019 ) , would be useful for architectural generality, but it is orthogonal to the main question of this paper. Patch-level interaction. We study only n = 2 n=2 for PLI. This keeps the analysis focused on the contrast between pooling and interaction while still giving us a middle regime to compare against LI and mean pooling. The theory suggests that larger patches should move the inflection earlier, closer to the pooling regime. Exploring n = 3 , 4 , 5 n=3,4,5 would be a natural extension, but it is not necessary for the main result reported here. Probe set size. The 148 triplets are enough to resolve the six-layer gap, but they are too small for fine-grained LI versus PLI comparisons. Bootstrap confidence intervals may not separate a one to two layer difference cleanly. The high failure rate on Tier B also leaves only 28 to 33 correctly ranked triplets, which makes those curves noisier than Tiers A and C. The main qualitative result is stable across all three tiers, but finer distinctions between LI and PLI remain below our statistical resolution. Acknowledgments The authors are grateful to Djamé Seddah who indirectly inspired this work. We also thank Wissam Antoun, Rian Touchent and Théo Lasnier for the productive discussions. This work was partially realized on computing HPC and storage resources provided by IDRIS thanks to the grant GCDA1016807 on the DALIA supercomputer. References Ai et al. (2022) B. Ai, Y. Wang, Y. Tan, and S. Tan Whodunit? learning to contrast for authorship attribution . In Proceedings of the 2nd Conference of the Asia-Pacific Chapter of the Association for Computational Linguistics and the 12th International Joint Conference on Natural Language Processing, Volume 1: Long Papers , Y. He, H. Ji, S. Li, Y. Liu, and C. Chang (Eds.) , Online only , pp. 1142–1157 . External Links: Link , Document Cited by: §1 . Alain and Bengio (2017) G. Alain and Y. Bengio Understanding intermediate layers using linear classifier probes . In 5th International Conference on Learning Representations, ICLR 2017, Toulon, France, April 24-26, 2017, Workshop Track Proceedings , External Links: Link Cited by: §1 , §2.6 . Alshomary et al. (2025a) M. Alshomary, N. Ri, M. Apidianaki, A. Patel, S. Muresan, and K. McKeown Latent space interpretation for stylistic analysis and explainable authorship attribution . In Proceedings of the 31st International Conference on Computational Linguistics , O. Rambow, L. Wanner, M. Apidianaki, H. Al-Khalifa, B. D. Eugenio, and S. Schockaert (Eds.) , Abu Dhabi, UAE , pp. 1124–1135 . External Links: Link Cited by: §6 . Alshomary et al. (2025b) M. Alshomary, N. R. Varimalla, V. Anand, S. Muresan, and K. McKeown Layered insights: generalizable analysis of human authorial style by leveraging all transformer layers . In Proceedings of the 2025 Conference on Empirical M",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Skip to main content",
+      "url": "https://arxiv.org/html/2605.19908v1#infobox"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/IgnoreMe"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "Why HTML?",
+      "url": "https://info.arxiv.org/about/accessible_HTML.html"
+    },
+    {
+      "text": "Back to Abstract",
+      "url": "https://arxiv.org/abs/2605.19908v1"
+    },
+    {
+      "text": "Download PDF",
+      "url": "https://arxiv.org/pdf/2605.19908v1"
+    },
+    {
+      "text": "License: CC BY 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "Khattab and Zaharia, 2020",
+      "url": "https://arxiv.org/html/2605.19908v1#bib.bib5"
+    },
+    {
+      "text": "Mosteller and Wallace, 1963",
+      "url": "https://arxiv.org/html/2605.19908v1#bib.bib33"
+    },
+    {
+      "text": "Burrows, 2002",
+      "url": "https://arxiv.org/html/2605.19908v1#bib.bib21"
+    },
+    {
+      "text": "Kešelj et al., 2003",
+      "url": "https://arxiv.org/html/2605.19908v1#bib.bib34"
+    },
+    {
+      "text": "Dauber et al., 2019",
+      "url": "https://arxiv.org/html/2605.19908v1#bib.bib28"
+    },
+    {
+      "text": "Cafiero and Camps, 2019",
+      "url": "https://arxiv.org/html/2605.19908v1#bib.bib29"
+    },
+    {
+      "text": "Vaswani et al., 2017",
+      "url": "https://arxiv.org/html/2605.19908v1#bib.bib30"
+    },
+    {
+      "text": "Devlin et al., 2019",
+      "url": "https://arxiv.org/html/2605.19908v1#bib.bib31"
+    },
+    {
+      "text": "Wegmann et al., 2022",
+      "url": "https://arxiv.org/html/2605.19908v1#bib.bib1"
+    },
+    {
+      "text": "Ai et al., 2022",
+      "url": "https://arxiv.org/html/2605.19908v1#bib.bib3"
+    },
+    {
+      "text": "Huertas-Tato et al., 2024",
+      "url": "https://arxiv.org/html/2605.19908v1#bib.bib4"
+    },
+    {
+      "text": "Kantharuban et al., 2026",
+      "url": "https://arxiv.org/html/2605.19908v1#bib.bib2"
+    },
+    {
+      "text": "Kulumba et al. (2025)",
+      "url": "https://arxiv.org/html/2605.19908v1#bib.bib32"
+    },
+    {
+      "text": "Alain and Bengio, 2017",
+      "url": "https://arxiv.org/html/2605.19908v1#bib.bib9"
+    },
+    {
+      "text": "Vig et al., 2020",
+      "url": "https://arxiv.org/html/2605.19908v1#bib.bib7"
+    },
+    {
+      "text": "Belinkov, 2022",
+      "url": "https://arxiv.org/html/2605.19908v1#bib.bib10"
+    },
+    {
+      "text": "Goldowsky-Dill et al., 2023",
+      "url": "https://arxiv.org/html/2605.19908v1#bib.bib6"
+    },
+    {
+      "text": "Zhang and Nanda, 2023",
+      "url": "https://arxiv.org/html/2605.19908v1#bib.bib8"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2605.19908v1#S1.F1"
+    },
+    {
+      "text": "van den Oord et al., 2019",
+      "url": "https://arxiv.org/html/2605.19908v1#bib.bib12"
+    },
+    {
+      "text": "Rivera-Soto et al., 2021",
+      "url": "https://arxiv.org/html/2605.19908v1#bib.bib13"
+    },
+    {
+      "text": "Wang and Isola (2020)",
+      "url": "https://arxiv.org/html/2605.19908v1#bib.bib14"
+    },
+    {
+      "text": "Meng et al., 2022",
+      "url": "https://arxiv.org/html/2605.19908v1#bib.bib15"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2605.19908v1#S2.E2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2605.19908v1#S2.E3"
+    },
+    {
+      "text": "Tenney et al., 2019",
+      "url": "https://arxiv.org/html/2605.19908v1#bib.bib16"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2605.19908v1#S3.T1"
+    },
+    {
+      "text": "Warner et al., 2025",
+      "url": "https://arxiv.org/html/2605.19908v1#bib.bib17"
+    },
+    {
+      "text": "3.2",
+      "url": "https://arxiv.org/html/2605.19908v1#S3.SS2"
+    },
+    {
+      "text": "Wang et al., 2024",
+      "url": "https://arxiv.org/html/2605.19908v1#bib.bib26"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2605.19908v1#S4.T2"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2605.19908v1#S4.F2"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2605.19908v1#S4.T3"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2605.19908v1#S2.E5"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2605.19908v1#S5.F3"
+    },
+    {
+      "text": "Jawahar et al., 2019",
+      "url": "https://arxiv.org/html/2605.19908v1#bib.bib11"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2605.19908v1#S3.E9"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2605.19908v1#S5.F5"
+    },
+    {
+      "text": "2.5",
+      "url": "https://arxiv.org/html/2605.19908v1#S2.SS5"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2605.19908v1#S5.F6"
+    },
+    {
+      "text": "6(a)",
+      "url": "https://arxiv.org/html/2605.19908v1#S5.F6.sf1"
+    },
+    {
+      "text": "6(b)",
+      "url": "https://arxiv.org/html/2605.19908v1#S5.F6.sf2"
+    },
+    {
+      "text": "6(c)",
+      "url": "https://arxiv.org/html/2605.19908v1#S5.F6.sf3"
+    },
+    {
+      "text": "Schler et al., 2006",
+      "url": "https://arxiv.org/html/2605.19908v1#bib.bib22"
+    },
+    {
+      "text": "Wegmann and Nguyen, 2021",
+      "url": "https://arxiv.org/html/2605.19908v1#bib.bib23"
+    },
+    {
+      "text": "Alshomary et al., 2025b",
+      "url": "https://arxiv.org/html/2605.19908v1#bib.bib24"
+    },
+    {
+      "text": "Alshomary et al., 2025a",
+      "url": "https://arxiv.org/html/2605.19908v1#bib.bib25"
+    },
+    {
+      "text": "Hewitt and Liang, 2019",
+      "url": "https://arxiv.org/html/2605.19908v1#bib.bib18"
+    },
+    {
+      "text": "Ravichander et al., 2021",
+      "url": "https://arxiv.org/html/2605.19908v1#bib.bib19"
+    },
+    {
+      "text": "Wang et al., 2023",
+      "url": "https://arxiv.org/html/2605.19908v1#bib.bib20"
+    },
+    {
+      "text": "3.1",
+      "url": "https://arxiv.org/html/2605.19908v1#S3.SS1"
+    },
+    {
+      "text": "3.3",
+      "url": "https://arxiv.org/html/2605.19908v1#S3.SS3"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2605.19908v1#S5.F4"
+    }
+  ],
+  "matching_link_count": 126,
+  "links_truncated": true,
+  "invalid_links": []
+}

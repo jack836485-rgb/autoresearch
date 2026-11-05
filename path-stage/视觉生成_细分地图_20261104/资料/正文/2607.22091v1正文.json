@@ -1,0 +1,590 @@
+{
+  "url": "https://arxiv.org/html/2607.22091v1",
+  "final_url": "https://arxiv.org/html/2607.22091v1",
+  "status": 200,
+  "title": "Spectral Prior for Reducing Exposure Bias in Diffusion Models",
+  "metadata": {},
+  "paper": {
+    "title": "Spectral Prior for Reducing Exposure Bias in Diffusion Models",
+    "title_warning": null,
+    "abstract": "Abstract Diffusion models typically suffer from error accumulation during iterative sampling, commonly referred to as exposure bias. We reveal systematic frequency-dependent discrepancies between training and inference, which can be interpreted as frequency-dependent SNR error. Crucially, the direction of this mismatch varies across models and timesteps, indicating that fixed correction rules do not generalize. We propose Spectral Alignment (SPA), a lightweight, guidance-based method that calibrates the power spectrum of intermediate predictions to a pre-computed prior. Our approach consists of two stages: (1) offline fitting of a parametric spectrum model from training data, and (2) inference-time guidance via efficient FFT-based gradient computation. SPA introduces minimal computational overhead (3-4%) and is complementary to Classifier-Free Guidance (CFG). We demonstrate consistent improvements across diverse architectures, from pixel-space models (DDPM, ADM) to latent diffusion models (SD2.0, SDXL) and flow-matching models (SD3.5, FLUX). Our implementation is available at https://github.com/SonyResearch/SPA .",
+    "authors": [
+      {
+        "name": "Yuya Kobayashi",
+        "affiliations": [
+          "Affiliation: Sony AI"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Masato Ishii",
+        "affiliations": [
+          "Affiliation: Sony AI"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Yuhta Takida",
+        "affiliations": [
+          "Affiliation: Sony AI"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Takashi Shibuya",
+        "affiliations": [
+          "Affiliation: Sony AI"
+        ],
+        "notes": []
+      },
+      {
+        "name": "Yuki Mitsufuji",
+        "affiliations": [
+          "Affiliation: Sony AI",
+          "Affiliation: Sony Group Corporation"
+        ],
+        "notes": []
+      }
+    ],
+    "author_block": "Yuya Kobayashi Affiliation: Sony AI Masato Ishii Affiliation: Sony AI Yuhta Takida Affiliation: Sony AI Takashi Shibuya Affiliation: Sony AI Yuki Mitsufuji Affiliation: Sony AI Affiliation: Sony Group Corporation",
+    "arxiv_version": "2607.22091v1",
+    "arxiv_version_date": "2026-07-24",
+    "sections": [
+      {
+        "id": "S1",
+        "heading": "1 Introduction",
+        "level": 1,
+        "text": "Diffusion models have become a dominant paradigm for image generation [ 10 , 6 , 29 , 26 , 17 ] . Despite this rapid progress, a core challenge remains: during iterative sampling, small prediction errors can accumulate and lead to a distribution shift away from the target, a phenomenon often referred to as exposure bias . Prior studies have argued that exposure bias in diffusion sampling manifests primarily as a mismatch between the noise levels seen during training and those encountered at test time. Accordingly, these methods aim to correct the effective noise level to match the predefined noise schedule, e.g., by predicted-noise rescaling [ 21 ] , time-shifted sampling [ 15 ] , and wavelet-based frequency reweighting [ 37 ] . However, these approaches either assume frequency-uniform errors or rely on hand-designed correction rules and carefully tuned schedules. In this work, we analyze the power spectrum of intermediate predictions x ^ 0 | t \\hat{x}_{0|t} during diffusion inference and reveal a systematic spectral mismatch between the forward process and inference trajectories (Figure 2 ). We interpret this discrepancy as frequency-dependent effective SNR errors that vary across models and timesteps, and show that correcting it leads to improved image quality. We discuss the details of this observation and its implications for method design in Section 2 . Based on this observation, we propose Spectral Alignment (SPA) , a lightweight guidance-based calibration method applicable to a wide range of models. This method shifts the power spectra of intermediate predictions toward a precomputed timestep-dependent spectral prior . The overview of the method is shown in Figure 1 . Our approach consists of two stages: (1) pre-calculation of the spectral prior and (2) sampling with guidance using spectral prior. In the first stage, a parametric spectrum model is fitted using training data. In the second stage, samples are steered toward the spectral prior via efficient FFT-based gradient computation. The method can be applied to various models adaptively. We conducted experiments across a wide range of text-to-image diffusion models, from early architectures (DDPM [ 10 ] , ADM [ 6 ] ) to LDMs (SD2.0 [ 31 ] , SDXL [ 24 ] ) and state-of-the-art flow-matching models (SD3.5 [ 32 ] , FLUX [ 2 ] ). We show that SPA outperforms other baseline methods, and consistently improves generation quality as measured by FID [ 9 ] and reward models such as HPSv3 [ 18 ] . In addition, SPA introduces minimal computational overhead (3–4%) and can be easily integrated into existing generation pipelines. Our main contributions are as follows: • We reveal that even modern flow-matching models exhibit spectral mismatch, and propose a calibration method using a precomputed reference power spectrum. • We demonstrate that correcting spectral mismatch with our approach improves generation quality with minimal computational overhead (3–4%). • We show that SPA is applicable to a wide variety of models without modification, from DDPM to state-of-the-art flow-matching models."
+      },
+      {
+        "id": "S2",
+        "heading": "2 Motivation",
+        "level": 1,
+        "text": "Figure 1 : Overview of the proposed method. We pre-calculate the spectral prior in the first stage, and spectral mismatch is corrected using the prior in the second stage during inference. For latent diffusion models, apply the same procedure on latent z z . In this section, we describe the key observations motivating the proposed method. We first introduce the notion of spectral mismatch from a frequency-dependent effective SNR error, and then present empirical observations that guided the design of our approach."
+      },
+      {
+        "id": "S2.SS1.SSSx1",
+        "heading": "Diffusion Models",
+        "level": 3,
+        "text": "The forward process of diffusion models gradually adds Gaussian noise to data x 0 x_{0} according to a predefined noise schedule. The latent variable at an intermediate timestep, denoted by x t x_{t} , can be obtained as: x t = α ¯ t ​ x 0 + 1 − α ¯ t ​ ϵ , ϵ ∼ 𝒩 ⁡ ( 0 , I ) , x_{t}=\\sqrt{\\bar{\\alpha}_{t}}x_{0}+\\sqrt{1-\\bar{\\alpha}_{t}}\\epsilon,\\quad\\epsilon\\sim\\mathcal{N}(0,I), (1) where α ¯ t \\bar{\\alpha}_{t} determines the noise level at timestep t t . The reverse process learns to denoise x t x_{t} by predicting the noise ϵ θ ​ ( x t , c , t ) \\epsilon_{\\theta}(x_{t},c,t) using a neural network, given condition c c . The denoising step from x t x_{t} to x t − 1 x_{t-1} using DDIM [ 29 ] is given by a deterministic update: x t − 1 = α ¯ t − 1 ​ x ^ 0 | t + 1 − α ¯ t − 1 ⋅ ϵ θ ​ ( x t , c , t ) , x_{t-1}=\\sqrt{\\bar{\\alpha}_{t-1}}\\hat{x}_{0\\mid t}+\\sqrt{1-\\bar{\\alpha}_{t-1}}\\cdot\\epsilon_{\\theta}(x_{t},c,t), (2) where x ^ 0 | t \\hat{x}_{0\\mid t} is the predicted clean data estimated from x t x_{t} using Tweedie’s formula: x ^ 0 | t = x t − 1 − α ¯ t ⋅ ϵ θ ​ ( x t , c , t ) α ¯ t . \\hat{x}_{0|t}=\\frac{x_{t}-\\sqrt{1-\\bar{\\alpha}_{t}}\\cdot\\epsilon_{\\theta}(x_{t},c,t)}{\\sqrt{\\bar{\\alpha}_{t}}}. (3)"
+      },
+      {
+        "id": "S2.SS1.SSSx2",
+        "heading": "Classifier-Free Guidance (CFG)",
+        "level": 3,
+        "text": "For conditional generation, CFG [ 11 ] computes a guided noise prediction by extrapolating between the conditional and unconditional estimates: ϵ θ CFG = ϵ θ ​ ( x t , t , ∅ ) + w ⋅ ( ϵ θ ​ ( x t , t , c ) − ϵ θ ​ ( x t , t , ∅ ) ) , \\epsilon^{\\text{CFG}}_{\\theta}=\\epsilon_{\\theta}(x_{t},t,\\emptyset)+w\\cdot\\bigl(\\epsilon_{\\theta}(x_{t},t,c)-\\epsilon_{\\theta}(x_{t},t,\\emptyset)\\bigr), (4) where w > 1 w>1 is the guidance scale and ∅ \\emptyset denotes null conditioning. While CFG improves prompt adherence, high guidance scales often lead to oversaturation artifacts [ 35 , 27 ] ."
+      },
+      {
+        "id": "S2.SS2.SSSx1",
+        "heading": "Frequency-Dependent SNR",
+        "level": 3,
+        "text": "Exposure bias in diffusion models refers to the mismatch between the distribution of intermediate variables observed during training ( i.e . , forward process) and those during inference ( i.e . , reverse process). Prior work suggests quantifying this mismatch through deviations from the predefined noise schedule, which is often referred to as an SNR error. Ning et al . [ 21 ] proposed rescaling the predicted noise to correct such errors. Furthermore, Yu et al . [ 37 ] showed that the mismatch differs between low- and high-frequency bands, indicating a frequency-dependent structure. In this work, we go beyond these perspectives and examine how the mismatch varies across the entire frequency spectrum, timesteps, and model choices, and how it can be corrected. To analyze this, we define the signal-to-noise ratio at frequency ω \\omega and timestep t t as: SNR ​ ( ω , t ) = α ¯ t ​ | x ~ 0 ​ ( ω ) | 2 ( 1 − α ¯ t ) ​ | ϵ ~ ​ ( ω ) | 2 , \\text{SNR}(\\omega,t)=\\frac{\\bar{\\alpha}_{t}\\,|\\tilde{x}_{0}(\\omega)|^{2}}{(1-\\bar{\\alpha}_{t})\\,|\\tilde{\\epsilon}(\\omega)|^{2}}, (5) where x ~ 0 ​ ( ω ) = ℱ ⁡ [ x 0 ] \\tilde{x}_{0}(\\omega)=\\mathcal{F}[x_{0}] and ϵ ~ ​ ( ω ) = ℱ ​ [ ϵ ] \\tilde{\\epsilon}(\\omega)=\\mathcal{F}[\\epsilon] denote the Fourier coefficients at frequency ω \\omega . Since Gaussian noise has a flat power spectrum ( i.e . , 𝔼 ​ [ | ϵ ~ ​ ( ω ) | 2 ] \\mathbb{E}[|\\tilde{\\epsilon}(\\omega)|^{2}] is constant across frequencies), the frequency dependence of SNR ​ ( ω , t ) \\text{SNR}(\\omega,t) is primarily determined by the signal power | x ~ 0 ​ ( ω ) | 2 |\\tilde{x}_{0}(\\omega)|^{2} . Accordingly, rather than directly estimating an SNR error, we focus on the mismatch in signal strength (power spectrum) between training and inference in this study. During training, ground-truth images x 0 x_{0} are available, and their frequency characteristics can be computed directly. During inference, however, x 0 x_{0} is unknown, preventing a direct comparison of SNR ​ ( ω , t ) \\text{SNR}(\\omega,t) between the two settings. To address this, we use the estimated clean image x ^ 0 | t \\hat{x}_{0|t} as a common proxy in both cases. Specifically, we compute x ^ 0 | t train \\hat{x}_{0|t}^{\\text{train}} by applying a trained denoiser to x t x_{t} sampled from the forward process, and x ^ 0 | t infer \\hat{x}_{0|t}^{\\text{infer}} from the reverse process at the corresponding timestep. By comparing the power spectra of these two estimates, we isolate the mismatch caused by the distributional gap between training-time and inference-time inputs, excluding the intrinsic high-frequency attenuation inherent to the posterior mean estimator. This allows us to quantify how the spectral mismatch varies across timesteps and models."
+      },
+      {
+        "id": "S2.SS2.SSSx2",
+        "heading": "Empirical Observation",
+        "level": 3,
+        "text": "Figure 2 (a) shows the averaged power spectra for each channel of x ^ 0 | t train \\hat{x}_{0|t}^{\\text{train}} and x ^ 0 | t infer \\hat{x}_{0|t}^{\\text{infer}} obtained from ADM and SDXL. We observe systematic spectral mismatches across all models tested, but crucially, the direction and pattern of the mismatch vary across models and timesteps. For instance, ADM [ 6 ] exhibits high-frequency attenuation, while Stable Diffusion 2.0 [ 31 ] shows low-frequency attenuation. More recent models such as SDXL [ 24 ] , SD3.5 [ 32 ] , and FLUX [ 2 ] show complex, channel-wise, time-dependent patterns. More examples can be found in the Appendix."
+      },
+      {
+        "id": "S2.SS3",
+        "heading": "2.3 Motivation for the Proposed Method",
+        "level": 2,
+        "text": "A natural question is whether reducing the spectral mismatch directly improves sample quality, and if so, how to reduce it efficiently. In this paper, we propose a guidance-based method to reduce the spectral mismatch for two reasons. First, we aim to establish that spectral mismatch is a meaningful source of quality degradation and that correcting it yields measurable improvements. Second, we seek a practical, lightweight add-on applicable to existing pretrained models without retraining. The model-dependent diversity shown in the observations above has two important implications. First, fixed correction rules (e.g., “boost high frequencies”) cannot generalize across architectures and denoising schedules. Second, the mismatch carries spatial structure that cannot be resolved by scalar variance correction alone. These observations motivate a data-driven approach that learns the appropriate target spectrum for each model."
+      },
+      {
+        "id": "S3.SS1",
+        "heading": "3.1 Overview",
+        "level": 2,
+        "text": "In this section, we describe our guidance-based spectral mismatch correction method. Our approach consists of two stages. In the first stage, we characterize the expected power spectrum of intermediate predictions x ^ 0 | t \\hat{x}_{0|t} by fitting a parametric model using training data and a pretrained diffusion model. This is an offline process required only once per model. In the second stage, during inference, we steer each denoising step toward the target spectrum via an efficient FFT-based gradient correction. We describe the details of the first stage in Section 3.2 and those of the second stage in Section 3.3 . Figure 1 shows an overview of our method."
+      },
+      {
+        "id": "S3.SS1.SSS0.Px1",
+        "heading": "Remark.",
+        "level": 4,
+        "text": "This modeling process involves single-step model predictions (i.e., the forward process followed by one denoising step). While single-step prediction is not free of prediction error, it does not suffer from the error accumulation that arises during multi-step rollouts. Figure 2 : Visualization of spectral mismatch in ADM and SDXL. The channel-wise spectra are obtained from x ^ 0 | t \\hat{x}_{0\\mid t} (or z ^ 0 | t \\hat{z}_{0\\mid t} with SDXL) by averaging multiple samples. (a) Spectra from the target spectral prior (real lines) and from inference (broken lines). (b) Relative error for SDXL between the target and inference corresponding to the left figure. Results with SPA are also shown (dotted lines). They have smaller errors across frequencies (broken lines). Only two channels are visualized for visibility. (c) Examples of generated images used for these spectra. Each pair of images is sampled with the same initial noise and a random seed."
+      },
+      {
+        "id": "S3.SS2",
+        "heading": "3.2 Target Power Spectrum Modeling",
+        "level": 2,
+        "text": "To define a correction target, we characterize the expected frequency properties of x ^ 0 | t \\hat{x}_{0|t} by fitting a parametric spectrum model from training data."
+      },
+      {
+        "id": "S3.SS2.SSSx1",
+        "heading": "Power Spectrum Extraction",
+        "level": 3,
+        "text": "For each channel of x ^ 0 | t \\hat{x}_{0|t} , we compute the 2D power spectrum 𝐘 t = | 𝐅 ​ x ^ 0 | t | 2 \\mathbf{Y}_{t}=|\\mathbf{F}\\hat{x}_{0|t}|^{2} , where 𝐅 \\mathbf{F} denotes the 2D DFT matrix, and | ⋅ | 2 |\\cdot|^{2} denotes the element-wise squared magnitude. We then reduce this to a 1D representation via radial averaging, commonly referred to as the Radially Averaged Power Spectrum (RAPS) [ 30 ] : y t ​ ( f ) = RadialAvg ​ ( 𝐘 t ) , y_{t}(f)=\\text{RadialAvg}(\\mathbf{Y}_{t}), (6) where f ∈ ( 0 , 0.5 ] f\\in(0,0.5] is the normalized spatial frequency ( f = 0.5 f=0.5 is the Nyquist frequency). All operations are applied independently to each channel."
+      },
+      {
+        "id": "S3.SS2.SSSx2",
+        "heading": "Parametric Spectrum Model",
+        "level": 3,
+        "text": "It is well known that the power spectrum of natural images follows a power law [ 7 , 33 ] . We confirmed that x ^ 0 | t \\hat{x}_{0|t} , which is basically a blurry image, also follows the power law with slightly different parameters from natural images. We model the target spectrum as: S ⁡ ( t , f ) = p t ⋅ f − q t + r t ⋅ f + s t , S(t,f)=p_{t}\\cdot f^{-q_{t}}+r_{t}\\cdot f+s_{t}, (7) where p t p_{t} , q t q_{t} , r t r_{t} , and s t s_{t} are timestep-dependent parameters. The first term captures the power-law decay characteristic of natural images. The bias term s t s_{t} and the linear term r t ⋅ f r_{t}\\cdot f represent deviations from the pure power law. For the linear term in particular, we set r t = 0 r_{t}=0 by default and enable it only when it significantly improves the fit (e.g., SDXL, FLUX). All channels are modeled independently."
+      },
+      {
+        "id": "S3.SS2.SSSx2.Px1",
+        "heading": "Model design.",
+        "level": 4,
+        "text": "It is technically possible to use a 2D representation directly; however, we chose to use RAPS for the following reasons. (1) A 1D power spectrum is easier to visualize, which makes analysis, explanation, and hyperparameter tuning much simpler, and (2) the regression model becomes much simpler in the 1D case, which makes the fitting process more stable and more robust."
+      },
+      {
+        "id": "S3.SS2.SSSx3.Px1",
+        "heading": "Step 1: Per-timestep fitting.",
+        "level": 4,
+        "text": "For a discrete set of timesteps τ ∈ { t 1 , t 2 , … , t K } \\tau\\in\\{t_{1},t_{2},\\ldots,t_{K}\\} , we collect reference power spectra via the following procedure: 1. Sample clean images x 0 ( i ) x_{0}^{(i)} from the training dataset and apply the forward process to obtain x τ ( i ) = α ¯ τ ​ x 0 ( i ) + σ τ ​ ϵ ( i ) x_{\\tau}^{(i)}=\\sqrt{\\bar{\\alpha}_{\\tau}}\\,x_{0}^{(i)}+\\sigma_{\\tau}\\,\\epsilon^{(i)} . 2. Compute x ^ 0 | τ ( i ) \\hat{x}_{0|\\tau}^{(i)} using Eq. ( 3 ) with the pretrained model. 3. Extract the RAPS y τ ( i ) ​ ( f ) y_{\\tau}^{(i)}(f) via Eq. ( 6 ) and average across samples: y ¯ τ ​ ( f ) = 1 N ​ ∑ i = 1 N y τ ( i ) ​ ( f ) \\bar{y}_{\\tau}(f)=\\frac{1}{N}\\sum_{i=1}^{N}y_{\\tau}^{(i)}(f) . 4. Fit the parametric model (Eq. ( 7 )) to y ¯ τ ​ ( f ) \\bar{y}_{\\tau}(f) via least-squares regression, obtaining { p τ , q τ , r τ , s τ } \\{p_{\\tau},q_{\\tau},r_{\\tau},s_{\\tau}\\} for each channel and timestep independently."
+      },
+      {
+        "id": "S3.SS2.SSSx3.Px2",
+        "heading": "Step 2: Temporal Interpolation.",
+        "level": 4,
+        "text": "To obtain smooth parameter functions over all timesteps t ∈ [ 0 , T ] t\\in[0,T] , we apply cubic spline interpolation to each parameter: g ⁡ ( t ) = CubicSpline ​ ( t , { τ k , g τ k } ) , g(t)=\\text{CubicSpline}(t;\\{\\tau_{k},g_{\\tau_{k}}\\}), (8) where g ∈ { p , q , r , s } g\\in\\{p,q,r,s\\} . Since the number of evaluation steps during inference is not fixed, the resulting model S ⁡ ( t , f ) S(t,f) needs to capture the expected spectral characteristics of x ^ 0 | t \\hat{x}_{0|t} at any timestep."
+      },
+      {
+        "id": "S3.SS3",
+        "heading": "3.3 Guidance-based Spectral Mismatch Calibration",
+        "level": 2,
+        "text": "Having established the target spectrum, we now describe how to steer the inference trajectory toward it. We frame this as a guidance problem, adapting Diffusion Posterior Sampling (DPS) [ 3 ] to enforce spectral alignment at each denoising step. This inference-time approach serves as a practical add-on for existing pretrained models."
+      },
+      {
+        "id": "S3.SS3.SSS0.Px1",
+        "heading": "Guidance Loss.",
+        "level": 4,
+        "text": "At each reverse diffusion step, we compute x ^ 0 | t \\hat{x}_{0|t} via Tweedie’s formula (Eq. ( 3 )), extract its RAPS y t ​ ( f ) y_{t}(f) , and compare against the target spectrum S ⁡ ( t , f ) S(t,f) . The guidance loss is defined as: ℒ ⁡ ( x t , t ) = 1 N ​ ∑ c = 1 N ∑ k = 1 K ( log 10 ⁡ y t ​ ( f k c ) − log 10 ⁡ S ⁡ ( t , f k c ) ) 2 , \\mathcal{L}(x_{t},t)=\\frac{1}{N}\\sum_{c=1}^{N}\\sum_{k=1}^{K}\\bigl(\\log_{10}y_{t}(f_{k}^{c})-\\log_{10}S(t,f_{k}^{c})\\bigr)^{2}, (9) where the quadratic loss is summed over K K frequency bins and averaged over N N channels. f k ∈ ( 0 , 0.5 ] f_{k}\\in(0,0.5] represents the center frequency of the k k -th bin. We use an unweighted MSE loss in log-spectrum space for simplicity and stability, and leave frequency-dependent weighting for future work."
+      },
+      {
+        "id": "S3.SS3.SSS0.Px2",
+        "heading": "Asymmetric Penalty.",
+        "level": 4,
+        "text": "During the fitting process, we observed that the sample-wise median of the spectrum log 10 ⁡ y τ ​ ( f ) \\log_{10}y_{\\tau}(f) from the forward process tends to be larger than the corresponding mean and exhibits positive skewness at each frequency f f . This indicates that log 10 ⁡ y t ​ ( f ) \\log_{10}y_{t}(f) –an observation during inference–falling too far below the target is undesirable, while exceeding the target is comparatively benign (see the Appendix for visualization). This observation leads us to introduce an asymmetric penalty, which penalizes cases where the current spectrum falls below the target more strongly: ϕ a ​ ( x ) = { x if ​ x ≥ 0 , a ⋅ x if ​ x < 0 , \\phi_{a}(x)=\\begin{cases}x&\\text{if }x\\geq 0,\\\\ a\\cdot x&\\text{if }x<0,\\end{cases} (10) where a > 1 a>1 controls the penalty intensity. The modified loss becomes: ℒ spec ​ ( x t , t ) = 1 N ​ ∑ c = 1 N ∑ k = 1 K ( ϕ a ​ ( log 10 ⁡ y t ​ ( f k c ) − log 10 ⁡ S ⁡ ( t , f k c ) ) ) 2 \\mathcal{L}_{\\text{spec}}(x_{t},t)=\\frac{1}{N}\\sum_{c=1}^{N}\\sum_{k=1}^{K}\\bigl(\\phi_{a}(\\log_{10}y_{t}(f_{k}^{c})-\\log_{10}S(t,f_{k}^{c}))\\bigr)^{2} (11)"
+      },
+      {
+        "id": "S3.SS3.SSS0.Px3",
+        "heading": "Adaptation to LDMs.",
+        "level": 4,
+        "text": "The method we described above can be applied to latent diffusion models without modification. Our assumption so far is that the power spectrum of the intermediate variable x t x_{t} follows a power law. VAEs of latent diffusion models are known to preserve the spatial information from the pixel space [ 26 ] . In practice, the power spectrum of z t z_{t} can be well fitted by our parametric power-law model. Visualization of the fitting can be found in the Appendix."
+      },
+      {
+        "id": "S3.SS3.SSS0.Px4",
+        "heading": "Overall Algorithm:",
+        "level": 4,
+        "text": "Algorithm 1 summarizes the complete sampling procedure with CFG. Our spectral alignment is applied after the CFG combination step (line 4) and before the standard denoising update (line 9). Thus, the method is generally compatible with most CFG variants [ 35 , 4 , 27 , 14 ] and other noise prediction modifications, since it operates on the combined prediction ϵ CFG {\\epsilon^{\\text{CFG}}} without any assumptions about how it was obtained. Algorithm 1 Spectral Alignment (SPA) for Conditional Sampling 0: Pretrained model ϵ θ \\epsilon_{\\theta} , target spectrum model S ⁡ ( t , f ) S(t,f) , guidance strength η \\eta , penalty intensity a a , text embedding c c , null embedding ∅ \\emptyset , and CFG scale w w 0: sg ⁡ [ ⋅ ] \\mathrm{sg}[\\cdot] denotes the stop-gradient operator. 1: Sample initial noise x T ∼ 𝒩 ⁡ ( 0 , I ) x_{T}\\sim\\mathcal{N}(0,I) 2: for t = T , T − 1 , … , 1 t=T,T-1,\\ldots,1 do 3: ϵ c , ϵ ∅ ← ϵ θ ​ ( x t , t , c ) , ϵ θ ​ ( x t , t , ∅ ) \\epsilon_{c},\\epsilon_{\\emptyset}\\leftarrow\\epsilon_{\\theta}(x_{t},t,c),\\ \\epsilon_{\\theta}(x_{t},t,\\emptyset) 4: ϵ CFG ← ϵ ∅ + w ⁡ ( ϵ c − ϵ ∅ ) \\epsilon^{\\mathrm{CFG}}\\leftarrow\\epsilon_{\\emptyset}+w(\\epsilon_{c}-\\epsilon_{\\emptyset}) ⊳ \\triangleright Classifier-Free Guidance 5: x ^ 0 | t ← ( x t − σ t ​ sg ​ [ ϵ CFG ] ) / α ¯ t \\hat{x}_{0|t}\\leftarrow(x_{t}-\\sigma_{t}\\,\\mathrm{sg}[\\epsilon^{\\mathrm{CFG}}])/\\sqrt{\\bar{\\alpha}_{t}} ⊳ \\triangleright Tweedie’s formula 6: y t ← RadialAvg ​ ( | 𝐅 ​ x ^ 0 | t | 2 ) y_{t}\\leftarrow\\text{RadialAvg}(|\\mathbf{F}\\,\\hat{x}_{0|t}|^{2}) ⊳ \\triangleright Extract RAPS 7: ℒ spec ← ∑ k = 1 K ( ϕ a ​ ( log 10 ⁡ y t ​ ( f k ) − log 10 ⁡ S ⁡ ( t , f k ) ) ) 2 \\mathcal{L}_{\\text{spec}}\\leftarrow\\sum_{k=1}^{K}\\bigl(\\phi_{a}(\\log_{10}y_{t}(f_{k})-\\log_{10}S(t,f_{k}))\\bigr)^{2} ⊳ \\triangleright Asymmetric Loss 8: x t ← x t − η ​ ∇ x t ℒ spec x_{t}\\leftarrow x_{t}-\\eta\\,\\nabla_{x_{t}}\\mathcal{L}_{\\text{spec}} ⊳ \\triangleright Spectral Alignment 9: x t − 1 ← Denoise ​ ( x t , ϵ CFG , t ) x_{t-1}\\leftarrow\\text{Denoise}(x_{t},\\epsilon^{\\text{CFG}},t) ⊳ \\triangleright Sampler step (DDIM, Euler, etc.) 10: end for 11: return x 0 x_{0}"
+      },
+      {
+        "id": "S3.SS3.SSS0.Px5",
+        "heading": "Computational Efficiency.",
+        "level": 4,
+        "text": "The additional cost of our method is minimal. Spectrum extraction via FFT has complexity 𝒪 ⁡ ( D ​ log ⁡ D ) \\mathcal{O}(D\\log D) for D D -dimensional data, and radial averaging is 𝒪 ⁡ ( D ) \\mathcal{O}(D) . The gradient computation involves only elementwise operations and an inverse FFT for the backpropagation through the FFT, since it only involves the loss function, RAPS, and Tweedie’s formula (lines 5–7 of Algorithm 1 ). Because the gradient from ϵ CFG \\epsilon^{\\text{CFG}} is not used, no additional neural network evaluations or backpropagation steps are required for guidance. In practice, the per-step overhead is less than 5% of the total sampling time (see Section 4.2 )."
+      },
+      {
+        "id": "S4.SS1.SSS0.Px1",
+        "heading": "Models.",
+        "level": 4,
+        "text": "We evaluate our method across a wide range of diffusion architectures: unconditional/class-conditional pixel-space models (DDPM [ 10 ] on CelebA-HQ [ 12 ] , ADM on ImageNet 256 × \\times 256 [ 5 ] ), text-to-image latent diffusion models (Stable Diffusion 2.0, SDXL [ 24 ] ), and flow-matching models (SD3.5 medium, FLUX.1 [dev]). For SDXL, we used the first stage without the refiner. We used the DDPM sampler for ADM, which is the default in the official implementation, and the DDIM sampler for the other models. We used 50 denoising steps for DDPM, 100 steps for ADM, and 30 steps for the other models."
+      },
+      {
+        "id": "S4.SS1.SSS0.Px2",
+        "heading": "Pre-calculation of target spectra.",
+        "level": 4,
+        "text": "We fit the parametric spectrum model (Section 3.2 ) using 10K samples. The model’s training dataset was used for DDPM and ADM (CelebA-HQ and ImageNet, respectively), and the LAION-Aesthetics V2 dataset [ 28 ] was used for text-to-image models. The computational cost of this process is comparable to the scale of calculating metrics such as FID, and this process is only required once per model. We confirmed that the coefficient of determination ( ℛ 2 \\mathcal{R}^{2} score) exceeds 0.9 in most cases (see the Appendix for details)."
+      },
+      {
+        "id": "S4.SS1.SSS0.Px3",
+        "heading": "Evaluation Metrics.",
+        "level": 4,
+        "text": "For unconditional and class-conditional models (DDPM, ADM), we report FID and KID as primary metrics, which reliably measure distributional fidelity in unconditional settings. We used clean-fid [ 23 ] to compute these metrics. We additionally report Density and Coverage [ 20 ] , which are updated versions of Precision and Recall. For text-to-image models (SD2.0, SDXL, SD3.5, FLUX), we adopt HPSv3 and ImageReward (reward-model-based metrics) [ 18 , 36 ] as primary indicators, since FID is known to correlate negatively with human preference for these models, especially at high CFG scales [ 24 ] . We also report the CLIP score (ViT-G/14) as a measure of text alignment. For all evaluations, we use 5K prompts from the MS COCO validation set.."
+      },
+      {
+        "id": "S4.SS1.SSS0.Px4",
+        "heading": "Baselines.",
+        "level": 4,
+        "text": "We compare against the following noise correction methods: (1) ϵ \\epsilon -rescaling [ 21 ] , which rescales the predicted noise to match the expected norm; (2) time-shift sampling [ 15 ] , which adjusts the noise schedule at inference time; and (3) wavelet-based frequency regulation [ 37 ] , which applies frequency-band reweighting. Hyperparameters were determined as follows. For (1), we used 1.004, following their ImageNet experiment. For SD2.0 and SDXL, we evaluated a candidate set { 1.003 , 1.005 , 1.007 } \\{1.003,1.005,1.007\\} and selected 1.005 1.005 . For (2), the default values were used. The coefficient for (3) depends on the NFE and image resolution, which complicates the hyperparameter search. They reported the unimodality of FID with respect to the hyperparameters. Furthermore, since the qualitative effectiveness of this method becomes more prominent as the coefficient increases, we adopted the largest possible value within the range where no visual artifacts were observed. Specifically, we applied ( w l , w h ) = ( 1.0005 , 1.005 ) (w^{l},w^{h})=(1.0005,1.005) for ADM, ( 1.003 , 1.005 ) (1.003,1.005) for SD2.0, and ( 1.002 , 1.001 ) (1.002,1.001) for SDXL. Note that (1) has negligible computational overhead, (2) requires an additional timestep search (as detailed in Appendix F of their original work), and (3) involves a wavelet transform."
+      },
+      {
+        "id": "S4.SS1.SSS0.Px5",
+        "heading": "SPA Hyperparameters.",
+        "level": 4,
+        "text": "The hyperparameters used for our proposed method are as follows. DDPM: ( η , a ) = ( 0.01 , 1.0 ) (\\eta,a)=(0.01,1.0) , ADM: ( 0.05 , 2.0 ) (0.05,2.0) , SD2.0 and SDXL: ( 0.2 , 5.0 ) (0.2,5.0) , SD3.5: ( 0.75 , 3.0 ) (0.75,3.0) , FLUX.1 [dev]: ( 0.2 , 2.0 ) (0.2,2.0) for CFG scale w = 2.5 w=2.5 and ( 0.2 , 1.0 ) (0.2,1.0) for w = 3.5 w=3.5 . Here, η \\eta is the guidance strength and a a is the asymmetric penalty intensity. To manage computational costs, we first performed a preliminary qualitative assessment to identify promising parameter ranges, followed by a focused quantitative evaluation to finalize these values. Although SPA introduces two additional hyperparameters, they typically require tuning only once per model architecture. Notably, models with similar designs (e.g., SD2.0 and SDXL) converged to identical optimal values despite being searched independently, suggesting the robustness and transferability of these parameters."
+      },
+      {
+        "id": "S4.SS2.SSSx1",
+        "heading": "Unconditional and Class-Conditional Generation",
+        "level": 3,
+        "text": "We evaluated our method on unconditional/class-conditional pixel-space models. Since all baselines are implemented for ADM, we conducted the comparison on ADM (ImageNet 256 × 256 256\\times 256 ). The results are shown in Table 1 . On ADM, our method consistently outperforms the other methods. Density/Coverage are also improved, even though SPA guides intermediate variables toward the average spectrum. This indicates that SPA has benefits in terms of generation diversity. The time-shift sampler did not perform well in our experiments. This is likely due to the difference in image resolution, as they only experimented with resolutions up to 128 × 128 128\\times 128 . We also observe consistent improvement on DDPM. However, the performance gain is slightly smaller than that on ADM, and simple ϵ − \\epsilon- rescaling works slightly better. This is likely because our method involves single-step model prediction in the target spectrum fitting stage. The target may be inaccurate when the single-step prediction itself is not accurate. We observed that the DDPM model did not perform well at predicting x ^ 0 | t \\hat{x}_{0|t} even from ground-truth (forward process) training data x t x_{t} , which was not the case with the other models. Table 1 : Results on unconditional and class-conditional generation. Model Method FID ↓ \\downarrow KID (×1000) ↓ \\downarrow Density ↑ \\uparrow Coverage ↑ \\uparrow ADM (ImageNet) Vanilla 9.29 19.48 1.133 0.5939 ϵ \\epsilon -rescaling 8.00 11.01 1.146 0.5976 Time-shift 15.35 77.47 0.761 0.4321 Wavelet reg. 8.35 12.80 1.122 0.5929 SPA (Ours) 7.81 10.25 1.226 0.6184 DDPM (CelebA) Vanilla 49.44 43.57 0.8186 0.0169 ϵ \\epsilon -rescaling 48.53 40.98 0.8791 0.0169 Time-shift 90.19 46.65 0.8440 0.0038 Wavelet reg. 49.46 43.31 0.8182 0.0168 SPA (Ours) 48.63 41.36 0.8344 0.0167 Table 2 : Quantitative results on text-to-image generation. We primarily evaluate image quality using HPSv3 and ImageReward, and additionally report CLIP Score (in gray) to indicate text alignment is preserved. w w denotes a CFG scale. † The scores in parentheses uses true CFG (no distillation) with a “de-distilled” checkpoint [ 22 ] . See Section 4.1 for metric selection. Model Method HPSv3 ↑ \\uparrow ImageReward ↑ \\uparrow CLIP Score ↑ \\uparrow SD2.0 ( w w =7.5) Vanilla 7.043 0.393 0.333 ϵ \\epsilon -rescaling 7.186 0.415 0.333 Time-shift 7.101 0.407 0.333 Wavelet reg. 7.193 0.429 0.332 SPA (Ours) 7.238 0.421 0.333 SDXL ( w w =7.5) Vanilla 8.426 0.791 0.341 ϵ \\epsilon -rescaling 8.528 0.800 0.340 Time-shift 8.352 0.795 0.340 Wavelet reg. 8.576 0.807 0.340 SPA (Ours) 8.829 0.829 0.341 SD3.5 ( w w =5) Vanilla 9.782 0.939 0.335 SPA (Ours) 9.975 0.976 0.334 FLUX.1 ( w w =2.5) Vanilla 12.53 (11.55 † ) 1.044 (0.989) 0.328 (0.332) SPA (Ours) 12.57 ( 11.76 ) 1.054 ( 1.005 ) 0.328 (0.332) FLUX.1 ( w w =3.5) Vanilla 12.47 (11.94) 1.070 (1.044) 0.330 (0.334) SPA (Ours) 12.48 ( 12.02 ) 1.070 ( 1.052 ) 0.330 (0.334)"
+      },
+      {
+        "id": "S4.SS2.SSSx2",
+        "heading": "Text-to-Image Generation",
+        "level": 3,
+        "text": "Next, we evaluated text-to-image models. Although baseline methods were designed for ADM, we re-implemented them for SD2.0 and SDXL with minimal modifications. Table 2 shows the quantitative results. SPA also performs well across various T2I models. Note that scores from reward models behave more like an ordinal scale than an interval or ratio scale. With that in mind, we conclude that SPA performs best among these baselines, especially on SDXL (approximately a 4.5 % 4.5\\% gain). CLIP Scores appear to be saturated, but SPA does not degrade text alignment. SPA also works well with both flow-matching models. For FLUX.1, SPA achieves decent performance with true CFG (the scores in parentheses), which is the standard two-pass CFG without distillation, but the score improvement with guidance distillation (without parentheses) is relatively small. In the following section, we discuss the results for FLUX.1 [dev] in detail."
+      },
+      {
+        "id": "S4.SS2.SSSx2.Px1",
+        "heading": "Discussion on Guidance-Distilled Models.",
+        "level": 4,
+        "text": "FLUX.1 [dev] is a guidance-distilled model [ 19 ] , trained to internalize the effect of CFG. We observe that SPA provides statistically significant improvements at lower guidance scales ( w = 2.5 w=2.5 , win-rate 53.3 ± 1.5 % 53.3\\pm 1.5\\% , p = 2.3 × 10 − 5 p=2.3\\times 10^{-5} ), while the effect diminishes at higher scales ( w = 3.5 w=3.5 ). This suggests that guidance distillation may partially address spectral mismatch during training but does not fully eliminate it, particularly at lower guidance scales. Notably, SPA shows stronger improvements on lower-quality samples. For images with HPSv3 scores in the bottom 20%, the win-rate increases to 54.1 ± 3.3 % 54.1\\pm 3.3\\% ( p = 0.02 p=0.02 ) even at w = 3.5 w=3.5 . The average score gain for the bottom 5% of samples is 0.70 0.70 ( w = 2.5 w=2.5 ) and 0.19 0.19 ( w = 3.5 w=3.5 ). This indicates that SPA serves as a useful refinement mechanism that selectively improves samples suffering from spectral distortion."
+      },
+      {
+        "id": "S4.SS2.SSSx3",
+        "heading": "Computational Overhead",
+        "level": 3,
+        "text": "We evaluated the computational overhead of SPA on SDXL. We compared the time consumed for (A) the standard denoising step (lines 3–4 in Algorithm 1 ) with (B) the additional steps required for SPA (lines 5–8). The average time for (A) was 2.47 s and for (B) was 0.0952 s; thus, the overhead is only + 3.86 % +3.86\\% . Since the FFT is the bottleneck, SPA works efficiently with latent diffusion models. We observed a similar or smaller overhead on FLUX.1 [dev]. The relative overhead was only + 0.08 % +0.08\\% , since the FFT cost scales favorably with the latent spatial resolution. This confirms that the low overhead of SPA is not specific to SDXL."
+      },
+      {
+        "id": "S4.SS3",
+        "heading": "4.3 Qualitative Results",
+        "level": 2,
+        "text": "Figure 3 shows results for SD2.0 and SDXL with the baseline methods listed in Section 4.1 . In our experiments, SPA tends to refine flawed object shapes, as shown in the SD2.0 example in this figure. When the vanilla inference is already decent, SPA keeps the content as is, while slightly enhancing the color and detail, as seen in the SDXL sample. Figure 4 shows results from FLUX.1 [dev]. This model has strong baseline performance; however, the model still occasionally generates unnatural structures. In such cases, SPA can refine the images. This behavior is practically useful for making adjustments after fixing the layout (via seed and prompts). Note that this is consistent with the statistical results in Section 4.2 . We show five examples in the figure. The first two images contain defective objects (paddle/bat), while the remaining images have unnatural object structures."
+      },
+      {
+        "id": "S4.SS3.SSS0.Px1",
+        "heading": "Why Does SPA Improve Object Shapes?",
+        "level": 4,
+        "text": "Interestingly, SPA can refine object shapes in addition to statistical image properties (e.g., lighting, color distribution). We hypothesize two possible reasons for this phenomenon. (A) By fixing the SNR at each timestep, diffusion models can better utilize signal components from earlier steps, resulting in refined object shapes. (B) In latent diffusion models, VAEs are known to have disentangled channel representations (colors, object shape, layout, lighting, etc.) [ 34 ] ; therefore, aligning these channels can alter the overall content. Figure 3 : Qualitative comparison of generated images with baseline methods. The baseline methods are enumerated in Section 4.1 . SPA successfully improved the sample quality and fixed the flawed object shapes in the SD2.0 sample. On the SDXL sample, SPA refined the edge definition (bottom row, zoomed), while baseline methods added frequency artifacts to the background. Figure 4 : Qualitative results from FLUX.1 [dev]. Despite the strong baseline performance of FLUX.1 [dev], it occasionally generates physically implausible structures (e.g., malformed objects, unnatural compositions). SPA selectively refines such failure cases without degrading already high-quality samples. This behavior is particularly valuable in practical deployment where consistent quality is required."
+      },
+      {
+        "id": "S5.SS1",
+        "heading": "5.1 Exposure Bias",
+        "level": 2,
+        "text": "The concept of exposure bias was originally identified in autoregressive sequence generation, particularly in neural machine translation and language modeling [ 1 , 25 ] . In teacher forcing, models are trained to predict each token given ground-truth previous tokens, but at inference time, they must condition on their own predictions. This train-inference mismatch causes error accumulation, as models encounter inputs from a distribution different from that seen during training. Diffusion models exhibit a structurally identical problem. Ning et al . [ 21 ] explicitly identified this connection and proposed ϵ \\epsilon -rescaling to correct noise-level mismatch during inference. Li et al . [ 16 ] analyzed error accumulation using an analytical model. Subsequent work has explored complementary corrections, as introduced in Section 4.1 ."
+      },
+      {
+        "id": "S5.SS2",
+        "heading": "5.2 Guidance-based Correction Methods",
+        "level": 2,
+        "text": "Fundamentally, exposure bias stems from prediction errors in single-step predictions. Modifications to Classifier-Free Guidance (CFG) [ 11 ] aim to reduce such errors [ 35 , 4 , 14 , 27 ] . Although CFG is known as a truncation and error-correction method, it can also be a source of inference error, which often leads to oversaturation, unnatural contrast, and loss of fine details. Discriminator Guidance [ 13 ] refines model scores using a specially trained discriminator. Although it is a powerful way to refine predictions during inference, it requires unstable adversarial training and incurs additional inference costs for the discriminator at every denoising step. In the context of training-free guidance, MPGD [ 8 ] proposes to alleviate manifold error using backpropagation through autoencoders, but this also requires additional inference costs. Note that our method is technically not mutually exclusive with these approaches, although empirical validation of their combination remains for future work."
+      },
+      {
+        "id": "S6",
+        "heading": "6 Conclusion",
+        "level": 1,
+        "text": "We proposed Spectral Alignment (SPA) for diffusion models, which alleviates spectral mismatch and refines image quality during inference with minimal computational overhead. We demonstrated the effectiveness of SPA across various models, from classic pixel-space models to modern flow-matching models. In addition, the concept of spectral mismatch that we introduced can serve as a lens for further improvements in model training, where inspection tools are valuable."
+      },
+      {
+        "id": "S6.SS0.SSS0.Px1",
+        "heading": "Limitations.",
+        "level": 4,
+        "text": "The current formulation of our method assumes a single target spectrum as a prior; however, the optimal spectral prior may vary depending on the target data distribution. For example, illustrations and medical images exhibit different frequency properties. For conditional generation, it may be possible to use different target spectra depending on the conditioning information. In this paper, we did not explore alternative guidance methods or loss weighting strategies. Although we adopted a simple DPS-based guidance approach, there is room to explore more sophisticated methods. Regarding loss weighting, one could design a weighting schedule for ℒ s ​ p ​ e ​ c \\mathcal{L}_{spec} across frequency bands and timesteps."
+      },
+      {
+        "id": "S7",
+        "heading": "7 Acknowledgements",
+        "level": 1,
+        "text": "We would like to thank Naoki Murata for carefully reading the manuscript and giving us valuable feedback."
+      },
+      {
+        "id": "bib",
+        "heading": "References",
+        "level": 1,
+        "text": "[1] S. Bengio, O. Vinyals, N. Jaitly, and N. Shazeer (2015) Scheduled sampling for sequence prediction with recurrent neural networks . In Proceedings of the 29th International Conference on Neural Information Processing Systems - Volume 1 , NIPS’15 , Cambridge, MA, USA , pp. 1171–1179 . Cited by: §5.1 . [2] BlackForestLabs External Links: Link Cited by: §1 , §2.2 . [3] H. Chung, J. Kim, M. T. Mccann, M. L. Klasky, and J. C. Ye (2023) Diffusion posterior sampling for general noisy inverse problems . In The Eleventh International Conference on Learning Representations , External Links: Link Cited by: §3.3 . [4] H. Chung, J. Kim, G. Y. Park, H. Nam, and J. C. Ye (2025) CFG++: manifold-constrained classifier free guidance for diffusion models . In The Thirteenth International Conference on Learning Representations , External Links: Link Cited by: §3.3 , §5.2 . [5] J. Deng, W. Dong, R. Socher, L. Li, K. Li, and L. Fei-Fei (2009) ImageNet: a large-scale hierarchical image database . In 2009 IEEE Conference on Computer Vision and Pattern Recognition , Vol. , pp. 248–255 . External Links: Document Cited by: §4.1 . [6] P. Dhariwal and A. Q. Nichol (2021) Diffusion models beat GANs on image synthesis . In Advances in Neural Information Processing Systems , A. Beygelzimer, Y. Dauphin, P. Liang, and J. W. Vaughan (Eds.) , External Links: Link Cited by: §1 , §1 , §2.2 . [7] D. J. Field (1987) Relations between the statistics of natural images and the response properties of cortical cells . J. Opt. Soc. Am. A 4 ( 12 ), pp. 2379–2394 . External Links: Link , Document Cited by: §3.2 . [8] Y. He, N. Murata, C. Lai, Y. Takida, T. Uesaka, D. Kim, W. Liao, Y. Mitsufuji, J. Z. Kolter, R. Salakhutdinov, and S. Ermon (2024) Manifold preserving guided diffusion . In The Twelfth International Conference on Learning Representations , External Links: Link Cited by: §5.2 . [9] M. Heusel, H. Ramsauer, T. Unterthiner, B. Nessler, and S. Hochreiter (2017) GANs trained by a two time-scale update rule converge to a local nash equilibrium . In Proceedings of the 31st International Conference on Neural Information Processing Systems , NIPS’17 , Red Hook, NY, USA , pp. 6629–6640 . External Links: ISBN 9781510860964 Cited by: §1 . [10] J. Ho, A. Jain, and P. Abbeel (2020) Denoising diffusion probabilistic models . In Proceedings of the 34th International Conference on Neural Information Processing Systems , NIPS ’20 , Red Hook, NY, USA . External Links: ISBN 9781713829546 Cited by: §1 , §1 , §4.1 . [11] J. Ho and T. Salimans (2021) Classifier-free diffusion guidance . In NeurIPS 2021 Workshop on Deep Generative Models and Downstream Applications , External Links: Link Cited by: §2.1 , §5.2 . [12] T. Karras, T. Aila, S. Laine, and J. Lehtinen (2018) Progressive growing of GANs for improved quality, stability, and variation . In International Conference on Learning Representations , External Links: Link Cited by: §4.1 . [13] D. Kim, Y. Kim, S. J. Kwon, W. Kang, and I. Moon (2023) Refining generative process with discriminator guidance in score-based diffusion models . In Proceedings of the 40th International Conference on Machine Learning , ICML’23 . Cited by: §5.2 . [14] M. Kwon, S. S. Kim, J. Jeong, Y. T. Hsiao, and Y. Uh (2025) TCFG: Tangential Damping Classifier-free Guidance . In 2025 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , Vol. , Los Alamitos, CA, USA , pp. 2620–2629 . External Links: ISSN , Document , Link Cited by: §3.3 , §5.2 . [15] M. Li, T. Qu, R. Yao, W. Sun, and M. Moens (2024) Alleviating exposure bias in diffusion models through sampling with shifted time steps . In The Twelfth International Conference on Learning Representations , External Links: Link Cited by: §1 , §4.1 . [16] Y. Li and M. van der Schaar (2024) On error propagation of diffusion models . In The Twelfth International Conference on Learning Representations , External Links: Link Cited by: §5.1 . [17] Y. Lipman, R. T. Q. Chen, H. Ben-Hamu, M. Nickel, and M. Le (2023) Flow matching for generative modeling . In The Eleventh International Conference on Learning Representations , External Links: Link Cited by: §1 . [18] Y. Ma, X. Wu, K. Sun, and H. Li (2025) HPSv3: towards wide-spectrum human preference score . In Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) , pp. 15086–15095 . Cited by: §1 , §4.1 . [19] C. Meng, R. Gao, D. P. Kingma, S. Ermon, J. Ho, and T. Salimans (2022) On distillation of guided diffusion models . In NeurIPS 2022 Workshop on Score-Based Methods , External Links: Link Cited by: §4.2 . [20] M. F. Naeem, S. J. Oh, Y. Uh, Y. Choi, and J. Yoo (2020) Reliable fidelity and diversity metrics for generative models . In Proceedings of the 37th International Conference on Machine Learning , ICML’20 . Cited by: §4.1 . [21] M. Ning, M. Li, J. Su, A. A. Salah, and I. O. Ertugrul (2024) Elucidating the exposure bias in diffusion models . In The Twelfth International Conference on Learning Representations , External Links: Link Cited by: §1 , §2.2 , §4.1 , §5.1 . [22] nyanko7 Flux-dev-de-distill . External Links: Link Cited by: Table 2 , Table 2 . [23] G. Parmar, R. Zhang, and J. Zhu (2022) On Aliased Resizing and Surprising Subtleties in GAN Evaluation . In 2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , Vol. , Los Alamitos, CA, USA , pp. 11400–11410 . External Links: ISSN , Document , Link Cited by: §4.1 . [24] D. Podell, Z. English, K. Lacey, A. Blattmann, T. Dockhorn, J. Müller, J. Penna, and R. Rombach (2024) SDXL: improving latent diffusion models for high-resolution image synthesis . In International Conference on Learning Representations , B. Kim, Y. Yue, S. Chaudhuri, K. Fragkiadaki, M. Khan, and Y. Sun (Eds.) , Vol. 2024 , pp. 1862–1874 . External Links: Link Cited by: §1 , §2.2 , §4.1 , §4.1 . [25] M. Ranzato, S. Chopra, M. Auli, and W. Zaremba (2016) Sequence level training with recurrent neural networks . In 4th International Conference on Learning Representations, ICLR 2016, San Juan, Puerto Rico, May 2-4, 2016, Conference Track Proceedings , Y. Bengio and Y. LeCun (Eds.) , External Links: Link Cited by: §5.1 . [26] R. Rombach, A. Blattmann, D. Lorenz, P. Esser, and B. Ommer (2022) High-Resolution Image Synthesis with Latent Diffusion Models . In 2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , Vol. , Los Alamitos, CA, USA , pp. 10674–10685 . External Links: ISSN , Document , Link Cited by: §1 , §3.3 . [27] S. Sadat, O. Hilliges, and R. M. Weber (2025) Eliminating oversaturation and artifacts of high guidance scales in diffusion models . In The Thirteenth International Conference on Learning Representations , External Links: Link Cited by: §2.1 , §3.3 , §5.2 . [28] C. Schuhmann, R. Beaumont, R. Vencu, C. Gordon, R. Wightman, M. Cherti, T. Coombes, A. Katta, C. Mullis, M. Wortsman, P. Schramowski, S. Kundurthy, K. Crowson, L. Schmidt, R. Kaczmarczyk, and J. Jitsev (2022) LAION-5b: an open large-scale dataset for training next generation image-text models . In Proceedings of the 36th International Conference on Neural Information Processing Systems , NIPS ’22 , Red Hook, NY, USA . External Links: ISBN 9781713871088 Cited by: §4.1 . [29] J. Song, C. Meng, and S. Ermon (2021) Denoising diffusion implicit models . In International Conference on Learning Representations , External Links: Link Cited by: §1 , §2.1 . [30] A. Spector and F. S. Grant (1970) Statistical models for interpreting aeromagnetic data . Geophysics 35 ( 2 ), pp. 293–302 . External Links: ISSN 0016-8033 , Document , Link , https://pubs.geoscienceworld.org/seg/geophysics/article-pdf/35/2/293/3155139/293.pdf Cited by: §3.2 . [31] StabilityAI External Links: Link Cited by: §1 , §2.2 . [32] StabilityAI External Links: Link Cited by: §1 , §2.2 . [33] A. van der Schaaf and J.H. van Hateren (1996) Modelling the power spectra of natural images: statistics and information . Vision Research 36 ( 17 ), pp. 2759–2770 . External Links: ISSN 0042-6989 , Document , Link Cited by: §3.2 . [34] T. A. Vass (2024) Explaining the sdxl latent space . Note: Accessed: 2026-03-04 External Links: Link Cited by: §4.3 . [35] X. WANG, N. Dufour, N. Andreou, M. CANI, V. F. Abrevaya, D. Picard, and V. Kalogeiton (2024) Analysis of classifier-free guidance weight schedulers . Transactions on Machine Learning Research . Note: External Links: ISSN 2835-8856 , Link Cited by: §2.1 , §3.3 , §5.2 . [36] J. Xu, X. Liu, Y. Wu, Y. Tong, Q. Li, M. Ding, J. Tang, and Y. Dong (2023) ImageReward: learning and evaluating human preferences for text-to-image generation . In Proceedings of the 37th International Conference on Neural Information Processing Systems , pp. 15903–15935 . Cited by: §4.1 . [37] M. Yu and K. Zhan (2025) Frequency regulation for exposure bias mitigation in diffusion models . In Proceedings of the 33rd ACM International Conference on Multimedia , MM ’25 , New York, NY, USA , pp. 10370–10378 . External Links: ISBN 9798400720352 , Link , Document Cited by: §1 , §2.2 , §4.1 ."
+      },
+      {
+        "id": "Pt0.A1",
+        "heading": "Appendix 0.A Details of the Regression of the Spectrum Model",
+        "level": 1,
+        "text": "For the regression of our parametric spectrum model, we used scipy.curve_fit in log space. The model is shown in Eq. (11) in the main document. The average coefficients of determination ( R 2 R^{2} scores) across timesteps are shown in Table A1 . Table A1 : R 2 ​ scores R^{2}\\,\\text{scores} Models DDPM ADM SD2.0 SDXL SD3.5 FLUX.1 [dev] R 2 ​ scores R^{2}\\,\\text{scores} 0.927 0.948 0.999 0.998 0.998 0.953 Our spectrum model exhibits good fit ( R 2 > 0.9 R^{2}>0.9 ) for all models, including latent diffusion models. Fig. A3 shows examples of fitting results on SD2.0. As we mentioned in the main document (Section 4.1), the spectrum model also works well for x ^ 0 | t \\hat{x}_{0\\mid t} of latent diffusion models, as shown in this figure. Our spectrum model is based on the well-known property that the power spectrum of natural images follows a power law. This enables us to apply the same spectrum model to latent variables that share similar statistical properties to natural images. Although we computed 10K samples for the regression, we still see fluctuations in the measured spectra. We obtain a smooth function by introducing the fitting step, which is expected to eliminate fluctuations and stabilize the following guidance phase. Fig. A3 shows interpolation results of the parameters of the spectrum model: p , q , r , s p,q,r,s . The parameters are smoothly interpolated over timesteps, which enables us to use an arbitrary number of denoising steps. Figure A1 : Fitting results with SD2.0. Figure A2 : Interpolation results. Figure A3 : Visualization of fitting results with SD2.0. Only a single channel is visualized."
+      },
+      {
+        "id": "Pt0.A2",
+        "heading": "Appendix 0.B Additional samples of Power Spectra During Inference",
+        "level": 1,
+        "text": "We show additional spectra from Stable Diffusion 2.0 and 3.5 in Figure A4 (in addition to Figure 2 of the main document). The timesteps are not exactly the same between the models, because SD3.5 uses uneven timesteps by default. We used the closest timesteps instead. The errors from these models also behave differently from the other models. (a) SD2.0 (b) SD3.5 (randomly selected four channels) Figure A4 : Additional examples of spectrum and relative error during inference. This corresponds to Figure 2 in the main document."
+      },
+      {
+        "id": "Pt0.A3",
+        "heading": "Appendix 0.C Analysis of the Hyperparameters",
+        "level": 1,
+        "text": "In this section, we show the effect of changing the hyperparameters. Our method introduced two hyperparameters: the guidance strength η \\eta and penalty intensity a a (see Algorithm 1 in the main document)."
+      },
+      {
+        "id": "Pt0.A3.SS1",
+        "heading": "0.C.1 Analysis on the guidance strength η \\eta",
+        "level": 2,
+        "text": "We show the effect of guidance strength η \\eta on FID and KID on DDPM in Figure A5 . It basically shows unimodality to the evaluation metrics, which makes hyperparameter selection straightforward. We set the penalty intensity a = 1 a=1 (equivalent to ablating the penalty function, Equation (10)) in this figure, since it is the optimal value for DDPM, and we can separate the effect of η \\eta and a a . Figure A5 : The effect of η \\eta to FID and KID on DDPM."
+      },
+      {
+        "id": "Pt0.A3.SS2",
+        "heading": "0.C.2 Analysis on the penalty intensity a a",
+        "level": 2,
+        "text": "In this section, we analyze the effect of the penalty intensity a a . We show the results with SDXL to also report the weak interaction between a a and the CFG scale. We show the plot of HPSv3 vs a a in Figure A6 and qualitative results in Figure A8 . We kept η = 0.2 \\eta=0.2 , which is the optimal value for SDXL. Note that, unlike the previous section, we can not set η = 0 \\eta=0 , since the penalty function is part of the guidance."
+      },
+      {
+        "id": "Pt0.A3.SS2.SSS0.Px1",
+        "heading": "Quantitative Results",
+        "level": 4,
+        "text": "Figure A6 shows quantitative results of HPSv3 with different a a values and CFG scales. The penalty intensity a a enhances the score, as shown in this figure. The improvement in the scores gradually decreases as the parameter a a increases. Figure A6 : Effect of penalty intensity a a and CFG scale to HPSv3 on SDXL."
+      },
+      {
+        "id": "Pt0.A3.SS2.SSS0.Px2",
+        "heading": "Skewness of a Spectrum",
+        "level": 4,
+        "text": "As we discussed in Section 3.3 of the main document, we designed our asymmetric penalty function due to the skewness of the measured spectra. We show examples of the histograms in Figure A7 . Most of the measured spectra show positive skewness and “ mean > median \\text{mean}>\\text{median} ”, especially in t > 300 t>300 . As we see in this figure, skewness varies across timesteps and frequency bands. Therefore, there is room for changing the penalty intensity a a depending on timesteps and frequency bands, which we leave for future work. Furthermore, estimating the optimal a a from skewness could also be an interesting future direction. Figure A7 : Histograms of representative frequencies ( f = 0.2 , 0.3 f=0.2,0.3 ) and timesteps ( t = 899,599,299 t=899,599,299 ). These plots are from one of the channels of SDXL. They typically show positive skewness, especially in large timesteps. The purple line indicates the median, and the green line indicates the mean of the data. γ \\gamma is the skewness of each histogram."
+      },
+      {
+        "id": "Pt0.A3.SS2.SSS0.Px3",
+        "heading": "Qualitative Results",
+        "level": 4,
+        "text": "Figure A8 shows qualitative results with different penalty intensity a a on SDXL. Larger a a ( i.e . , stronger penalty) leads to better object shapes, more pronounced colors, and greater sharpness/contrast. Figure A8 : Qualitative result with different penalty intensity a a on SDXL. CFG scale w = 7.5 w=7.5 is used. Prompts: (1) “ a couple of plates that have some food on them ”, (2) “ A man riding on the back of a brown horse down a street ”, (3) “ Fruits and vegetables are on the cutting board ”, and (4) “ A cat is laying on the floor with its paws in a shoe ”."
+      },
+      {
+        "id": "Pt0.A4",
+        "heading": "Appendix 0.D Implementation Details of the Baseline Methods",
+        "level": 1,
+        "text": "We adapted the three baseline methods for latent diffusion models with minimal modification. Please refer to Section 4.1 baselines in the main document. For ϵ \\epsilon -rescaling, we applied the scaling to the model prediction after CFG. For time-shift sampler and wavelet regulation, we applied each method to the latent variable before the sampler step ( Denoise ​ ( x t , ϵ CFG , t ) \\text{Denoise}(x_{t},\\epsilon^{\\text{CFG}},t) in line 9, Algorithm 1)."
+      },
+      {
+        "id": "Pt0.A5",
+        "heading": "Appendix 0.E Additional Qualitative Results",
+        "level": 1,
+        "text": "Figure A9 , A10 , and A11 show additional qualitative samples from text-to-image models. Please zoom in for details. We use four prompts from the MS COCO dataset for all the models. (1) “ A kitchen counter with a rounded edge and shelves ” (2) “ A woman walking across a street in short shorts ”, (3) “ A white bathroom sink sitting under a mirror ”, and (4) “ A very tall brick building with bricked up windows ”. SPA enhances the original images in most samples and rarely affects them negatively. Figure 10(b) shows results using the “dedistilled” checkpoint of FLUX.1[dev] ( nyanko7/flux-dev-de-distill ). This checkpoint re-introduced the standard two-pass CFG by deleting the weight embedding used for guidance distillation and is finetuned with some portion of blank conditioning. The difference made by SPA tends to be larger with this checkpoint than the official guidance-distilled version. Figure A11 shows results with styles other than the standard photo-real style. Although SPA guides samples toward the single target spectrum ( spectrum prior ), it does not negatively affect sampling of artistic styles. (a) Samples from SD2.0. (b) Samples from SDXL. (c) Samples from SD3.5. Figure A9 : Additional qualitative samples from text-to-image models. (a) Samples from FLUX.1[dev] (distilled CFG). (b) Samples from FLUX.1[dev] “de-distilled” version, which re-introduced standard CFG by finetuning FLUX.1[dev] Figure A10 : Additional qualitative samples from FLUX models. Figure A11 : Styles other than photorealistic images with SDXL. SPA has no negative effects on styles other than photorealistic images. We use a base prompt followed by a style prompt. Base prompt: beautiful city with canals Style prompts: (1) “ Impressionist painting, loose brushstrokes, light-focused color palette ”, (2) “ Cyberpunk aesthetic, neon lights, urban night, futuristic cityscape ”, (3) “ Vaporwave aesthetic, pastel neon, retro internet nostalgia ”, and (4) “ elegant brush strokes, delicate gray tones, large white space, washi paper texture, Zen ” (numbering in a z-shaped)"
+      }
+    ]
+  },
+  "text": "Spectral Prior for Reducing Exposure Bias in Diffusion Models Skip to main content Report GitHub Issue × Title: Content selection saved. Describe the issue below: Description: Why HTML? Report Issue Back to Abstract Download PDF Contents Reading mode Colour theme License: CC BY-NC-SA 4.0 arXiv:2607.22091v1 [cs.CV] 24 Jul 2026 Spectral Prior for Reducing Exposure Bias in Diffusion Models Yuya Kobayashi Affiliation: Sony AI Masato Ishii Affiliation: Sony AI Yuhta Takida Affiliation: Sony AI Takashi Shibuya Affiliation: Sony AI Yuki Mitsufuji Affiliation: Sony AI Affiliation: Sony Group Corporation Abstract Diffusion models typically suffer from error accumulation during iterative sampling, commonly referred to as exposure bias. We reveal systematic frequency-dependent discrepancies between training and inference, which can be interpreted as frequency-dependent SNR error. Crucially, the direction of this mismatch varies across models and timesteps, indicating that fixed correction rules do not generalize. We propose Spectral Alignment (SPA), a lightweight, guidance-based method that calibrates the power spectrum of intermediate predictions to a pre-computed prior. Our approach consists of two stages: (1) offline fitting of a parametric spectrum model from training data, and (2) inference-time guidance via efficient FFT-based gradient computation. SPA introduces minimal computational overhead (3-4%) and is complementary to Classifier-Free Guidance (CFG). We demonstrate consistent improvements across diverse architectures, from pixel-space models (DDPM, ADM) to latent diffusion models (SD2.0, SDXL) and flow-matching models (SD3.5, FLUX). Our implementation is available at https://github.com/SonyResearch/SPA . 1 Introduction Diffusion models have become a dominant paradigm for image generation [ 10 , 6 , 29 , 26 , 17 ] . Despite this rapid progress, a core challenge remains: during iterative sampling, small prediction errors can accumulate and lead to a distribution shift away from the target, a phenomenon often referred to as exposure bias . Prior studies have argued that exposure bias in diffusion sampling manifests primarily as a mismatch between the noise levels seen during training and those encountered at test time. Accordingly, these methods aim to correct the effective noise level to match the predefined noise schedule, e.g., by predicted-noise rescaling [ 21 ] , time-shifted sampling [ 15 ] , and wavelet-based frequency reweighting [ 37 ] . However, these approaches either assume frequency-uniform errors or rely on hand-designed correction rules and carefully tuned schedules. In this work, we analyze the power spectrum of intermediate predictions x ^ 0 | t \\hat{x}_{0|t} during diffusion inference and reveal a systematic spectral mismatch between the forward process and inference trajectories (Figure 2 ). We interpret this discrepancy as frequency-dependent effective SNR errors that vary across models and timesteps, and show that correcting it leads to improved image quality. We discuss the details of this observation and its implications for method design in Section 2 . Based on this observation, we propose Spectral Alignment (SPA) , a lightweight guidance-based calibration method applicable to a wide range of models. This method shifts the power spectra of intermediate predictions toward a precomputed timestep-dependent spectral prior . The overview of the method is shown in Figure 1 . Our approach consists of two stages: (1) pre-calculation of the spectral prior and (2) sampling with guidance using spectral prior. In the first stage, a parametric spectrum model is fitted using training data. In the second stage, samples are steered toward the spectral prior via efficient FFT-based gradient computation. The method can be applied to various models adaptively. We conducted experiments across a wide range of text-to-image diffusion models, from early architectures (DDPM [ 10 ] , ADM [ 6 ] ) to LDMs (SD2.0 [ 31 ] , SDXL [ 24 ] ) and state-of-the-art flow-matching models (SD3.5 [ 32 ] , FLUX [ 2 ] ). We show that SPA outperforms other baseline methods, and consistently improves generation quality as measured by FID [ 9 ] and reward models such as HPSv3 [ 18 ] . In addition, SPA introduces minimal computational overhead (3–4%) and can be easily integrated into existing generation pipelines. Our main contributions are as follows: • We reveal that even modern flow-matching models exhibit spectral mismatch, and propose a calibration method using a precomputed reference power spectrum. • We demonstrate that correcting spectral mismatch with our approach improves generation quality with minimal computational overhead (3–4%). • We show that SPA is applicable to a wide variety of models without modification, from DDPM to state-of-the-art flow-matching models. 2 Motivation Figure 1 : Overview of the proposed method. We pre-calculate the spectral prior in the first stage, and spectral mismatch is corrected using the prior in the second stage during inference. For latent diffusion models, apply the same procedure on latent z z . In this section, we describe the key observations motivating the proposed method. We first introduce the notion of spectral mismatch from a frequency-dependent effective SNR error, and then present empirical observations that guided the design of our approach. 2.1 Preliminaries Diffusion Models The forward process of diffusion models gradually adds Gaussian noise to data x 0 x_{0} according to a predefined noise schedule. The latent variable at an intermediate timestep, denoted by x t x_{t} , can be obtained as: x t = α ¯ t ​ x 0 + 1 − α ¯ t ​ ϵ , ϵ ∼ 𝒩 ⁡ ( 0 , I ) , x_{t}=\\sqrt{\\bar{\\alpha}_{t}}x_{0}+\\sqrt{1-\\bar{\\alpha}_{t}}\\epsilon,\\quad\\epsilon\\sim\\mathcal{N}(0,I), (1) where α ¯ t \\bar{\\alpha}_{t} determines the noise level at timestep t t . The reverse process learns to denoise x t x_{t} by predicting the noise ϵ θ ​ ( x t , c , t ) \\epsilon_{\\theta}(x_{t},c,t) using a neural network, given condition c c . The denoising step from x t x_{t} to x t − 1 x_{t-1} using DDIM [ 29 ] is given by a deterministic update: x t − 1 = α ¯ t − 1 ​ x ^ 0 | t + 1 − α ¯ t − 1 ⋅ ϵ θ ​ ( x t , c , t ) , x_{t-1}=\\sqrt{\\bar{\\alpha}_{t-1}}\\hat{x}_{0\\mid t}+\\sqrt{1-\\bar{\\alpha}_{t-1}}\\cdot\\epsilon_{\\theta}(x_{t},c,t), (2) where x ^ 0 | t \\hat{x}_{0\\mid t} is the predicted clean data estimated from x t x_{t} using Tweedie’s formula: x ^ 0 | t = x t − 1 − α ¯ t ⋅ ϵ θ ​ ( x t , c , t ) α ¯ t . \\hat{x}_{0|t}=\\frac{x_{t}-\\sqrt{1-\\bar{\\alpha}_{t}}\\cdot\\epsilon_{\\theta}(x_{t},c,t)}{\\sqrt{\\bar{\\alpha}_{t}}}. (3) Classifier-Free Guidance (CFG) For conditional generation, CFG [ 11 ] computes a guided noise prediction by extrapolating between the conditional and unconditional estimates: ϵ θ CFG = ϵ θ ​ ( x t , t , ∅ ) + w ⋅ ( ϵ θ ​ ( x t , t , c ) − ϵ θ ​ ( x t , t , ∅ ) ) , \\epsilon^{\\text{CFG}}_{\\theta}=\\epsilon_{\\theta}(x_{t},t,\\emptyset)+w\\cdot\\bigl(\\epsilon_{\\theta}(x_{t},t,c)-\\epsilon_{\\theta}(x_{t},t,\\emptyset)\\bigr), (4) where w > 1 w>1 is the guidance scale and ∅ \\emptyset denotes null conditioning. While CFG improves prompt adherence, high guidance scales often lead to oversaturation artifacts [ 35 , 27 ] . 2.2 Spectral Mismatch Frequency-Dependent SNR Exposure bias in diffusion models refers to the mismatch between the distribution of intermediate variables observed during training ( i.e . , forward process) and those during inference ( i.e . , reverse process). Prior work suggests quantifying this mismatch through deviations from the predefined noise schedule, which is often referred to as an SNR error. Ning et al . [ 21 ] proposed rescaling the predicted noise to correct such errors. Furthermore, Yu et al . [ 37 ] showed that the mismatch differs between low- and high-frequency bands, indicating a frequency-dependent structure. In this work, we go beyond these perspectives and examine how the mismatch varies across the entire frequency spectrum, timesteps, and model choices, and how it can be corrected. To analyze this, we define the signal-to-noise ratio at frequency ω \\omega and timestep t t as: SNR ​ ( ω , t ) = α ¯ t ​ | x ~ 0 ​ ( ω ) | 2 ( 1 − α ¯ t ) ​ | ϵ ~ ​ ( ω ) | 2 , \\text{SNR}(\\omega,t)=\\frac{\\bar{\\alpha}_{t}\\,|\\tilde{x}_{0}(\\omega)|^{2}}{(1-\\bar{\\alpha}_{t})\\,|\\tilde{\\epsilon}(\\omega)|^{2}}, (5) where x ~ 0 ​ ( ω ) = ℱ ⁡ [ x 0 ] \\tilde{x}_{0}(\\omega)=\\mathcal{F}[x_{0}] and ϵ ~ ​ ( ω ) = ℱ ​ [ ϵ ] \\tilde{\\epsilon}(\\omega)=\\mathcal{F}[\\epsilon] denote the Fourier coefficients at frequency ω \\omega . Since Gaussian noise has a flat power spectrum ( i.e . , 𝔼 ​ [ | ϵ ~ ​ ( ω ) | 2 ] \\mathbb{E}[|\\tilde{\\epsilon}(\\omega)|^{2}] is constant across frequencies), the frequency dependence of SNR ​ ( ω , t ) \\text{SNR}(\\omega,t) is primarily determined by the signal power | x ~ 0 ​ ( ω ) | 2 |\\tilde{x}_{0}(\\omega)|^{2} . Accordingly, rather than directly estimating an SNR error, we focus on the mismatch in signal strength (power spectrum) between training and inference in this study. During training, ground-truth images x 0 x_{0} are available, and their frequency characteristics can be computed directly. During inference, however, x 0 x_{0} is unknown, preventing a direct comparison of SNR ​ ( ω , t ) \\text{SNR}(\\omega,t) between the two settings. To address this, we use the estimated clean image x ^ 0 | t \\hat{x}_{0|t} as a common proxy in both cases. Specifically, we compute x ^ 0 | t train \\hat{x}_{0|t}^{\\text{train}} by applying a trained denoiser to x t x_{t} sampled from the forward process, and x ^ 0 | t infer \\hat{x}_{0|t}^{\\text{infer}} from the reverse process at the corresponding timestep. By comparing the power spectra of these two estimates, we isolate the mismatch caused by the distributional gap between training-time and inference-time inputs, excluding the intrinsic high-frequency attenuation inherent to the posterior mean estimator. This allows us to quantify how the spectral mismatch varies across timesteps and models. Empirical Observation Figure 2 (a) shows the averaged power spectra for each channel of x ^ 0 | t train \\hat{x}_{0|t}^{\\text{train}} and x ^ 0 | t infer \\hat{x}_{0|t}^{\\text{infer}} obtained from ADM and SDXL. We observe systematic spectral mismatches across all models tested, but crucially, the direction and pattern of the mismatch vary across models and timesteps. For instance, ADM [ 6 ] exhibits high-frequency attenuation, while Stable Diffusion 2.0 [ 31 ] shows low-frequency attenuation. More recent models such as SDXL [ 24 ] , SD3.5 [ 32 ] , and FLUX [ 2 ] show complex, channel-wise, time-dependent patterns. More examples can be found in the Appendix. 2.3 Motivation for the Proposed Method A natural question is whether reducing the spectral mismatch directly improves sample quality, and if so, how to reduce it efficiently. In this paper, we propose a guidance-based method to reduce the spectral mismatch for two reasons. First, we aim to establish that spectral mismatch is a meaningful source of quality degradation and that correcting it yields measurable improvements. Second, we seek a practical, lightweight add-on applicable to existing pretrained models without retraining. The model-dependent diversity shown in the observations above has two important implications. First, fixed correction rules (e.g., “boost high frequencies”) cannot generalize across architectures and denoising schedules. Second, the mismatch carries spatial structure that cannot be resolved by scalar variance correction alone. These observations motivate a data-driven approach that learns the appropriate target spectrum for each model. 3 Method 3.1 Overview In this section, we describe our guidance-based spectral mismatch correction method. Our approach consists of two stages. In the first stage, we characterize the expected power spectrum of intermediate predictions x ^ 0 | t \\hat{x}_{0|t} by fitting a parametric model using training data and a pretrained diffusion model. This is an offline process required only once per model. In the second stage, during inference, we steer each denoising step toward the target spectrum via an efficient FFT-based gradient correction. We describe the details of the first stage in Section 3.2 and those of the second stage in Section 3.3 . Figure 1 shows an overview of our method. Remark. This modeling process involves single-step model predictions (i.e., the forward process followed by one denoising step). While single-step prediction is not free of prediction error, it does not suffer from the error accumulation that arises during multi-step rollouts. Figure 2 : Visualization of spectral mismatch in ADM and SDXL. The channel-wise spectra are obtained from x ^ 0 | t \\hat{x}_{0\\mid t} (or z ^ 0 | t \\hat{z}_{0\\mid t} with SDXL) by averaging multiple samples. (a) Spectra from the target spectral prior (real lines) and from inference (broken lines). (b) Relative error for SDXL between the target and inference corresponding to the left figure. Results with SPA are also shown (dotted lines). They have smaller errors across frequencies (broken lines). Only two channels are visualized for visibility. (c) Examples of generated images used for these spectra. Each pair of images is sampled with the same initial noise and a random seed. 3.2 Target Power Spectrum Modeling To define a correction target, we characterize the expected frequency properties of x ^ 0 | t \\hat{x}_{0|t} by fitting a parametric spectrum model from training data. Power Spectrum Extraction For each channel of x ^ 0 | t \\hat{x}_{0|t} , we compute the 2D power spectrum 𝐘 t = | 𝐅 ​ x ^ 0 | t | 2 \\mathbf{Y}_{t}=|\\mathbf{F}\\hat{x}_{0|t}|^{2} , where 𝐅 \\mathbf{F} denotes the 2D DFT matrix, and | ⋅ | 2 |\\cdot|^{2} denotes the element-wise squared magnitude. We then reduce this to a 1D representation via radial averaging, commonly referred to as the Radially Averaged Power Spectrum (RAPS) [ 30 ] : y t ​ ( f ) = RadialAvg ​ ( 𝐘 t ) , y_{t}(f)=\\text{RadialAvg}(\\mathbf{Y}_{t}), (6) where f ∈ ( 0 , 0.5 ] f\\in(0,0.5] is the normalized spatial frequency ( f = 0.5 f=0.5 is the Nyquist frequency). All operations are applied independently to each channel. Parametric Spectrum Model It is well known that the power spectrum of natural images follows a power law [ 7 , 33 ] . We confirmed that x ^ 0 | t \\hat{x}_{0|t} , which is basically a blurry image, also follows the power law with slightly different parameters from natural images. We model the target spectrum as: S ⁡ ( t , f ) = p t ⋅ f − q t + r t ⋅ f + s t , S(t,f)=p_{t}\\cdot f^{-q_{t}}+r_{t}\\cdot f+s_{t}, (7) where p t p_{t} , q t q_{t} , r t r_{t} , and s t s_{t} are timestep-dependent parameters. The first term captures the power-law decay characteristic of natural images. The bias term s t s_{t} and the linear term r t ⋅ f r_{t}\\cdot f represent deviations from the pure power law. For the linear term in particular, we set r t = 0 r_{t}=0 by default and enable it only when it significantly improves the fit (e.g., SDXL, FLUX). All channels are modeled independently. Model design. It is technically possible to use a 2D representation directly; however, we chose to use RAPS for the following reasons. (1) A 1D power spectrum is easier to visualize, which makes analysis, explanation, and hyperparameter tuning much simpler, and (2) the regression model becomes much simpler in the 1D case, which makes the fitting process more stable and more robust. Parameter Estimation Steps Step 1: Per-timestep fitting. For a discrete set of timesteps τ ∈ { t 1 , t 2 , … , t K } \\tau\\in\\{t_{1},t_{2},\\ldots,t_{K}\\} , we collect reference power spectra via the following procedure: 1. Sample clean images x 0 ( i ) x_{0}^{(i)} from the training dataset and apply the forward process to obtain x τ ( i ) = α ¯ τ ​ x 0 ( i ) + σ τ ​ ϵ ( i ) x_{\\tau}^{(i)}=\\sqrt{\\bar{\\alpha}_{\\tau}}\\,x_{0}^{(i)}+\\sigma_{\\tau}\\,\\epsilon^{(i)} . 2. Compute x ^ 0 | τ ( i ) \\hat{x}_{0|\\tau}^{(i)} using Eq. ( 3 ) with the pretrained model. 3. Extract the RAPS y τ ( i ) ​ ( f ) y_{\\tau}^{(i)}(f) via Eq. ( 6 ) and average across samples: y ¯ τ ​ ( f ) = 1 N ​ ∑ i = 1 N y τ ( i ) ​ ( f ) \\bar{y}_{\\tau}(f)=\\frac{1}{N}\\sum_{i=1}^{N}y_{\\tau}^{(i)}(f) . 4. Fit the parametric model (Eq. ( 7 )) to y ¯ τ ​ ( f ) \\bar{y}_{\\tau}(f) via least-squares regression, obtaining { p τ , q τ , r τ , s τ } \\{p_{\\tau},q_{\\tau},r_{\\tau},s_{\\tau}\\} for each channel and timestep independently. Step 2: Temporal Interpolation. To obtain smooth parameter functions over all timesteps t ∈ [ 0 , T ] t\\in[0,T] , we apply cubic spline interpolation to each parameter: g ⁡ ( t ) = CubicSpline ​ ( t , { τ k , g τ k } ) , g(t)=\\text{CubicSpline}(t;\\{\\tau_{k},g_{\\tau_{k}}\\}), (8) where g ∈ { p , q , r , s } g\\in\\{p,q,r,s\\} . Since the number of evaluation steps during inference is not fixed, the resulting model S ⁡ ( t , f ) S(t,f) needs to capture the expected spectral characteristics of x ^ 0 | t \\hat{x}_{0|t} at any timestep. 3.3 Guidance-based Spectral Mismatch Calibration Having established the target spectrum, we now describe how to steer the inference trajectory toward it. We frame this as a guidance problem, adapting Diffusion Posterior Sampling (DPS) [ 3 ] to enforce spectral alignment at each denoising step. This inference-time approach serves as a practical add-on for existing pretrained models. Guidance Loss. At each reverse diffusion step, we compute x ^ 0 | t \\hat{x}_{0|t} via Tweedie’s formula (Eq. ( 3 )), extract its RAPS y t ​ ( f ) y_{t}(f) , and compare against the target spectrum S ⁡ ( t , f ) S(t,f) . The guidance loss is defined as: ℒ ⁡ ( x t , t ) = 1 N ​ ∑ c = 1 N ∑ k = 1 K ( log 10 ⁡ y t ​ ( f k c ) − log 10 ⁡ S ⁡ ( t , f k c ) ) 2 , \\mathcal{L}(x_{t},t)=\\frac{1}{N}\\sum_{c=1}^{N}\\sum_{k=1}^{K}\\bigl(\\log_{10}y_{t}(f_{k}^{c})-\\log_{10}S(t,f_{k}^{c})\\bigr)^{2}, (9) where the quadratic loss is summed over K K frequency bins and averaged over N N channels. f k ∈ ( 0 , 0.5 ] f_{k}\\in(0,0.5] represents the center frequency of the k k -th bin. We use an unweighted MSE loss in log-spectrum space for simplicity and stability, and leave frequency-dependent weighting for future work. Asymmetric Penalty. During the fitting process, we observed that the sample-wise median of the spectrum log 10 ⁡ y τ ​ ( f ) \\log_{10}y_{\\tau}(f) from the forward process tends to be larger than the corresponding mean and exhibits positive skewness at each frequency f f . This indicates that log 10 ⁡ y t ​ ( f ) \\log_{10}y_{t}(f) –an observation during inference–falling too far below the target is undesirable, while exceeding the target is comparatively benign (see the Appendix for visualization). This observation leads us to introduce an asymmetric penalty, which penalizes cases where the current spectrum falls below the target more strongly: ϕ a ​ ( x ) = { x if ​ x ≥ 0 , a ⋅ x if ​ x < 0 , \\phi_{a}(x)=\\begin{cases}x&\\text{if }x\\geq 0,\\\\ a\\cdot x&\\text{if }x<0,\\end{cases} (10) where a > 1 a>1 controls the penalty intensity. The modified loss becomes: ℒ spec ​ ( x t , t ) = 1 N ​ ∑ c = 1 N ∑ k = 1 K ( ϕ a ​ ( log 10 ⁡ y t ​ ( f k c ) − log 10 ⁡ S ⁡ ( t , f k c ) ) ) 2 \\mathcal{L}_{\\text{spec}}(x_{t},t)=\\frac{1}{N}\\sum_{c=1}^{N}\\sum_{k=1}^{K}\\bigl(\\phi_{a}(\\log_{10}y_{t}(f_{k}^{c})-\\log_{10}S(t,f_{k}^{c}))\\bigr)^{2} (11) Adaptation to LDMs. The method we described above can be applied to latent diffusion models without modification. Our assumption so far is that the power spectrum of the intermediate variable x t x_{t} follows a power law. VAEs of latent diffusion models are known to preserve the spatial information from the pixel space [ 26 ] . In practice, the power spectrum of z t z_{t} can be well fitted by our parametric power-law model. Visualization of the fitting can be found in the Appendix. Overall Algorithm: Algorithm 1 summarizes the complete sampling procedure with CFG. Our spectral alignment is applied after the CFG combination step (line 4) and before the standard denoising update (line 9). Thus, the method is generally compatible with most CFG variants [ 35 , 4 , 27 , 14 ] and other noise prediction modifications, since it operates on the combined prediction ϵ CFG {\\epsilon^{\\text{CFG}}} without any assumptions about how it was obtained. Algorithm 1 Spectral Alignment (SPA) for Conditional Sampling 0: Pretrained model ϵ θ \\epsilon_{\\theta} , target spectrum model S ⁡ ( t , f ) S(t,f) , guidance strength η \\eta , penalty intensity a a , text embedding c c , null embedding ∅ \\emptyset , and CFG scale w w 0: sg ⁡ [ ⋅ ] \\mathrm{sg}[\\cdot] denotes the stop-gradient operator. 1: Sample initial noise x T ∼ 𝒩 ⁡ ( 0 , I ) x_{T}\\sim\\mathcal{N}(0,I) 2: for t = T , T − 1 , … , 1 t=T,T-1,\\ldots,1 do 3: ϵ c , ϵ ∅ ← ϵ θ ​ ( x t , t , c ) , ϵ θ ​ ( x t , t , ∅ ) \\epsilon_{c},\\epsilon_{\\emptyset}\\leftarrow\\epsilon_{\\theta}(x_{t},t,c),\\ \\epsilon_{\\theta}(x_{t},t,\\emptyset) 4: ϵ CFG ← ϵ ∅ + w ⁡ ( ϵ c − ϵ ∅ ) \\epsilon^{\\mathrm{CFG}}\\leftarrow\\epsilon_{\\emptyset}+w(\\epsilon_{c}-\\epsilon_{\\emptyset}) ⊳ \\triangleright Classifier-Free Guidance 5: x ^ 0 | t ← ( x t − σ t ​ sg ​ [ ϵ CFG ] ) / α ¯ t \\hat{x}_{0|t}\\leftarrow(x_{t}-\\sigma_{t}\\,\\mathrm{sg}[\\epsilon^{\\mathrm{CFG}}])/\\sqrt{\\bar{\\alpha}_{t}} ⊳ \\triangleright Tweedie’s formula 6: y t ← RadialAvg ​ ( | 𝐅 ​ x ^ 0 | t | 2 ) y_{t}\\leftarrow\\text{RadialAvg}(|\\mathbf{F}\\,\\hat{x}_{0|t}|^{2}) ⊳ \\triangleright Extract RAPS 7: ℒ spec ← ∑ k = 1 K ( ϕ a ​ ( log 10 ⁡ y t ​ ( f k ) − log 10 ⁡ S ⁡ ( t , f k ) ) ) 2 \\mathcal{L}_{\\text{spec}}\\leftarrow\\sum_{k=1}^{K}\\bigl(\\phi_{a}(\\log_{10}y_{t}(f_{k})-\\log_{10}S(t,f_{k}))\\bigr)^{2} ⊳ \\triangleright Asymmetric Loss 8: x t ← x t − η ​ ∇ x t ℒ spec x_{t}\\leftarrow x_{t}-\\eta\\,\\nabla_{x_{t}}\\mathcal{L}_{\\text{spec}} ⊳ \\triangleright Spectral Alignment 9: x t − 1 ← Denoise ​ ( x t , ϵ CFG , t ) x_{t-1}\\leftarrow\\text{Denoise}(x_{t},\\epsilon^{\\text{CFG}},t) ⊳ \\triangleright Sampler step (DDIM, Euler, etc.) 10: end for 11: return x 0 x_{0} Computational Efficiency. The additional cost of our method is minimal. Spectrum extraction via FFT has complexity 𝒪 ⁡ ( D ​ log ⁡ D ) \\mathcal{O}(D\\log D) for D D -dimensional data, and radial averaging is 𝒪 ⁡ ( D ) \\mathcal{O}(D) . The gradient computation involves only elementwise operations and an inverse FFT for the backpropagation through the FFT, since it only involves the loss function, RAPS, and Tweedie’s formula (lines 5–7 of Algorithm 1 ). Because the gradient from ϵ CFG \\epsilon^{\\text{CFG}} is not used, no additional neural network evaluations or backpropagation steps are required for guidance. In practice, the per-step overhead is less than 5% of the total sampling time (see Section 4.2 ). 4 Experiments 4.1 Experimental Setup Models. We evaluate our method across a wide range of diffusion architectures: unconditional/class-conditional pixel-space models (DDPM [ 10 ] on CelebA-HQ [ 12 ] , ADM on ImageNet 256 × \\times 256 [ 5 ] ), text-to-image latent diffusion models (Stable Diffusion 2.0, SDXL [ 24 ] ), and flow-matching models (SD3.5 medium, FLUX.1 [dev]). For SDXL, we used the first stage without the refiner. We used the DDPM sampler for ADM, which is the default in the official implementation, and the DDIM sampler for the other models. We used 50 denoising steps for DDPM, 100 steps for ADM, and 30 steps for the other models. Pre-calculation of target spectra. We fit the parametric spectrum model (Section 3.2 ) using 10K samples. The model’s training dataset was used for DDPM and ADM (CelebA-HQ and ImageNet, respectively), and the LAION-Aesthetics V2 dataset [ 28 ] was used for text-to-image models. The computational cost of this process is comparable to the scale of calculating metrics such as FID, and this process is only required once per model. We confirmed that the coefficient of determination ( ℛ 2 \\mathcal{R}^{2} score) exceeds 0.9 in most cases (see the Appendix for details). Evaluation Metrics. For unconditional and class-conditional models (DDPM, ADM), we report FID and KID as primary metrics, which reliably measure distributional fidelity in unconditional settings. We used clean-fid [ 23 ] to compute these metrics. We additionally report Density and Coverage [ 20 ] , which are updated versions of Precision and Recall. For text-to-image models (SD2.0, SDXL, SD3.5, FLUX), we adopt HPSv3 and ImageReward (reward-model-based metrics) [ 18 , 36 ] as primary indicators, since FID is known to correlate negatively with human preference for these models, especially at high CFG scales [ 24 ] . We also report the CLIP score (ViT-G/14) as a measure of text alignment. For all evaluations, we use 5K prompts from the MS COCO validation set.. Baselines. We compare against the following noise correction methods: (1) ϵ \\epsilon -rescaling [ 21 ] , which rescales the predicted noise to match the expected norm; (2) time-shift sampling [ 15 ] , which adjusts the noise schedule at inference time; and (3) wavelet-based frequency regulation [ 37 ] , which applies frequency-band reweighting. Hyperparameters were determined as follows. For (1), we used 1.004, following their ImageNet experiment. For SD2.0 and SDXL, we evaluated a candidate set { 1.003 , 1.005 , 1.007 } \\{1.003,1.005,1.007\\} and selected 1.005 1.005 . For (2), the default values were used. The coefficient for (3) depends on the NFE and image resolution, which complicates the hyperparameter search. They reported the unimodality of FID with respect to the hyperparameters. Furthermore, since the qualitative effectiveness of this method becomes more prominent as the coefficient increases, we adopted the largest possible value within the range where no visual artifacts were observed. Specifically, we applied ( w l , w h ) = ( 1.0005 , 1.005 ) (w^{l},w^{h})=(1.0005,1.005) for ADM, ( 1.003 , 1.005 ) (1.003,1.005) for SD2.0, and ( 1.002 , 1.001 ) (1.002,1.001) for SDXL. Note that (1) has negligible computational overhead, (2) requires an additional timestep search (as detailed in Appendix F of their original work), and (3) involves a wavelet transform. SPA Hyperparameters. The hyperparameters used for our proposed method are as follows. DDPM: ( η , a ) = ( 0.01 , 1.0 ) (\\eta,a)=(0.01,1.0) , ADM: ( 0.05 , 2.0 ) (0.05,2.0) , SD2.0 and SDXL: ( 0.2 , 5.0 ) (0.2,5.0) , SD3.5: ( 0.75 , 3.0 ) (0.75,3.0) , FLUX.1 [dev]: ( 0.2 , 2.0 ) (0.2,2.0) for CFG scale w = 2.5 w=2.5 and ( 0.2 , 1.0 ) (0.2,1.0) for w = 3.5 w=3.5 . Here, η \\eta is the guidance strength and a a is the asymmetric penalty intensity. To manage computational costs, we first performed a preliminary qualitative assessment to identify promising parameter ranges, followed by a focused quantitative evaluation to finalize these values. Although SPA introduces two additional hyperparameters, they typically require tuning only once per model architecture. Notably, models with similar designs (e.g., SD2.0 and SDXL) converged to identical optimal values despite being searched independently, suggesting the robustness and transferability of these parameters. 4.2 Quantitative Results Unconditional and Class-Conditional Generation We evaluated our method on unconditional/class-conditional pixel-space models. Since all baselines are implemented for ADM, we conducted the comparison on ADM (ImageNet 256 × 256 256\\times 256 ). The results are shown in Table 1 . On ADM, our method consistently outperforms the other methods. Density/Coverage are also improved, even though SPA guides intermediate variables toward the average spectrum. This indicates that SPA has benefits in terms of generation diversity. The time-shift sampler did not perform well in our experiments. This is likely due to the difference in image resolution, as they only experimented with resolutions up to 128 × 128 128\\times 128 . We also observe consistent improvement on DDPM. However, the performance gain is slightly smaller than that on ADM, and simple ϵ − \\epsilon- rescaling works slightly better. This is likely because our method involves single-step model prediction in the target spectrum fitting stage. The target may be inaccurate when the single-step prediction itself is not accurate. We observed that the DDPM model did not perform well at predicting x ^ 0 | t \\hat{x}_{0|t} even from ground-truth (forward process) training data x t x_{t} , which was not the case with the other models. Table 1 : Results on unconditional and class-conditional generation. Model Method FID ↓ \\downarrow KID (×1000) ↓ \\downarrow Density ↑ \\uparrow Coverage ↑ \\uparrow ADM (ImageNet) Vanilla 9.29 19.48 1.133 0.5939 ϵ \\epsilon -rescaling 8.00 11.01 1.146 0.5976 Time-shift 15.35 77.47 0.761 0.4321 Wavelet reg. 8.35 12.80 1.122 0.5929 SPA (Ours) 7.81 10.25 1.226 0.6184 DDPM (CelebA) Vanilla 49.44 43.57 0.8186 0.0169 ϵ \\epsilon -rescaling 48.53 40.98 0.8791 0.0169 Time-shift 90.19 46.65 0.8440 0.0038 Wavelet reg. 49.46 43.31 0.8182 0.0168 SPA (Ours) 48.63 41.36 0.8344 0.0167 Table 2 : Quantitative results on text-to-image generation. We primarily evaluate image quality using HPSv3 and ImageReward, and additionally report CLIP Score (in gray) to indicate text alignment is preserved. w w denotes a CFG scale. † The scores in parentheses uses true CFG (no distillation) with a “de-distilled” checkpoint [ 22 ] . See Section 4.1 for metric selection. Model Method HPSv3 ↑ \\uparrow ImageReward ↑ \\uparrow CLIP Score ↑ \\uparrow SD2.0 ( w w =7.5) Vanilla 7.043 0.393 0.333 ϵ \\epsilon -rescaling 7.186 0.415 0.333 Time-shift 7.101 0.407 0.333 Wavelet reg. 7.193 0.429 0.332 SPA (Ours) 7.238 0.421 0.333 SDXL ( w w =7.5) Vanilla 8.426 0.791 0.341 ϵ \\epsilon -rescaling 8.528 0.800 0.340 Time-shift 8.352 0.795 0.340 Wavelet reg. 8.576 0.807 0.340 SPA (Ours) 8.829 0.829 0.341 SD3.5 ( w w =5) Vanilla 9.782 0.939 0.335 SPA (Ours) 9.975 0.976 0.334 FLUX.1 ( w w =2.5) Vanilla 12.53 (11.55 † ) 1.044 (0.989) 0.328 (0.332) SPA (Ours) 12.57 ( 11.76 ) 1.054 ( 1.005 ) 0.328 (0.332) FLUX.1 ( w w =3.5) Vanilla 12.47 (11.94) 1.070 (1.044) 0.330 (0.334) SPA (Ours) 12.48 ( 12.02 ) 1.070 ( 1.052 ) 0.330 (0.334) Text-to-Image Generation Next, we evaluated text-to-image models. Although baseline methods were designed for ADM, we re-implemented them for SD2.0 and SDXL with minimal modifications. Table 2 shows the quantitative results. SPA also performs well across various T2I models. Note that scores from reward models behave more like an ordinal scale than an interval or ratio scale. With that in mind, we conclude that SPA performs best among these baselines, especially on SDXL (approximately a 4.5 % 4.5\\% gain). CLIP Scores appear to be saturated, but SPA does not degrade text alignment. SPA also works well with both flow-matching models. For FLUX.1, SPA achieves decent performance with true CFG (the scores in parentheses), which is the standard two-pass CFG without distillation, but the score improvement with guidance distillation (without parentheses) is relatively small. In the following section, we discuss the results for FLUX.1 [dev] in detail. Discussion on Guidance-Distilled Models. FLUX.1 [dev] is a guidance-distilled model [ 19 ] , trained to internalize the effect of CFG. We observe that SPA provides statistically significant improvements at lower guidance scales ( w = 2.5 w=2.5 , win-rate 53.3 ± 1.5 % 53.3\\pm 1.5\\% , p = 2.3 × 10 − 5 p=2.3\\times 10^{-5} ), while the effect diminishes at higher scales ( w = 3.5 w=3.5 ). This suggests that guidance distillation may partially address spectral mismatch during training but does not fully eliminate it, particularly at lower guidance scales. Notably, SPA shows stronger improvements on lower-quality samples. For images with HPSv3 scores in the bottom 20%, the win-rate increases to 54.1 ± 3.3 % 54.1\\pm 3.3\\% ( p = 0.02 p=0.02 ) even at w = 3.5 w=3.5 . The average score gain for the bottom 5% of samples is 0.70 0.70 ( w = 2.5 w=2.5 ) and 0.19 0.19 ( w = 3.5 w=3.5 ). This indicates that SPA serves as a useful refinement mechanism that selectively improves samples suffering from spectral distortion. Computational Overhead We evaluated the computational overhead of SPA on SDXL. We compared the time consumed for (A) the standard denoising step (lines 3–4 in Algorithm 1 ) with (B) the additional steps required for SPA (lines 5–8). The average time for (A) was 2.47 s and for (B) was 0.0952 s; thus, the overhead is only + 3.86 % +3.86\\% . Since the FFT is the bottleneck, SPA works efficiently with latent diffusion models. We observed a similar or smaller overhead on FLUX.1 [dev]. The relative overhead was only + 0.08 % +0.08\\% , since the FFT cost scales favorably with the latent spatial resolution. This confirms that the low overhead of SPA is not specific to SDXL. 4.3 Qualitative Results Figure 3 shows results for SD2.0 and SDXL with the baseline methods listed in Section 4.1 . In our experiments, SPA tends to refine flawed object shapes, as shown in the SD2.0 example in this figure. When the vanilla inference is already decent, SPA keeps the content as is, while slightly enhancing the color and detail, as seen in the SDXL sample. Figure 4 shows results from FLUX.1 [dev]. This model has strong baseline performance; however, the model still occasionally generates unnatural structures. In such cases, SPA can refine the images. This behavior is practically useful for making adjustments after fixing the layout (via seed and prompts). Note that this is consistent with the statistical results in Section 4.2 . We show five examples in the figure. The first two images contain defective objects (paddle/bat), while the remaining images have unnatural object structures. Why Does SPA Improve Object Shapes? Interestingly, SPA can refine object shapes in addition to statistical image properties (e.g., lighting, color distribution). We hypothesize two possible reasons for this phenomenon. (A) By fixing the SNR at each timestep, diffusion models can better utilize signal components from earlier steps, resulting in refined object shapes. (B) In latent diffusion models, VAEs are known to have disentangled channel representations (colors, object shape, layout, lighting, etc.) [ 34 ] ; therefore, aligning these channels can alter the overall content. Figure 3 : Qualitative comparison of generated images with baseline methods. The baseline methods are enumerated in Section 4.1 . SPA successfully improved the sample quality and fixed the flawed object shapes in the SD2.0 sample. On the SDXL sample, SPA refined the edge definition (bottom row, zoomed), while baseline methods added frequency artifacts to the background. Figure 4 : Qualitative results from FLUX.1 [dev]. Despite the strong baseline performance of FLUX.1 [dev], it occasionally generates physically implausible structures (e.g., malformed objects, unnatural compositions). SPA selectively refines such failure cases without degrading already high-quality samples. This behavior is particularly valuable in practical deployment where consistent quality is required. 5 Related Work 5.1 Exposure Bias The concept of exposure bias was originally identified in autoregressive sequence generation, particularly in neural machine translation and language modeling [ 1 , 25 ] . In teacher forcing, models are trained to predict each token given ground-truth previous tokens, but at inference time, they must condition on their own predictions. This train-inference mismatch causes error accumulation, as models encounter inputs from a distribution different from that seen during training. Diffusion models exhibit a structurally identical problem. Ning et al . [ 21 ] explicitly identified this connection and proposed ϵ \\epsilon -rescaling to correct noise-level mismatch during inference. Li et al . [ 16 ] analyzed error accumulation using an analytical model. Subsequent work has explored complementary corrections, as introduced in Section 4.1 . 5.2 Guidance-based Correction Methods Fundamentally, exposure bias stems from prediction errors in single-step predictions. Modifications to Classifier-Free Guidance (CFG) [ 11 ] aim to reduce such errors [ 35 , 4 , 14 , 27 ] . Although CFG is known as a truncation and error-correction method, it can also be a source of inference error, which often leads to oversaturation, unnatural contrast, and loss of fine details. Discriminator Guidance [ 13 ] refines model scores using a specially trained discriminator. Although it is a powerful way to refine predictions during inference, it requires unstable adversarial training and incurs additional inference costs for the discriminator at every denoising step. In the context of training-free guidance, MPGD [ 8 ] proposes to alleviate manifold error using backpropagation through autoencoders, but this also requires additional inference costs. Note that our method is technically not mutually exclusive with these approaches, although empirical validation of their combination remains for future work. 6 Conclusion We proposed Spectral Alignment (SPA) for diffusion models, which alleviates spectral mismatch and refines image quality during inference with minimal computational overhead. We demonstrated the effectiveness of SPA across various models, from classic pixel-space models to modern flow-matching models. In addition, the concept of spectral mismatch that we introduced can serve as a lens for further improvements in model training, where inspection tools are valuable. Limitations. The current formulation of our method assumes a single target spectrum as a prior; however, the optimal spectral prior may vary depending on the target data distribution. For example, illustrations and medical images exhibit different frequency properties. For conditional generation, it may be possible to use different target spectra depending on the conditioning information. In this paper, we did not explore alternative guidance methods or loss weighting strategies. Although we adopted a simple DPS-based guidance approach, there is room to explore more sophisticated methods. Regarding loss weighting, one could design a weighting schedule for ℒ s ​ p ​ e ​ c \\mathcal{L}_{spec} across frequency bands and timesteps. 7 Acknowledgements We would like to thank Naoki Murata for carefully reading the manuscript and giving us valuable feedback. References [1] S. Bengio, O. Vinyals, N. Jaitly, and N. Shazeer (2015) Scheduled sampling for sequence prediction with recurrent neural networks . In Proceedings of the 29th International Conference on Neural Information Processing Systems - Volume 1 , NIPS’15 , Cambridge, MA, USA , pp. 1171–1179 . Cited by: §5.1 . [2] BlackForestLabs External Links: Link Cited by: §1 , §2.2 . [3] H. Chung, J. Kim, M. T. Mccann, M. L. Klasky, and J. C. Ye (2023) Diffusion posterior sampling for general noisy inverse problems . In The Eleventh International Conference on Learning Representations , External Links: Link Cited by: §3.3 . [4] H. Chung, J. Kim, G. Y. Park, H. Nam, and J. C. Ye (2025) CFG++: manifold-constrained classifier free guidance for diffusion models . In The Thirteenth International Conference on Learning Representations , External Links: Link Cited by: §3.3 , §5.2 . [5] J. Deng, W. Dong, R. Socher, L. Li, K. Li, and L. Fei-Fei (2009) ImageNet: a large-scale hierarchical image database . In 2009 IEEE Conference on Computer Vision and Pattern Recognition , Vol. , pp. 248–255 . External Links: Document Cited by: §4.1 . [6] P. Dhariwal and A. Q. Nichol (2021) Diffusion models beat GANs on image synthesis . In Advances in Neural Information Processing Systems , A. Beygelzimer, Y. Dauphin, P. Liang, and J. W. Vaughan (Eds.) , External Links: Link Cited by: §1 , §1 , §2.2 . [7] D. J. Field (1987) Relations between the statistics of natural images and the response properties of cortical cells . J. Opt. Soc. Am. A 4 ( 12 ), pp. 2379–2394 . External Links: Link , Document Cited by: §3.2 . [8] Y. He, N. Murata, C. Lai, Y. Takida, T. Uesaka, D. Kim, W. Liao, Y. Mitsufuji, J. Z. Kolter, R. Salakhutdinov, and S. Ermon (2024) Manif",
+  "text_truncated": true,
+  "links": [
+    {
+      "text": "Skip to main content",
+      "url": "https://arxiv.org/html/2607.22091v1#infobox"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/IgnoreMe"
+    },
+    {
+      "text": "",
+      "url": "https://arxiv.org/"
+    },
+    {
+      "text": "Why HTML?",
+      "url": "https://info.arxiv.org/about/accessible_HTML.html"
+    },
+    {
+      "text": "Back to Abstract",
+      "url": "https://arxiv.org/abs/2607.22091v1"
+    },
+    {
+      "text": "Download PDF",
+      "url": "https://arxiv.org/pdf/2607.22091v1"
+    },
+    {
+      "text": "License: CC BY-NC-SA 4.0",
+      "url": "https://info.arxiv.org/help/license/index.html#licenses-available"
+    },
+    {
+      "text": "",
+      "url": "https://orcid.org/0000-0002-4277-0164"
+    },
+    {
+      "text": "",
+      "url": "https://orcid.org/0000-0002-6806-6140"
+    },
+    {
+      "text": "https://github.com/SonyResearch/SPA",
+      "url": "https://github.com/SonyResearch/SPA"
+    },
+    {
+      "text": "10",
+      "url": "https://arxiv.org/html/2607.22091v1#bib.bib19"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2607.22091v1#bib.bib10"
+    },
+    {
+      "text": "29",
+      "url": "https://arxiv.org/html/2607.22091v1#bib.bib23"
+    },
+    {
+      "text": "26",
+      "url": "https://arxiv.org/html/2607.22091v1#bib.bib17"
+    },
+    {
+      "text": "17",
+      "url": "https://arxiv.org/html/2607.22091v1#bib.bib24"
+    },
+    {
+      "text": "21",
+      "url": "https://arxiv.org/html/2607.22091v1#bib.bib1"
+    },
+    {
+      "text": "15",
+      "url": "https://arxiv.org/html/2607.22091v1#bib.bib2"
+    },
+    {
+      "text": "37",
+      "url": "https://arxiv.org/html/2607.22091v1#bib.bib3"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2607.22091v1#S3.F2"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2607.22091v1#S2"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2607.22091v1#S2.F1"
+    },
+    {
+      "text": "31",
+      "url": "https://arxiv.org/html/2607.22091v1#bib.bib36"
+    },
+    {
+      "text": "24",
+      "url": "https://arxiv.org/html/2607.22091v1#bib.bib21"
+    },
+    {
+      "text": "32",
+      "url": "https://arxiv.org/html/2607.22091v1#bib.bib37"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2607.22091v1#bib.bib35"
+    },
+    {
+      "text": "9",
+      "url": "https://arxiv.org/html/2607.22091v1#bib.bib30"
+    },
+    {
+      "text": "18",
+      "url": "https://arxiv.org/html/2607.22091v1#bib.bib12"
+    },
+    {
+      "text": "11",
+      "url": "https://arxiv.org/html/2607.22091v1#bib.bib7"
+    },
+    {
+      "text": "35",
+      "url": "https://arxiv.org/html/2607.22091v1#bib.bib9"
+    },
+    {
+      "text": "27",
+      "url": "https://arxiv.org/html/2607.22091v1#bib.bib8"
+    },
+    {
+      "text": "3.2",
+      "url": "https://arxiv.org/html/2607.22091v1#S3.SS2"
+    },
+    {
+      "text": "3.3",
+      "url": "https://arxiv.org/html/2607.22091v1#S3.SS3"
+    },
+    {
+      "text": "30",
+      "url": "https://arxiv.org/html/2607.22091v1#bib.bib15"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2607.22091v1#bib.bib14"
+    },
+    {
+      "text": "33",
+      "url": "https://arxiv.org/html/2607.22091v1#bib.bib13"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2607.22091v1#S2.E3"
+    },
+    {
+      "text": "6",
+      "url": "https://arxiv.org/html/2607.22091v1#S3.E6"
+    },
+    {
+      "text": "7",
+      "url": "https://arxiv.org/html/2607.22091v1#S3.E7"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2607.22091v1#bib.bib16"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2607.22091v1#alg1"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2607.22091v1#bib.bib5"
+    },
+    {
+      "text": "14",
+      "url": "https://arxiv.org/html/2607.22091v1#bib.bib11"
+    },
+    {
+      "text": "4.2",
+      "url": "https://arxiv.org/html/2607.22091v1#S4.SS2.SSSx3"
+    },
+    {
+      "text": "12",
+      "url": "https://arxiv.org/html/2607.22091v1#bib.bib20"
+    },
+    {
+      "text": "5",
+      "url": "https://arxiv.org/html/2607.22091v1#bib.bib18"
+    },
+    {
+      "text": "3.2",
+      "url": "https://arxiv.org/html/2607.22091v1#S3.SS2.SSSx2"
+    },
+    {
+      "text": "28",
+      "url": "https://arxiv.org/html/2607.22091v1#bib.bib6"
+    },
+    {
+      "text": "23",
+      "url": "https://arxiv.org/html/2607.22091v1#bib.bib31"
+    },
+    {
+      "text": "20",
+      "url": "https://arxiv.org/html/2607.22091v1#bib.bib29"
+    },
+    {
+      "text": "36",
+      "url": "https://arxiv.org/html/2607.22091v1#bib.bib22"
+    },
+    {
+      "text": "1",
+      "url": "https://arxiv.org/html/2607.22091v1#S4.T1"
+    },
+    {
+      "text": "22",
+      "url": "https://arxiv.org/html/2607.22091v1#bib.bib34"
+    },
+    {
+      "text": "4.1",
+      "url": "https://arxiv.org/html/2607.22091v1#S4.SS1.SSS0.Px3"
+    },
+    {
+      "text": "2",
+      "url": "https://arxiv.org/html/2607.22091v1#S4.T2"
+    },
+    {
+      "text": "19",
+      "url": "https://arxiv.org/html/2607.22091v1#bib.bib32"
+    },
+    {
+      "text": "3",
+      "url": "https://arxiv.org/html/2607.22091v1#S4.F3"
+    },
+    {
+      "text": "4.1",
+      "url": "https://arxiv.org/html/2607.22091v1#S4.SS1.SSS0.Px4"
+    },
+    {
+      "text": "4",
+      "url": "https://arxiv.org/html/2607.22091v1#S4.F4"
+    },
+    {
+      "text": "4.2",
+      "url": "https://arxiv.org/html/2607.22091v1#S4.SS2.SSSx2"
+    },
+    {
+      "text": "34",
+      "url": "https://arxiv.org/html/2607.22091v1#bib.bib33"
+    }
+  ],
+  "matching_link_count": 135,
+  "links_truncated": true,
+  "invalid_links": []
+}

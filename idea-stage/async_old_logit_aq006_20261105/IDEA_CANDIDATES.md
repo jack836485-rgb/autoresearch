@@ -9,11 +9,11 @@
 
 ## 当前选择
 
-- Reviewer 调用：`0 / 15`
-- 当前选中 Idea：`IDEA-002`
-- 当前自评分：`7.0/10`
-- 选择理由：IDEA-002 是唯一同时给出可实现机制、可直接对精确 old logits 做保真度检验、且代价不随版本差增长的候选；IDEA-001/004 只有诊断或未核实现象，IDEA-003 被 IDEA-002 在代价与语义上同时支配。
-- 状态：`等待第 1 次 reviewer 调用`
+- Reviewer 调用：`1 / 15`
+- 当前选中 Idea：`IDEA-005`
+- 当前自评分：`6.6/10`
+- 选择理由：IDEA-002 未过（6.0）；IDEA-005 针对其重要性阻断直接回答"何时需要 old logits"，且不依赖逐 token 搬运假设；IDEA-006 只修补有效性下界，分量不变（6.0）。
+- 状态：`等待第 2 次 reviewer 调用`
 
 ## 候选列表
 
@@ -41,7 +41,7 @@
 
 - 来源：`领域共性不足`（结合 `相似领域成熟方法迁移`：测量仪器的标定偏移迁移）
 - 父 Idea：`无`
-- 状态：`selected`
+- 状态：`needs_revision`
 - 定位关键词：asynchronous reinforcement learning；training-inference mismatch；policy staleness；decoupled PPO；importance sampling；partial rollout
 - 一句话背景：异步 LLM RL 中训练端在 rollout 版本上的概率（old logits）常缺失，导致训练–推理偏差修复与陈旧度校正无法分开。
 - 与起点问题的关系：原问题；保留对象（缺失 old logits 的解耦校正）、条件（异步+部分 rollout）与评价目标（后期稳定性与任务成功率），给出无需历史权重的恢复方法；不回答"哪些系统声称无损却不保留 old logits"的审计问题，阈值耦合的机理也只间接触及。
@@ -69,7 +69,9 @@
 | Snapshot（精确 old logits） | 语义真值与上界 | 2605.12070 §5.1、Table 6 | 按规范独立实现 | 保留最近 G 个版本权重于 CPU，按逐 token 版本分组做训练端前向 | 是（版本差 4） |
 | ENTR | 高陈旧度同任务强方法 | 2607.22186 | 无公开代码；按方法节独立复现，未定选择需固定 | 熵归一化信任域，rollout logprob 作锚点 | 加长版本差的扩展阶段 |
 
-- Reviewer 记录：`尚未送审`
+- Reviewer 记录：`Call 1（常规，opus，effort 由 harness 默认）：6.0/10（重要性 6 / 新颖度 7 / 有效性 5），promising_needs_revision，最高近邻 2605.12070、2610.40945（DLC）、A-3PO、ENTR、vLLM 逐比特一致 rollout 与 R3`
+- 审后状态：`needs_revision`。阻断：①逐 token 偏差在版本间相关性无依据，BF16 舍入与 MoE 路由翻转下可能去相关，此时误差方差约 2Var(e)，劣于 Bypass；②2605.12070 中 PPO-EWMA 与 Snapshot 只差 1–4 点，重要性有限；③阶段 B 种子少、EM 难判别，成本对照缺"中断同步"精确路线。
+- 主执行器复核（读原文后）：同意①，并补充：FP8 块量化下小更新大多不跨量化格，$q_\theta/q_v$ 是滞后的高噪测量；同意②，且 2610.40945 Table 2 显示不需 old logits 的"IS + 中心化"在量化+陈旧下偏离 2.61×、准确率 30.5，与需 old logits 的 DLC（2.17×、30.3）接近；Score Centering（2609.20807）与 vLLM 逐比特一致 rollout（2026-10-14，吞吐 88–91%）从两侧削弱"恢复 old logits"的分量。子 Idea：IDEA-005、IDEA-006。
 
 ### IDEA-003：按版本窗口加权的 EWMA 参考，修正 PPO-EWMA 在长尾跨版本轨迹下的滞后
 
@@ -109,4 +111,45 @@
 - 自评分轻量新意依据：未核实。
 - 与输入论文的关系：不适用
 - 本 Idea 的独立创新点：待核实。
+- Reviewer 记录：`尚未送审`
+
+### IDEA-005：异步 agentic RL 是否需要 old logits——把精确 old logits 的收益拆成"参考位置"与"偏差漂移"两部分
+
+- 来源：`领域共性不足`（跨论文分歧：2605.12070 主张精确 old logits 与严格偏差掩码；2610.40945/2609.20807 主张偏差应中心化、滞后应以采样版本为参考）
+- 父 Idea：`IDEA-002`
+- 状态：`selected`
+- 定位关键词：asynchronous reinforcement learning；training-inference mismatch；policy staleness；decoupled PPO；score centering；importance sampling
+- 一句话背景：异步 LLM RL 中，精确 old logits 被报告能显著改善解耦离策略校正，但其收益来自哪一机制、在不保存历史权重时能否获得，尚无受控对照。
+- 与起点问题的关系：子问题；保留对象（缺 old logits 的异步校正）、条件（异步+部分 rollout、agentic 多轮、稠密与 MoE）与评价目标（稳定性与成功率），把"如何恢复 old logits"改为"什么时候需要 old logits、收益由什么机制带来"；系统审计问题仍未回答。
+- 主贡献：现象／视角为主，附一个零历史权重的组合。若成立：2605.12070 中 Snapshot 相对当前训练端代理的收益，主要由 (a) 把信任域参考放在生成版本（滞后进入裁剪比率）与 (b) 去掉数值偏差的漂移两项构成；(a) 可用已记录的推理端概率作参考获得，(b) 可用逐前缀中心化获得，二者都不需 old logits；只有在偏差尾部跨过裁剪尺度时，精确分解才额外有益。从业者据此可以不为快照/专用模型/EWMA 付系统代价。
+- 贡献自评：重要性 7 / 新颖度 6 / 有效性 6.5。依据：2610.40945 §6.2 指出批次参考的 PPO 在陈旧下偏离 699×，采样版本参考把滞后放进比率；其 Table 2 中量化+陈旧下 IS+中心化 ≈ DLC；2609.20807 指出不稳定主要来自漂移。未知：这些在 0.6–1.7B、Countdown、固定陈旧采样器、SGD 上的结论能否迁移到真实异步（连续版本流、Adam 小学习率、部分 rollout、多轮工具、MoE）；2605.12070 的"Decoupled PPO"参考具体取何值未明。新颖度受 DLC 限制。
+- 可行性：pass；AReaL 已有 decoupled loss、score centering（采样端 top-k head）、Moonlight r3 示例。
+- 自评分：`6.6/10`
+- 一段话概括：在 AReaL 异步 Search-R1 上，稠密 Qwen3-4B（偏差小）与 Moonlight-16B-A3B 不做路由回放（偏差大）两种设置，比较 Decoupled PPO（批次参考）、Bypass（裁剪参考为已记录推理端概率）、Bypass+中心化、Snapshot+解耦掩码、Snapshot+DLC；以对同步 on-policy 训练的全词表 KL（相对两次 on-policy 训练间 KL 的倍数）为主指标，辅以 EM 与成本。预测：稠密下 Bypass≈Snapshot≫Decoupled PPO；MoE 下 Bypass+中心化≈Snapshot+DLC。
+- Story line：2605.12070 报告精确 old logits 带来大幅提升并据此设计昂贵的恢复路线 → 被忽视的是该比较中参考位置与偏差处理同时变化，而 2610.40945/2609.20807 的理论把两者分别指向"采样版本参考"和"中心化"这两个零历史权重的操作 → 在真实异步 agentic 设置中分别打开这两项并与精确 old logits 对照 → 若 Bypass+中心化与精确分解同处噪声带，old logits 的系统代价可省；若 MoE 下精确分解显著更好，则给出需要 old logits 的条件。
+- 打分理由：问题对系统设计有实际分量，两种结果都有信息；但新颖度受 DLC 的分母分析与 IS+中心化结果约束，贡献偏"迁移验证+重新归因"。
+- Idea 生成依据：2605.12070（Table 1、Table 2、§6.4）；2610.40945（§6.2、§7.1、Table 2、Table 3）；2609.20807 摘要；AReaL `areal/utils/score_centering.py`、`_resolve_proximal_logp`。
+- 自评分轻量新意依据：未见在异步 agentic/MoE 下对"参考位置 vs 偏差处理 vs 精确 old logits"做拆分对照的工作；DLC 在 Countdown 上已部分覆盖。需要 reviewer 检索。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：在真实异步 agentic 设置中把精确 old logits 的收益拆为两个零历史权重即可获得的机制，并给出需要精确分解的边界。
+- Reviewer 记录：`尚未送审`
+
+### IDEA-006：带在线收缩系数的偏差搬运，作为无历史权重的 DLC 分解
+
+- 来源：`最高近邻不足`（针对 IDEA-002 审查阻断①）
+- 父 Idea：`IDEA-002`
+- 状态：`available`
+- 定位关键词：training-inference mismatch；policy staleness；asynchronous reinforcement learning；importance sampling
+- 一句话背景：同 IDEA-002。
+- 与起点问题的关系：原问题。
+- 主贡献：$\log\hat p_v=\log q_v+\lambda(g)(\log p_\theta-\log q_\theta)$，$\lambda(g)$ 由每步在固定探针 token 上测得的相隔 $g$ 版本偏差相关系数在线估计，误差方差为 $\mathrm{Var}(e)(1-\rho^2)$，不劣于 Bypass 与完全搬运。
+- 贡献自评：重要性 6 / 新颖度 6.5 / 有效性 5.5。只保证"不变差"，收益仍取决于 ρ；重要性阻断②未解决。
+- 可行性：pass。
+- 自评分：`6.0/10`
+- 一段话概括：在 IDEA-002 上加探针相关估计与收缩；以对 on-policy 的 KL 偏离为主指标对比 DLC+Snapshot。
+- 打分理由：修补有效性下界，但不提升分量。
+- Idea 生成依据：Call 1 审查；线性组合估计的方差最优。
+- 自评分轻量新意依据：同 IDEA-002。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：在线相关校准的偏差搬运。
 - Reviewer 记录：`尚未送审`

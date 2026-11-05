@@ -3,6 +3,7 @@
 
 用法（条件由调用的 Claude/Codex 决定）：
   python gpu_watch.py --once                       # 只看一眼当前状态
+  python gpu_watch.py --once --processes           # 查看占卡进程的 PID、属主和启动命令
   python gpu_watch.py --gpus 2 --min-free-gb 40    # 等到某台服务器同时有 2 张满足条件的卡
   python gpu_watch.py --servers A100,L40 --gpus 1 --timeout 3000
 
@@ -30,7 +31,7 @@ echo @@
 whoami
 echo @@
 pids=$(nvidia-smi --query-compute-apps=pid --format=csv,noheader,nounits 2>/dev/null | tr -d ' ' | sort -u | paste -sd, -)
-[ -n "$pids" ] && ps -o pid=,user:32=,args= -p "$pids" 2>/dev/null
+[ -n "$pids" ] && ps -ww -o pid=,user:32=,args= -p "$pids" 2>/dev/null
 true
 """
 
@@ -127,7 +128,7 @@ def evaluate(name, cfg, me, gpus, a):
     return sorted(ok, key=lambda g: -g["free"])
 
 
-def fmt_server(name, cfg, st):
+def fmt_server(name, cfg, st, show_processes=False):
     head = f"== {name}"
     if cfg.get("note"):
         head += f"（{cfg['note']}）"
@@ -139,11 +140,17 @@ def fmt_server(name, cfg, st):
     for g in st["gpus"]:
         if g["broken"]:
             lines.append(f"   {g['index']}  状态异常（nvidia-smi 返回 N/A，可能需要重置）")
-            continue
-        owners = ",".join(sorted({f"{p['user']}({p['mem'] / 1024:.0f}G)" for p in g["procs"]})) or "-"
-        mark = "【可用】" if g["ok"] else "× " + g["why"]
-        lines.append(f"   {g['index']}  用 {g['used'] / 1024:5.1f}/{g['total'] / 1024:.0f}G  "
-                     f"利用率 {g['util']:3.0f}%  进程 {owners}  {mark}")
+        else:
+            owners = ",".join(sorted({f"{p['user']}({p['mem'] / 1024:.0f}G)" for p in g["procs"]})) or "-"
+            mark = "【可用】" if g["ok"] else "× " + g["why"]
+            lines.append(f"   {g['index']}  用 {g['used'] / 1024:5.1f}/{g['total'] / 1024:.0f}G  "
+                         f"利用率 {g['util']:3.0f}%  进程 {owners}  {mark}")
+        if show_processes:
+            for pr in g["procs"]:
+                owner = pr["user"] if pr["user"] != "?" else "属主不可见"
+                command = pr["args"] or "命令不可见（进程可能已退出或位于容器内）"
+                lines.append(f"      PID {pr['pid']}  用户 {owner}  显存 {pr['mem'] / 1024:.1f}G")
+                lines.append(f"         命令：{command}")
     return "\n".join(lines)
 
 
@@ -161,6 +168,7 @@ def main():
     p.add_argument("--interval", type=int, default=120, help="轮询间隔秒（默认 120）")
     p.add_argument("--timeout", type=int, default=0, help="最长等待秒，0 为不限（默认 0）")
     p.add_argument("--once", action="store_true", help="只检查一次并打印状态")
+    p.add_argument("--processes", action="store_true", help="逐卡列出占卡进程的 PID、所属用户、显存和完整启动命令")
     p.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     p.add_argument("-v", "--verbose", action="store_true", help="每轮打印一行摘要")
     for f in (sys.stdout, sys.stderr):
@@ -210,7 +218,7 @@ def main():
         done = ready is not None or a.once or (a.timeout and time.time() - start >= a.timeout)
         if done:
             for n in names:
-                print(fmt_server(n, servers[n], status.get(n, {})))
+                print(fmt_server(n, servers[n], status.get(n, {}), show_processes=a.processes))
             if ready:
                 picked = status[ready]["ok"][:a.gpus]
                 idx = [g["index"] for g in picked]

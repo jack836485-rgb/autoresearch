@@ -6,12 +6,12 @@
 
 ## 当前选择
 
-- Reviewer 调用：`1 / 11`
-- 当前选中 Idea：`Q7-IDEA-004`
-- 当前自评分：`7.0/10`
+- Reviewer 调用：`2 / 11`
+- 当前选中 Idea：`无（暂停，向用户报告）`
+- 当前自评分：`—`
 - 选择理由：唯一同时回答 Prefix Steering 作者留下的“被改表示 vs 生成上下文”问题与卡片“前缀何时够用”的候选，并有一个未被检出的推理模型交叉预测；其余候选与 Assistant Axis 封顶、反馈控制器、GCAD 重叠更多。
 - 状态：`等待第 2 次 reviewer 调用`
-- 历史：Call 1 审 Q7-IDEA-002（5.5）。
+- 历史：Call 1 审 Q7-IDEA-002（5.5）；Call 2 审 Q7-IDEA-004（5.0）。
 
 ## 已核实的生成依据
 
@@ -63,7 +63,7 @@
 
 - 来源：`最高近邻不足`（GCAD 把多轮退化归因于 KV 污染但未重算 cache 检验）+ `领域共性不足`
 - 父 Idea：`Q7-IDEA-002`
-- 状态：`selected`
+- 状态：`needs_revision`
 - 定位关键词：activation steering；multi-turn conversations；KV cache；coherence degradation；persona steering；prefix steering
 - 一句话背景：多轮对话中逐 token 的激活 steering 会让连贯性随回合急剧下降（GCAD 报告漂移 −18.6），作者推测原因是被 steer 的响应写进 KV 后跨回合放大，但未直接检验；前缀 steering 的作者也不知道多轮效果靠表示还是靠生成文本。
 - 与起点问题的关系：原问题；同时回答卡片两半——“持续干预为何累积损伤”（KV 污染是否为原因）与“前缀何时足够”（控制是否由转录承载），保留多轮协议、特质保持与连贯性曲线和冲突程度变量。
@@ -71,4 +71,4 @@
 - 贡献自评：重要性 7 / 新颖度 7 / 有效性 6.5。依据：GCAD 显示提示控制与基线在多轮不衰减、逐 token steering 急剧退化，且其设计意在避免响应分量写回 KV；SKOP（2605.06342）显示 steering 改变 query–key 匹配、造成注意力改道，历史位置的 steered key 是可能的放大源；2604.08169 重复放大与选择性成反比；转录承载一侧有 2601.20834、2602.24287、2605.26772。未知：被 steer 的文本本身是否已退化到足以单独造成损伤；重算开销。
 - 可行性：pass
 - 自评分：`7.0/10`
-- Reviewer 记录：`尚未送审`
+- Reviewer 记录：`Call 2（常规，Opus，effort 默认）：5.0/10，needs_rethink，三项 6/5/5，最高近邻 GCAD（仓库 core/activation_steer.py 已有 clean-KV steering 工具 truncate_kv_cache_inplace）、safety-research/persona_vectors（positions=response 配合每回合重新 prefill 即等价 S2）、2610.04967、2610.19817、2605.06225`；阻断：修法已在近邻代码中存在；(b) 因 S2 仍持续 steer 当前回合而不可判别；(a) 中 GCAD 流程 positions=all 同时 steer 了历史用户与系统位置，且缺固定转录、交换 KV 的分叉设计。

@@ -24,10 +24,16 @@ with evidence-based reasons for each score. Judge feasibility separately. Give o
 score from 1 to 10 for reference; it cannot override the three-dimensional gate. Explicitly
 answer what would become worth knowing or using if the key planned results held. A falsifiable
 assertion is not automatically a sufficient contribution. Do not invent positive results.
-For effectiveness, identify the evidence available now, why it applies to this setting, and
-what remains untested. A success threshold and a well-controlled future experiment do not
-establish expected gains. Do not require a pilot or cap effectiveness mechanically merely
+For effectiveness, score only prior plausibility: the evidence available now, why it applies
+to this setting, and whether existing evidence directly contradicts a key assumption (direct
+counter-evidence must lower the score and may be a fatal blocker). Do not score the size of
+the expected gain: list it under 待预研 (pending pre-study) and neither lower nor raise the
+score because it is unknown. A success threshold and a well-controlled future experiment do
+not establish plausibility. Do not require a pilot or cap effectiveness mechanically merely
 because this is a pre-experiment idea.
+For novelty, judge against the target field. A method borrowed from another field counts as
+novel for the target field when your own search finds no such work there (normally at least
+7); do not lower it merely because a similar idea exists elsewhere.
 For diagnostic-driven actions or adaptive routing, distinguish predicting an error from
 predicting the relative benefit of a remedy. Identify the evidence and unknowns connecting
 the proposed signal to that decision; do not treat a corrected learning target as evidence
@@ -71,7 +77,7 @@ Verdict meanings:
 <用当前日期给出总体 score、verdict；用一句话判断主贡献是什么、是否足够，以及为什么。总体分数不作为额外门槛。>
 
 ## Claim 判断
-<先用三行短表给出重要性、新颖度、有效性的分数与依据；有效性先说明当前依据、迁移条件与未知部分，不能只说“若提高X则8分”。用一句话说明回答原问题、子问题或邻近新问题及原问题未答部分，不因转向自动否决。另说实验能否判别主张。再给可行性pass/fail、具体实现与预算依据，区分无代码和规范/资源确实不足，核实关键数据可得路线与标签含义。不强制现象类贡献附加修法。>
+<先用三行短表给出重要性、新颖度、有效性的分数与依据；有效性只评先验合理性：先说明当前依据、迁移条件，以及是否存在与关键假设直接矛盾的已有证据，不能只说“若提高X则8分”；收益大小等效果层面的未知另列一行“待预研”，不计入分数。用一句话说明回答原问题、子问题或邻近新问题及原问题未答部分，不因转向自动否决。另说实验能否判别主张。再给可行性pass/fail、具体实现与预算依据，区分无代码和规范/资源确实不足，核实关键数据可得路线与标签含义。不强制现象类贡献附加修法。>
 
 ## 最高近邻
 <最多列 5 篇重叠最高的论文或系统；给出可核验链接、重叠点和仍有的差别。每篇 1-2 行；无法核验就写"需要检索"。>

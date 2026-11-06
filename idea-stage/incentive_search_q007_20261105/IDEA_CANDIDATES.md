@@ -6,9 +6,9 @@
 
 ## 当前选择
 
-- Reviewer 调用：`3 / 30`（Call 1、2 被用户中断）
+- Reviewer 调用：`4 / 30`（Call 1、2 被用户中断）
 - 当前选中 Idea：无
-- 状态：`停止：Call 3 5.5，新颖度受 CTA 等近邻限制，见 PIVOT_OR_STOP.md`
+- 状态：`停止：重开后 IDEA-003 4.5，两个有效候选（5.5、4.5）均有直接反证，见 PIVOT_OR_STOP.md`
 
 ## 候选列表
 
@@ -59,3 +59,19 @@
 | 按列表价排序取最低 | 简单规则 | 标准规则 | 标准算法 | 完整规则 | 是 |
 
 - Reviewer 记录：`尚未送审`
+
+
+### IDEA-003：干净视角自蒸馏——用同一模型看到的无引导页面当教师
+
+- 来源：`相似领域成熟方法迁移`（特权信息在策略自蒸馏：GHD 2608.06065 等）+ `最高近邻不足`（CAVEAT-27B 依赖外部 GPT 教师与 harness，未用匹配对照）
+- 父 Idea：`IDEA-002`
+- 状态：`rejected`
+- 定位关键词：web shopping agent；dark patterns；on-policy distillation；privileged information；computer-use agent
+- 一句话背景：同一模型在 clean 与引导条件下差距巨大（78.6% vs 17.3%），小模型配 harness 仍几乎无效。
+- 与起点问题的关系：原问题；官方 CAVEAT 环境、全部机制，回答"不靠更多推理时调用的修法"。
+- 主贡献：训练时用匹配对照的 clean 渲染作为特权信息，同参数教师按 URL / 商品 ID 对齐状态给学生动作打分，门控反向 KL 蒸馏；测试时零额外调用。
+- 贡献自评：重要性 7.0 / 新颖度 7.0 / 有效性 6.0。未知：7–8B 模型 clean 条件下表现是否足够当教师（预检即可 no-go）。
+- 可行性：pass；官方 CAVEAT 开源（9 个环境，clean / 8 机制 / combined），本地 vLLM，无需 KVM 与 API。
+- 自评分：`6.6/10`
+- Reviewer 记录：`Call 4（常规，opus 子代理）：4.5/10（重要性 6.5 / 新颖度 6.0 / 有效性 4.5），needs_rethink`
+- 送审后结论：CAVEAT 的 clean 渲染把最优商品放在自然排序第 1，教师持有答案位置而非信息等价的去引导视图，门控还会压掉引导下必需的探索动作；SecOPD（2608.21500）已实现"初始模型看干净输入为教师、在被操纵输入上在线蒸馏"；缺同预算 GRPO 对照；PSP（2609.29051）报告多轮 agent 上此类 OPSD 劣于 GRPO。

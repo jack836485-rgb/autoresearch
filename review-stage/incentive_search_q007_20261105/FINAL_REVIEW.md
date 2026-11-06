@@ -4,6 +4,7 @@
 |---|---|---|---|---|---|
 | 1、2 | IDEA-002 | — | — | — | 用户中断，未产出评审（计入预算） |
 | 3 | IDEA-002 Pandora 指数搜索控制器 | 5.5 | 6.0 / 5.5 / 6.0 | promising_needs_revision | CTA 已有 Pandora 任务与 oracle 且 8B 拿先验即接近 oracle；VOI 控制器、Pandora 级联、CAM-DF 覆盖规则式代价感知搜索；自建环境抗引导由构造保证；CAVEAT 代码已公开却自建环境；成本口径漏计 LLM token；两处引用不准 |
+| 4 | IDEA-003 干净视角自蒸馏 | 4.5 | 6.5 / 6.0 / 4.5 | needs_rethink | clean 渲染泄露答案位置；SecOPD 2608.21500 已有同构方法；缺 GRPO 对照 |
 
 评审为 opus 子代理（harness 无法设 reasoning effort），fresh zero-context。
 

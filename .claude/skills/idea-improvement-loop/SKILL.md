@@ -28,7 +28,7 @@ The input is a starting point for improving ideas. Valuable subproblems and adja
 ## Constants
 
 - **MAX_ROUNDS = 6** — Maximum number of reviewer invocations. It does not limit local searches, candidate generation, self-scoring, file updates, or final expansion.
-- **CONTRIBUTION_GATE** — `importance`, `novelty`, and `effectiveness` are each ≥6, with at least two ≥8. Overall `score` is recorded but is not a separate gate.
+- **CONTRIBUTION_GATE** — `importance`, `novelty`, and `effectiveness` are each ≥6; after sorting, the middle one is ≥7 and the highest is ≥8 (e.g. 8/7/6 passes). Overall `score` is recorded but is not a separate gate.
 - **STOP_CONDITION** — Generate the final idea only when the reviewed candidate was the highest self-scored eligible candidate at selection time and two independent reviews of the same brief each meet `CONTRIBUTION_GATE`, judge feasibility `pass`, return `experiment_ready`, and have empty `fatal_blockers`.
 - **CONFIRMATION_REVIEW = true** — A first passing review only marks the brief `待复核`; a second fresh reviewer must confirm it. The confirmation counts toward `MAX_ROUNDS`.
 - **VERDICT_VOCABULARY** = `experiment_ready` / `promising_needs_revision` / `needs_rethink` / `reject`.
@@ -44,7 +44,7 @@ User overrides to the reviewer budget or contribution standard take precedence. 
 
 ## Contribution Standard: What the Improver Is Being Reviewed On
 
-Before generating or revising candidates, read [references/贡献评判标准.md](references/贡献评判标准.md). This is the actual rubric used by both independent reviewers, not a final writing checklist. Design candidates for a defensible contribution under that rubric. Independent final review requires at least two dimensions ≥8 and all three ≥6, plus feasibility; self-scores are honest ranking estimates, not admission thresholds. In particular, separate current evidence for expected effectiveness from the design of a future test. A promised improvement or a better experiment does not establish expected effectiveness.
+Before generating or revising candidates, read [references/贡献评判标准.md](references/贡献评判标准.md). This is the actual rubric used by both independent reviewers, not a final writing checklist. Design candidates for a defensible contribution under that rubric. Independent final review requires all three ≥6 with one ≥7 and one ≥8, plus feasibility; self-scores are honest ranking estimates, not admission thresholds. In particular, separate current evidence for expected effectiveness from the design of a future test. At this stage effectiveness means prior plausibility plus the absence of direct counter-evidence; the size of the gain is not scored and is marked `待预研` for the pre-study. For novelty, a method transferred from another field is judged against the target field and normally scores at least 7 when the target field has no such work. A promised improvement or a better experiment does not establish expected effectiveness.
 
 Existing problems may be improved relative to strong baselines. A new phenomenon or perspective may be the main contribution without a new fix when its importance, novelty, and evidence justify it. “Previously unsolved” is required only when that is itself the claimed contribution. A falsifiable assertion, a new ablation, or an unexplained residual is not automatically a sufficient contribution. The improver must state what becomes worth knowing or using if its key result holds, and explain the credible implementation and decisive experiment before self-scoring. Expected effectiveness is provisional and evidence-backed, never a fabricated result.
 
@@ -229,7 +229,7 @@ A fresh replacement after a failed call is allowed only when budget remains: run
 `record` applies the gate and prints the outcome and next step; reviewer prose or flags cannot override it:
 
 ```text
-review_pass  = all three contribution scores >= 6 AND at least two >= 8
+review_pass  = sorted contribution scores (low, mid, high) satisfy low >= 6 AND mid >= 7 AND high >= 8
                AND feasibility == pass AND verdict == experiment_ready
                AND fatal_blockers is empty
 first_pass   = selected_was_pool_leader AND review_pass

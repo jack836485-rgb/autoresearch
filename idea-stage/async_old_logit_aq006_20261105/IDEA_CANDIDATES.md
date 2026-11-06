@@ -9,11 +9,11 @@
 
 ## 当前选择
 
-- Reviewer 调用：`1 / 15`
-- 当前选中 Idea：`IDEA-005`
-- 当前自评分：`6.6/10`
-- 选择理由：IDEA-002 未过（6.0）；IDEA-005 针对其重要性阻断直接回答"何时需要 old logits"，且不依赖逐 token 搬运假设；IDEA-006 只修补有效性下界，分量不变（6.0）。
-- 状态：`等待第 2 次 reviewer 调用`
+- Reviewer 调用：`2 / 15`
+- 当前选中 Idea：无（提前停止）
+- 当前自评分：—
+- 选择理由：IDEA-002（6.0）与 IDEA-005（5.0）均未过；其余 available 候选 IDEA-003（4.8）、IDEA-006（6.0）自评已低于两者且不解决重要性阻断；IDEA-007 的最近邻 RDC 已直接覆盖。不再为低上限候选消耗审查预算。
+- 状态：`rejected_no_viable_candidate`，见 `PIVOT_OR_STOP.md`
 
 ## 候选列表
 
@@ -117,7 +117,7 @@
 
 - 来源：`领域共性不足`（跨论文分歧：2605.12070 主张精确 old logits 与严格偏差掩码；2610.40945/2609.20807 主张偏差应中心化、滞后应以采样版本为参考）
 - 父 Idea：`IDEA-002`
-- 状态：`selected`
+- 状态：`covered`
 - 定位关键词：asynchronous reinforcement learning；training-inference mismatch；policy staleness；decoupled PPO；score centering；importance sampling
 - 一句话背景：异步 LLM RL 中，精确 old logits 被报告能显著改善解耦离策略校正，但其收益来自哪一机制、在不保存历史权重时能否获得，尚无受控对照。
 - 与起点问题的关系：子问题；保留对象（缺 old logits 的异步校正）、条件（异步+部分 rollout、agentic 多轮、稠密与 MoE）与评价目标（稳定性与成功率），把"如何恢复 old logits"改为"什么时候需要 old logits、收益由什么机制带来"；系统审计问题仍未回答。
@@ -132,7 +132,8 @@
 - 自评分轻量新意依据：未见在异步 agentic/MoE 下对"参考位置 vs 偏差处理 vs 精确 old logits"做拆分对照的工作；DLC 在 Countdown 上已部分覆盖。需要 reviewer 检索。
 - 与输入论文的关系：不适用
 - 本 Idea 的独立创新点：在真实异步 agentic 设置中把精确 old logits 的收益拆为两个零历史权重即可获得的机制，并给出需要精确分解的边界。
-- Reviewer 记录：`尚未送审`
+- Reviewer 记录：`Call 2（常规，opus，effort 由 harness 默认）：5.0/10（重要性 6 / 新颖度 5.5 / 有效性 6），needs_rethink，最高近邻 2610.40945、2605.12070、2609.20807、AReaL（2505.24298）、verl rollout correction`
+- 审后状态：`covered`。阻断：拆分维度与 IS+中心化对 DLC 的对照已在 2610.40945 Table 2/3，其附录 C 有连续异步版本差 4 与 Qwen3-8B（IS 1.4×、DLC 1.2×），brief 称其"仅固定 θ0 采样器"有误；rollout logprob 作锚点已是 verl bypass 默认；AReaL 消融显示 Decoupled PPO 在陈旧度 ≤8 时接近 oracle，前提"D 明显优于 A"未必成立；等价性主张种子不足；AReaL score centering 只支持 FSDP+REINFORCE+TIS，Megatron 无实现，多轮 head 拼装需新写。主执行器核对后同意。
 
 ### IDEA-006：带在线收缩系数的偏差搬运，作为无历史权重的 DLC 分解
 
@@ -152,4 +153,24 @@
 - 自评分轻量新意依据：同 IDEA-002。
 - 与输入论文的关系：不适用
 - 本 Idea 的独立创新点：在线相关校准的偏差搬运。
+- Reviewer 记录：`尚未送审`
+
+### IDEA-007：异步 MoE RL 中由策略滞后引起的专家路由切换
+
+- 来源：`领域共性不足`
+- 父 Idea：`IDEA-005`
+- 状态：`rejected`
+- 定位关键词：mixture-of-experts；routing replay；policy staleness；asynchronous reinforcement learning
+- 一句话背景：即使训练–推理逐比特一致，MoE 在每步多次更新时仍有约 7% token 的专家组合因策略变化而切换（vLLM 2026-10-14 博客），异步陈旧下这一比例预计更高，逐 token 比率对这些 token 不连续。
+- 与起点问题的关系：邻近新问题；对象从 old logits 换成 MoE 路由在滞后下的切换。
+- 主贡献：若存在，是比 R3 回放更无偏、比 RDC 序列级拒绝更细的逐 token 处理。
+- 贡献自评：重要性 6.5 / 新颖度 5 / 有效性 4.5。RDC（2610.21682）已用路由分歧作陈旧信号并拒绝高漂移序列、在异步下验证；R3 的偏差已被 RDC 指出；本候选尚无具体机制。
+- 可行性：pass。
+- 自评分：`4.8/10`
+- 一段话概括：未成形，只记录方向。
+- 打分理由：最近邻直接覆盖，缺机制，不送审。
+- Idea 生成依据：vLLM 逐比特一致博客；2610.21682 摘要。
+- 自评分轻量新意依据：RDC 直接相邻。
+- 与输入论文的关系：不适用
+- 本 Idea 的独立创新点：未成形。
 - Reviewer 记录：`尚未送审`

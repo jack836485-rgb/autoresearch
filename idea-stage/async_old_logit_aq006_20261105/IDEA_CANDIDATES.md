@@ -9,11 +9,11 @@
 
 ## 当前选择
 
-- Reviewer 调用：`4 / 15`（2026-11-05 18:25 用户要求继续打磨，恢复运行）
-- 当前选中 Idea：`IDEA-011`
-- 当前自评分：`6.8/10`
+- Reviewer 调用：`5 / 15`（2026-11-05 18:25 用户要求继续打磨，恢复运行）
+- 当前选中 Idea：无（停止）
+- 当前自评分：—
 - 选择理由：用户 2026-11-05 18:4x 选择打磨 IDEA-008；IDEA-011 是其具体化（给出可测的早期量、预测式与对照判据），其余候选均已审未过或分量更低。
-- 状态：`等待第 5 次 reviewer 调用`
+- 状态：`rejected_no_viable_candidate`（2026-11-05 第二次停止），见 `PIVOT_OR_STOP.md`
 
 ## 候选列表
 
@@ -255,7 +255,7 @@
 
 - 来源：`领域共性不足`（两篇机理工作共用但未验证的代理假设 + FP8 稳定/BF16 发散的分歧）
 - 父 Idea：`IDEA-008`
-- 状态：`selected`
+- 状态：`covered`
 - 定位关键词：training-inference mismatch；score centering；policy staleness；importance sampling；training collapse
 - 一句话背景：LLM RL 中训练–推理偏差（数值或陈旧）导致的崩溃被解释为漂移项沿反馈环累积，但机理验证都在人为放大的偏差、几十到几百步上完成，并被当作温和偏差长程训练的代理；温和偏差下何时崩溃无法事先判断。
 - 与起点问题的关系：子问题；保留"后期崩溃"这一评价目标与异步陈旧这一偏差来源，对象从 old logits 换成漂移累积速度与崩溃时间；不回答 old logits 获取与系统审计。
@@ -270,4 +270,5 @@
 - 自评分轻量新意依据：检索"predict collapse time training-inference mismatch"、"collapse step vs mismatch magnitude"；命中 2602.01826（响应长度预警 + LR 调度）、VeXact、DVP、MIPI，未见漂移累积预算或崩溃步数预测；需要 reviewer 检索。
 - 与输入论文的关系：不适用
 - 本 Idea 的独立创新点：把漂移反馈环理论变成可标定、可外推的崩溃时间规律。
-- Reviewer 记录：`尚未送审`
+- Reviewer 记录：`Call 5（常规，opus）：4.5/10（重要性 6 / 新颖度 5 / 有效性 4.5），needs_rethink，最高近邻 Song et al. 2607.01083、2609.20807、2610.40945、2602.01826、VeXact`
+- 审后状态：`covered`。阻断：Song et al.《Scaling Laws for Collapse in Asynchronous GRPO》（2607.01083，主执行器已核实存在，轻量查新漏检）已给出陈旧度下崩溃时间的累积学习率预算、跨同步间隔近似不变、稳定边界 $S\eta$ 与粗扫描标定规则；其 AdamW 下崩溃时钟与陈旧度无关，与"幅度只改变到达同一预算的步数"冲突；2602.01826 显示自然偏差晚期突增，前 50 步外推无依据；TIS 失效来自截断残差而非 $d_k$；缺 $\sum\eta$、累积 KL 等简单剂量对照。

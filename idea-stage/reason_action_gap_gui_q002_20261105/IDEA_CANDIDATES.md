@@ -9,10 +9,9 @@
 
 ## 当前选择
 
-- Reviewer 调用：`2 / 15`
+- Reviewer 调用：`4 / 30`
 - 当前选中 Idea：无
-- 状态：`停止：用户 2026-11-05 决定将 Q002 标记为已拥挤并换卡，见 PIVOT_OR_STOP.md`
-- 第 2 次评审后的预检：紧接重复且首次无效时，重试使屏幕改变仅 3%（EvoCUA-8B 6/230，OpenCUA-7B 5/193），"重试还是换法"的歧义在 OSWorld 上不构成问题，该子问题放弃。
+- 状态：`暂停：重开后两轮（IDEA-007 4.5、IDEA-008 5.0）未过，RL 训练侧归因线受"描述性测量"分量限制；向用户汇报后再定`
 
 ## 本轮新增的高相关近邻（候选形成后的轻量查新，非问题卡已列）
 
@@ -169,3 +168,35 @@
   - 训练侧：AgentNet Ubuntu 5k（OpenCUA 训练数据的公开部分）82,448 步中 3,832 步紧随被标为 `last_step_correct=false` 的步，其中只有 15 步（0.4%）重复了错误步的动作；45% 的轨迹含错误步。
 - Reviewer 记录：`Call 2（常规，opus 子代理，harness 无法设 effort）：6.0/10（重要性 6.5 / 新颖度 6.5 / 有效性 5.5），promising_needs_revision，最高近邻 2609.37176、CPL 2602.03664、2608.23651、2510.02204、CUADebug 2608.02643、VLAA-GUI 2604.21375`
 - 送审后结论：三类各自已有近邻（自我模仿、execution gap、表面形式驱动重发），B 在 R/E 上无效近乎由定义推出；缺"去历史但不给推理"对照；判断 (3) 无同模型同状态的统一修法效应；无"按类型路由 vs 最强统一策略"比较；UI-TARS-0717 可能非公开权重。
+
+### IDEA-007：RL 让 GUI agent 更"知而不改"吗——同族 RL 前后检查点在相同卡住状态上的受控比较
+
+- 来源：`领域共性不足`（跨论文分歧：DeepMind 2504.16078 发现 RL 微调部分缩小 knowing-doing gap；RAGEN 2504.20073 发现多轮 RL 的 Echo Trap（推理模式坍缩、重复）；本卡"训练侧来源"未答）
+- 父 Idea：`IDEA-006`（复用其截图核验的卡住状态与复读度量）
+- 状态：`needs_revision`
+- 定位关键词：computer-use agent；inertia；reinforcement learning；Echo Trap；knowing-doing gap
+- 一句话背景：开源 CUA 卡住时重复动作且推理常承认失败，训练侧来源未知；"只用成功轨迹 SFT"已被 AgentNet 统计反证（错误步后重复错误动作仅 0.4%）。
+- 与起点问题的关系：原问题的训练侧部分；直接回答"训练侧来源"，不提出修法。
+- 主贡献：用同底座、只差一步桌面 RL 的公开检查点对（GUI-Owl-7B → GUI-Owl-7B-Desktop-RL），在完全相同的已记录卡住状态上离线测三个量（失败记录下重发失败动作的纠错增益、重新生成推理时的自我复读率、新鲜承认失败后动作改变的条件概率），判定 RL 是加重还是缓解 GUI 惯性、作用在哪一环。
+- 贡献自评：重要性 6.5 / 新颖度 7.0 / 有效性 6.5。依据：本轮预检中 RL 训练的 EvoCUA-8B 复读率 44%（基线 10.1%）、UI-TARS 24%（4.7%），以 SFT 为主的 OpenCUA-7B 13%（0.3%）——跨家族相关、混杂；两篇文本侧工作方向相反。未知：Desktop-RL 是否确由 GUI-Owl-7B 初始化（模型卡写"variant ... RL-tuned for desktop"，基座同为 Qwen2.5-VL-7B）；离线量能否预测在线惯性。
+- 可行性：pass；两个 7B 检查点与 GUI-Owl-7B 的 OSWorld-Verified 轨迹均公开，离线 teacher forcing，单卡可做。
+- 自评分：`6.5/10`
+- Reviewer 记录：`Call 3（常规，opus 子代理）：4.5/10（重要性 6.0 / 新颖度 7.0 / 有效性 4.5），needs_rethink，可行性 fail`
+- 送审后结论：OSWorld-Verified 中的 gui-owl-7b 轨迹全部出自 TRPO RL 运行（成功率 32.1%），不是 RL 前模型的在策略状态；GUI-Owl 管线本身含 RL 阶段，Desktop-RL 起点未名；自建第二对无可用环境与非测试任务；"三项至少一项显著"判据过宽。本轮补测：该 RL 运行轨迹中截图未变重复 497 步，复读率 55%，新鲜承认约 1%。
+
+
+### IDEA-008：同一公开初始化上的多种 GUI 在线 RL 配方，是减轻还是加重惯性
+
+- 来源：`领域共性不足`（同 IDEA-007 的分歧）
+- 父 Idea：`IDEA-007`
+- 状态：`needs_revision`
+- 定位关键词：computer-use agent；inertia；reinforcement learning；OSWorld；knowing-doing gap
+- 一句话背景：ARPO、DART-GUI、SEAgent、ZeroGUI 等在 OSWorld 上做在线 RL 提升成功率，但无人测惯性的变化。
+- 与起点问题的关系：原问题训练侧 RL 一支。
+- 主贡献：两组公开初始化（UI-TARS-1.5-7B、UI-TARS-7B-DPO）× 四个独立 RL 后代，在线惯性率（Inertia 公开协议）与共享状态集上的离线纠错增益，预先固定 ≥3 对同号显著的判定规则。
+- 贡献自评：重要性 6.5 / 新颖度 7.0 / 有效性 6.0。
+- 可行性：pass（条件：KVM 或 OSWorld 官方 AWS provider，约 300–500 元）。
+- 自评分：`6.5/10`
+- Reviewer 记录：`Call 4（常规，opus 子代理）：5.0/10（重要性 6.0 / 新颖度 6.5 / 有效性 5.5），needs_rethink`
+- 送审后结论：描述性方向判断、n=4 不能做配方归因；主指标是"重复 ∧ 承认"的合取，承认变少即可让惯性率下降（Inertia 原文已指出）；SEAgent 含 SFT 蒸馏且奖励惩罚冗余步，ZeroGUI 含测试时训练；统一 50 步偏离 ARPO 15 步、DART 30 步配置；AWS 默认实例估价偏低（约 1,300 元）。
+- 补测（审后）：首次动作重复之后的步数占全部步数 39–73%；有重复的轨迹成功率 12–31%，无重复 42–79%——重复不是近乎确定的失败信号，"重复即截断 rollout"会误杀相当比例的成功轨迹。

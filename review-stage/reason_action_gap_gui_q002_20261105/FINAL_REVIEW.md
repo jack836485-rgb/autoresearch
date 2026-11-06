@@ -4,6 +4,10 @@
 |---|---|---|---|---|---|
 | 1 | IDEA-003 失败条件化去似然训练 | 5.0 | 6.0 / 5.5 / 4.5 | promising_needs_revision | 推理时等价于解码屏蔽，而屏蔽与 R³ 都"降重复不提成功"；新意是 2608.23651 开放问题的补完，训练侧与 SEAgent、CPL 重叠；缺 CPL / 训练 vs 屏蔽主对照 |
 | 2 | IDEA-006 复读 / 知而不改 / 假换法三分与修法交互 | 6.0 | 6.5 / 6.5 / 5.5 | promising_needs_revision | 三类各自已有近邻（CPL、Say One Thing、CUADebug R5）；部分交互预测由定义推出；缺"去历史不给推理"对照与"按类型路由 vs 最强统一策略"比较；UI-TARS-0717 可能非公开权重 |
+| 3 | IDEA-007 同底座 RL 前后检查点（GUI-Owl-7B → Desktop-RL）离线归因 | 4.5 | 6.0 / 7.0 / 4.5 | needs_rethink | 公开 gui-owl-7b 轨迹出自 TRPO RL 运行；GUI-Owl 通用版已含 RL 阶段；第二对无环境；判据过宽 |
+| 4 | IDEA-008 同初始化 4 个公开 RL 配方（ARPO、DART-GUI、SEAgent、ZeroGUI）的惯性对照 | 5.0 | 6.0 / 6.5 / 5.5 | needs_rethink | 描述性方向判断、n=4；主指标是重复∧承认的合取；SEAgent 含 SFT 且奖励惩罚冗余；步数配置偏移 |
+
+用户 2026-11-05 晚要求继续打磨，预算由 15 扩至 30，第 3、4 次为重开后的调用。
 
 两次评审均为 opus 子代理（harness 无法设 reasoning effort），fresh zero-context，未复用。
 
